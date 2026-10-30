@@ -35,26 +35,26 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_ci_policy_action_pins.py": 0.31,
-        "tests/test_ci_policy_auto_merge_caller.py": 0.37,
-        "tests/test_ci_policy_shared_surface.py": 0.31,
-        "tests/test_ci_policy_hygiene_caller.py": 0.38,
-        "tests/test_ci_policy_hygiene_core.py": 0.31,
-        "tests/test_ci_policy_hygiene_promotion.py": 0.3,
-        "tests/test_ci_policy_hygiene_promotion_surface.py": 0.3,
-        "tests/test_ci_policy_hygiene_updater.py": 0.38,
-        "tests/test_ci_policy_hygiene_validate.py": 0.44,
-        "tests/test_ci_policy_off_path_runners.py": 0.3,
-        "tests/test_ci_policy_publication.py": 0.31,
-        "tests/test_ci_policy_publication_document.py": 0.3,
-        "tests/test_ci_policy_tool_pins.py": 0.3,
-        "tests/test_ci_policy_validate.py": 0.55,
-        "tests/test_ci_policy_zizmor.py": 0.31,
-        "tests/test_ci_policy_recording_action.py": 0.37,
-        "tests/test_ci_policy_etw_consumer.py": 0.44,
-        "tests/test_ci_policy_full_recording.py": 0.42,
-        "tests/test_ci_policy_python_language_step.py": 0.36,
-        "tests/test_ci_policy_reuse.py": 0.32
+        "tests/test_ci_policy_action_pins.py": 0.23,
+        "tests/test_ci_policy_auto_merge_caller.py": 0.23,
+        "tests/test_ci_policy_shared_surface.py": 0.26,
+        "tests/test_ci_policy_hygiene_caller.py": 0.22,
+        "tests/test_ci_policy_hygiene_core.py": 0.23,
+        "tests/test_ci_policy_hygiene_promotion.py": 0.24,
+        "tests/test_ci_policy_hygiene_promotion_surface.py": 0.22,
+        "tests/test_ci_policy_hygiene_updater.py": 0.22,
+        "tests/test_ci_policy_hygiene_validate.py": 0.24,
+        "tests/test_ci_policy_off_path_runners.py": 0.22,
+        "tests/test_ci_policy_publication.py": 0.23,
+        "tests/test_ci_policy_publication_document.py": 0.21,
+        "tests/test_ci_policy_tool_pins.py": 0.22,
+        "tests/test_ci_policy_validate.py": 0.39,
+        "tests/test_ci_policy_zizmor.py": 0.23,
+        "tests/test_ci_policy_recording_action.py": 0.23,
+        "tests/test_ci_policy_etw_consumer.py": 0.27,
+        "tests/test_ci_policy_full_recording.py": 0.26,
+        "tests/test_ci_policy_python_language_step.py": 0.27,
+        "tests/test_ci_policy_reuse.py": 0.24
       },
       "entry_selection": true,
       "paths": [
@@ -117,7 +117,6 @@
         "actions/suite-selection/unrecorded.py",
         "catalogue.json",
         "docs/maintaining.md",
-        "ruff.toml",
         "tests/ci_policy_support.py",
         "tests/suites.json",
         "tests/test_ci_policy_action_pins.py",
@@ -281,7 +280,6 @@
           "tests/test_ci_policy_validate.py"
         ],
         "tests/test_ci_policy_zizmor.py": [
-          ".github/zizmor.yml",
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
           "actions/python-language-step/action.yml",
@@ -367,7 +365,6 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "catalogue.json",
-          "ruff.toml",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_python_language_step.py"
         ],
@@ -398,11 +395,13 @@
         "actions/dependabot-auto-merge",
         "actions/dependabot-auto-merge/**",
         "actions/dependabot-auto-merge/consumer-kit",
+        "actions/dependabot-auto-merge/consumer-kit/**",
         "actions/publication-checks",
         "actions/publication-checks/**",
         "actions/python-language-step",
         "actions/python-language-step/**",
         "actions/python-language-step/consumer-kit",
+        "actions/python-language-step/consumer-kit/**",
         "actions/recording",
         "actions/recording/**",
         "actions/recording/etw-consumer",
@@ -410,11 +409,13 @@
         "actions/repository-hygiene",
         "actions/repository-hygiene/**",
         "actions/repository-hygiene/consumer-kit",
+        "actions/repository-hygiene/consumer-kit/**",
         "actions/repository-hygiene/pins.json/**",
         "actions/repository-ruleset",
         "actions/suite-selection",
         "actions/suite-selection/**",
         "actions/suite-selection/consumer-kit",
+        "actions/suite-selection/consumer-kit/**",
         "catalogue.json/**",
         "tests/test_ci_policy_action_pins.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
@@ -508,12 +509,16 @@
           ".github/workflows/suite-selection.yml/**",
           ".github/workflows/suite-verdict.yml/**",
           "actions/dependabot-auto-merge/**",
+          "actions/dependabot-auto-merge/consumer-kit/**",
           "actions/publication-checks/**",
           "actions/python-language-step/**",
+          "actions/python-language-step/consumer-kit/**",
           "actions/recording/**",
           "actions/repository-hygiene/**",
+          "actions/repository-hygiene/consumer-kit/**",
           "actions/repository-hygiene/pins.json/**",
           "actions/suite-selection/**",
+          "actions/suite-selection/consumer-kit/**",
           "catalogue.json/**"
         ],
         "tests/test_ci_policy_tool_pins.py": [
@@ -657,14 +662,6 @@
         },
         {
           "path": ".github/workflows/suite-verdict.yml",
-          "kind": "any"
-        },
-        {
-          "path": ".mypy.ini",
-          "kind": "any"
-        },
-        {
-          "path": ".ruff.toml",
           "kind": "any"
         },
         {
@@ -829,18 +826,6 @@
         },
         {
           "path": "catalogue.json",
-          "kind": "any"
-        },
-        {
-          "path": "mypy.ini",
-          "kind": "any"
-        },
-        {
-          "path": "pyproject.toml",
-          "kind": "any"
-        },
-        {
-          "path": "setup.cfg",
           "kind": "any"
         },
         {
@@ -3011,26 +2996,6 @@
         ],
         "tests/test_ci_policy_python_language_step.py": [
           {
-            "path": ".mypy.ini",
-            "kind": "any"
-          },
-          {
-            "path": ".ruff.toml",
-            "kind": "any"
-          },
-          {
-            "path": "mypy.ini",
-            "kind": "any"
-          },
-          {
-            "path": "pyproject.toml",
-            "kind": "any"
-          },
-          {
-            "path": "setup.cfg",
-            "kind": "any"
-          },
-          {
             "path": "tests",
             "kind": "directory"
           },
@@ -3246,11 +3211,11 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_dependabot_auto_merge.py": 0.51,
-        "tests/test_dependabot_auto_merge_action.py": 0.27,
-        "tests/test_dependabot_auto_merge_caller.py": 0.26,
-        "tests/test_dependabot_auto_merge_workflow.py": 0.4,
-        "tests/test_dependabot_auto_merge_workflow_invocation.py": 0.41
+        "tests/test_dependabot_auto_merge.py": 0.36,
+        "tests/test_dependabot_auto_merge_action.py": 0.2,
+        "tests/test_dependabot_auto_merge_caller.py": 0.2,
+        "tests/test_dependabot_auto_merge_workflow.py": 0.23,
+        "tests/test_dependabot_auto_merge_workflow_invocation.py": 0.24
       },
       "entry_selection": true,
       "paths": [
@@ -3737,18 +3702,18 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_setup_ci_auto_merge.py": 0.3,
-        "tests/test_setup_ci_dependabot.py": 0.39,
-        "tests/test_setup_ci_full_recording.py": 0.32,
-        "tests/test_setup_ci_hygiene.py": 0.31,
-        "tests/test_setup_ci_install_by_need.py": 0.39,
-        "tests/test_setup_ci_installed_permissions.py": 0.3,
-        "tests/test_setup_ci_installed_targets.py": 0.3,
-        "tests/test_setup_ci_installed_validation.py": 0.31,
-        "tests/test_setup_ci_own_dependabot.py": 0.31,
-        "tests/test_setup_ci_publication.py": 0.26,
-        "tests/test_setup_ci_templates.py": 0.39,
-        "tests/test_setup_ci_validation_workflow.py": 0.66
+        "tests/test_setup_ci_auto_merge.py": 0.22,
+        "tests/test_setup_ci_dependabot.py": 0.22,
+        "tests/test_setup_ci_full_recording.py": 0.25,
+        "tests/test_setup_ci_hygiene.py": 0.23,
+        "tests/test_setup_ci_install_by_need.py": 0.23,
+        "tests/test_setup_ci_installed_permissions.py": 0.23,
+        "tests/test_setup_ci_installed_targets.py": 0.24,
+        "tests/test_setup_ci_installed_validation.py": 0.23,
+        "tests/test_setup_ci_own_dependabot.py": 0.23,
+        "tests/test_setup_ci_publication.py": 0.19,
+        "tests/test_setup_ci_templates.py": 0.22,
+        "tests/test_setup_ci_validation_workflow.py": 0.37
       },
       "entry_selection": true,
       "paths": [
@@ -5302,22 +5267,22 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_ci_step_precision.py": 0.63,
-        "tests/test_suite_selection.py": 41.95,
-        "tests/test_suite_selection_caller_entries.py": 4.63,
-        "tests/test_suite_selection_code_boundary.py": 0.27,
-        "tests/test_suite_selection_part_boundary.py": 0.28,
-        "tests/test_suite_selection_verdict_workflow.py": 0.28,
-        "tests/test_suite_selection_workflow.py": 3.46,
-        "tests/test_suite_selection_workflow_reader.py": 0.33,
-        "tests/test_recording_check.py": 13.26,
-        "tests/test_recording_classification.py": 6.47,
-        "tests/test_recording_full.py": 24.55,
-        "tests/test_recording_apply.py": 3.02,
-        "tests/test_recording_lookups.py": 0.81,
-        "tests/test_recording_etw.py": 5.18,
-        "tests/test_recording_pathspecs.py": 4.33,
-        "tests/test_suite_selection_reuse.py": 19.89
+        "tests/test_ci_step_precision.py": 0.48,
+        "tests/test_suite_selection.py": 39.79,
+        "tests/test_suite_selection_caller_entries.py": 3.91,
+        "tests/test_suite_selection_code_boundary.py": 0.19,
+        "tests/test_suite_selection_part_boundary.py": 0.21,
+        "tests/test_suite_selection_verdict_workflow.py": 0.21,
+        "tests/test_suite_selection_workflow.py": 1.14,
+        "tests/test_suite_selection_workflow_reader.py": 0.24,
+        "tests/test_recording_check.py": 9.96,
+        "tests/test_recording_classification.py": 4.64,
+        "tests/test_recording_full.py": 23.0,
+        "tests/test_recording_apply.py": 2.4,
+        "tests/test_recording_lookups.py": 0.66,
+        "tests/test_recording_etw.py": 5.07,
+        "tests/test_recording_pathspecs.py": 5.37,
+        "tests/test_suite_selection_reuse.py": 15.32
       },
       "entry_selection": true,
       "paths": [
@@ -10431,22 +10396,22 @@
         ]
       },
       "entry_durations": {
-        "tests/test_dependabot_coverage.py": 0.75,
-        "tests/test_hygiene_actionlint.py": 1.67,
-        "tests/test_hygiene_changes.py": 17.16,
-        "tests/test_hygiene_gitleaks.py": 4.07,
-        "tests/test_hygiene_installer.py": 7.5,
-        "tests/test_hygiene_pins_schema.py": 0.35,
-        "tests/test_hygiene_push_and_reuse.py": 2.08,
-        "tests/test_hygiene_reuse.py": 2.73,
-        "tests/test_hygiene_workflow.py": 0.51,
-        "tests/test_hygiene_zizmor.py": 0.94,
-        "tests/test_hygiene_zizmor_configuration.py": 1.05,
-        "tests/test_hygiene_zizmor_surface.py": 1.17,
-        "tests/test_link_check.py": 2.54,
-        "tests/test_pin_updater.py": 0.93,
-        "tests/test_repository_hygiene.py": 0.4,
-        "tests/test_v1_promotion.py": 7.18
+        "tests/test_dependabot_coverage.py": 0.77,
+        "tests/test_hygiene_actionlint.py": 1.5,
+        "tests/test_hygiene_changes.py": 11.15,
+        "tests/test_hygiene_gitleaks.py": 2.48,
+        "tests/test_hygiene_installer.py": 5.86,
+        "tests/test_hygiene_pins_schema.py": 0.22,
+        "tests/test_hygiene_push_and_reuse.py": 1.88,
+        "tests/test_hygiene_reuse.py": 2.09,
+        "tests/test_hygiene_workflow.py": 0.37,
+        "tests/test_hygiene_zizmor.py": 0.77,
+        "tests/test_hygiene_zizmor_configuration.py": 0.74,
+        "tests/test_hygiene_zizmor_surface.py": 1.03,
+        "tests/test_link_check.py": 2.47,
+        "tests/test_pin_updater.py": 0.79,
+        "tests/test_repository_hygiene.py": 0.21,
+        "tests/test_v1_promotion.py": 5.79
       },
       "entry_selection": true,
       "paths": [
@@ -12838,7 +12803,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_language_step.py": 8.72
+        "tests/test_python_language_step.py": 5.54
       },
       "paths": [
         "actions/python-language-step/python_language_step.py",
@@ -13025,7 +12990,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_floor.py": 6.08
+        "tests/test_python_floor.py": 3.16
       },
       "paths": [
         "actions/dependabot-auto-merge/auto_merge.py",
@@ -13083,6 +13048,14 @@
           "kind": "any"
         },
         {
+          "path": "actions.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions.pyi",
+          "kind": "any"
+        },
+        {
           "path": "actions/__init__.py",
           "kind": "any"
         },
@@ -13116,6 +13089,14 @@
         },
         {
           "path": "actions/recording-stubs/__init__.pyi",
+          "kind": "any"
+        },
+        {
+          "path": "actions/recording.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/recording.pyi",
           "kind": "any"
         },
         {
@@ -13323,14 +13304,14 @@
         ]
       },
       "entry_durations": {
-        "tests/test_publication_author.py": 0.71,
-        "tests/test_publication_branch.py": 1.41,
-        "tests/test_publication_checks.py": 0.51,
-        "tests/test_publication_commits.py": 5.72,
-        "tests/test_publication_spec_fixture.py": 0.43,
-        "tests/test_publication_spec_update.py": 0.86,
-        "tests/test_publication_spec_workflow.py": 0.43,
-        "tests/test_publication_titles.py": 5.96
+        "tests/test_publication_author.py": 0.47,
+        "tests/test_publication_branch.py": 0.87,
+        "tests/test_publication_checks.py": 0.29,
+        "tests/test_publication_commits.py": 3.88,
+        "tests/test_publication_spec_fixture.py": 0.33,
+        "tests/test_publication_spec_update.py": 0.55,
+        "tests/test_publication_spec_workflow.py": 0.33,
+        "tests/test_publication_titles.py": 6.39
       },
       "entry_selection": true,
       "paths": [
@@ -14388,7 +14369,7 @@
         "dotnet"
       ],
       "entry_durations": {
-        "tests/test_etw_consumer_build.py": 12.68
+        "tests/test_etw_consumer_build.py": 6.64
       },
       "paths": [
         "actions/recording/etw-consumer/EtwConsumer.csproj",
@@ -14599,7 +14580,7 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_windows_recording.py": 46.22
+        "tests/test_windows_recording.py": 48.59
       },
       "entry_selection": true,
       "paths": [
