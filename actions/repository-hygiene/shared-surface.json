@@ -1,0 +1,17 @@
+{
+  "pins": "actions/repository-hygiene/pins.json",
+  "updater_branch": "chore/update-ci-pins",
+  "paths": [
+    ".github/workflows/repository-hygiene.yml",
+    ".github/workflows/dependabot-auto-merge.yml",
+    ".github/workflows/suite-selection.yml",
+    ".github/workflows/suite-verdict.yml",
+    "catalogue.json",
+    "actions/publication-checks",
+    "actions/repository-hygiene",
+    "actions/dependabot-auto-merge",
+    "actions/suite-selection",
+    "actions/recording",
+    "actions/python-language-step"
+  ]
+}

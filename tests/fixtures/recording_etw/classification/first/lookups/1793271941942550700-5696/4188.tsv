@@ -1,0 +1,32 @@
+suffixes	.cp313-win_amd64.pyd	.pyd	.py	.pyw	.pyc
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	sitecustomize	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	sitecustomize	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64	sitecustomize	absent
+lookup	D:\\a\\_temp\\recording-gz64ztti\\python	sitecustomize	absent
+lookup	D:\\a\\_temp\\recording-gz64ztti\\python\\Lib\\site-packages	sitecustomize	absent
+list	5392	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	ctypes	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	ctypes	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	ctypes	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\ctypes\\__init__.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	sysconfig	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	sysconfig	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	sysconfig	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\sysconfig\\__init__.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	threading	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	threading	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	threading	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\threading.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	warnings	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	warnings	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	warnings	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\warnings.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	_weakrefset	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	_weakrefset	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	_weakrefset	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\_weakrefset.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	types	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	types	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	types	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\types.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	_ctypes	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	_ctypes	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs\\_ctypes.pyd
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\tests	struct	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	struct	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	struct	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\struct.py
+list	5392	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\ctypes
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\ctypes	_endian	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\ctypes\\_endian.py

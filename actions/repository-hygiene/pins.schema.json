@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/CrankyAnt/SharedWorkflows/actions/repository-hygiene/pins.schema.json",
+  "title": "CI tool pins",
+  "description": "Every exact tool pin the shared workflows use. A tool's release tag is v{version}; {version} in an asset, binary or checksums name is replaced by the tool's version.",
+  "type": "object",
+  "required": ["node", "tools"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "node": {
+      "type": "object",
+      "description": "The Node.js version that actions/setup-node installs. The updater proposes newer releases of the same major line only.",
+      "required": ["version"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "description": "Tools downloaded from GitHub release assets, keyed by tool name.",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/tool"
+      }
+    },
+    "python": {
+      "type": "object",
+      "description": "Tools installed with pip into a virtual environment of the job's python3, keyed by their normalized package name. Each locks its whole closure with sha256 values.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/python-tool"
+      }
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tool": {
+      "type": "object",
+      "required": ["repository", "version", "checksums", "platforms"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "description": "The GitHub repository that publishes the releases, as owner/name.",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "checksums": {
+          "description": "The release asset that lists sha256 values, or null when the upstream publishes none and the updater computes each sha256 from the download.",
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "platforms": {
+          "type": "object",
+          "description": "One entry per platform, keyed as <os>-<architecture>, for example linux-x64.",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z0-9]+-[a-z0-9]+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/platform"
+          }
+        }
+      }
+    },
+    "python-tool": {
+      "type": "object",
+      "required": ["requirement", "version", "build", "packages"],
+      "additionalProperties": false,
+      "properties": {
+        "requirement": {
+          "type": "string",
+          "description": "The tool's requirement with its extras, for example reuse[charset-normalizer]; it names the tool's own key.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\[[a-z0-9-]+(?:,[a-z0-9-]+)*\\])?$"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "build": {
+          "type": "array",
+          "description": "The locked packages that build the tool from its sdist; they are installed first.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packages": {
+          "type": "object",
+          "description": "Every package the tool installs, the tool and its build packages included, keyed by normalized name.",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/python-package"
+          }
+        }
+      }
+    },
+    "python-package": {
+      "type": "object",
+      "required": ["version", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)*(?:(?:a|b|rc|\\.post|\\.dev)[0-9]+)*$"
+        },
+        "sha256": {
+          "type": "array",
+          "description": "The sha256 of every distribution file pip may choose for the supported platforms and Python versions.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "required": ["asset", "binary", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "type": "string",
+          "description": "The release asset name.",
+          "minLength": 1
+        },
+        "binary": {
+          "type": "string",
+          "description": "The path of the executable inside the asset archive.",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

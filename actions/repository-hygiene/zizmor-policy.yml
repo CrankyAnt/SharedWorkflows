@@ -1,0 +1,18 @@
+# The shared zizmor policy for repositories without their own zizmor configuration.
+# actions/*, each shared workflow in shared-surface.json and each shared action that
+# the consumer kits call may use a moving ref; every other reference outside the
+# repository needs a hash pin.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "actions/*": ref-pin
+        CrankyAnt/SharedWorkflows/.github/workflows/repository-hygiene.yml: ref-pin
+        CrankyAnt/SharedWorkflows/.github/workflows/dependabot-auto-merge.yml: ref-pin
+        CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml: ref-pin
+        CrankyAnt/SharedWorkflows/.github/workflows/suite-verdict.yml: ref-pin
+        CrankyAnt/SharedWorkflows/actions/python-language-step: ref-pin
+        CrankyAnt/SharedWorkflows/actions/recording: ref-pin
+        CrankyAnt/SharedWorkflows/actions/repository-hygiene: ref-pin
+        CrankyAnt/SharedWorkflows/actions/suite-selection: ref-pin
+        "*": hash-pin

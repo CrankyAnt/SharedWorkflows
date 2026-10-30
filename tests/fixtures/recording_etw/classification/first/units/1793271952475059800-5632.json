@@ -1,0 +1,23 @@
+{
+  "unit": "1793271952475059800-5632",
+  "kind": "entry",
+  "name": "tests/git_peeled.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-gz64ztti\\python\\Scripts\\python.EXE",
+    "tests/git_peeled.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.231,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793271952475059800-5632",
+  "temporary": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271952475059800-5632\\tmp",
+  "cache": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271952475059800-5632\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-gz64ztti\\repo",
+  "pid": 4496,
+  "launcher": 5632,
+  "recorder": [
+    "etw"
+  ]
+}

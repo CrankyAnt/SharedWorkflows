@@ -1,0 +1,76 @@
+name: Shared recording step
+description: Expose the recording command, fail the job when its digest differs from the one select took, write the job's environment before its setups, and run its check with the additions uploaded as an artifact.
+inputs:
+  check:
+    description: Run `check` against the suite list, upload its additions or full-recording result, and fail on additions.
+    required: false
+    default: "false"
+  suites:
+    description: The suite list that `check` compares the recording with, relative to the repository root.
+    required: false
+    default: ""
+  artifact-name:
+    description: The name of the artifact that holds the additions or the full-recording result, unique in the run.
+    required: false
+    default: recording-additions
+  digest:
+    description: In a consumer, the digest of the shared recording step that select took; the job fails when this step's own digest differs.
+    required: false
+    default: ""
+outputs:
+  path:
+    description: Absolute path to the recording step; run `python3 <path>/recording.py start|exec|check|apply|digest`, on Windows `python`.
+    value: ${{ steps.resources.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: resources
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        printf 'path=%s\n' "$RESOURCE_PATH" >> "$GITHUB_OUTPUT"
+    - id: digest
+      if: inputs.digest != ''
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        DIGEST: ${{ inputs.digest }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+      run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" digest --expect "$DIGEST"
+    - id: check
+      if: inputs.check == 'true'
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        SUITES: ${{ inputs.suites }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+      run: |
+        set -uo pipefail
+        status=0
+        "$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT" || status=$?
+        printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
+    - if: inputs.check == 'true' && steps.check.outputs.file != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.check.outputs.file }}
+        if-no-files-found: error
+    - if: inputs.check == 'true' && steps.check.outputs.status != '0'
+      shell: bash
+      env:
+        STATUS: ${{ steps.check.outputs.status }}
+      run: |
+        echo "::error::The recording check failed with exit code $STATUS; the job summary lists the additions."
+        exit "$STATUS"
+    - if: inputs.check != 'true' && runner.os != 'Windows'
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+      run: python3 "$RESOURCE_PATH/recording.py" base
+    - if: inputs.check != 'true' && runner.os == 'Windows'
+      shell: pwsh
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+      run: python "$env:RESOURCE_PATH\recording.py" base

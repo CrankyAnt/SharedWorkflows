@@ -1,0 +1,142 @@
+name: Suite selection
+
+on:
+  workflow_call:
+    inputs:
+      suites:
+        description: The suite list, relative to the repository root.
+        type: string
+        required: false
+        default: .github/suites.json
+      language-steps:
+        description: The language steps the caller calls in its first Linux shard, separated by spaces, such as python.
+        type: string
+        required: false
+        default: ''
+      runner-labels:
+        description: The runner label of the job that runs each system's units, as <os>=<label> separated by spaces, such as linux=ubuntu-26.04 windows=windows-2025.
+        type: string
+        required: false
+        default: ''
+      setup-versions:
+        description: The version that a setup pins outside the recorded files, as <setup>=<version> separated by spaces, such as python=3.13.
+        type: string
+        required: false
+        default: ''
+    outputs:
+      suites:
+        description: One JSON object with run or skip for every suite of the suite list.
+        value: ${{ jobs.select.outputs.suites }}
+      entries:
+        description: One JSON object with the selected entry files of every suite the suite list selects per entry file; empty when the list has none.
+        value: ${{ jobs.select.outputs.entries }}
+      shards:
+        description: One JSON list with one object per Linux shard, holding its estimate, setups and entry files with their commands; empty when nothing runs on Linux.
+        value: ${{ jobs.select.outputs.shards }}
+      windows:
+        description: One JSON object with the estimate, setups and selected entry files of the Windows job; empty when no Windows entry file is selected.
+        value: ${{ jobs.select.outputs.windows }}
+      language-steps:
+        description: One JSON object with run or skip for every language step named in the language-steps input; empty without that input.
+        value: ${{ jobs.select.outputs.language-steps }}
+      units:
+        description: On a pull request, one JSON object from the reuse key of every running unit to its suite and entry files.
+        value: ${{ jobs.select.outputs.units }}
+      reused:
+        description: On a pull request, one JSON object from the reuse key of every reused unit to the run it passed in.
+        value: ${{ jobs.select.outputs.reused }}
+      shared-digest:
+        description: The digest of the shared recording step that the selection took; every suite job of a consumer checks it.
+        value: ${{ jobs.select.outputs.shared-digest }}
+      identical:
+        description: true on a push or dependabot-merged run whose tree equals a passed tested tree and that runs no suite; empty otherwise. The verdict does not run on such a run.
+        value: ${{ jobs.select.outputs.identical }}
+
+permissions: {}
+
+jobs:
+  select:
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      suites: ${{ steps.select.outputs.suites }}
+      entries: ${{ steps.select.outputs.entries }}
+      shards: ${{ steps.select.outputs.shards }}
+      windows: ${{ steps.select.outputs.windows }}
+      language-steps: ${{ steps.select.outputs.language-steps }}
+      units: ${{ steps.select.outputs.units }}
+      reused: ${{ steps.select.outputs.reused }}
+      shared-digest: ${{ steps.digest.outputs.shared-digest }}
+      identical: ${{ steps.select.outputs.identical }}
+    steps:
+      - name: Load the Tool from this workflow revision
+        id: resources
+        uses: $/actions/suite-selection
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Look up the tested tree of the pushed commit's pull request
+        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Load the shared recording step from this workflow revision
+        id: recording
+        uses: $/actions/recording
+      - name: Take the digest of the shared recording step
+        id: digest
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
+      - name: Look up the digest of the last passed run on the base branch
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          DIGEST: ${{ steps.digest.outputs.shared-digest }}
+          BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --digest "$DIGEST" --branch "$BRANCH" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore the passed results of the pull request
+        if: github.event_name == 'pull_request' && github.run_attempt == 1
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/suite-results/record.json
+          key: suite-results-${{ github.event.pull_request.number }}-run-lookup-${{ github.run_id }}
+          restore-keys: suite-results-${{ github.event.pull_request.number }}-run-
+      - name: Select the suites the changed files touch
+        id: select
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          SUITES: ${{ inputs.suites }}
+          LANGUAGE_STEPS: ${{ inputs.language-steps }}
+          RUNNER_LABELS: ${{ inputs.runner-labels }}
+          SETUP_VERSIONS: ${{ inputs.setup-versions }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set --
+          for step in $LANGUAGE_STEPS; do set -- "$@" --language-step "$step"; done
+          case "$EVENT" in
+            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            pull_request)
+              set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT"
+              for label in $RUNNER_LABELS; do set -- "$@" --runner-label "$label"; done
+              for version in $SETUP_VERSIONS; do set -- "$@" --setup-version "$version"; done
+              ;;
+            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct ;;
+          esac
+          set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"

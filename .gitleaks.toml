@@ -1,0 +1,16 @@
+title = "SharedWorkflows"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "personal-user-home-path"
+description = "Absolute path containing a personal user home directory"
+regex = '''(?:(?i:[a-z]:[\\/]+users[\\/]+)|/(?:home|Users)/)([^\\/\s"'<>|:]+)(?:[\\/]|["']|\s|$)'''
+secretGroup = 1
+keywords = ["users", "/home/"]
+tags = ["personal-data", "local-path"]
+
+[[allowlists]]
+description = "Ignore the redacted generated Gitleaks baseline"
+paths = ['''^\.gitleaks-baseline\.json$''']

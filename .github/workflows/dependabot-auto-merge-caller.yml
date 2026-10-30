@@ -1,0 +1,17 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_run: # zizmor: ignore[dangerous-triggers] the merge job checks out nothing and runs no pull-request code
+    workflows: [Repository hygiene, Validate]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: $/.github/workflows/dependabot-auto-merge.yml

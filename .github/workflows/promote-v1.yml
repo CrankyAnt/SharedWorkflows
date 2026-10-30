@@ -1,0 +1,88 @@
+name: Promote v1 after a pins update
+
+on:
+  push:
+    branches: [main]
+    paths: [actions/repository-hygiene/pins.json]
+
+permissions: {}
+
+concurrency:
+  group: promote-v1
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: ubuntu-slim
+    timeout-minutes: 14
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      move: ${{ steps.decision.outputs.move }}
+      old: ${{ steps.decision.outputs.old }}
+      new: ${{ steps.decision.outputs.new }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read the current v1 tag and the merged pull request
+        id: facts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py read-tag --repository "$GITHUB_REPOSITORY" --output "$GITHUB_OUTPUT"
+          number="$(gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT/pulls" --jq "[.[] | select(.merge_commit_sha == \"$COMMIT\")][0].number // empty")"
+          candidate=false
+          if [ -n "$number" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$number" > "$RUNNER_TEMP/pull-request.json"
+            case "$(git diff --name-only "$COMMIT^" "$COMMIT" | tr '\n' ' ')" in
+              "actions/repository-hygiene/pins.json ") candidate=true ;;
+            esac
+          fi
+          printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+      - name: Identify the updater App
+        if: steps.facts.outputs.candidate == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-metadata: read
+      - name: Decide whether v1 moves after the commit's CI on main
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+          V1: ${{ steps.facts.outputs.v1 }}
+          V1_OBJECT: ${{ steps.facts.outputs.v1_object }}
+          APP_LOGIN: ${{ steps.app-token.outputs.app-slug && format('{0}[bot]', steps.app-token.outputs.app-slug) || '' }}
+          OWNER: ${{ github.repository_owner }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py decide --commit "$COMMIT" --v1 "$V1" --v1-object "$V1_OBJECT" --pull-request "$RUNNER_TEMP/pull-request.json" --app-login "$APP_LOGIN" --owner "$OWNER" --repository "$GITHUB_REPOSITORY" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  move:
+    needs: decide
+    if: needs.decide.outputs.move == 'true'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Move v1 under a lease on its previous commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD: ${{ needs.decide.outputs.old }}
+          NEW: ${{ needs.decide.outputs.new }}
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: ""
+          GIT_CONFIG_KEY_1: credential.helper
+          GIT_CONFIG_VALUE_1: "!gh auth git-credential"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py move --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"

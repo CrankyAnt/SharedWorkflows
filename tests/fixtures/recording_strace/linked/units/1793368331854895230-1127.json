@@ -1,0 +1,32 @@
+{
+  "unit": "1793368331854895230-1127",
+  "kind": "entry",
+  "name": "tests/linked_names.py",
+  "suite": null,
+  "command": [
+    "python3",
+    "tests/linked_names.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.094,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "1793368331854895230-1127.strace",
+  "lookups": "1793368331854895230-1127",
+  "temporary": "${BASE}/recording/work/1793368331854895230-1127/tmp",
+  "cache": "${BASE}/recording/work/1793368331854895230-1127/pycache",
+  "cwd": "${BASE}/linked",
+  "recorder": [
+    "strace",
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-y",
+    "-s",
+    "4096",
+    "-e",
+    "trace=?open,?openat,?openat2,?getdents,?getdents64,?access,?faccessat,?faccessat2,?newfstatat,?statx,?execve,?execveat,?chdir,?fchdir,?clone,?clone3,?fork,?vfork,?stat,?lstat,?readlink,?readlinkat",
+    "-e",
+    "abbrev=!execve,execveat"
+  ]
+}

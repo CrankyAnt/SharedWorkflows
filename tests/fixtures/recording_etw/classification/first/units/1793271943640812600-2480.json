@@ -1,0 +1,23 @@
+{
+  "unit": "1793271943640812600-2480",
+  "kind": "entry",
+  "name": "tests/imports_only.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-gz64ztti\\python\\Scripts\\python.EXE",
+    "tests/imports_only.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.059,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793271943640812600-2480",
+  "temporary": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271943640812600-2480\\tmp",
+  "cache": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271943640812600-2480\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-gz64ztti\\repo",
+  "pid": 5432,
+  "launcher": 2480,
+  "recorder": [
+    "etw"
+  ]
+}

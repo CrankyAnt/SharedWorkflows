@@ -1,0 +1,14 @@
+name: Shared publication resources
+description: Expose publication-check files from the running workflow revision.
+outputs:
+  path:
+    description: Absolute path to the shared check resources.
+    value: ${{ steps.resources.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: resources
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+      run: printf 'path=%s\n' "$RESOURCE_PATH" >> "$GITHUB_OUTPUT"

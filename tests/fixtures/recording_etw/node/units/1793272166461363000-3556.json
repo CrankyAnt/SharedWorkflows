@@ -1,0 +1,23 @@
+{
+  "unit": "1793272166461363000-3556",
+  "kind": "entry",
+  "name": "tests/node_run.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-74ohu6us\\python\\Scripts\\python.EXE",
+    "tests/node_run.py"
+  ],
+  "exit_code": 0,
+  "seconds": 2.111,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793272166461363000-3556",
+  "temporary": "D:\\a\\_temp\\recording-74ohu6us\\recording\\work\\1793272166461363000-3556\\tmp",
+  "cache": "D:\\a\\_temp\\recording-74ohu6us\\recording\\work\\1793272166461363000-3556\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-74ohu6us\\repo",
+  "pid": 3336,
+  "launcher": 3556,
+  "recorder": [
+    "etw"
+  ]
+}
