@@ -93,6 +93,7 @@
         "actions/recording/shared_lookup_report.py",
         "actions/recording/stdlib_names.py",
         "actions/repository-hygiene/action.yml",
+        "actions/repository-hygiene/consumer-kit/README.md",
         "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
         "actions/repository-hygiene/dependabot_coverage.py",
         "actions/repository-hygiene/hygiene.py",
@@ -104,9 +105,11 @@
         "actions/repository-hygiene/shared-surface.json",
         "actions/repository-hygiene/update_pins.py",
         "actions/repository-hygiene/zizmor-policy.yml",
+        "actions/repository-ruleset/README.md",
         "actions/repository-ruleset/ruleset-main-template.json",
         "actions/suite-selection/action.yml",
         "actions/suite-selection/ci_definition.py",
+        "actions/suite-selection/consumer-kit/README.md",
         "actions/suite-selection/consumer-kit/full-recording.yml",
         "actions/suite-selection/consumer-kit/validation-workflow.yml",
         "actions/suite-selection/consumer-kit/validation.yml",
@@ -173,7 +176,17 @@
           "actions/dependabot-auto-merge/consumer-kit/README.md",
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
+          "actions/python-language-step/consumer-kit/README.md",
+          "actions/python-language-step/consumer-kit/python-language-step.yml",
+          "actions/repository-hygiene/consumer-kit/README.md",
+          "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/shared-surface.json",
+          "actions/repository-ruleset/README.md",
+          "actions/repository-ruleset/ruleset-main-template.json",
+          "actions/suite-selection/consumer-kit/README.md",
+          "actions/suite-selection/consumer-kit/full-recording.yml",
+          "actions/suite-selection/consumer-kit/validation-workflow.yml",
+          "actions/suite-selection/consumer-kit/validation.yml",
           "catalogue.json",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_shared_surface.py"
@@ -412,6 +425,7 @@
         "actions/repository-hygiene/consumer-kit/**",
         "actions/repository-hygiene/pins.json/**",
         "actions/repository-ruleset",
+        "actions/repository-ruleset/**",
         "actions/suite-selection",
         "actions/suite-selection/**",
         "actions/suite-selection/consumer-kit",
@@ -517,6 +531,7 @@
           "actions/repository-hygiene/**",
           "actions/repository-hygiene/consumer-kit/**",
           "actions/repository-hygiene/pins.json/**",
+          "actions/repository-ruleset/**",
           "actions/suite-selection/**",
           "actions/suite-selection/consumer-kit/**",
           "catalogue.json/**"
@@ -710,6 +725,10 @@
         },
         {
           "path": "actions/repository-hygiene/pins.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-ruleset",
           "kind": "any"
         },
         {
@@ -1669,6 +1688,10 @@
           },
           {
             "path": "actions/repository-hygiene/pins.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-ruleset",
             "kind": "any"
           },
           {
