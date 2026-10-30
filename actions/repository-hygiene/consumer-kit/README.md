@@ -59,14 +59,15 @@ The shared parts rely on the merge settings and the default-branch ruleset below
 ### Merge settings
 
 - Squash merge is enabled: `allow_squash_merge` is `true`. Dependabot auto-merge requests a squash merge.
+- Merge commits are enabled: `allow_merge_commit` is `true`. An integration branch reaches the default branch with a merge commit whose subject is the pull request title.
 - Rebase merge is disabled: `allow_rebase_merge` is `false`.
 - The squash and merge-commit subjects are the pull request title with an empty body: `squash_merge_commit_title` and `merge_commit_title` are `PR_TITLE`, and `squash_merge_commit_message` and `merge_commit_message` are `BLANK`.
 
 Set them and read them back with:
 
 ```text
-gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_rebase_merge=false -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
-gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_rebase_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
+gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_merge_commit=true -F allow_rebase_merge=false -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
+gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
 ```
 
 ### Default-branch ruleset

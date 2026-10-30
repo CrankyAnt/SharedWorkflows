@@ -7,7 +7,7 @@
       "workflows": [".github/workflows/repository-hygiene.yml"],
       "steps": ["actions/repository-hygiene", "actions/publication-checks"],
       "required_checks": ["hygiene / hygiene"],
-      "needs": "A GitHub repository whose squash merge is enabled, whose rebase merge is disabled, whose squash and merge-commit subjects are the pull request title with an empty body, and whose default-branch ruleset requires the checks of the shared parts it uses, as its consumer kit states with the ruleset template.",
+      "needs": "A GitHub repository whose squash merge and merge commits are enabled, whose rebase merge is disabled, whose squash and merge-commit subjects are the pull request title with an empty body, and whose default-branch ruleset requires the checks of the shared parts it uses, as its consumer kit states with the ruleset template.",
       "applies": "Every repository, a Markdown-only one included.",
       "consumer_kit": "actions/repository-hygiene/consumer-kit"
     },
