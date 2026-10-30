@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unittest
+from pathlib import Path
 
 from tests.ci_policy_support import REPOSITORY_ROOT, is_tracked, tracked_files
 
@@ -19,6 +20,13 @@ ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
 
 def on_surface(path: str, surface_paths: list[str]) -> bool:
     return any(path == item or path.startswith(item + "/") for item in surface_paths)
+
+
+def led_to(readme: Path) -> set[str]:
+    """The repository paths that the relative links of a consumer kit's README lead to."""
+    targets = re.findall(r"\]\(([^)\s#]+)(?:#[^)]*)?\)", readme.read_text(encoding="utf-8"))
+    return {(readme.parent / target).resolve().relative_to(REPOSITORY_ROOT).as_posix()
+            for target in targets if "://" not in target and (readme.parent / target).resolve().is_relative_to(REPOSITORY_ROOT)}
 
 
 def catalogue_problems(catalogue: dict, surface_paths: list[str], tracked: set[str]) -> list[str]:
@@ -44,15 +52,25 @@ def catalogue_problems(catalogue: dict, surface_paths: list[str], tracked: set[s
         kit = entry.get("consumer_kit")
         if kit is not None and (not on_surface(kit, surface_paths) or f"{kit}/README.md" not in tracked):
             problems.append(f"{name}: the consumer kit {kit} does not exist on the shared surface")
-    problems += [f"{path} belongs to no catalogue entry" for path in surface_paths
-                 if path.startswith((".github/workflows/", "actions/")) and path not in named]
+    # A folder under actions/ without a step, such as the ruleset template, is reached through a consumer kit that leads to it.
+    kits = [entry["consumer_kit"] for entry in catalogue["parts"] if entry.get("consumer_kit") and f"{entry['consumer_kit']}/README.md" in tracked]
+    reached = set().union(*(led_to(REPOSITORY_ROOT / kit / "README.md") for kit in kits))
+    for path in surface_paths:
+        if not path.startswith((".github/workflows/", "actions/")) or path in named:
+            continue
+        if path.startswith("actions/") and f"{path}/action.yml" not in tracked:
+            if not any(on_surface(target, [path]) for target in reached):
+                problems.append(f"{path} holds no step and no consumer kit leads to it")
+        else:
+            problems.append(f"{path} belongs to no catalogue entry")
     return problems
 
 
 class SharedSurfaceTests(unittest.TestCase):
     def test_the_shared_surface_covers_every_resource_a_shared_workflow_loads_and_names_tracked_paths_only(self) -> None:
         surface = json.loads(SURFACE.read_text(encoding="utf-8"))
-        self.assertEqual([f".github/workflows/{workflow}" for workflow in SHARED_WORKFLOWS] + ["catalogue.json"] + [f"actions/{part}" for part in PARTS], surface["paths"])
+        self.assertEqual([f".github/workflows/{workflow}" for workflow in SHARED_WORKFLOWS] + ["catalogue.json"] + [f"actions/{part}" for part in PARTS]
+                         + ["actions/repository-ruleset"], surface["paths"])
         tracked = tracked_files(REPOSITORY_ROOT, [surface["pins"], *surface["paths"]])
         self.assertIn(surface["pins"], tracked)
         for path in surface["paths"]:
@@ -92,14 +110,16 @@ class CatalogueTests(unittest.TestCase):
 
     def test_an_entry_that_names_a_missing_workflow_step_or_consumer_kit_fails(self) -> None:
         first = self.catalogue["parts"][0]
-        for key, value, problem in (
-            ("workflows", [*first["workflows"], ".github/workflows/missing.yml"], "the workflow .github/workflows/missing.yml is no shared workflow"),
-            ("steps", [*first["steps"], "actions/missing"], "the step actions/missing is no shared step"),
-            ("consumer_kit", "actions/repository-hygiene/missing-kit", "the consumer kit actions/repository-hygiene/missing-kit does not exist on the shared surface"),
+        # Without the consumer kit of repository hygiene, no consumer kit leads to the ruleset template.
+        unreached = ["actions/repository-ruleset holds no step and no consumer kit leads to it"]
+        for key, value, problem, more in (
+            ("workflows", [*first["workflows"], ".github/workflows/missing.yml"], "the workflow .github/workflows/missing.yml is no shared workflow", []),
+            ("steps", [*first["steps"], "actions/missing"], "the step actions/missing is no shared step", []),
+            ("consumer_kit", "actions/repository-hygiene/missing-kit", "the consumer kit actions/repository-hygiene/missing-kit does not exist on the shared surface", unreached),
         ):
             with self.subTest(key=key):
                 catalogue = {"parts": [{**first, key: value}, *self.catalogue["parts"][1:]]}
-                self.assertEqual([f"{first['name']}: {problem}"], catalogue_problems(catalogue, self.surface, self.tracked))
+                self.assertEqual([f"{first['name']}: {problem}", *more], catalogue_problems(catalogue, self.surface, self.tracked))
 
     def test_the_suite_selection_names_its_consumer_kit(self) -> None:
         entries = {entry["name"]: entry for entry in self.catalogue["parts"]}
@@ -113,6 +133,18 @@ class CatalogueTests(unittest.TestCase):
         del without["consumer_kit"]
         self.assertIn("Python language step: consumer_kit is missing; null says that the part has no consumer kit yet",
                       catalogue_problems({"parts": [*self.catalogue["parts"], without]}, self.surface, self.tracked))
+
+
+class HygieneConsumerKitRulesetTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.readme = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "consumer-kit" / "README.md"
+
+    def test_the_hygiene_consumer_kit_leads_to_the_ruleset_template_on_the_shared_surface(self) -> None:
+        template = "actions/repository-ruleset/ruleset-main-template.json"
+        self.assertIn(template, led_to(self.readme))
+        self.assertIn("actions/repository-ruleset/README.md", led_to(self.readme))
+        self.assertTrue((REPOSITORY_ROOT / template).is_file())
+        self.assertTrue(on_surface(template, json.loads(SURFACE.read_text(encoding="utf-8"))["paths"]))
 
 
 class AutoMergeConsumerKitTests(unittest.TestCase):

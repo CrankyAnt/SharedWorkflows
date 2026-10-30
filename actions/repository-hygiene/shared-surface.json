@@ -12,6 +12,7 @@
     "actions/dependabot-auto-merge",
     "actions/suite-selection",
     "actions/recording",
-    "actions/python-language-step"
+    "actions/python-language-step",
+    "actions/repository-ruleset"
   ]
 }

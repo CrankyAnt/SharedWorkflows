@@ -54,11 +54,32 @@ Beside the inputs, the job reads these files of the repository when they exist: 
 
 ## Repository settings
 
-The user configures these settings; the job changes none of them:
+The shared parts rely on the merge settings and the default-branch ruleset below. The user configures them; the job changes none of them. An agent shows the user the values it will set and sets them only after the user's approval.
 
+### Merge settings
+
+- Squash merge is enabled: `allow_squash_merge` is `true`. Dependabot auto-merge requests a squash merge.
+- Rebase merge is disabled: `allow_rebase_merge` is `false`.
 - The squash and merge-commit subjects are the pull request title with an empty body: `squash_merge_commit_title` and `merge_commit_title` are `PR_TITLE`, and `squash_merge_commit_message` and `merge_commit_message` are `BLANK`.
-- Rebase merge is disabled.
-- A ruleset on the default branch requires `hygiene / hygiene` with GitHub Actions as its source. The ruleset editor lists a check only after it succeeded in the repository within the past 7 days, so the caller reaches the default branch and reports on a pull request before the ruleset names it.
+
+Set them and read them back with:
+
+```text
+gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_rebase_merge=false -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
+gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_rebase_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
+```
+
+### Default-branch ruleset
+
+The [ruleset template](../../repository-ruleset/ruleset-main-template.json) holds the ruleset on the default branch, and [its README](../../repository-ruleset/README.md) says how to fill it for a repository, create it and read it back. The ruleset holds:
+
+- the target `~DEFAULT_BRANCH`;
+- the rules `deletion` and `non_fast_forward`;
+- the rule `required_status_checks` with the required checks of the shared parts the repository uses, each with GitHub Actions as its source (`integration_id` `15368`): `hygiene / hygiene` of repository hygiene in every consumer, and `validation / validation`, the verdict's check, when the repository uses the suite selection. The catalogue lists each part's checks under `required_checks`; Dependabot auto-merge and the Python language step add none;
+- a bypass for the repository admin role: `actor_id` `5`, `actor_type` `RepositoryRole`, `bypass_mode` `always`;
+- `enforcement` `active`.
+
+The ruleset becomes active only once the callers are on the default branch and each required check has reported on a pull request since; until then it is created with `enforcement` set to `disabled`. The ruleset editor lists a check only after it succeeded in the repository within the past 7 days, and an active ruleset that requires a check that never reports blocks every pull request.
 
 ## When `v1` moves
 
