@@ -1,0 +1,28 @@
+{
+  "version": "1.1.0",
+  "official_regex": "^(?:main|master|develop|(?:feature|feat|bugfix|fix|hotfix|release|chore|ai|copilot|cursor|claude|codex)/[a-z0-9]+(?:\\.[a-z0-9]+)*(?:-[a-z0-9]+(?:\\.[a-z0-9]+)*)*)$",
+  "cases": [
+    {"branch": "main", "matches": true},
+    {"branch": "master", "matches": true},
+    {"branch": "develop", "matches": true},
+    {"branch": "feature/add-check", "matches": true},
+    {"branch": "feat/add-check", "matches": true},
+    {"branch": "bugfix/repair", "matches": true},
+    {"branch": "fix/repair", "matches": true},
+    {"branch": "hotfix/repair", "matches": true},
+    {"branch": "release/v1.2.3", "matches": true},
+    {"branch": "chore/docs", "matches": true},
+    {"branch": "ai/add-check", "matches": true},
+    {"branch": "copilot/add-check", "matches": true},
+    {"branch": "cursor/add-check", "matches": true},
+    {"branch": "claude/add-check", "matches": true},
+    {"branch": "codex/add-check", "matches": true},
+    {"branch": "research/issue-1-loader-shape", "matches": false},
+    {"branch": "feat/has.dot", "matches": true},
+    {"branch": "release/v1.2.3-rc.1", "matches": true},
+    {"branch": "feature/", "matches": false},
+    {"branch": "feat/has--gap", "matches": false},
+    {"branch": "trunk/main", "matches": false},
+    {"branch": "Main", "matches": false}
+  ]
+}

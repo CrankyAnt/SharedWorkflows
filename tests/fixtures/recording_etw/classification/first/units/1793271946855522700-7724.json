@@ -1,0 +1,23 @@
+{
+  "unit": "1793271946855522700-7724",
+  "kind": "entry",
+  "name": "tests/worktree.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-gz64ztti\\python\\Scripts\\python.EXE",
+    "tests/worktree.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.391,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793271946855522700-7724",
+  "temporary": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271946855522700-7724\\tmp",
+  "cache": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271946855522700-7724\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-gz64ztti\\repo",
+  "pid": 3448,
+  "launcher": 7724,
+  "recorder": [
+    "etw"
+  ]
+}

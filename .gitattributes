@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# The committed ETW consumer build is compared byte by byte with a rebuild of its source.
+actions/recording/etw-consumer/build/** -text -whitespace

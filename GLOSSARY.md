@@ -1,0 +1,183 @@
+# Shared Workflows
+
+Shared Workflows is the set of workflows, steps and tools that this repository offers to other repositories at the tag `v1`, and the repositories that call them. This glossary defines its language; the maintenance procedure is [docs/maintaining.md](docs/maintaining.md).
+
+## Language
+
+### Callers
+
+**Consumer**:
+A repository that calls the shared workflows and shared steps at `v1`.
+_Avoid_: Calling repository, client
+
+**Shared workflow**:
+A reusable workflow of this repository that a caller calls at `v1`, or that this repository's own CI calls by local path.
+_Avoid_: Central workflow, reusable workflow
+
+**Shared step**:
+A step of this repository that a consumer's job uses at `v1`, or that this repository's own CI uses by local path.
+_Avoid_: Central step, shared action
+
+**Caller**:
+A workflow in a consumer that calls one shared workflow and runs no step of its own.
+_Avoid_: Wrapper, caller repository
+
+**Validation caller**:
+The caller that runs the suite selection, calls each validation workflow with its result, and gives the verdict. This repository's own validation caller calls the shared workflows by local path and runs its suites itself.
+_Avoid_: Validate caller, validation.yml
+
+**Validation workflow**:
+A consumer's own workflow that runs suites, started only by the validation caller, with each suite gated on the selection.
+_Avoid_: Test workflow, called workflow
+
+### Shared parts
+
+**Shared part**:
+A part of Shared Workflows that a consumer can adopt, such as repository hygiene, Dependabot auto-merge or the suite selection, with its shared workflows and shared steps.
+_Avoid_: Central part, shared component, offering
+
+**Catalogue**:
+The one entry, read at `v1`, through which an agent in a consumer learns which shared parts exist, what each is for, and where its consumer kit is.
+_Avoid_: Registry, index, shared surface
+
+**Shared surface**:
+Everything a consumer can reach at `v1`: the shared workflows, the shared steps with the files they load, the catalogue and the consumer kits, which a move of `v1` compares.
+_Avoid_: Central surface, public API
+
+**Consumer kit**:
+What an agent in a consumer needs to adopt one shared part, its templates and their explanation, kept with that part and apart from the documentation for maintaining the shared parts.
+_Avoid_: Consumer documentation, setup template
+
+### Checks
+
+**Shared check**:
+A check that applies to every repository with a given property, such as all repositories, one language or one file kind, and that only Shared Workflows holds; a check that applies to one repository's product stays in that repository.
+_Avoid_: Central check, common check, generic check
+
+**Language step**:
+The shared step that runs the shared checks of one language inside the consumer's job that installs that language's toolchain.
+_Avoid_: Lint job, language job, language workflow
+
+**Floor**:
+The checks that every change runs, whatever it touches.
+_Avoid_: Baseline checks, always-on checks
+
+**Verdict**:
+The one check of a validation run that a repository requires: it passes only when the suite selection succeeded and no unit it started failed or was cancelled.
+_Avoid_: Status check, gate job
+
+### Runs
+
+**Tested tree**:
+The tree that a pull-request run checked out: the head merged with the base at the moment of the run.
+_Avoid_: PR tree, head tree
+
+**Suite selection**:
+The shared step that decides, from a change and the suite list, which units run and which reuse a passed result.
+_Avoid_: Test impact analysis, path filter, derivation
+
+**Unit**:
+What the suite selection runs, skips or reuses as one: a suite, or an entry file of a suite selected per entry file.
+_Avoid_: Job, test case
+
+**Reuse**:
+Taking a unit's passed result instead of running the unit again, when everything that result depends on equals the run that passed.
+_Avoid_: Cache hit, skip
+
+### Suites
+
+**Suite**:
+A named set of entry files with one subject and one command, which the suite selection runs as a whole or, for a suite selected per entry file, per entry file.
+_Avoid_: Test group, job
+
+**Suite list**:
+The file of a repository that names every suite with its entry files, its command, the setups it needs, the duration estimate of each entry file and what it is selected on.
+_Avoid_: Suite file, suites.json
+
+**Setup**:
+A named step that a job runs before its entry files, such as installing dependencies or building, which a suite or one of its entry files needs.
+_Avoid_: Install step, prepare step
+
+**Duration estimate**:
+The traced test time that one entry file is expected to take, stored in the suite list.
+_Avoid_: Duration, test timing
+
+**Shard**:
+One Linux job that runs a share of the selected entry files, with the setups they need, sized so that its estimated time stays under a bound.
+_Avoid_: Partition, batch, chunk
+
+**Entry file**:
+A file that a suite starts directly, such as a test module, a script or a test project, whose reads a recording keeps apart from those of the suite's other entry files.
+_Avoid_: Entry, test file
+
+**Suite selected per entry file**:
+A suite whose entry files are each selected on their own reads, so that a run starts only the entry files a change reaches.
+_Avoid_: Partial suite, split suite
+
+### Tests
+
+**Real-command test**:
+A test that starts the code under test as its own process, the way a user or CI starts it.
+_Avoid_: End-to-end test, integration test, slow test
+
+**In-process test**:
+A test that calls the code under test inside the test's own process.
+_Avoid_: Unit test, fast test
+
+**Shared-host test**:
+A test that hands the code under test to a long-lived process that many tests share, instead of starting it as its own process.
+_Avoid_: In-process test, batch test, warm test
+
+### Reads
+
+**Recording**:
+The files, directory listings and existence probes that a suite's entry files and the setup steps of the job that runs it make during one run, as the operating system reports them, together with the module lookups that an interpreter reports for them.
+_Avoid_: Trace, recorded derivation, dynamic derivation
+
+**Recording step**:
+The shared step that records what a job's entry files and setups read, and compares that recording with the stored lists.
+_Avoid_: Tracer, recorder
+
+**Full recording**:
+The periodic run that records every entry file of a repository and replaces its stored lists and duration estimates; the only run that removes a stored read.
+_Avoid_: Re-seed, seeding, full trace
+
+**Stored lists**:
+The path list, directory memberships, existence reads and lookup directories that the suite list holds for a suite or an entry file, written from recordings.
+_Avoid_: Read lists, path lists (for all of them)
+
+**Addition**:
+A read in a recording that the stored lists do not hold; the recording step reports it, and the change adds it to the lists.
+_Avoid_: New read, missing path
+
+**Setup read**:
+A read that a step before the suites of a job makes, such as installing dependencies or building, and that belongs to the path list of every suite and entry file that needs the step.
+_Avoid_: Global input, build read
+
+**Path list**:
+The patterns of the files whose content a suite reads, stored in the suite list and produced from recordings.
+_Avoid_: Paths, read list
+
+**Directory membership**:
+The names that a directory, or a pattern over names, holds, as a suite reads them: adding, removing or renaming a matching name selects the suite, and a content change does not.
+_Avoid_: Directory listing, glob read
+
+**Existence read**:
+Whether one path exists as a file or a directory, as a suite reads it: only its appearing or disappearing selects the suite.
+_Avoid_: Existence predicate, existence check
+
+**Module lookup**:
+A module name that an interpreter looked for in a directory of its module search path without finding a module or package of that name there, a namespace portion counting as not found, as a suite reads it: adding a file or directory there that can carry that module name selects every suite that looks up modules in that directory.
+_Avoid_: Import probe, shadow read
+
+**Lookup directory**:
+A checkout directory in which a suite, or an entry file of a suite selected per entry file, looks up modules, as its lookup reports name it.
+_Avoid_: Search directory, import directory
+
+**Lookup report**:
+What an interpreter reports for each of its processes: the directories that its module resolution lists and the module names that it looks up in each, found or not. A recording takes its module lookups from it.
+_Avoid_: Import trace, import log
+
+**Extra read**:
+A read that no recording sees, stated in the suite list by the change that adds the read, beside the recorded reads, as content patterns, directory memberships or existence reads.
+_Avoid_: Extra paths, manual path

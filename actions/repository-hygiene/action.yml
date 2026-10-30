@@ -1,0 +1,33 @@
+name: Shared repository-hygiene resources
+description: Expose the hygiene scripts, policy and pins from the running workflow revision.
+inputs:
+  include-node-version:
+    description: Read the pinned Node.js version when a caller needs that output.
+    required: false
+    default: "true"
+outputs:
+  path:
+    description: Absolute path to the shared hygiene resources.
+    value: ${{ steps.resources.outputs.path }}
+  node-version:
+    description: The Node.js version pinned in pins.json.
+    value: ${{ steps.node-version.outputs.node-version }}
+runs:
+  using: composite
+  steps:
+    - id: resources
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        printf 'path=%s\n' "$RESOURCE_PATH" >> "$GITHUB_OUTPUT"
+    - id: node-version
+      if: inputs.include-node-version == 'true'
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        node_version="$(jq --raw-output '.node.version' "$RESOURCE_PATH/pins.json")"
+        printf 'node-version=%s\n' "$node_version" >> "$GITHUB_OUTPUT"

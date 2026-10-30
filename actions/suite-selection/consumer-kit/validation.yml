@@ -1,0 +1,41 @@
+name: Validation
+on:
+  pull_request:
+  push:
+    branches: [<default-branch>]
+  repository_dispatch:
+    types: [dependabot-merged]
+permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  select:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1
+    with:
+      suites: .github/suites.json
+      language-steps: python
+      runner-labels: <runner-labels>
+      setup-versions: <setup-versions>
+  <validation-workflow>:
+    needs: select
+    permissions:
+      contents: read
+    uses: $/.github/workflows/<validation-workflow>.yml
+    with:
+      suites: ${{ needs.select.outputs.suites }}
+      entries: ${{ needs.select.outputs.entries }}
+      language-steps: ${{ needs.select.outputs.language-steps }}
+      shared-digest: ${{ needs.select.outputs.shared-digest }}
+  validation:
+    needs: [select, <validation-workflow>]
+    if: always() && !(needs.select.result == 'success' && needs.select.outputs.identical == 'true')
+    permissions:
+      contents: read
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-verdict.yml@v1
+    with:
+      needs: ${{ toJSON(needs) }}

@@ -1,0 +1,327 @@
+name: Full recording
+
+on:
+  schedule:
+    # Mondays at 03:17 UTC; the plan job records only in even ISO weeks, so the schedule records every two weeks.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.week.outputs.run }}
+      shards: ${{ steps.select.outputs.shards }}
+      windows: ${{ steps.select.outputs.windows }}
+    steps:
+      - id: week
+        name: Record every two weeks on the schedule and always when started by hand
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != schedule ] || [ $((10#$(date -u +%V) % 2)) -eq 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "An odd ISO week: the full recording runs next week." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.week.outputs.run == 'true'
+        uses: actions/checkout@<pin>
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - id: selection
+        if: steps.week.outputs.run == 'true'
+        uses: CrankyAnt/SharedWorkflows/actions/suite-selection@v1
+      - id: select
+        name: Shard every entry file for the full recording
+        if: steps.week.outputs.run == 'true'
+        env:
+          SELECTION: ${{ steps.selection.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites .github/suites.json --full --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    needs: plan
+    if: needs.plan.outputs.run == 'true' && needs.plan.outputs.shards != '' && needs.plan.outputs.shards != '[]'
+    name: shard ${{ matrix.shard.shard }}
+    runs-on: <linux-runner>
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    env:
+      SHARD: ${{ toJSON(matrix.shard) }}
+    steps:
+      - uses: actions/checkout@<pin>
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: recording
+        uses: CrankyAnt/SharedWorkflows/actions/recording@v1
+      - id: python
+        if: contains(matrix.shard.setups, 'python')
+        uses: actions/setup-python@<pin>
+        with:
+          python-version: "<python-version>"
+          update-environment: false
+      - name: Start the full recording
+        id: start
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: python3 "$RECORDING/recording.py" start --full
+      - name: Provide the set-up Python with the lookup report to the entry files that state it
+        if: contains(matrix.shard.setups, 'python')
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: python3 "$RECORDING/recording.py" provide --setup python --path "$(dirname "$PYTHON_PATH")" --python "$PYTHON_PATH"
+      - name: Run the setup <setup> under the recording
+        if: contains(matrix.shard.setups, '<setup>')
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          python3 "$RECORDING/recording.py" exec --setup <setup> -- <setup-command>
+          python3 "$RECORDING/recording.py" provide --setup <setup> <setup-provides>
+      - name: Run the shard's entry files under the recording, two at a time
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          set -uo pipefail
+          export LOGS="$RUNNER_TEMP/entry-logs"
+          mkdir -p "$LOGS"
+          # shellcheck disable=SC2329 # xargs invokes run_entry through bash -c
+          run_entry() {
+            local suite entry name command
+            suite="$(jq -r .suite <<<"$1")"
+            entry="$(jq -r .entry <<<"$1")"
+            mapfile -t command < <(jq -r '.command[]' <<<"$1")
+            name="${entry//\//_}"
+            python3 "$RECORDING/recording.py" exec --entry "$entry" --suites .github/suites.json --suite "$suite" -- "${command[@]}" "$entry" > "$LOGS/$name.log" 2>&1
+            echo "$?" > "$LOGS/$name.status"
+            echo "$entry exited with $(cat "$LOGS/$name.status")"
+          }
+          export -f run_entry
+          # shellcheck disable=SC2016 # the inner script expands $1 itself
+          jq -c '.entries[]' <<<"$SHARD" | xargs -d '\n' -r -n 1 -P 2 bash -c 'run_entry "$1"' _
+          failed=0
+          while IFS= read -r entry; do
+            name="${entry//\//_}"
+            echo "::group::$entry"
+            cat "$LOGS/$name.log"
+            echo "::endgroup::"
+            if [[ "$(cat "$LOGS/$name.status" 2>/dev/null)" != 0 ]]; then
+              echo "::error::$entry failed"
+              failed=1
+            fi
+          done < <(jq -r '.entries[].entry' <<<"$SHARD")
+          exit "$failed"
+      - name: Parse and classify the shard's recording and upload its result
+        if: ${{ !cancelled() && steps.start.outcome == 'success' }}
+        uses: CrankyAnt/SharedWorkflows/actions/recording@v1
+        with:
+          check: "true"
+          suites: .github/suites.json
+          artifact-name: full-recording-shard-${{ matrix.shard.shard }}
+
+  windows:
+    needs: plan
+    if: needs.plan.outputs.run == 'true' && needs.plan.outputs.windows != ''
+    runs-on: <windows-runner>
+    permissions:
+      contents: read
+    env:
+      WINDOWS: ${{ needs.plan.outputs.windows }}
+      SETUPS: ${{ needs.plan.outputs.windows != '' && toJSON(fromJSON(needs.plan.outputs.windows).setups) || '[]' }}
+    steps:
+      - uses: actions/checkout@<pin>
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - id: recording
+        uses: CrankyAnt/SharedWorkflows/actions/recording@v1
+      - name: Start the full recording
+        id: start
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: python "$env:RECORDING\recording.py" start --full
+      - name: Run the setup <setup> under the recording
+        if: contains(fromJSON(env.SETUPS), '<setup>')
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          python "$env:RECORDING\recording.py" exec --setup <setup> -- <setup-command>
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python "$env:RECORDING\recording.py" provide --setup <setup> <setup-provides>
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the selected Windows entry files under the recording
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          $job = $env:WINDOWS | ConvertFrom-Json
+          $failed = @()
+          $passed = @()
+          foreach ($item in $job.entries) {
+            $command = @($item.command)
+            Write-Output "::group::$($item.entry)"
+            python "$env:RECORDING\recording.py" exec --entry $item.entry --suites .github/suites.json --suite $item.suite -- @command $item.entry
+            $status = $LASTEXITCODE
+            Write-Output "::endgroup::"
+            if ($status -ne 0) {
+              Write-Output "::error::$($item.entry) exited with $status"
+              $failed += $item.entry
+            } else {
+              $passed += [ordered]@{ suite = $item.suite; entry = $item.entry }
+            }
+          }
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\suite-results" | Out-Null
+          ConvertTo-Json -InputObject @($passed) -Depth 3 | Set-Content -Path "$env:RUNNER_TEMP\suite-results\passed.json" -Encoding utf8
+          if ($failed) { exit 1 }
+      - name: Classify the Windows recording and upload its result
+        if: ${{ !cancelled() && steps.start.outcome == 'success' }}
+        uses: CrankyAnt/SharedWorkflows/actions/recording@v1
+        with:
+          check: "true"
+          suites: .github/suites.json
+          artifact-name: full-recording-windows
+
+  close:
+    needs: [plan, linux, windows]
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@<pin>
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@<pin>
+        with:
+          pattern: full-recording-*
+          path: ${{ runner.temp }}/full-recording
+      - id: recording
+        uses: CrankyAnt/SharedWorkflows/actions/recording@v1
+      - name: Join the results, apply the removals and write the duration estimates
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          REPORT: ${{ runner.temp }}/full-recording-report.md
+        run: |
+          set -euo pipefail
+          printf 'The full recording of run %s/%s/actions/runs/%s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$REPORT"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites .github/suites.json --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/full-recording/*/full-recording.json | sed 's/^/- /' >> "$REPORT"
+      - id: changes
+        name: Find whether the stored lists changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/upload-artifact@<pin>
+        with:
+          name: full-recording-joined
+          path: |
+            .github/suites.json
+            ${{ runner.temp }}/full-recording-report.md
+          if-no-files-found: error
+      - name: Check the changed files
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        run: |
+          set -euo pipefail
+          git diff --name-only | while IFS= read -r path; do
+            case "$path" in
+              .github/suites.json) ;;
+              *) echo "Unexpected changed file: $path" >&2; exit 1 ;;
+            esac
+          done
+      - uses: actions/create-github-app-token@<pin>
+        id: app-token
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Configure the GitHub App identity
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          app_id="$(gh api "users/$APP_LOGIN" --jq .id)"
+          git config user.name "$APP_LOGIN"
+          git config user.email "$app_id+$APP_LOGIN@users.noreply.github.com"
+      - name: Commit the recorded lists
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        run: |
+          set -euo pipefail
+          git add .github/suites.json
+          git diff --cached --check
+          git commit -m "chore: update the recorded path lists"
+      - id: hygiene
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        uses: CrankyAnt/SharedWorkflows/actions/repository-hygiene@v1
+        with:
+          include-node-version: "false"
+      - name: Install the pinned Gitleaks
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          HYGIENE: ${{ steps.hygiene.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$HYGIENE/install_tools.py" --pins "$HYGIENE/pins.json" --platform linux-x64 --tool gitleaks --destination "$RUNNER_TEMP/hygiene-tools"
+      - name: Scan the commit before pushing
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --prune origin
+          "$RUNNER_TEMP/hygiene-tools/gitleaks" git <gitleaks-options> --log-opts="HEAD --not --remotes=origin" --redact --no-banner --no-color
+      - name: Push the review branch
+        id: push
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-recorded-lists"
+          if git -c credential.helper= -c 'credential.helper=!gh auth git-credential' ls-remote --exit-code --heads origin "refs/heads/$branch" > /dev/null; then
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            remote_tip="$(git rev-parse --verify "refs/remotes/origin/$branch")"
+          else
+            remote_tip=""
+          fi
+          git switch -C "$branch"
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push --force-with-lease="refs/heads/$branch:$remote_tip" origin "HEAD:refs/heads/$branch"
+      - name: Create or update the review pull request
+        id: pull-request
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-recorded-lists"
+          title="chore: update the recorded path lists"
+          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --base "$DEFAULT_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -n "$url" ]; then
+            gh pr edit "$url" --title "$title" --body-file "$RUNNER_TEMP/full-recording-report.md"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$DEFAULT_BRANCH" --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/full-recording-report.md"
+          fi
+      - id: stopped
+        name: Name the App setting this run would need
+        if: ${{ failure() && (steps.app-token.outcome == 'failure' || steps.push.outcome == 'failure' || steps.pull-request.outcome == 'failure') }}
+        run: |
+          echo "::error::The updater App could not propose the recorded lists with its existing installation and credentials. Any other App or repository setting is a question to the user under docs/agents/publication.md; the joined result is the artifact full-recording-joined."
+          exit 1

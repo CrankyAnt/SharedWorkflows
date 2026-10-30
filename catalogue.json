@@ -1,0 +1,45 @@
+{
+  "about": "The shared parts of the CI of CrankyAnt/SharedWorkflows that a consumer can adopt. Read this file at the tag v1. Paths are paths in CrankyAnt/SharedWorkflows at v1: a workflow is called as CrankyAnt/SharedWorkflows/.github/workflows/<workflow>@v1 and a step as CrankyAnt/SharedWorkflows/actions/<part>@v1. required_checks are the checks a consumer's default-branch ruleset requires for the part. consumer_kit is the folder that holds the part's caller templates and their explanation in its README.md, or null while the part has no consumer kit yet. A consumer applies shared parts and changes none of them.",
+  "parts": [
+    {
+      "name": "Repository hygiene",
+      "purpose": "One job that checks every repository's publication conventions and credentials and runs the shared checks that a change can affect: workflow validation, Dependabot coverage, relative Markdown links and REUSE.",
+      "workflows": [".github/workflows/repository-hygiene.yml"],
+      "steps": ["actions/repository-hygiene", "actions/publication-checks"],
+      "required_checks": ["hygiene / hygiene"],
+      "needs": "A GitHub repository whose squash and merge-commit subjects are the pull request title with an empty body and whose rebase merge is disabled.",
+      "applies": "Every repository, a Markdown-only one included.",
+      "consumer_kit": "actions/repository-hygiene/consumer-kit"
+    },
+    {
+      "name": "Dependabot auto-merge",
+      "purpose": "Merges a Dependabot pull request whose updates are all patch or minor, and for GitHub Actions all from actions/*, once its required checks have passed.",
+      "workflows": [".github/workflows/dependabot-auto-merge.yml"],
+      "steps": ["actions/dependabot-auto-merge"],
+      "required_checks": [],
+      "needs": "A Dependabot configuration, Dependabot alerts and security updates enabled, and a default-branch ruleset that requires status checks.",
+      "applies": "A repository with a dependency of its own: a package file that Dependabot updates, or a workflow of its own, other than a caller of a shared workflow, that uses an action from outside the repository.",
+      "consumer_kit": "actions/dependabot-auto-merge/consumer-kit"
+    },
+    {
+      "name": "Suite selection",
+      "purpose": "Runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, and reports one verdict as the required check.",
+      "workflows": [".github/workflows/suite-selection.yml", ".github/workflows/suite-verdict.yml"],
+      "steps": ["actions/suite-selection", "actions/recording"],
+      "required_checks": ["validation / validation"],
+      "needs": "A validation workflow that runs the repository's suites on pull requests and pushes, a suite list of those suites, and for the full recording a GitHub App that may open pull requests.",
+      "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs.",
+      "consumer_kit": "actions/suite-selection/consumer-kit"
+    },
+    {
+      "name": "Python language step",
+      "purpose": "Runs ruff, mypy where the repository configures it, and optionally ruff format in a job that already installs Python.",
+      "workflows": [],
+      "steps": ["actions/python-language-step"],
+      "required_checks": [],
+      "needs": "A job that installs Python; with the suite selection, the first job of a validation workflow, where the verdict reports its result.",
+      "applies": "A repository with Python files.",
+      "consumer_kit": "actions/python-language-step/consumer-kit"
+    }
+  ]
+}

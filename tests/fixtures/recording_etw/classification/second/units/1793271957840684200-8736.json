@@ -1,0 +1,23 @@
+{
+  "unit": "1793271957840684200-8736",
+  "kind": "entry",
+  "name": "tests/copy.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-q0bzdr1d\\python\\Scripts\\python.EXE",
+    "tests/copy.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.429,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793271957840684200-8736",
+  "temporary": "D:\\a\\_temp\\recording-q0bzdr1d\\recording\\work\\1793271957840684200-8736\\tmp",
+  "cache": "D:\\a\\_temp\\recording-q0bzdr1d\\recording\\work\\1793271957840684200-8736\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-q0bzdr1d\\repo",
+  "pid": 3504,
+  "launcher": 8736,
+  "recorder": [
+    "etw"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "mode": "full",
+  "trace_set": "etw",
+  "roots": [
+    "D:\\a\\_temp\\recording-jhcowr9f\\linked"
+  ],
+  "git_directories": [
+    "D:\\a\\_temp\\recording-jhcowr9f\\repo\\.git\\worktrees\\linked",
+    "D:\\a\\_temp\\recording-jhcowr9f\\repo\\.git"
+  ],
+  "devices": {
+    "\\Device\\HarddiskVolume3": "C:",
+    "\\Device\\HarddiskVolume4": "D:"
+  },
+  "events": "events.tsv",
+  "consumer": 9156
+}

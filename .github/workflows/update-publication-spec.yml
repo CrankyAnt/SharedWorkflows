@@ -1,0 +1,152 @@
+name: Update Conventional Branch specification
+
+on:
+  schedule:
+    - cron: "6 17 * * 1"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Create or update the review pull request when a newer specification exists
+        required: true
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: update-conventional-branch-specification
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.specification.outputs.changed }}
+      version: ${{ steps.specification.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Load the CI tool pins from this revision
+        id: pins
+        uses: $/actions/repository-hygiene
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ steps.pins.outputs.node-version }}
+          package-manager-cache: false
+      - id: specification
+        name: Check the official Conventional Branch specification
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/publication-checks/update_spec.py --root . --output "$GITHUB_OUTPUT"
+      - name: Report the refresh plan
+        env:
+          CHANGED: ${{ steps.specification.outputs.changed }}
+          VERSION: ${{ steps.specification.outputs.version }}
+        run: printf 'changed=%s version=%s\n' "$CHANGED" "$VERSION"
+
+  propose:
+    needs: plan
+    if: needs.plan.outputs.changed == 'true' && (github.event_name == 'schedule' || inputs.apply == true)
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Load the CI tool pins from this revision
+        id: pins
+        uses: $/actions/repository-hygiene
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ steps.pins.outputs.node-version }}
+          package-manager-cache: false
+      - name: Refresh the vendored specification
+        id: specification
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/publication-checks/update_spec.py --root . --output "$GITHUB_OUTPUT"
+      - name: Check the changed files
+        if: steps.specification.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git diff --name-only | while IFS= read -r path; do
+            case "$path" in
+              actions/publication-checks/spec.json|actions/publication-checks/spec-metadata.json|tests/fixtures/publication_checks/specification-cases.json) ;;
+              *) echo "Unexpected changed file: $path" >&2; exit 1 ;;
+            esac
+          done
+      - name: Configure the GitHub App identity
+        if: steps.specification.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          app_id="$(gh api "users/$APP_LOGIN" --jq .id)"
+          git config user.name "$APP_LOGIN"
+          git config user.email "$app_id+$APP_LOGIN@users.noreply.github.com"
+      - name: Stage the reviewed specification update
+        if: steps.specification.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git add actions/publication-checks/spec.json actions/publication-checks/spec-metadata.json tests/fixtures/publication_checks/specification-cases.json
+          git diff --cached --check
+          git diff --cached
+      - name: Commit the specification update
+        if: steps.specification.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.specification.outputs.version }}
+        run: 'git commit -m "chore: update Conventional Branch specification to $VERSION"'
+      - name: Install the pinned Gitleaks
+        if: steps.specification.outputs.changed == 'true'
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/install_tools.py --pins actions/repository-hygiene/pins.json --platform linux-x64 --tool gitleaks --destination "$RUNNER_TEMP/hygiene-tools"
+      - name: Scan unpublished commits before pushing
+        if: steps.specification.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --prune origin
+          "$RUNNER_TEMP/hygiene-tools/gitleaks" git --config .gitleaks.toml --baseline-path .gitleaks-baseline.json --log-opts="HEAD --not --remotes=origin" --redact --no-banner --no-color
+      - name: Push the review branch
+        if: steps.specification.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-conventional-branch-spec"
+          if git -c credential.helper= -c 'credential.helper=!gh auth git-credential' ls-remote --exit-code --heads origin "refs/heads/$branch" > /dev/null; then
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            remote_tip="$(git rev-parse --verify "refs/remotes/origin/$branch")"
+          else
+            remote_tip=""
+          fi
+          git switch -C "$branch"
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push --force-with-lease="refs/heads/$branch:$remote_tip" origin "HEAD:refs/heads/$branch"
+      - name: Create or update the review pull request
+        if: steps.specification.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ steps.specification.outputs.version }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-conventional-branch-spec"
+          title="chore: update Conventional Branch specification to $VERSION"
+          body="Updates the vendored Conventional Branch specification, its SHA-256 metadata, and the observed official-regex fixture to $VERSION."
+          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --base "$DEFAULT_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -n "$url" ]; then
+            gh pr edit "$url" --title "$title" --body "$body"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$DEFAULT_BRANCH" --head "$branch" --title "$title" --body "$body"
+          fi

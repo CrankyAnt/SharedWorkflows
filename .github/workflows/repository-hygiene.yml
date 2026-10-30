@@ -1,0 +1,226 @@
+name: Repository hygiene
+
+on:
+  workflow_call:
+    inputs:
+      gitleaks-config:
+        description: Gitleaks configuration file, relative to the repository root. Empty leaves Gitleaks on its default configuration.
+        type: string
+        required: false
+        default: ""
+      gitleaks-baseline:
+        description: Gitleaks baseline report, relative to the repository root. Empty runs without a baseline.
+        type: string
+        required: false
+        default: ""
+      zizmor-persona:
+        description: zizmor persona (regular, pedantic or auditor). Empty leaves zizmor on its default persona.
+        type: string
+        required: false
+        default: ""
+      coverage-exclude:
+        description: Paths relative to the repository root, one per line, whose package files are not checked for Dependabot coverage.
+        type: string
+        required: false
+        default: ""
+      link-exclude:
+        description: Globs relative to the repository root, one per line, of Markdown files whose links are not checked.
+        type: string
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: hygiene-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' }}
+    steps:
+      - name: Load resources from this workflow revision
+        id: resources
+        uses: $/actions/repository-hygiene
+      - name: Load the push lookup from this workflow revision
+        id: selection
+        uses: $/actions/suite-selection
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Look up the tested tree of the pushed commit's pull request
+        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore the passed checks of the pull request
+        if: github.event_name == 'pull_request' && github.event.action == 'edited' && github.run_attempt == 1
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/hygiene-results/record.json
+          key: hygiene-results-${{ github.event.pull_request.number }}-run-lookup-${{ github.run_id }}
+          restore-keys: hygiene-results-${{ github.event.pull_request.number }}-run-
+      - name: Decide which checks the changed files can affect
+        id: changes
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          EVENT: ${{ github.event_name }}
+          REUSE_RESULTS: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && github.run_attempt == 1 }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
+        run: |
+          case "$EVENT" in
+            push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
+          esac
+          if [ "$REUSE_RESULTS" = "true" ]; then set -- "$@" --results "$RUNNER_TEMP/hygiene-results/record.json"; fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/repository-hygiene.yml#step:coverage" --packages-definition ".github/workflows/repository-hygiene.yml#coverage-exclude" --packages-definition ".github/workflows/repository-hygiene-caller.yml#coverage-exclude" --markdown-definition ".github/workflows/repository-hygiene.yml#step:links" --markdown-definition ".github/workflows/repository-hygiene.yml#link-exclude" --markdown-definition ".github/workflows/repository-hygiene-caller.yml#link-exclude" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Decide whether the PR author skips the convention checks
+        id: author-decision
+        if: github.event_name == 'pull_request'
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          node <<'EOF'
+          const fs = require("node:fs");
+          const author = process.env.PR_AUTHOR ?? "";
+          const skip = author === "dependabot[bot]" || author === "renovate[bot]";
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `skip=${skip}\n`);
+          for (const check of ["branch", "commits", "pull request title"]) {
+            console.log(skip ? `Skipping ${check} check for bot PR author ${author}.` : `Running ${check} check for PR author ${author}.`);
+          }
+          EOF
+      - name: Load the convention checks from this workflow revision
+        id: conventions
+        if: steps.author-decision.outputs.skip == 'false'
+        uses: $/actions/publication-checks
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.author-decision.outputs.skip == 'false'
+        with:
+          node-version: ${{ steps.resources.outputs.node-version }}
+          package-manager-cache: false
+      - name: Check the pull request branch
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
+      - name: Install the locked commitlint toolchain
+        id: commitlint
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        working-directory: ${{ runner.temp }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          npm_config_update_notifier: "false"
+        run: |
+          tool_directory="$RUNNER_TEMP/publication-checks-tools"
+          mkdir -p "$tool_directory"
+          cp "$CONVENTIONS_PATH/package.json" "$CONVENTIONS_PATH/package-lock.json" "$CONVENTIONS_PATH/commitlint.config.cjs" "$tool_directory/"
+          npm ci --ignore-scripts --no-audit --no-fund --userconfig /dev/null --prefix "$tool_directory"
+      - name: Check every pull request commit
+        if: ${{ !cancelled() && steps.commitlint.outcome == 'success' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COMMITLINT_CLI: ${{ runner.temp }}/publication-checks-tools/node_modules/@commitlint/cli/lib/cli.js
+          COMMITLINT_CONFIG: ${{ runner.temp }}/publication-checks-tools/commitlint.config.cjs
+        run: node "$CONVENTIONS_PATH/check-commits.cjs" "$BASE_SHA" "$HEAD_SHA"
+      - name: Check the pull request title
+        if: ${{ !cancelled() && steps.commitlint.outcome == 'success' }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          COMMITLINT_CONTEXT: pull-request-title
+          COMMITLINT_CLI: ${{ runner.temp }}/publication-checks-tools/node_modules/@commitlint/cli/lib/cli.js
+          COMMITLINT_CONFIG: ${{ runner.temp }}/publication-checks-tools/commitlint.config.cjs
+        run: |
+          printf '%s\n' "$PR_TITLE" |
+            node "$COMMITLINT_CLI" --config "$COMMITLINT_CONFIG" --cwd "$GITHUB_WORKSPACE" --verbose
+      - name: Dependabot coverage of tracked package files
+        id: coverage
+        if: ${{ !cancelled() && steps.changes.outputs.packages == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          COVERAGE_EXCLUDE: ${{ inputs.coverage-exclude }}
+        run: printf '%s\n' "$COVERAGE_EXCLUDE" | PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" coverage --exclude-from -
+      - name: Relative links in tracked Markdown
+        id: links
+        if: ${{ !cancelled() && steps.changes.outputs.markdown == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          LINK_EXCLUDE: ${{ inputs.link-exclude }}
+        run: printf '%s\n' "$LINK_EXCLUDE" | PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"
+      - name: Install the pinned tools and verify their checksums
+        id: install
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          ACTIONLINT: ${{ steps.changes.outputs.actionlint }}
+          ZIZMOR: ${{ steps.changes.outputs.zizmor }}
+          REUSE: ${{ steps.changes.outputs.reuse }}
+        run: |
+          tools="--tool gitleaks"
+          if [ "$ACTIONLINT" = "true" ]; then tools="$tools --tool actionlint --tool shellcheck"; fi
+          if [ "$ZIZMOR" = "true" ]; then tools="$tools --tool zizmor"; fi
+          if [ "$REUSE" = "true" ]; then tools="$tools --tool reuse"; fi
+          # shellcheck disable=SC2086 # $tools holds separate --tool options
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" $tools
+      - name: actionlint with the pinned ShellCheck
+        id: actionlint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.actionlint == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" actionlint --tools "$HYGIENE_TOOLS"
+      - name: zizmor over workflows and action definitions
+        id: zizmor
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.zizmor == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+          ZIZMOR_PERSONA: ${{ inputs.zizmor-persona }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" zizmor --tools "$HYGIENE_TOOLS" --persona "$ZIZMOR_PERSONA"
+      - name: REUSE licence assignments
+        id: reuse
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.reuse == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" reuse --tools "$HYGIENE_TOOLS"
+      - name: Gitleaks over all reachable history
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+          GITLEAKS_CONFIG: ${{ inputs.gitleaks-config }}
+          GITLEAKS_BASELINE: ${{ inputs.gitleaks-baseline }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" gitleaks --tools "$HYGIENE_TOOLS" --config "$GITLEAKS_CONFIG" --baseline "$GITLEAKS_BASELINE"
+      - name: Record the passed checks for an edit of the pull request
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          RUN_ID: ${{ github.run_id }}
+          REUSED: ${{ steps.changes.outputs.reused }}
+          ACTIONLINT: ${{ steps.actionlint.outcome }}
+          ZIZMOR: ${{ steps.zizmor.outcome }}
+          PACKAGES: ${{ steps.coverage.outcome }}
+          MARKDOWN: ${{ steps.links.outcome }}
+          REUSE: ${{ steps.reuse.outcome }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" record --run-id "$RUN_ID" --outcome "actionlint=$ACTIONLINT" --outcome "zizmor=$ZIZMOR" --outcome "packages=$PACKAGES" --outcome "markdown=$MARKDOWN" --outcome "reuse=$REUSE" --reused "$REUSED" --output "$RUNNER_TEMP/hygiene-results/record.json"
+      - name: Store the passed checks in the pull request's cache
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/hygiene-results/record.json
+          key: hygiene-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}

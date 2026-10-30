@@ -1,0 +1,5 @@
+{
+  "mode": "full",
+  "trace_set": "wide",
+  "strace": "/usr/bin/strace"
+}

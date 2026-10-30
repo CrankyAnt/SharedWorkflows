@@ -1,0 +1,140 @@
+name: Update CI tool pins
+
+on:
+  schedule:
+    # Mondays at 17:36 UTC.
+    - cron: "36 17 * * 1"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Create or update the review pull request when newer releases exist
+        required: true
+        type: boolean
+        default: false
+      cooldown_days:
+        description: Minimum age in days of a release before it is proposed
+        required: true
+        type: number
+        default: 7
+
+permissions: {}
+
+concurrency:
+  group: update-ci-pins
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.pins.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - id: pins
+        name: Check the upstream releases of every pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COOLDOWN_DAYS: ${{ inputs.cooldown_days || 7 }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/update_pins.py --cooldown-days "$COOLDOWN_DAYS" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  propose:
+    needs: plan
+    if: needs.plan.outputs.changed == 'true' && (github.event_name == 'schedule' || inputs.apply == true)
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refresh the pins file
+        id: pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COOLDOWN_DAYS: ${{ inputs.cooldown_days || 7 }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/update_pins.py --apply --cooldown-days "$COOLDOWN_DAYS" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" --pr-body "$RUNNER_TEMP/pins-pr-body.md"
+      - name: Check the changed files
+        if: steps.pins.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git diff --name-only | while IFS= read -r path; do
+            case "$path" in
+              actions/repository-hygiene/pins.json) ;;
+              *) echo "Unexpected changed file: $path" >&2; exit 1 ;;
+            esac
+          done
+      - name: Configure the GitHub App identity
+        if: steps.pins.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          app_id="$(gh api "users/$APP_LOGIN" --jq .id)"
+          git config user.name "$APP_LOGIN"
+          git config user.email "$app_id+$APP_LOGIN@users.noreply.github.com"
+      - name: Stage the reviewed pins update
+        if: steps.pins.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git add actions/repository-hygiene/pins.json
+          git diff --cached --check
+          git diff --cached
+      - name: Commit the pins update
+        if: steps.pins.outputs.changed == 'true'
+        run: 'git commit -m "chore: update CI tool pins"'
+      - name: Install the pinned Gitleaks
+        if: steps.pins.outputs.changed == 'true'
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/install_tools.py --pins actions/repository-hygiene/pins.json --platform linux-x64 --tool gitleaks --destination "$RUNNER_TEMP/hygiene-tools"
+      - name: Scan the commit before pushing
+        if: steps.pins.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --prune origin
+          "$RUNNER_TEMP/hygiene-tools/gitleaks" git --config .gitleaks.toml --baseline-path .gitleaks-baseline.json --log-opts="HEAD --not --remotes=origin" --redact --no-banner --no-color
+      - name: Push the review branch
+        if: steps.pins.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-ci-pins"
+          if git -c credential.helper= -c 'credential.helper=!gh auth git-credential' ls-remote --exit-code --heads origin "refs/heads/$branch" > /dev/null; then
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            remote_tip="$(git rev-parse --verify "refs/remotes/origin/$branch")"
+          else
+            remote_tip=""
+          fi
+          git switch -C "$branch"
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push --force-with-lease="refs/heads/$branch:$remote_tip" origin "HEAD:refs/heads/$branch"
+      - name: Create or update the review pull request
+        if: steps.pins.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-ci-pins"
+          title="chore: update CI tool pins"
+          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --base "$DEFAULT_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -n "$url" ]; then
+            gh pr edit "$url" --title "$title" --body-file "$RUNNER_TEMP/pins-pr-body.md"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$DEFAULT_BRANCH" --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/pins-pr-body.md"
+          fi

@@ -1,0 +1,16 @@
+suffixes	.cpython-314-x86_64-linux-gnu.so	.abi3.so	.abi3-x86_64-linux-gnu.so	.so	.py	.pyc
+list	942	${BASE}/python/lib/python3.14/site-packages
+lookup	${BASE}/python/lib/python3.14/site-packages	apport_python_hook	absent
+list	942	${BASE}/repo/data
+lookup	${BASE}/repo/data	json	absent
+lookup	${BASE}/repo/data	re	absent
+lookup	${BASE}/repo/data	enum	absent
+lookup	${BASE}/repo/data	types	absent
+lookup	${BASE}/repo/data	functools	absent
+lookup	${BASE}/repo/data	collections	absent
+lookup	${BASE}/repo/data	keyword	absent
+lookup	${BASE}/repo/data	operator	absent
+lookup	${BASE}/repo/data	reprlib	absent
+lookup	${BASE}/repo/data	copyreg	absent
+lookup	${BASE}/repo/data	absent_isolated	absent
+lookup	${BASE}/python/lib/python3.14/site-packages	absent_isolated	absent

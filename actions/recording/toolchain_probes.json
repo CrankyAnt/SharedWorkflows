@@ -1,0 +1,82 @@
+{
+  "toolchains": [
+    {
+      "name": ".NET SDK with MSBuild and NuGet",
+      "programs": ["dotnet"],
+      "project_extensions": [".csproj", ".fsproj", ".vbproj", ".proj"],
+      "solution_extensions": [".sln", ".slnx", ".slnf"],
+      "rules": [
+        {
+          "names": ["Directory.Build.props", "Directory.Build.targets"],
+          "from": ["project", "argument"],
+          "upward": true,
+          "source": "https://github.com/dotnet/msbuild/blob/main/src/Tasks/Microsoft.Common.props (GetDirectoryNameOfFileAbove from $(MSBuildProjectDirectory)); https://learn.microsoft.com/en-us/visualstudio/msbuild/customize-by-directory"
+        },
+        {
+          "names": ["Directory.Packages.props"],
+          "from": ["project", "argument"],
+          "upward": true,
+          "source": "https://github.com/NuGet/NuGet.Client/blob/dev/src/NuGet.Core/NuGet.Build.Tasks/NuGet.props (GetDirectoryNameOfFileAbove from the project directory)"
+        },
+        {
+          "names": ["Directory.Build.rsp"],
+          "from": ["project", "solution", "argument"],
+          "upward": true,
+          "source": "https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-response-files#directorybuildrsp"
+        },
+        {
+          "names": ["Directory.Solution.props", "Directory.Solution.targets"],
+          "from": ["solution", "argument"],
+          "upward": true,
+          "source": "https://learn.microsoft.com/en-us/visualstudio/msbuild/customize-solution-build"
+        },
+        {
+          "names": ["before.{file}.targets", "after.{file}.targets"],
+          "from": ["solution"],
+          "upward": false,
+          "source": "https://learn.microsoft.com/en-us/visualstudio/msbuild/customize-solution-build"
+        },
+        {
+          "names": ["nuget.config", "NuGet.config", "NuGet.Config"],
+          "from": ["project", "solution", "argument", "working"],
+          "upward": true,
+          "source": "https://learn.microsoft.com/en-us/nuget/consume-packages/configuring-nuget-behavior; https://github.com/NuGet/NuGet.Client/blob/dev/src/NuGet.Core/NuGet.Configuration/Settings/Settings.cs (OrderedSettingsFileNames, three spellings on a case-sensitive file system)"
+        },
+        {
+          "names": ["global.json"],
+          "from": ["project", "solution", "argument", "working"],
+          "upward": true,
+          "source": "https://learn.microsoft.com/en-us/dotnet/core/tools/global-json (the muxer from the working directory, the MSBuild SDK resolver from the solution or project directory)"
+        }
+      ]
+    },
+    {
+      "name": "Python",
+      "programs": ["python", "python3"],
+      "rules": [],
+      "source": "https://docs.python.org/3/library/site.html; https://docs.python.org/3/library/sys_path_init.html",
+      "no_rules": "The configuration that Python looks for (pyvenv.cfg, ._pth files, site directories) lies beside the interpreter, outside the checkout. Its probes in the checkout are module lookups and existence reads of the code, which are the accepted misses."
+    },
+    {
+      "name": "PowerShell",
+      "programs": ["pwsh"],
+      "rules": [],
+      "source": "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles; https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath",
+      "no_rules": "PowerShell's profiles, configuration file and module path lie outside the checkout. Its probes in the checkout are existence reads of the code (Test-Path, [IO.File]::Exists), which are the accepted misses."
+    },
+    {
+      "name": "Node.js with npm",
+      "programs": ["node", "npm"],
+      "rules": [],
+      "source": "https://nodejs.org/api/modules.html; https://docs.npmjs.com/cli/configuring-npm/npmrc",
+      "no_rules": "The recording sees npm's package.json walk and its .npmrc as opens. Node's candidate and extension probes are module lookups, and fs.existsSync and fs.statSync are existence reads of the code, which are the accepted misses."
+    },
+    {
+      "name": "Lua",
+      "programs": ["lua", "lua5.4", "luajit"],
+      "rules": [],
+      "source": "https://www.lua.org/manual/5.4/manual.html#pdf-package.searchpath",
+      "no_rules": "package.searchpath opens each candidate, which the recording sees; Lua looks for no configuration file."
+    }
+  ]
+}

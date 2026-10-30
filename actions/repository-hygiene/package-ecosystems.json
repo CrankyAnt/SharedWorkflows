@@ -1,0 +1,8 @@
+{
+  "pip": ["requirements*.txt", "pyproject.toml"],
+  "npm": ["package.json"],
+  "nuget": ["*.csproj", "*.fsproj", "*.vbproj", "packages.config", "Directory.Packages.props"],
+  "gomod": ["go.mod"],
+  "cargo": ["Cargo.toml"],
+  "dotnet-sdk": ["global.json"]
+}

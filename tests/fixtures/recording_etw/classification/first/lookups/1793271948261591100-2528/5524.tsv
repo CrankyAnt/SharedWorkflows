@@ -1,0 +1,54 @@
+suffixes	.cp313-win_amd64.pyd	.pyd	.py	.pyw	.pyc
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	sitecustomize	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	sitecustomize	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64	sitecustomize	absent
+lookup	D:\\a\\_temp\\recording-gz64ztti\\python	sitecustomize	absent
+lookup	D:\\a\\_temp\\recording-gz64ztti\\python\\Lib\\site-packages	sitecustomize	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	linecache	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	linecache	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\linecache.py
+list	8860	D:\\a\\_temp\\recording-gz64ztti\\repo\\data
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	json	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	json	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	json	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json\\__init__.py
+list	8860	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json	decoder	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json\\decoder.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	re	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	re	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	re	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\__init__.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	enum	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	enum	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	enum	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\enum.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	functools	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	functools	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	functools	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\functools.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	collections	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	collections	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	collections	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\collections\\__init__.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	keyword	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	keyword	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	keyword	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\keyword.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	operator	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	operator	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	operator	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\operator.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	reprlib	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	reprlib	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	reprlib	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\reprlib.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	types	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	types	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	types	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\types.py
+list	8860	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_compiler	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_compiler.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_parser	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_parser.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_constants	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_constants.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_casefix	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_casefix.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	copyreg	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	copyreg	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	copyreg	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\copyreg.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json	scanner	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json\\scanner.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json	encoder	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\json\\encoder.py
+lookup	D:\\a\\_temp\\recording-gz64ztti\\repo\\data	absent_isolated	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	absent_isolated	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	absent_isolated	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64	absent_isolated	absent
+lookup	D:\\a\\_temp\\recording-gz64ztti\\python	absent_isolated	absent
+lookup	D:\\a\\_temp\\recording-gz64ztti\\python\\Lib\\site-packages	absent_isolated	absent

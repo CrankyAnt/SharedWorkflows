@@ -1,0 +1,23 @@
+{
+  "unit": "1793259346573389800-7608",
+  "kind": "entry",
+  "name": "tests/linked_revisions.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-jhcowr9f\\python\\Scripts\\python.EXE",
+    "tests/linked_revisions.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.4,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793259346573389800-7608",
+  "temporary": "D:\\a\\_temp\\recording-jhcowr9f\\recording\\work\\1793259346573389800-7608\\tmp",
+  "cache": "D:\\a\\_temp\\recording-jhcowr9f\\recording\\work\\1793259346573389800-7608\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-jhcowr9f\\linked",
+  "pid": 8580,
+  "launcher": 7608,
+  "recorder": [
+    "etw"
+  ]
+}

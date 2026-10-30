@@ -1,0 +1,32 @@
+{
+  "unit": "1793368320163534576-746",
+  "kind": "entry",
+  "name": "tests/git_pathspec_variable.py",
+  "suite": null,
+  "command": [
+    "python3",
+    "tests/git_pathspec_variable.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.082,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "1793368320163534576-746.strace",
+  "lookups": "1793368320163534576-746",
+  "temporary": "${BASE}/recording/work/1793368320163534576-746/tmp",
+  "cache": "${BASE}/recording/work/1793368320163534576-746/pycache",
+  "cwd": "${BASE}/repo",
+  "recorder": [
+    "strace",
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-y",
+    "-s",
+    "4096",
+    "-e",
+    "trace=?open,?openat,?openat2,?getdents,?getdents64,?access,?faccessat,?faccessat2,?newfstatat,?statx,?execve,?execveat,?chdir,?fchdir,?clone,?clone3,?fork,?vfork,?stat,?lstat,?readlink,?readlinkat",
+    "-e",
+    "abbrev=!execve,execveat"
+  ]
+}

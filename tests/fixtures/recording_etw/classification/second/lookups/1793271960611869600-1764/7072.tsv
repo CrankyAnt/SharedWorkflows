@@ -1,0 +1,81 @@
+suffixes	.cp313-win_amd64.pyd	.pyd	.py	.pyw	.pyc
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	sitecustomize	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	sitecustomize	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64	sitecustomize	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python	sitecustomize	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python\\Lib\\site-packages	sitecustomize	absent
+list	8848	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	subprocess	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	subprocess	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	subprocess	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\subprocess.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	locale	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	locale	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	locale	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\locale.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	re	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	re	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	re	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\__init__.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	enum	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	enum	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	enum	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\enum.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	functools	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	functools	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	functools	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\functools.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	collections	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	collections	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	collections	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\collections\\__init__.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	keyword	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	keyword	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	keyword	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\keyword.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	operator	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	operator	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	operator	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\operator.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	reprlib	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	reprlib	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	reprlib	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\reprlib.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	types	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	types	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	types	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\types.py
+list	8848	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_compiler	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_compiler.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_parser	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_parser.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_constants	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_constants.py
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re	_casefix	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\re\\_casefix.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	copyreg	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	copyreg	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	copyreg	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\copyreg.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	signal	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	signal	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	signal	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\signal.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	threading	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	threading	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	threading	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\threading.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	warnings	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	warnings	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	warnings	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\warnings.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	_weakrefset	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	_weakrefset	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	_weakrefset	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\_weakrefset.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	contextlib	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	contextlib	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	contextlib	found	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib\\contextlib.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	fcntl	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	fcntl	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	fcntl	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64	fcntl	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python	fcntl	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python\\Lib\\site-packages	fcntl	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	helper	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	helper	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	helper	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64	helper	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python	helper	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python\\Lib\\site-packages	helper	absent
+list	8848	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\lib
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\lib	helper	found	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\lib\\helper.py
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\tests	absent_module	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\DLLs	absent_module	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64\\Lib	absent_module	absent
+lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.16\\x64	absent_module	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python	absent_module	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\python\\Lib\\site-packages	absent_module	absent
+lookup	D:\\a\\_temp\\recording-q0bzdr1d\\repo\\lib	absent_module	absent

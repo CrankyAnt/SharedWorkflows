@@ -1,0 +1,186 @@
+name: Rebuild the ETW consumer
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] the job that builds the pull request's code holds a read-only token; the pushing job runs no pull-request code
+    workflows: [Validate]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rebuild: ${{ steps.pull-request.outputs.rebuild }}
+    steps:
+      - id: pull-request
+        name: Find the run's Dependabot pull request and whether it changes the consumer's source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The run's head $HEAD_SHA is no commit id."; exit 1; }
+          number="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$OWNER:$HEAD_BRANCH" \
+            --jq "[.[] | select(.user.login == \"dependabot[bot]\" and .head.sha == \"$HEAD_SHA\")][0].number // empty")"
+          rebuild=false
+          if [ -z "$number" ]; then
+            echo "No open pull request by dependabot[bot] has the head $HEAD_SHA of $HEAD_BRANCH." >> "$GITHUB_STEP_SUMMARY"
+          else
+            files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$number/files" --jq '.[].filename')"
+            source="$(awk '/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//' <<<"$files")"
+            if [ -n "$source" ]; then
+              rebuild=true
+              printf 'Pull request #%s changes the source of the ETW consumer:\n\n%s\n' "$number" "- ${source//$'\n'/$'\n'- }" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Pull request #$number changes no source of the ETW consumer." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          printf 'rebuild=%s\n' "$rebuild" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.rebuild == 'true'
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: actions/recording/etw-consumer/global.json
+      - name: Rebuild the consumer from the pull request's source
+        run: python actions/recording/etw_consumer_build.py build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: etw-consumer-build
+          path: actions/recording/etw-consumer/build/
+          if-no-files-found: error
+
+  push:
+    needs: [plan, build]
+    runs-on: ubuntu-slim
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: pull-request
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: etw-consumer-build
+          path: ${{ runner.temp }}/etw-consumer-build
+      - name: Download the recording additions of the failed run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/additions"
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name | startswith("recording-additions-")) | .name')"
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$name" --dir "$RUNNER_TEMP/additions/$name"
+          done <<<"$names"
+      - name: Apply the additions to the suite list and replace the consumer's build with the rebuild
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          additions=("$RUNNER_TEMP"/additions/*/additions.json)
+          if [ "${#additions[@]}" -gt 0 ]; then
+            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/recording/recording.py apply --root pull-request --suites pull-request/tests/suites.json --summary "$GITHUB_STEP_SUMMARY" "${additions[@]}"
+          fi
+          build=pull-request/actions/recording/etw-consumer/build
+          rm -rf "$build"
+          cp -R "$RUNNER_TEMP/etw-consumer-build" "$build"
+      - id: changes
+        name: Check the changed files
+        run: |
+          set -euo pipefail
+          git -C pull-request config core.fileMode false
+          git -C pull-request add -A
+          git -C pull-request diff --cached --check
+          changed="$(git -C pull-request diff --cached --name-only)"
+          if [ -z "$changed" ]; then
+            echo "The committed build equals the rebuild and the run uploaded no recording additions to apply; nothing to commit." >> "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          while IFS= read -r path; do
+            case "$path" in
+              actions/recording/etw-consumer/build/*|tests/suites.json) ;;
+              *) echo "::error::Unexpected changed file: $path"; exit 1 ;;
+            esac
+          done <<<"$changed"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Commit the rebuild as the GitHub App
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          app_id="$(gh api "users/$APP_LOGIN" --jq .id)"
+          git -C pull-request config user.name "$APP_LOGIN"
+          git -C pull-request config user.email "$app_id+$APP_LOGIN@users.noreply.github.com"
+          git -C pull-request commit -m "chore: rebuild the ETW consumer" -m "Rebuilt from the source of $HEAD_SHA, with the recording additions of $RUN_URL."
+      - name: Install the pinned Gitleaks
+        if: steps.changes.outputs.changed == 'true'
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/install_tools.py --pins actions/repository-hygiene/pins.json --platform linux-x64 --tool gitleaks --destination "$RUNNER_TEMP/hygiene-tools"
+      - name: Scan the commit before pushing
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git -C pull-request -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --depth=1 origin "refs/heads/$HEAD_BRANCH:refs/remotes/origin/$HEAD_BRANCH"
+          # A moved branch is not pushed to; the push step stops on the same comparison.
+          [ "$(git -C pull-request rev-parse "refs/remotes/origin/$HEAD_BRANCH")" = "$HEAD_SHA" ] || exit 0
+          "$RUNNER_TEMP/hygiene-tools/gitleaks" git pull-request --config .gitleaks.toml --baseline-path .gitleaks-baseline.json --log-opts="HEAD --not --remotes=origin" --redact --no-banner --no-color
+      - name: Push the rebuild to the pull request's branch
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          remote="$(git -C pull-request rev-parse "refs/remotes/origin/$HEAD_BRANCH")"
+          if [ "$remote" != "$HEAD_SHA" ]; then
+            echo "The branch $HEAD_BRANCH moved from $HEAD_SHA to $remote; its own run decides on the new head." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git -C pull-request -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin "HEAD:refs/heads/$HEAD_BRANCH"

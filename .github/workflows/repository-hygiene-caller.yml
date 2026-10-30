@@ -1,0 +1,22 @@
+name: Repository hygiene
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [dependabot-merged]
+
+permissions: {}
+
+jobs:
+  hygiene:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: $/.github/workflows/repository-hygiene.yml
+    with:
+      gitleaks-config: .gitleaks.toml
+      gitleaks-baseline: .gitleaks-baseline.json

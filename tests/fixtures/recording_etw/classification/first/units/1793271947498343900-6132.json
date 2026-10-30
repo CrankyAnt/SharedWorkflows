@@ -1,0 +1,23 @@
+{
+  "unit": "1793271947498343900-6132",
+  "kind": "entry",
+  "name": "tests/no_copies.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-gz64ztti\\python\\Scripts\\python.EXE",
+    "tests/no_copies.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.498,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793271947498343900-6132",
+  "temporary": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271947498343900-6132\\tmp",
+  "cache": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271947498343900-6132\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-gz64ztti\\repo",
+  "pid": 7904,
+  "launcher": 6132,
+  "recorder": [
+    "etw"
+  ]
+}

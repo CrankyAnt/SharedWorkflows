@@ -1,0 +1,41 @@
+name: Dependabot auto-merge
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Load resources from this workflow revision
+        id: resources
+        uses: $/actions/dependabot-auto-merge
+      - name: Decide and disable an auto-merge the pull request still has
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" pull-request --number "$PR_NUMBER"
+
+  merge:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.actor.login == 'dependabot[bot]' || (github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && startsWith(github.event.workflow_run.head_branch, 'dependabot/')))
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Load resources from this workflow revision
+        id: resources
+        uses: $/actions/dependabot-auto-merge
+      - name: Decide again and merge once the required checks have passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH"

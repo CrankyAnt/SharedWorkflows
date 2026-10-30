@@ -1,0 +1,21 @@
+name: Shared Python language step
+description: Run the shared Python checks with the pinned ruff, and mypy where the repository configures it, on the job's own Python.
+inputs:
+  format-check:
+    description: Also run `ruff format --check`.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        FORMAT_CHECK: ${{ inputs.format-check }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+        TOOLS: ${{ runner.temp }}/python-language-step-tools
+      run: |
+        set -euo pipefail
+        options=()
+        if [[ "$FORMAT_CHECK" == true ]]; then options+=(--format-check); fi
+        "$PYTHON" "$RESOURCE_PATH/python_language_step.py" --root . --tools "$TOOLS" --install "$RESOURCE_PATH/../repository-hygiene/pins.json" "${options[@]}"

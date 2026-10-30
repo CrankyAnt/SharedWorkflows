@@ -1,0 +1,23 @@
+{
+  "unit": "1793271948798858000-6160",
+  "kind": "entry",
+  "name": "tests/git_revisions.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-gz64ztti\\python\\Scripts\\python.EXE",
+    "tests/git_revisions.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.317,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793271948798858000-6160",
+  "temporary": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271948798858000-6160\\tmp",
+  "cache": "D:\\a\\_temp\\recording-gz64ztti\\recording\\work\\1793271948798858000-6160\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-gz64ztti\\repo",
+  "pid": 3508,
+  "launcher": 6160,
+  "recorder": [
+    "etw"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "unit": "1793259347196061800-4408",
+  "kind": "entry",
+  "name": "tests/linked_names.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-jhcowr9f\\python\\Scripts\\python.EXE",
+    "tests/linked_names.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.298,
+  "skipped": null,
+  "trace": "events.tsv",
+  "lookups": "1793259347196061800-4408",
+  "temporary": "D:\\a\\_temp\\recording-jhcowr9f\\recording\\work\\1793259347196061800-4408\\tmp",
+  "cache": "D:\\a\\_temp\\recording-jhcowr9f\\recording\\work\\1793259347196061800-4408\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-jhcowr9f\\linked",
+  "pid": 1880,
+  "launcher": 4408,
+  "recorder": [
+    "etw"
+  ]
+}

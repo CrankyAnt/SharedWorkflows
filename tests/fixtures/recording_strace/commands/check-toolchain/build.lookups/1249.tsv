@@ -1,0 +1,10 @@
+suffixes	.cpython-314-x86_64-linux-gnu.so	.abi3.so	.abi3-x86_64-linux-gnu.so	.so	.py	.pyc
+lookup	${BASE}/python/lib/python3.14/site-packages	apport_python_hook	absent
+list	1249	${TMPDIR}/tmp2qtajhls
+lookup	${TMPDIR}/tmp2qtajhls	ctypes	absent
+lookup	${TMPDIR}/tmp2qtajhls	sysconfig	absent
+lookup	${TMPDIR}/tmp2qtajhls	threading	absent
+lookup	${TMPDIR}/tmp2qtajhls	_weakrefset	absent
+lookup	${TMPDIR}/tmp2qtajhls	types	absent
+lookup	${TMPDIR}/tmp2qtajhls	_ctypes	absent
+lookup	${TMPDIR}/tmp2qtajhls	struct	absent

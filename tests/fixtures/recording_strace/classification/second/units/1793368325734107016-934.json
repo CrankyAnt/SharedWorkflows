@@ -1,0 +1,32 @@
+{
+  "unit": "1793368325734107016-934",
+  "kind": "entry",
+  "name": "tests/lookups.py",
+  "suite": null,
+  "command": [
+    "python3",
+    "tests/lookups.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.115,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "1793368325734107016-934.strace",
+  "lookups": "1793368325734107016-934",
+  "temporary": "${BASE}/recording/work/1793368325734107016-934/tmp",
+  "cache": "${BASE}/recording/work/1793368325734107016-934/pycache",
+  "cwd": "${BASE}/repo",
+  "recorder": [
+    "strace",
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-y",
+    "-s",
+    "4096",
+    "-e",
+    "trace=?open,?openat,?openat2,?getdents,?getdents64,?access,?faccessat,?faccessat2,?newfstatat,?statx,?execve,?execveat,?chdir,?fchdir,?clone,?clone3,?fork,?vfork,?stat,?lstat,?readlink,?readlinkat",
+    "-e",
+    "abbrev=!execve,execveat"
+  ]
+}

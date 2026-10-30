@@ -1,0 +1,21 @@
+suffixes	.cpython-314-x86_64-linux-gnu.so	.abi3.so	.abi3-x86_64-linux-gnu.so	.so	.py	.pyc
+lookup	${BASE}/python/lib/python3.14/site-packages	apport_python_hook	absent
+list	1133	${BASE}/linked/tests
+lookup	${BASE}/linked/tests	subprocess	absent
+lookup	${BASE}/linked/tests	locale	absent
+lookup	${BASE}/linked/tests	functools	absent
+lookup	${BASE}/linked/tests	collections	absent
+lookup	${BASE}/linked/tests	keyword	absent
+lookup	${BASE}/linked/tests	operator	absent
+lookup	${BASE}/linked/tests	reprlib	absent
+lookup	${BASE}/linked/tests	types	absent
+lookup	${BASE}/linked/tests	signal	absent
+lookup	${BASE}/linked/tests	enum	absent
+lookup	${BASE}/linked/tests	threading	absent
+lookup	${BASE}/linked/tests	_weakrefset	absent
+lookup	${BASE}/linked/tests	warnings	absent
+lookup	${BASE}/linked/tests	_py_warnings	absent
+lookup	${BASE}/linked/tests	contextlib	absent
+lookup	${BASE}/linked/tests	msvcrt	absent
+lookup	${BASE}/python/lib/python3.14/site-packages	msvcrt	absent
+lookup	${BASE}/linked/tests	selectors	absent

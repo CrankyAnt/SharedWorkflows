@@ -1,0 +1,50 @@
+name: Suite verdict
+
+on:
+  workflow_call:
+    inputs:
+      needs:
+        description: The needs context of the calling job as JSON, from toJSON(needs) in the job that needs every other job.
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  validation:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - name: Load the Tool from this workflow revision
+        id: resources
+        uses: $/actions/suite-selection
+      - name: Download the entry files that passed in the run
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: suite-results-*
+          path: ${{ runner.temp }}/suite-results/passed
+      - name: Write the record of the passed results
+        id: store
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          NEEDS: ${{ inputs.needs }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" store --needs "$RUNNER_TEMP/needs.json" --passed "$RUNNER_TEMP/suite-results/passed" --run-id "$RUN_ID" --output "$RUNNER_TEMP/suite-results/record.json" --github-output "$GITHUB_OUTPUT"
+      - name: Store the passed results in the pull request's cache
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.store.outputs.stored == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/suite-results/record.json
+          key: suite-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Decide the verdict from the selection and the results of the called jobs
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          NEEDS: ${{ inputs.needs }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" verdict --needs "$RUNNER_TEMP/needs.json" --summary "$GITHUB_STEP_SUMMARY"

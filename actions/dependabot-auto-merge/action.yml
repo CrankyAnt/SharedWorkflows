@@ -1,0 +1,14 @@
+name: Shared Dependabot auto-merge resources
+description: Expose the auto-merge decision script from the running workflow revision.
+outputs:
+  path:
+    description: Absolute path to the shared auto-merge resources.
+    value: ${{ steps.resources.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: resources
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+      run: printf 'path=%s\n' "$RESOURCE_PATH" >> "$GITHUB_OUTPUT"
