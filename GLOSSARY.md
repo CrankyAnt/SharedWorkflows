@@ -19,7 +19,7 @@ A step of this repository that a consumer's job uses at `v1`, or that this repos
 _Avoid_: Central step, shared action
 
 **Caller**:
-A workflow in a consumer that calls one shared workflow and runs no step of its own.
+A workflow that calls one shared workflow and runs no step of its own: in a consumer at `v1`, or in this repository by local path.
 _Avoid_: Wrapper, caller repository
 
 **Validation caller**:
