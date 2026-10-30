@@ -1,5 +1,5 @@
 {
-  "about": "The shared parts of the CI of CrankyAnt/SharedWorkflows that a consumer can adopt. Read this file at the tag v1. Paths are paths in CrankyAnt/SharedWorkflows at v1: a workflow is called as CrankyAnt/SharedWorkflows/.github/workflows/<workflow>@v1 and a step as CrankyAnt/SharedWorkflows/actions/<part>@v1. required_checks are the checks a consumer's default-branch ruleset requires for the part. consumer_kit is the folder that holds the part's caller templates and their explanation in its README.md, or null while the part has no consumer kit yet. A consumer applies shared parts and changes none of them.",
+  "about": "The shared parts of the CI of CrankyAnt/SharedWorkflows that a consumer can adopt. Read this file at the tag v1. Paths are paths in CrankyAnt/SharedWorkflows at v1: a workflow is called as CrankyAnt/SharedWorkflows/.github/workflows/<workflow>@v1 and a step as CrankyAnt/SharedWorkflows/actions/<part>@v1. required_checks are the checks a consumer's default-branch ruleset requires for the part; the consumer kit of repository hygiene states that ruleset and the merge settings that the shared parts rely on, and leads to the ruleset template actions/repository-ruleset. consumer_kit is the folder that holds the part's caller templates and their explanation in its README.md, or null while the part has no consumer kit yet. A consumer applies shared parts and changes none of them.",
   "parts": [
     {
       "name": "Repository hygiene",
@@ -7,7 +7,7 @@
       "workflows": [".github/workflows/repository-hygiene.yml"],
       "steps": ["actions/repository-hygiene", "actions/publication-checks"],
       "required_checks": ["hygiene / hygiene"],
-      "needs": "A GitHub repository whose squash and merge-commit subjects are the pull request title with an empty body and whose rebase merge is disabled.",
+      "needs": "A GitHub repository whose squash merge and merge commits are enabled, whose rebase merge is disabled, whose squash and merge-commit subjects are the pull request title with an empty body, and whose default-branch ruleset requires the checks of the shared parts it uses, as its consumer kit states with the ruleset template.",
       "applies": "Every repository, a Markdown-only one included.",
       "consumer_kit": "actions/repository-hygiene/consumer-kit"
     },
