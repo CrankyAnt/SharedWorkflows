@@ -4,9 +4,11 @@ The push lookup finds the pull request of a pushed commit through ``commits/<sha
 from the ``actions/checkout`` log of that pull request's last successful run of the calling workflow, and verifies it
 from its parents. It decides the case of the push: its tree equals the passed tested tree, its pull request was behind,
 the selection runs over the pull request's files, or over the push's own changed files. The shared lookup reads the
-digest of the shared recording step that the last passed run on the base branch took. The reuse key of a unit holds
-the content of its reads in the tested tree, its command, the versions its setups pin, the runner label of its job, the
-content of every unrecorded input that selects it (``unrecorded.py``) and the digest of the shared recording step.
+digest of the shared recording step that the last passed run on the base branch took; for an identical tree the push
+lookup also reads the digest that the passed pull-request run took, which decides in its place. The reuse key of a unit
+holds the content of its reads in the tested tree, its command, the versions its setups pin, the runner label of its
+job, the content of every unrecorded input that selects it (``unrecorded.py``) and the digest of the shared recording
+step.
 ``store`` writes the record of the passed results of a run, from the ``needs`` context of the closing job and the
 passed entry files of each job. ``suite_selection.py`` runs the commands; ``docs/maintaining.md`` documents them.
 """
@@ -57,10 +59,13 @@ class Lookup:
     pull_request: int | None = None
     tested_merge: str | None = None
     tested_base: str | None = None
+    tested_run: int | None = None  # the passed pull-request run of an identical tree
+    tested_digest: str | None = None  # the digest of the shared recording step that run took, when its log names one
 
     def document(self) -> dict:
         return {"case": self.case, "head": self.head, "landing_base": self.landing_base, "reason": self.reason,
-                "pull_request": self.pull_request, "tested_merge": self.tested_merge, "tested_base": self.tested_base}
+                "pull_request": self.pull_request, "tested_merge": self.tested_merge, "tested_base": self.tested_base,
+                "tested_run": self.tested_run, "tested_digest": self.tested_digest}
 
 
 def read_lookup(path: Path) -> Lookup:
@@ -72,8 +77,10 @@ def read_lookup(path: Path) -> Lookup:
         raise RecordError(f"the push lookup {path} must name a case and the pushed commit")
     if raw["case"] == "behind" and not (isinstance(raw.get("tested_base"), str) and isinstance(raw.get("landing_base"), str)):
         raise RecordError(f"the push lookup {path} of a behind pull request must name the tested base and the landing base")
+    digest = raw.get("tested_digest")
     return Lookup(raw["case"], raw["head"], raw.get("landing_base") or None, str(raw.get("reason", "")), raw.get("pull_request"),
-                  raw.get("tested_merge"), raw.get("tested_base"))
+                  raw.get("tested_merge"), raw.get("tested_base"), raw.get("tested_run") if isinstance(raw.get("tested_run"), int) else None,
+                  digest if isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) else None)
 
 
 # --- the GitHub API -------------------------------------------------------------------------------------------
@@ -127,6 +134,8 @@ class Api:
                 with urllib.request.urlopen(urllib.parse.urljoin(self.base + path, location), timeout=API_TIMEOUT) as response:
                     body = response.read()
             except (urllib.error.URLError, OSError) as error:
+                if isinstance(error, urllib.error.HTTPError):
+                    error.close()
                 raise ApiError(f"GET {path} failed after its redirect: {error}") from error
         return body.decode("utf-8", errors="replace")
 
@@ -193,10 +202,25 @@ def lookup(root: Path, api: Api, workflow: str, sha: str, before: str | None = N
     pushed_tree = git(root, "rev-parse", f"{sha}^{{tree}}")
     if pushed_tree.returncode == 0 and pushed_tree.stdout.strip() == tree:
         return Lookup("identical", sha, landing, f"the tree of {sha} equals the tested tree of {full}, which passed in run {run['id']} of pull request #{number}",
-                      number, **found)
+                      number, **found, tested_run=run["id"], tested_digest=run_digest(api, jobs, job["id"], log))
     if landing is not None and base != landing and git(root, "merge-base", "--is-ancestor", base, landing).returncode == 0:
         return Lookup("behind", sha, landing, f"pull request #{number} was tested on {base} and landed on {landing}", number, **found)
     return fallback(f"the tree of {sha} differs from the tested tree of {full}, and its tested base {base} is no earlier commit of the landing base", **found)
+
+
+def run_digest(api: Api, jobs, read_job: int, read_log: str) -> str | None:
+    """The digest of the shared recording step that a run took, from the log of its job with the digest step; the log
+    of ``read_job`` is ``read_log``. A run without that step, or a log that cannot be read or names none, gives None."""
+    job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
+                and any(step.get("name") == DIGEST_STEP for step in item.get("steps") or [] if isinstance(step, dict))), None)
+    if job is None:
+        return None
+    try:
+        log = read_log if job.get("id") == read_job else api.text(f"actions/jobs/{job['id']}/logs")
+    except ApiError:
+        return None
+    match = DIGEST_LINE.search(log)
+    return match.group(1) if match else None
 
 
 @dataclass(frozen=True)
@@ -255,9 +279,25 @@ def shared_lookup(api: Api, workflow: str, branch: str, digest: str) -> SharedLo
     return SharedLookup(digest, previous, f"the shared recording step {comparison} that of run {run['id']}, the last passed run on `{branch}`", run["id"])
 
 
-def shared_markdown(found: SharedLookup) -> str:
-    text = "Every suite runs: " if found.moved else "The selection runs as usual: "
-    return f"## Shared recording step\n\n{text}{found.reason}. This run's digest: `{found.digest}`.\n"
+def tested_digest(found: Lookup | None) -> str | None:
+    """The digest of the shared recording step that the passed pull-request run of an identical tree took. When it is
+    known, that run decides in place of the last passed run on the base branch, since its result is the one relied on."""
+    return found.tested_digest if found is not None and found.case == "identical" else None
+
+
+def tested_reason(found: Lookup, digest: str) -> str:
+    if found.tested_digest == digest:
+        return f"the tested tree took the same shared recording step in run {found.tested_run} of pull request #{found.pull_request}"
+    return f"the shared recording step differs from that of run {found.tested_run} of pull request #{found.pull_request}, whose tested tree the push equals"
+
+
+def shared_markdown(found: SharedLookup, push: Lookup | None = None) -> str:
+    if push is not None and tested_digest(push) is not None:
+        text = ("No suite runs: " if push.tested_digest == found.digest else "Every suite runs: ") + tested_reason(push, found.digest)
+        text += f", which decides in place of the base branch, where {found.reason}"
+    else:
+        text = ("Every suite runs: " if found.moved else "The selection runs as usual: ") + found.reason
+    return f"## Shared recording step\n\n{text}. This run's digest: `{found.digest}`.\n"
 
 
 def lookup_markdown(found: Lookup) -> str:

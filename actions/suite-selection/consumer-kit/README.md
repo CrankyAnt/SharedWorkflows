@@ -49,7 +49,7 @@ The job `select` calls `CrankyAnt/SharedWorkflows/.github/workflows/suite-select
 | `entries` | one JSON object with the selected entry files of each suite selected per entry file, empty when there is none |
 | `language-steps` | one JSON object with `run` or `skip` for each language step |
 | `shared-digest` | the digest of the shared recording step that `select` took |
-| `identical` | `true` on a push or `dependabot-merged` run whose tree equals a tree that passed on its pull request and whose shared digest did not move, empty otherwise |
+| `identical` | `true` on a push or `dependabot-merged` run whose tree equals a tree that passed on its pull request under the same shared digest, empty otherwise |
 
 The job `validation` calls `CrankyAnt/SharedWorkflows/.github/workflows/suite-verdict.yml@v1` with `${{ toJSON(needs) }}` and runs under `if: always() && !(needs.select.result == 'success' && needs.select.outputs.identical == 'true')`. It fails when `select` did not succeed or a called job ended `failure` or `cancelled`; a skipped job is a suite that the selection did not run. Its check `validation / validation` is the one check that the suite selection adds to the checks the default-branch ruleset requires. A validation job's check is `<file name> / <job>`, the job being the one of the validation workflow, such as `tests / test` for the job `test` of `tests.yml`, and it is no required check. A required check of a validation workflow from before the adoption changes its name once the workflow runs through the caller; a change to the ruleset is a question to the user.
 

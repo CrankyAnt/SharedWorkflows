@@ -250,6 +250,34 @@ class PushLookupTests(FixtureRepository):
         self.assertIn(f"the tree equals the tested tree that passed on pull request #{self.NUMBER}", printed)
         self.assertIn("## Push lookup\n\nNo suite runs: ", summary)
 
+    def test_the_lookup_of_an_identical_tree_names_the_digest_its_pull_request_run_took(self) -> None:
+        self.pushed = self.squash_onto(self.base)
+        self.record()
+        found = self.lookup(self.pushed, self.base)
+        self.assertEqual((found["case"], found["tested_run"], found["tested_digest"]), ("identical", self.RUN, None),
+                         "a run whose jobs take no digest names none")
+        digest = "c" * 64
+        jobs = {"total_count": 2, "jobs": [
+            {"id": self.JOB - 1, "name": "validation / validation", "steps": [{"name": "Set up job"}]},
+            {"id": self.JOB, "name": "select / select", "steps": [{"name": "Set up job"}, {"name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"},
+                                                                  {"name": "Take the digest of the shared recording step"}]}]}
+        self.api.json(f"actions/runs/{self.RUN}/jobs?per_page=100", jobs)
+        log = CHECKOUT_LOG.format(merge=self.merge, number=self.NUMBER, short=self.merge[:7], head=self.pr_head, base=self.base)
+        self.api.log(self.JOB, log + f"2026-10-28T13:02:03.0000000Z shared CI digest {digest}\n")
+        self.api.requests.clear()
+        found = self.lookup(self.pushed, self.base)
+        self.assertEqual((found["case"], found["tested_run"], found["tested_digest"]), ("identical", self.RUN, digest), found)
+        self.assertEqual(sum(path.endswith(f"/jobs/{self.JOB}/logs") for path, _ in self.api.requests), 1, "the checkout job's log is read once")
+        jobs["jobs"][1]["steps"].pop()
+        jobs["jobs"][0]["steps"].append({"name": "Take the digest of the shared recording step"})
+        self.api.json(f"actions/runs/{self.RUN}/jobs?per_page=100", jobs)
+        self.api.log(self.JOB - 1, f"2026-10-28T13:02:03.0000000Z shared CI digest {digest}\n")
+        self.api.log(self.JOB, log)
+        self.assertEqual(self.lookup(self.pushed, self.base)["tested_digest"], digest, "the digest comes from the job that took it")
+        self.api.responses.pop(f"/storage/{self.JOB - 1}")
+        found = self.lookup(self.pushed, self.base)
+        self.assertEqual((found["case"], found["tested_digest"]), ("identical", None), "a log that cannot be read names no digest")
+
     def test_a_push_whose_pull_request_was_behind_runs_only_the_units_that_both_sides_affect(self) -> None:
         moved = self.commit("main moves", {"src/moved.py": "moved v2\n"})
         self.pushed = self.squash_onto(moved)
@@ -606,6 +634,27 @@ class SharedLookupTests(FixtureRepository):
         outputs, _, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.DIGEST)))
         self.assertEqual(self.runs(outputs), [])
         self.assertEqual("true", outputs["identical"], "the verdict skips a push that runs nothing but select and hygiene")
+
+    def test_a_push_whose_tree_passed_under_the_same_digest_runs_no_suite_after_a_move(self) -> None:
+        # The pull request's first run after the move took the new digest and passed; its merge push takes the same
+        # digest on the same tree, while the last passed run on the base branch still took the earlier one.
+        self.record_branch()
+        lookup = self.root.parent / "lookup.json"
+        tested = {"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested", "pull_request": 7, "tested_run": 4100}
+        lookup.write_text(json.dumps({**tested, "tested_digest": self.MOVED}), encoding="utf-8")
+        outputs, printed, summary = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.MOVED)))
+        self.assertEqual(self.runs(outputs), [], printed)
+        self.assertEqual("true", outputs["identical"], "the verdict skips a push that runs nothing but select and hygiene")
+        self.assertIn("the tested tree took the same shared recording step in run 4100 of pull request #7", summary)
+        lookup.write_text(json.dumps({**tested, "tested_digest": self.DIGEST}), encoding="utf-8")
+        for digest in (self.MOVED, self.DIGEST):
+            with self.subTest(digest=digest):
+                self.record_branch(digest=digest)
+                outputs, printed, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.MOVED)))
+                self.assertEqual(self.runs(outputs), self.ALL, "a tree that passed under another shared recording step runs every suite")
+                self.assertNotIn("identical", outputs)
+                self.assertIn("pr-only: run (every suite runs: the shared recording step differs from that of run 4100 of pull request #7, "
+                              "whose tested tree the push equals)", printed)
 
     def test_a_run_without_a_readable_digest_on_the_base_branch_runs_every_suite(self) -> None:
         head = self.commit("head", {"README.md": "a change no suite reads\n"})
