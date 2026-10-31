@@ -2144,8 +2144,10 @@ def shared_files() -> list[Path]:
 
 
 def shared_digest() -> str:
-    """The SHA-256 over the path and the SHA-256 of the content of every shared file."""
-    lines = "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(SHARED_FOLDER).as_posix()}\n" for path in shared_files())
+    """The SHA-256 over the path and the SHA-256 of the content of every shared file, in the code-point order of the
+    paths: a Windows path sorts case-insensitively, so ``Path`` order differs between the platforms."""
+    names = {path.relative_to(SHARED_FOLDER).as_posix(): path for path in shared_files()}
+    lines = "".join(f"{hashlib.sha256(names[name].read_bytes()).hexdigest()}  {name}\n" for name in sorted(names))
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
