@@ -176,8 +176,8 @@ class RecordingFixture:
             environment["STRACE_STAND_IN"] = str(self.stand_in)
         return environment
 
-    def start(self, *, full: bool = False) -> subprocess.CompletedProcess[str]:
-        return self.run("start", "--output", str(self.output), *(["--full"] if full else []))
+    def start(self, *, full: bool = False, job: str | None = None) -> subprocess.CompletedProcess[str]:
+        return self.run("start", "--output", str(self.output), *(["--full"] if full else []), *(["--job", job] if job else []))
 
     def exec_entry(self, entry: str, *command: str) -> subprocess.CompletedProcess[str]:
         return self.run("exec", "--output", str(self.output), "--entry", entry, "--suites", "suites.json", "--", *(command or entry_command(entry)))
@@ -205,10 +205,10 @@ class RecordingFixture:
     def apply(self, *files: Path) -> subprocess.CompletedProcess[str]:
         return self.run("apply", *(str(file) for file in files or (self.output / "additions.json",)))
 
-    def record(self, entries: list[str], *, full: bool = False, python: bool = False) -> subprocess.CompletedProcess[str]:
-        """Start a recording, run each entry file with python3 under it, and check it; with ``python``, the setup
-        ``python`` provides the interpreter, with the lookup report."""
-        started = self.start(full=full)
+    def record(self, entries: list[str], *, full: bool = False, job: str | None = None, python: bool = False) -> subprocess.CompletedProcess[str]:
+        """Start a recording, as the shard job ``job`` when given, run each entry file with python3 under it, and check
+        it; with ``python``, the setup ``python`` provides the interpreter, with the lookup report."""
+        started = self.start(full=full, job=job)
         assert started.returncode == 0, started.stderr
         if python:
             self.set_up_python()

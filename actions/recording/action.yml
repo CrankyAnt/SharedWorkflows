@@ -19,8 +19,14 @@ inputs:
     default: ""
 outputs:
   path:
-    description: Absolute path to the recording step; run `python3 <path>/recording.py start|exec|check|apply|digest`, on Windows `python`.
+    description: Absolute path to the recording step; run `python3 <path>/recording.py start|exec|check|keep|apply|digest`, on Windows `python`.
     value: ${{ steps.resources.outputs.path }}
+  status:
+    description: The exit status of `check`, empty when it did not run; `1` with a non-empty `additions` reports additions, any other non-zero status a recording error.
+    value: ${{ steps.check.outputs.status }}
+  additions:
+    description: Absolute path to the additions document when `check` reports additions, empty otherwise; `recording.py keep` reads it.
+    value: ${{ steps.check.outputs.status == '1' && steps.check.outputs.file || '' }}
 runs:
   using: composite
   steps:

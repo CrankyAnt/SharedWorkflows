@@ -1820,10 +1820,10 @@ class UnrecordedFixture(unittest.TestCase):
         self.assertIn(old, text)
         return self.head_after({path: text.replace(old, new, 1)})
 
-    def suites_after(self, change) -> str:
-        suites = json.loads(json.dumps(RECORDED_SUITES))
+    def suites_after(self, change, stored: dict | None = None, base: str | None = None, indent: int | None = 2) -> str:
+        suites = json.loads(json.dumps(stored or RECORDED_SUITES))
         change({suite["name"]: suite for suite in suites["suites"]}, suites)
-        return self.head_after({self.SUITES: json.dumps(suites, indent=2) + "\n"})
+        return self.commit_on(base or self.base, {self.SUITES: json.dumps(suites, indent=indent) + "\n"})
 
     def commit_on(self, parent: str, files: dict[str, str]) -> str:
         git(self.root, "checkout", "-q", "--detach", parent)
@@ -1923,6 +1923,116 @@ class UnrecordedInputTests(UnrecordedFixture):
             with self.subTest(change=label):
                 printed = self.assertRuns(self.suites_after(change), set())
                 self.assertIn("Read by no suite: checks/suites.json", printed)
+
+    def read_suite_list(self) -> tuple[dict, str]:
+        """A suite list whose stored lists read the suite list itself, as this repository's do, committed on the
+        fixture's first commit."""
+        stored = json.loads(json.dumps(RECORDED_SUITES))
+        suites = {suite["name"]: suite for suite in stored["suites"]}
+        suites["lib"]["paths"].append(self.SUITES)
+        suites["lib"]["entry_paths"]["checks/test_a.py"].append(self.SUITES)
+        suites["docs"]["paths"].append(self.SUITES)
+        return stored, self.commit_on(self.base, {self.SUITES: json.dumps(stored, indent=2) + "\n"})
+
+    def test_a_change_of_estimates_alone_selects_no_entry_file_that_reads_the_suite_list(self) -> None:
+        stored, base = self.read_suite_list()
+        changes = {
+            "one estimate": lambda suites, _: suites["lib"]["entry_durations"].update({"checks/test_a.py": 1.5}),
+            "every estimate": lambda suites, _: suites["lib"].update(entry_durations={"checks/test_a.py": 3.0, "checks/test_b.py": 0.4}),
+            "an added entry file key": lambda suites, _: suites["docs"].update(entry_durations={"checks/test_docs.py": 2.0}),
+            "a removed entry file key": lambda suites, _: suites["lib"]["entry_durations"].pop("checks/test_b.py"),
+            "every key removed": lambda suites, _: suites["lib"].pop("entry_durations"),
+        }
+        for label, change in changes.items():
+            with self.subTest(change=label):
+                printed = self.assertRuns(self.suites_after(change, stored, base), set(), base=base)
+                self.assertNotIn(f"matches `{self.SUITES}`", printed)
+                self.assertIn(f"Read by no suite: {self.SUITES}", printed)
+        reformatted = self.suites_after(lambda suites, _: suites["lib"]["entry_durations"].update({"checks/test_a.py": 7.0}), stored, base,
+                                       indent=None)
+        self.assertRuns(reformatted, set(), base=base)
+
+    def test_a_change_of_estimates_with_another_field_selects_the_entry_files_that_read_the_suite_list(self) -> None:
+        stored, base = self.read_suite_list()
+        readers = {"checks/test_a.py", "checks/test_docs.py"}
+
+        def estimate(suites) -> None:
+            suites["lib"]["entry_durations"]["checks/test_a.py"] = 1.5
+
+        changes = {
+            "an addition to a path list": (lambda suites, _: suites["lib"]["entry_paths"]["checks/test_b.py"].append("src/new.py"), readers),
+            "the every-suite patterns": (lambda suites, document: document.update(always=["config/other.txt"]), readers),
+            "a command": (lambda suites, _: suites["win"].update(command=["python", "-m", "pytest"]), readers | {"checks/test_win.py"}),
+        }
+        for label, (change, expected) in changes.items():
+            with self.subTest(change=label, estimate=False):
+                printed = self.assertRuns(self.suites_after(change, stored, base), expected, base=base)
+                self.assertIn(f"docs: run (`{self.SUITES}` matches `{self.SUITES}`", printed)
+                self.assertIn(f"`{self.SUITES}` matches `{self.SUITES}` of `checks/test_a.py`", printed)
+            with self.subTest(change=label, estimate=True):
+                head = self.suites_after(lambda suites, document: (change(suites, document), estimate(suites)), stored, base)
+                printed = self.assertRuns(head, expected, base=base)
+                self.assertIn(f"docs: run (`{self.SUITES}` matches `{self.SUITES}`", printed)
+
+    def test_a_suite_list_that_is_absent_or_unreadable_at_the_base_counts_as_changed(self) -> None:
+        stored, _ = self.read_suite_list()
+        for label, before in {"absent": None, "not valid JSON": "{\n", "not a suite list": "{\"suites\": []}\n"}.items():
+            with self.subTest(base=label):
+                git(self.root, "checkout", "-q", "--detach", self.base)
+                if before is None:
+                    git(self.root, "rm", "-q", self.SUITES)
+                    git(self.root, "commit", "-q", "-m", "remove")
+                    base = git(self.root, "rev-parse", "HEAD")
+                else:
+                    base = self.commit_on(self.base, {self.SUITES: before})
+                head = self.commit_on(base, {self.SUITES: json.dumps(stored, indent=2) + "\n"})
+                entries, _, printed = self.running(head, base)
+                self.assertLessEqual({"checks/test_a.py", "checks/test_docs.py"}, entries, printed)
+                self.assertIn(f"docs: run (`{self.SUITES}` matches `{self.SUITES}`", printed)
+
+    def test_two_suite_list_texts_differ_only_in_estimates_when_both_parse_and_differ_in_nothing_else(self) -> None:
+        before = json.dumps(RECORDED_SUITES, indent=2) + "\n"
+        estimate = json.loads(before)
+        estimate["suites"][0]["entry_durations"]["checks/test_a.py"] = 2.0
+        after = json.dumps(estimate) + "\n"
+        self.assertTrue(suite_selection.differs_in_estimates_only(before, after))
+        for label, other in {"indentation": json.dumps(RECORDED_SUITES) + "\n", "line endings": before.replace("\n", "\r\n")}.items():
+            with self.subTest(formatting=label):
+                self.assertTrue(suite_selection.differs_in_estimates_only(before, other))
+        for label, other in {"absent": None, "not valid JSON": "{", "the same text": before}.items():
+            with self.subTest(after=label):
+                self.assertFalse(suite_selection.differs_in_estimates_only(before, other))
+                self.assertFalse(suite_selection.differs_in_estimates_only(other, before))
+        estimate["suites"][1]["setups"] = ["node", "lua"]
+        self.assertFalse(suite_selection.differs_in_estimates_only(before, json.dumps(estimate)))
+
+    def test_a_change_of_estimates_alone_in_the_working_tree_selects_no_entry_file(self) -> None:
+        stored, base = self.read_suite_list()
+        git(self.root, "checkout", "-q", "--detach", base)
+
+        def selected() -> str:
+            printed = io.StringIO()
+            with redirect_stdout(printed):
+                code = suite_selection.main(["select", "--root", str(self.root), "--suites", str(self.root / self.SUITES),
+                                             "--changed-file", self.SUITES])
+            self.assertEqual(code, 0, printed.getvalue())
+            return printed.getvalue()
+
+        changed = json.loads(json.dumps(stored))
+        changed["suites"][0]["entry_durations"]["checks/test_a.py"] = 4.0
+        write(self.root, self.SUITES, json.dumps(changed) + "\n")
+        printed = selected()
+        self.assertNotIn(f"matches `{self.SUITES}`", printed)
+        self.assertIn("docs: skip", printed)
+        changed["suites"][1]["command"] = ["node", "--test"]
+        write(self.root, self.SUITES, json.dumps(changed) + "\n")
+        self.assertIn(f"docs: run (`{self.SUITES}` matches `{self.SUITES}`", selected())
+        # A checkout that already holds the change, its line endings converted: the comparison sees no difference.
+        committed = (json.dumps(changed, indent=2) + "\n").encode()
+        (self.root / self.SUITES).write_bytes(committed)
+        git(self.root, "commit", "-q", "-am", "the change")
+        (self.root / self.SUITES).write_bytes(committed.replace(b"\n", b"\r\n"))
+        self.assertIn(f"docs: run (`{self.SUITES}` matches `{self.SUITES}`", selected())
 
     # --- the workflow ---------------------------------------------------------------------------------------
 

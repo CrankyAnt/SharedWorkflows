@@ -12,6 +12,8 @@ WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 FULL_RECORDING = WORKFLOWS / "full-recording.yml"
 VALIDATE = WORKFLOWS / "validate.yml"
 ON_DEFAULT_BRANCH = "github.ref_name == github.event.repository.default_branch"
+VERIFY_TOKEN = {"description": "Mint the updater App's token even without a change to propose, to verify its private key",
+                "required": "false", "type": "boolean", "default": "false"}
 
 
 def step_index(steps: list[dict], text: str) -> int:
@@ -28,7 +30,8 @@ class FullRecordingWorkflowTests(unittest.TestCase):
         self.jobs = self.workflow["jobs"]
 
     def test_it_runs_on_a_weekly_schedule_and_by_hand_and_never_cancels_a_run(self) -> None:
-        self.assertEqual({"schedule": [{"cron": "17 3 * * 1"}], "workflow_dispatch": None}, self.workflow["on"])
+        self.assertEqual({"schedule": [{"cron": "17 3 * * 1"}], "workflow_dispatch": {"inputs": {"verify_token": VERIFY_TOKEN}}},
+                         self.workflow["on"])
         self.assertEqual({"group": "${{ github.workflow }}-${{ github.ref }}", "cancel-in-progress": "false"}, self.workflow["concurrency"])
 
     def test_the_schedule_records_every_two_weeks_and_a_run_by_hand_always(self) -> None:
@@ -94,14 +97,15 @@ class FullRecordingJobTests(unittest.TestCase):
         _, validate = read_workflow(VALIDATE)
         self.jobs, self.validate = workflow["jobs"], validate["jobs"]
 
-    def test_each_recording_job_starts_the_full_recording_mode(self) -> None:
-        for job, run in (("linux", 'python3 "$RECORDING/recording.py" start --full'),
-                         ("windows", 'python "$env:RECORDING\\recording.py" start --full')):
+    def test_each_recording_job_starts_the_full_recording_mode_under_its_own_job_name(self) -> None:
+        for job, run, name in (("linux", 'python3 "$RECORDING/recording.py" start --full --job "$JOB"', "shard-${{ matrix.shard.shard }}"),
+                               ("windows", 'python "$env:RECORDING\\recording.py" start --full --job $env:JOB', "windows")):
             with self.subTest(job=job):
                 steps = self.jobs[job]["steps"]
                 start = steps[step_index(steps, "recording.py\" start")]
                 self.assertEqual("start", start["id"])
                 self.assertEqual(run, start["run"])
+                self.assertEqual(name, start["env"]["JOB"])
 
     def test_each_recording_job_runs_the_validation_s_setups_and_entry_run_unchanged(self) -> None:
         def setups_and_entry_run(steps: list[dict]) -> list[dict]:
@@ -150,7 +154,7 @@ class ClosingJobTests(unittest.TestCase):
         proposing = self.steps[self.steps.index(upload) + 1:]
         self.assertTrue(proposing)
         for step in proposing:
-            if step.get("id") == "stopped":
+            if step.get("id") in ("stopped", "app-token", "verified"):
                 continue
             self.assertEqual(f"steps.changes.outputs.changed == 'true' && {ON_DEFAULT_BRANCH}", step["if"], step.get("name"))
         changes = named(self.steps, "Check the changed files")
@@ -174,6 +178,20 @@ class ClosingJobTests(unittest.TestCase):
         self.assertNotIn("github.token", self.text, "no step pushes or opens the pull request with the workflow token")
         scan = named(self.steps, "Scan the commit before pushing")
         self.assertLess(self.steps.index(scan), self.steps.index(push))
+
+    def test_a_run_by_hand_that_asks_for_the_token_verification_mints_the_token_without_a_change(self) -> None:
+        token = next(step for step in self.steps if step.get("id") == "app-token")
+        self.assertEqual(f"(steps.changes.outputs.changed == 'true' || inputs.verify_token == true) && {ON_DEFAULT_BRANCH}", token["if"])
+        verified = next(step for step in self.steps if step.get("id") == "verified")
+        self.assertEqual(self.steps.index(token) + 1, self.steps.index(verified))
+        self.assertEqual(f"${{{{ !cancelled() && inputs.verify_token == true && {ON_DEFAULT_BRANCH} }}}}", verified["if"])
+        self.assertEqual("${{ steps.app-token.outcome }}", verified["env"]["OUTCOME"])
+        self.assertIn('if [ "$OUTCOME" = success ]; then', verified["run"])
+        self.assertIn('elif [ "$OUTCOME" = failure ]; then', verified["run"])
+        self.assertIn('>> "$GITHUB_STEP_SUMMARY"', verified["run"])
+        # Every step that commits, pushes or opens the pull request still needs a change.
+        for name in ("Configure the GitHub App identity", "Commit the recorded lists", "Push the review branch", "Create or update the review pull request"):
+            self.assertTrue(named(self.steps, name)["if"].startswith("steps.changes.outputs.changed == 'true' && "), name)
 
     def test_a_failing_app_step_stops_the_run_and_names_the_question_to_the_user(self) -> None:
         stopped = next(step for step in self.steps if step.get("id") == "stopped")

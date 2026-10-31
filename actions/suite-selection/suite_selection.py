@@ -17,7 +17,8 @@ the file format, the rules and the commands.
     python suite_selection.py select --root <repository> --suites <suite list> --changed-file <path>
     python suite_selection.py verdict --needs <needs context as JSON> --summary "$GITHUB_STEP_SUMMARY"
     python suite_selection.py lookup --root <repository> --sha <commit> --before <commit> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
-    python suite_selection.py shared-lookup --digest <digest> --branch <base branch> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
+    python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> [--pushed <commit>] \\
+        --workflow "$GITHUB_WORKFLOW_REF" --output <file>
     python suite_selection.py store --needs <needs context as JSON> --passed <directory> --run-id <id> --output <record file>
 
 ``lookup``, ``shared-lookup``, ``store`` and the reuse of passed results live in ``reuse.py``.
@@ -1384,7 +1385,10 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     looking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     shared_parser = commands.add_parser("shared-lookup", help="find the digest of the shared recording step of the last passed run on the base branch")
     shared_parser.add_argument("--digest", required=True, help="the digest of the shared recording step that this run took")
+    shared_parser.add_argument("--root", type=Path, required=True, help="the checkout whose first-parent history of the base branch the lookup walks")
     shared_parser.add_argument("--branch", required=True, help="the base branch: the pull request's base, or the pushed branch")
+    shared_parser.add_argument("--pushed", default="", help="the pushed commit of a push or dispatch run, whose first parent starts the walk; "
+                               "empty to start at the fetched tip origin/<branch>")
     shared_parser.add_argument("--workflow", required=True, help="the calling workflow: its repository path, or github.workflow_ref")
     shared_parser.add_argument("--output", type=Path, required=True, help="write the shared lookup as JSON to this file")
     shared_parser.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
@@ -1532,9 +1536,49 @@ def selected_on(options: argparse.Namespace, root: Path, tracked, suite_list: Su
         changed = sorted(set(changed) | set(edited_ignore_files(root, current_tracked)))
     causes, started = unrecorded_changes(options, root, suite_list, changed, previous, head if previous_tracked is not None else None,
                                          previous_tracked, current_tracked)
-    return select(suite_list, changed, undetermined, root=root, definition=definition, workflow_steps=workflow_steps,
-                  previous_tracked=previous_tracked, current_tracked=current_tracked, ignore=ignore, unrecorded_causes=causes,
-                  started=started)
+    relative = list_path(options, root)
+    estimates_only = changed is not None and relative in changed and estimates_only_change(
+        root, relative, previous, head if previous_tracked is not None else None)
+    selection = select(suite_list, [file for file in changed or () if file != relative] if estimates_only else changed, undetermined,
+                       root=root, definition=definition, workflow_steps=workflow_steps, previous_tracked=previous_tracked,
+                       current_tracked=current_tracked, ignore=ignore, unrecorded_causes=causes, started=started)
+    if estimates_only:
+        # The suite list was left out of the path match, so no suite read it.
+        selection = dataclasses.replace(selection, unread=tuple(file for file in changed or () if file in selection.unread or file == relative))
+    return selection
+
+
+def estimates_only_change(root: Path, relative: str, previous: str | None, head: str | None) -> bool:
+    """Whether the change of the suite list at ``relative`` differs only in its duration estimates, which makes it no
+    changed file for the path match. The sides are those that the unrecorded inputs compare: the previous commit, or
+    the checkout's ``HEAD``, against the head commit or, without one, the working tree. A working tree that differs from
+    ``HEAD`` at most in line endings, such as a list of changed files against a checkout that already holds them, shows
+    no difference, so the change counts as changed."""
+    import unrecorded
+
+    before = unrecorded.Side(root, previous or "HEAD", frozenset()).text(relative)
+    after = unrecorded.Side(root, head, frozenset()).text(relative)
+    if head is None and before is not None and after is not None and before.replace("\r\n", "\n") == after.replace("\r\n", "\n"):
+        return False
+    return differs_in_estimates_only(before, after)
+
+
+def differs_in_estimates_only(before: str | None, after: str | None) -> bool:
+    """Whether two texts of the suite list differ only in ``entry_durations``: they differ, both parse as a suite list,
+    and their parsed content without the duration estimates is equal. A text that is absent or does not parse, or two
+    equal texts, count as a change: a changed file that the comparison sees no difference in may differ in anything."""
+    if before is None or after is None or before == after:
+        return False
+    try:
+        parse_suite_list(before)
+        parse_suite_list(after)
+    except SuiteListError:
+        return False
+
+    def without_estimates(text: str) -> dict:
+        raw = json.loads(text)
+        return {**raw, "suites": [{key: value for key, value in suite.items() if key != "entry_durations"} for suite in raw["suites"]]}
+    return without_estimates(before) == without_estimates(after)
 
 
 def list_path(options: argparse.Namespace, root: Path) -> str:
@@ -1633,8 +1677,11 @@ def run_lookup(options: argparse.Namespace) -> int:
 def run_shared_lookup(options: argparse.Namespace) -> int:
     import reuse
 
-    found = reuse.shared_lookup(reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.branch, options.digest)
+    found = reuse.shared_lookup(options.root.resolve(), reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.branch,
+                                options.digest, options.pushed or None)
     options.output.write_text(json.dumps(found.document(), indent=2) + "\n", encoding="utf-8")
+    for line in found.log:
+        print(line)
     print(f"{'moved' if found.moved else 'unchanged'}: {found.reason}")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:

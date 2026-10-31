@@ -141,7 +141,7 @@ A named step that a job runs before its entry files, such as installing dependen
 _Avoid_: Install step, prepare step
 
 **Duration estimate**:
-The traced test time that one entry file is expected to take, stored in the suite list.
+The traced test time that one entry file is expected to take, stored in the suite list. The full recording corrects each measurement for the speed of its shard job and changes a stored estimate only when the corrected value differs from it by more than 25%.
 _Avoid_: Duration, test timing
 
 **Shard**:

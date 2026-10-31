@@ -7,7 +7,7 @@ import shlex
 import sys
 import unittest
 from pathlib import Path
-from tests.ci_policy_support import ci_definition, read_workflow
+from tests.ci_policy_support import ci_definition, passed_list_steps, read_workflow
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
@@ -18,7 +18,9 @@ SUITE_GATE = "fromJSON(inputs.suites).<suite> == 'run'"
 DISPATCH_REF = "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}"
 NOT_CANCELLED = "!cancelled()"
 PULL_REQUEST = "github.event_name == 'pull_request'"
-CHECK_PASSED = "steps.check.outcome == 'success'"
+CHECK_PASSED_OR_ADDITIONS = "(steps.check.outcome == 'success' || steps.check.outputs.additions != '')"
+ADDITIONS = "steps.check.outputs.additions != ''"
+CHECK_PASSED_OR_KEPT = "(steps.check.outcome == 'success' || steps.keep.outcome == 'success')"
 STARTED = "steps.start.outcome == 'success'"
 PYTHON_TERM = "fromJSON(inputs.language-steps).python == 'run'"
 PLACEHOLDER = re.compile(r"<[a-z][a-z-]*>")
@@ -105,6 +107,8 @@ def role(step: dict) -> str:
         return "setup"
     if calls and all(call[:2] == ["exec", "--entry"] for call in calls):
         return "entries"
+    if len(calls) == 1 and calls[0][:1] == ["keep"]:
+        return "keep"
     if not calls and writes(str(step.get("run", "")), "passed.json"):
         return "passed list"
     raise AssertionError(f"a step of unknown role: {step}")
@@ -178,8 +182,8 @@ class ValidationWorkflowTemplateTest(unittest.TestCase):
     def test_the_steps_run_in_order_with_the_shared_actions_at_v1(self) -> None:
         recorded = ["checkout", "recording path", "start", "setup", "entries", "check"]
         python = ["checkout", "recording path", "python setup", "start", "python provide", "setup", "entries", "check"]
-        self.assertEqual(python + ["python language step", "passed list", "upload"], self.roles("<job>"))
-        self.assertEqual(recorded + ["upload"], self.roles("<windows-job>"))
+        self.assertEqual(python + ["python language step", "passed list", "keep", "upload"], self.roles("<job>"))
+        self.assertEqual(recorded + ["keep", "upload"], self.roles("<windows-job>"))
         for job in self.jobs:
             with self.subTest(job=job):
                 self.assertEqual({"id": "recording", "uses": RECORDING, "with": {"digest": "${{ inputs.shared-digest }}"}},
@@ -229,16 +233,44 @@ class ValidationWorkflowTemplateTest(unittest.TestCase):
     def test_a_pull_request_uploads_the_entry_files_that_passed_for_the_reuse_of_later_heads(self) -> None:
         self.assertTrue(writes(self.step("<job>", "entries")["run"], "passed.jsonl"))
         listing = self.step("<job>", "passed list")
-        self.assertEqual({NOT_CANCELLED, PULL_REQUEST, CHECK_PASSED}, conjuncts(listing["if"]))
+        self.assertEqual({NOT_CANCELLED, PULL_REQUEST, CHECK_PASSED_OR_ADDITIONS}, conjuncts(listing["if"]))
         self.assertTrue(writes(listing["run"], "passed.jsonl") and writes(listing["run"], "passed.json"))
         self.assertTrue(writes(self.step("<windows-job>", "entries")["run"], "passed.json"))
         for job, suite, _, _ in JOBS:
             with self.subTest(job=job):
                 self.assertEqual({"suite": suite, "entry": "$entry"}, passed_record(self.step(job, "entries")["run"]))
                 upload = self.step(job, "upload")
-                self.assertEqual({NOT_CANCELLED, PULL_REQUEST, CHECK_PASSED}, conjuncts(upload["if"]))
+                self.assertEqual({NOT_CANCELLED, PULL_REQUEST, CHECK_PASSED_OR_KEPT}, conjuncts(upload["if"]))
                 self.assertEqual({"name": f"suite-results-{job}", "path": "${{ runner.temp }}/suite-results/passed.json",
                                   "retention-days": "1", "if-no-files-found": "error"}, upload["with"])
+
+    def test_a_check_with_additions_still_uploads_the_passes_of_the_entry_files_that_its_additions_do_not_name(self) -> None:
+        for job, _, _, shell in JOBS:
+            with self.subTest(job=job):
+                keep = self.step(job, "keep")
+                self.assertEqual("keep", keep["id"])
+                self.assertEqual({NOT_CANCELLED, PULL_REQUEST, ADDITIONS}, conjuncts(keep["if"]))
+                self.assertEqual({"RECORDING": RECORDING_PATH, "ADDITIONS": "${{ steps.check.outputs.additions }}"}, keep["env"])
+                self.assertEqual(shell, keep.get("shell"))
+                (call,) = recording_calls(keep["run"])
+                self.assertEqual(["keep", "--additions", "$env:ADDITIONS" if shell else "$ADDITIONS"], call[:3])
+                self.assertTrue(writes(keep["run"], "passed.json"), "keep rewrites the passed list that the upload sends")
+                if shell:
+                    self.assertIn("if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }", keep["run"])
+
+    def test_a_check_that_passed_uploads_every_pass_one_with_additions_the_kept_passes_and_a_recording_error_none(self) -> None:
+        listed = {"<job>": ["List the entry files that passed"], "<windows-job>": []}
+        upload = "Upload the entry files that passed"
+        for job in self.jobs:
+            for case, (outcome, additions, keep), expected in (
+                    ("the check passed", ("success", "", "success"), [upload]),
+                    ("additions", ("failure", "additions_json", "success"), ["keep", upload]),
+                    ("additions whose keep failed", ("failure", "additions_json", "failure"), ["keep"]),
+                    ("a recording error", ("failure", "", "success"), []),
+                    ("no check", ("skipped", "", "success"), [])):
+                with self.subTest(job=job, case=case):
+                    ran = passed_list_steps(self.jobs[job]["steps"], outcome, additions, keep)
+                    self.assertEqual((listed[job] if expected else []) + expected, ran)
 
 
 class SuiteJobDefinitionTest(unittest.TestCase):

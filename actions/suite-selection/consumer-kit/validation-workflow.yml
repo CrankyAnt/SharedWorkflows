@@ -85,14 +85,21 @@ jobs:
         if: ${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}
         uses: CrankyAnt/SharedWorkflows/actions/python-language-step@v1
       - name: List the entry files that passed
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '') }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/suite-results"
           touch "$RUNNER_TEMP/suite-results/passed.jsonl"
           jq -s . "$RUNNER_TEMP/suite-results/passed.jsonl" > "$RUNNER_TEMP/suite-results/passed.json"
+      - name: Leave the entry files with additions out of the passed list
+        id: keep
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          ADDITIONS: ${{ steps.check.outputs.additions }}
+        run: python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"
       - name: Upload the entry files that passed
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
         uses: actions/upload-artifact@<pin>
         with:
           name: suite-results-<job>
@@ -155,8 +162,18 @@ jobs:
           check: "true"
           suites: .github/suites.json
           artifact-name: recording-additions-<windows-job>
+      - name: Leave the entry files with additions out of the passed list
+        id: keep
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          ADDITIONS: ${{ steps.check.outputs.additions }}
+        run: |
+          python "$env:RECORDING\recording.py" keep --additions "$env:ADDITIONS" "$env:RUNNER_TEMP\suite-results\passed.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload the entry files that passed
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
         uses: actions/upload-artifact@<pin>
         with:
           name: suite-results-<windows-job>

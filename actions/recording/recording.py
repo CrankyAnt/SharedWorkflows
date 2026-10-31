@@ -12,18 +12,21 @@ process with the lookup report writes its module lookups beside the recording.
 ``check`` parses and classifies the recording, maps it to repository paths, assigns each setup's reads to the
 suites and entry files of the job that state the setup, and compares the reads with the stored lists. In a
 pull-request or push run it writes the additions, lists them in the job summary and fails when there are any; in the
-full-recording mode it writes the classified reads, the skip state and the duration of every entry file. ``apply``
-adds a run's additions to the suite list, or, with the results of a full recording, replaces the lists of every entry
-file that exited with 0 and whose test report in an accepted format shows no skipped test, and writes the duration
-estimates. The lists of a suite selected per entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
+full-recording mode it writes the classified reads, the skip state and the duration of every entry file. ``keep``
+leaves the entry files that the additions name out of the job's passed list, so the job still stores the passes of its
+other entry files. ``apply`` adds a run's additions to the suite list, or, with the results of a full recording,
+replaces the lists of every entry file that exited with 0 and whose test report in an accepted format shows no skipped
+test, and writes the duration estimates, corrected for the speed of each shard job. The lists of a suite selected per
+entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
 the commands.
 
     python3 recording.py base [--file <file>]
-    python3 recording.py start [--output <directory>] [--root <repository>] [--environment <file>] [--full]
+    python3 recording.py start [--output <directory>] [--root <repository>] [--environment <file>] [--full [--job <name>]]
     python3 recording.py exec [--output <directory>] --setup <name> -- <command> ...
     python3 recording.py exec [--output <directory>] --entry <file> --suites <suite list> [--root <repository>] [--suite <name>] -- <command> ...
     python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ...
     python3 recording.py check [--output <directory>] --suites <suite list> [--root <repository>] [--summary <file>]
+    python3 recording.py keep --additions <additions> <passed list>
     python3 recording.py apply [--root <repository>] [--suites <suite list>] <additions or results> ...
     python3 recording.py digest [--expect <digest>] [--github-output <file>]
 """
@@ -39,6 +42,7 @@ import os
 import posixpath
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -211,6 +215,8 @@ def run_start(options: argparse.Namespace) -> int:
     settings = {"mode": mode, "trace_set": "wide" if options.full else "mid", "strace": tool}
     if windows:
         settings = {"mode": mode, "trace_set": "etw", **start_session(output, options.root, tool, environment)}
+    if options.job:
+        settings["job"] = options.job
     (output / "recording.json").write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     recorder = "a live Kernel-File ETW session" if windows else f"the {settings['trace_set']} trace set"
     print(f"Recording into {output} with {recorder} ({settings['mode']} mode).")
@@ -428,6 +434,8 @@ def run_exec(options: argparse.Namespace) -> int:
               "suite": options.suite, "command": command, "exit_code": code, "seconds": round(seconds, 3), "skipped": skipped,
               "incomplete_report": incomplete,
               "trace": trace.name, "lookups": lookups.name, "temporary": str(temporary), "cache": str(cache), "cwd": os.getcwd()}
+    if "job" in settings:
+        record["job"] = settings["job"]
     if etw:
         record.update(trace=settings["events"], pid=process.pid, launcher=os.getpid(), recorder=["etw"])
     else:
@@ -1879,8 +1887,8 @@ def etw_summary(settings: dict) -> str:
 def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
                       recorded: list[tuple[suite_selection.Suite, Unit, Reads]], settings: dict) -> int:
     document = {"kind": "full-recording", "suite_list": list_path,
-                "entries": [{"suite": suite.name, "entry": unit.record["name"], "exit_code": unit.record["exit_code"],
-                             "skipped": unit.record["skipped"], "incomplete_report": unit.record.get("incomplete_report"),
+                "entries": [{"suite": suite.name, "entry": unit.record["name"], **({"job": unit.record["job"]} if "job" in unit.record else {}),
+                             "exit_code": unit.record["exit_code"], "skipped": unit.record["skipped"], "incomplete_report": unit.record.get("incomplete_report"),
                              "seconds": unit.record["seconds"], "reads": reads.document()}
                             for suite, unit, reads in recorded]}
     target = options.additions or output / "full-recording.json"
@@ -1894,6 +1902,49 @@ def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"mode=full\nfile={target}\n")
+    return 0
+
+
+# --- keep -----------------------------------------------------------------------------------------------------
+
+
+def read_json_file(path: Path, what: str) -> object:
+    try:
+        # utf-8-sig: a passed list that PowerShell wrote may start with a byte order mark.
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except ValueError as error:
+        raise RecordingError(f"{path} holds no {what}: {error}") from None
+
+
+def entries_with_additions(document: object, source: Path) -> set[tuple[str, str]]:
+    """The (suite, entry file) pairs that an additions document of ``check`` marks: each entry file listed with additions,
+    and every recorded entry file of a suite whose additions are pooled."""
+    not_additions = RecordingError(f"{source} is no additions document of check")
+    if not isinstance(document, dict) or document.get("kind") != "additions" or not isinstance(document.get("suites"), list):
+        raise not_additions
+    marked = set()
+    for item in document["suites"]:
+        if not isinstance(item, dict) or not isinstance(item.get("suite"), str):
+            raise not_additions
+        # A suite selected per entry file lists its entry files with additions; a pooled suite has no such list.
+        entries = item["entries"] if "entries" in item else item.get("recorded_entries")
+        if not isinstance(entries, (dict, list)) or not all(isinstance(entry, str) for entry in entries):
+            raise not_additions
+        marked |= {(item["suite"], entry) for entry in entries}
+    return marked
+
+
+def run_keep(options: argparse.Namespace) -> int:
+    marked = entries_with_additions(read_json_file(options.additions, "additions document"), options.additions)
+    passed = read_json_file(options.passed, "passed list")
+    if not isinstance(passed, list) or not all(isinstance(record, dict) and isinstance(record.get("suite"), str)
+                                               and isinstance(record.get("entry"), str) for record in passed):
+        raise RecordingError(f"{options.passed} is no list of passed entry files with their suites")
+    kept = [record for record in passed if (record["suite"], record["entry"]) not in marked]
+    left = [record["entry"] for record in passed if (record["suite"], record["entry"]) in marked]
+    options.passed.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+    print(f"Kept {len(kept)} of {len(passed)} passed entry file{'' if len(passed) == 1 else 's'} for reuse"
+          + (f"; left out with additions: {', '.join(left)}." if left else "."))
     return 0
 
 
@@ -2081,14 +2132,45 @@ def kept_reason(entry: dict | None) -> str | None:
     return None
 
 
+# A stored duration estimate changes only when the corrected value differs from it by more than this share of it.
+ESTIMATE_THRESHOLD = 0.25
+
+
+def corrected_durations(entries: dict[tuple[str, str], dict], jobs: dict[tuple[str, str], tuple], resolved: dict,
+                        items: dict) -> dict[tuple[str, str], float]:
+    """The corrected value of each recorded entry file: its seconds divided by the full-recording scale of its operating
+    system, then by the speed factor of its shard job. A job's factor is the median, over its entry files that ran clean
+    (``kept_reason`` gives none) and have a stored estimate, of the converted seconds divided by that estimate; a job
+    without such an entry file, or whose median is not positive, has factor 1."""
+    converted = {key: entry["seconds"] / suite_selection.full_recording_scale(known_suite(resolved, key[0]).os) for key, entry in entries.items()}
+    ratios: dict[tuple, list[float]] = {}
+    for key, value in converted.items():
+        stored = items[key[0]].get("entry_durations", {}).get(key[1])
+        if stored and kept_reason(entries[key]) is None:
+            ratios.setdefault(jobs[key], []).append(value / stored)
+    factors = {job: median for job, values in ratios.items() if (median := statistics.median(values)) > 0}
+    return {key: value / factors.get(jobs[key], 1.0) for key, value in converted.items()}
+
+
+def new_estimate(corrected: float, stored: float | None) -> float:
+    """The corrected value rounded to hundredths of a second, unless it lies within the threshold of the stored estimate."""
+    return round(corrected, 2) if stored is None or abs(corrected - stored) > ESTIMATE_THRESHOLD * stored else stored
+
+
 def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]]) -> list[str]:
     """Replace the lists of every recorded entry file that exited with 0 and whose test report in an accepted format
     shows no skipped test. The module lookups of a directory become those of the recorded entry files, and keep the
-    stored ones while an entry file whose lists stay looks up modules there."""
+    stored ones while an entry file whose lists stay looks up modules there. The duration estimate of each entry file
+    that ran clean follows its corrected value as ``corrected_durations`` and ``new_estimate`` say, judged per entry
+    file, also in a suite selected as a whole; every other entry file keeps its stored estimate, or stays without one."""
     entries: dict[tuple[str, str], dict] = {}
-    for document in documents:
+    jobs: dict[tuple[str, str], tuple] = {}
+    for index, document in enumerate(documents):
         for entry in document["entries"]:
             entries[(entry["suite"], entry["entry"])] = entry
+            # A result without a job comes from a workflow that names none at start; each such file is one job's result.
+            jobs[(entry["suite"], entry["entry"])] = ("job", entry["job"]) if entry.get("job") else ("result", index)
+    corrected = corrected_durations(entries, jobs, resolved, items)
     recorded_lookups: dict[str, set[str]] = {}
     for entry in entries.values():
         for directory, names in entry["reads"].get("module_lookups", {}).items():
@@ -2099,15 +2181,17 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
         suite = known_suite(resolved, name)
         item = items[name]
         recorded = {entry: entries.get((name, entry)) for entry in suite.entries}
+        reasons = {entry: kept_reason(result) for entry, result in recorded.items()}
         durations = dict(item.get("entry_durations", {}))
-        for entry, result in recorded.items():
-            if result is not None:
-                durations[entry] = round(result["seconds"] / suite_selection.full_recording_scale(suite.os), 2)
+        for entry in suite.entries:
+            if reasons[entry] is None:
+                durations[entry] = new_estimate(corrected[(name, entry)], durations.get(entry))
+            elif entry in durations:
+                report.append(f"{name}: kept the estimate of {entry}: {reasons[entry]}")
         if durations:
             item["entry_durations"] = durations
         if suite.paths is None:
             start_list(item, suite, suite.entries, {entry for entry, result in recorded.items() if result is not None})
-        reasons = {entry: kept_reason(result) for entry, result in recorded.items()}
         if suite.entry_selection:
             for entry, result in recorded.items():
                 if result is None:
@@ -2198,6 +2282,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     starting.add_argument("--environment", type=Path, help="the job's environment before its setups, as base wrote it "
                           "(default: $RUNNER_TEMP/recording-environment.json when it exists, otherwise the current one)")
     starting.add_argument("--full", action="store_true", help="the full-recording mode: the wide trace set and results for apply")
+    starting.add_argument("--job", help="in the full-recording mode, the name of the shard job, which every measurement of the "
+                          "recording names and apply corrects for its speed")
     executing = commands.add_parser("exec", help="run one setup or one entry file under the recording")
     executing.add_argument("--output", type=Path)
     unit = executing.add_mutually_exclusive_group(required=True)
@@ -2222,6 +2308,9 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     checking.add_argument("--additions", type=Path, help="where to write the additions or the full-recording result")
     checking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file")
+    keeping = commands.add_parser("keep", help="leave the entry files that check's additions name out of a passed list")
+    keeping.add_argument("--additions", type=Path, required=True, help="the additions document that check wrote")
+    keeping.add_argument("passed", type=Path, help="the passed list of the job, a JSON list of suites and entry files, rewritten in place")
     applying = commands.add_parser("apply", help="apply additions or full-recording results to the suite list")
     applying.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")
     applying.add_argument("--suites", type=Path, help="the suite list (default: the one the files name, under the root)")
@@ -2231,6 +2320,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     digesting.add_argument("--expect", help="the digest that select took; a different one fails")
     digesting.add_argument("--github-output", type=Path, help="append a shared-digest= line to this file")
     options = parser.parse_args(argv)
+    if options.command == "start" and options.job is not None and not options.full:
+        parser.error("--job goes with --full")
     if options.command == "exec" and options.entry is None and (options.suite is not None or options.suites is not None):
         parser.error("--suite and --suites go with --entry")
     if options.command == "exec" and options.entry is not None and options.suites is None:
@@ -2240,7 +2331,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
-    handlers = {"base": run_base, "start": run_start, "exec": run_exec, "provide": run_provide, "check": run_check, "apply": run_apply, "digest": run_digest}
+    handlers = {"base": run_base, "start": run_start, "exec": run_exec, "provide": run_provide, "check": run_check, "keep": run_keep, "apply": run_apply, "digest": run_digest}
     try:
         return handlers[options.command](options)
     except (RecordingError, suite_selection.SuiteListError, OSError) as error:
