@@ -5,6 +5,12 @@ on:
     # Mondays at 03:17 UTC; the plan job records only in even ISO weeks, so the schedule records every two weeks.
     - cron: "17 3 * * 1"
   workflow_dispatch:
+    inputs:
+      verify_token:
+        description: Mint the updater App's token even without a change to propose, to verify its private key
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -79,7 +85,8 @@ jobs:
         id: start
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
-        run: python3 "$RECORDING/recording.py" start --full
+          JOB: shard-${{ matrix.shard.shard }}
+        run: python3 "$RECORDING/recording.py" start --full --job "$JOB"
       - name: Provide the set-up Python with the lookup report to the entry files that state it
         if: contains(matrix.shard.setups, 'python')
         env:
@@ -155,7 +162,8 @@ jobs:
         shell: pwsh
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
-        run: python "$env:RECORDING\recording.py" start --full
+          JOB: windows
+        run: python "$env:RECORDING\recording.py" start --full --job $env:JOB
       - name: Run the setup <setup> under the recording
         if: contains(fromJSON(env.SETUPS), '<setup>')
         shell: pwsh
@@ -247,12 +255,29 @@ jobs:
           done
       - uses: actions/create-github-app-token@<pin>
         id: app-token
-        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        if: (steps.changes.outputs.changed == 'true' || inputs.verify_token == true) && github.ref_name == github.event.repository.default_branch
         with:
           client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
           private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
+      - name: Report the token verification
+        id: verified
+        if: ${{ !cancelled() && inputs.verify_token == true && github.ref_name == github.event.repository.default_branch }}
+        env:
+          OUTCOME: ${{ steps.app-token.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$OUTCOME" = success ]; then
+            echo "Token verification: the updater App minted its token with the repository's private key." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif [ "$OUTCOME" = failure ]; then
+            message="Token verification: the updater App could not mint its token; the repository secret does not hold a valid private key."
+          else
+            message="Token verification: the token step did not run, so this run verifies nothing; start another."
+          fi
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
       - name: Configure the GitHub App identity
         if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
         env:

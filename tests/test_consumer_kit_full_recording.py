@@ -120,8 +120,8 @@ class FullRecordingTemplateTest(unittest.TestCase):
         token = next(step for step in steps if step.get("id") == "app-token")
         own_token = with_pin_placeholder(next(step for step in own_steps if step.get("id") == "app-token"))
         self.assertEqual(own_token, token)
-        for name in ("Configure the GitHub App identity", "Push the review branch", "Create or update the review pull request",
-                     "Name the App setting this run would need"):
+        for name in ("Report the token verification", "Configure the GitHub App identity", "Push the review branch",
+                     "Create or update the review pull request", "Name the App setting this run would need"):
             with self.subTest(step=name):
                 self.assertEqual(named(own_steps, name), named(steps, name))
         scan = named(steps, "Scan the commit before pushing")

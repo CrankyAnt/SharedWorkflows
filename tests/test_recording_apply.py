@@ -7,7 +7,9 @@ import unittest
 
 from tests.recording_fixtures import RecordingFixture, suite
 
-FILES = {"tests/a.py": "", "tests/c1.py": "", "tests/c2.py": "", "tests/w.py": ""}
+FILES = {"tests/a.py": "", "tests/c1.py": "", "tests/c2.py": "", "tests/c3.py": "", "tests/c4.py": "", "tests/w.py": ""}
+# The ratio of the wide trace set to the mid trace set, by which a Linux measurement of the full recording is divided.
+WIDE_TO_MID = 1.65
 
 
 def suites() -> list[dict]:
@@ -77,11 +79,14 @@ class ApplyTests(unittest.TestCase):
     def test_apply_writes_duration_estimates_converted_by_the_wide_to_mid_ratio(self) -> None:
         fixture = self.fixture()
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
-            {"suite": "whole", "entry": "tests/a.py", "exit_code": 0, "skipped": 0, "seconds": 33.0, "reads": reads(["tests/a.py"])},
-            {"suite": "per-entry", "entry": "tests/c2.py", "exit_code": 0, "skipped": 0, "seconds": 16.5, "reads": reads(["tests/c2.py"])}]}
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 33.0, "reads": reads(["tests/a.py"])},
+            {"suite": "per-entry", "entry": "tests/c2.py", "job": "shard-2", "exit_code": 0, "skipped": 0, "seconds": 16.5,
+             "reads": reads(["tests/c2.py"])}]}
         applied = fixture.apply(self.write(fixture, "full.json", result))
         self.assertEqual(0, applied.returncode, applied.stderr)
-        self.assertEqual({"tests/a.py": 20.0}, fixture.suite("whole")["entry_durations"])
+        # tests/a.py is the only entry file of its job with a stored estimate, so the job's factor takes up its whole
+        # difference; tests/c2.py has none, and its job counts with factor 1.
+        self.assertEqual({"tests/a.py": 4.0}, fixture.suite("whole")["entry_durations"])
         self.assertEqual({"tests/c2.py": 10.0}, fixture.suite("per-entry")["entry_durations"])
         self.assertIn("per-entry: kept the list of tests/c1.py: it was not recorded", applied.stdout)
         # The whole suite ran every entry file without a skip: its recorded lists replace the stored ones, extra reads stay.
@@ -186,7 +191,8 @@ class ApplyTests(unittest.TestCase):
         # The closing job of the full recording applies one result per Linux shard and one from the Windows job; a suite
         # selected as a whole whose entry files ran in different shards is replaced from the union of its results. The
         # Linux seconds are wide-traced and count at 1/1.65; the Windows job has one ETW set, so its seconds count as
-        # recorded.
+        # recorded. No job has an entry file with a stored estimate, so each counts with factor 1. These results name no
+        # job, as those of a full-recording workflow that passes none to start: each file counts as one job.
         fixture = self.fixture([suite("whole", ["tests/a.py", "tests/c1.py"], paths=["tests/a.py", "stale.txt"]),
                                 suite("windows", ["tests/w.py"], os="windows", paths=["tests/w.py", "stale.txt"])])
 
@@ -203,6 +209,104 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual({"tests/a.py": 2.0, "tests/c1.py": 4.0}, fixture.suite("whole")["entry_durations"])
         self.assertEqual(["tests/w.py"], fixture.suite("windows")["paths"])
         self.assertEqual({"tests/w.py": 16.5}, fixture.suite("windows")["entry_durations"])
+
+
+class JobCorrectionTests(unittest.TestCase):
+    """apply corrects each measurement of a full recording for the speed of its shard job, and changes a stored duration
+    estimate only when the corrected value differs from it by more than 25%."""
+
+    STORED = {"tests/c1.py": 10.0, "tests/c2.py": 20.0, "tests/c3.py": 10.0}
+
+    def fixture(self, linux: dict[str, float] | None = None, windows: dict[str, float] | None = None) -> RecordingFixture:
+        entries = ["tests/c1.py", "tests/c2.py", "tests/c3.py", "tests/c4.py"]
+        return RecordingFixture(self.addCleanup, FILES, [
+            suite("linux", entries, entry_selection=True, paths=[], entry_paths={entry: [entry] for entry in entries},
+                  **({"entry_durations": linux} if linux else {})),
+            suite("windows", ["tests/w.py"], os="windows", paths=["tests/w.py"], **({"entry_durations": windows} if windows else {}))])
+
+    def apply(self, fixture: RecordingFixture, *measurements: tuple[str, str, str, float]) -> tuple[dict | None, dict | None]:
+        """Apply one full-recording result per job from (suite, entry, job, seconds); return the stored estimates of
+        the Linux and the Windows suite."""
+        jobs: dict[str, list[dict]] = {}
+        for suite_name, entry, job, seconds in measurements:
+            jobs.setdefault(job, []).append({"suite": suite_name, "entry": entry, "job": job, "exit_code": 0, "skipped": 0,
+                                             "seconds": seconds, "reads": reads([entry])})
+        paths = []
+        for job, entries in jobs.items():
+            path = fixture.base / f"{job}.json"
+            path.write_text(json.dumps({"kind": "full-recording", "suite_list": "suites.json", "entries": entries}), encoding="utf-8")
+            paths.append(path)
+        applied = fixture.apply(*paths)
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        return fixture.suite("linux").get("entry_durations"), fixture.suite("windows").get("entry_durations")
+
+    def test_a_job_that_ran_every_entry_file_faster_or_slower_leaves_the_stored_estimates(self) -> None:
+        stored = {**self.STORED, "tests/c4.py": 8.0}
+        fixture = self.fixture(stored)
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.3 * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.3 * 20.0),
+                              ("linux", "tests/c3.py", "shard-2", WIDE_TO_MID * 0.8 * 10.0), ("linux", "tests/c4.py", "shard-2", WIDE_TO_MID * 0.8 * 8.0))
+        self.assertEqual(stored, linux)
+
+    def test_an_entry_file_that_moved_by_more_than_a_quarter_against_its_job_gets_its_corrected_value(self) -> None:
+        fixture = self.fixture({**self.STORED, "tests/c4.py": 8.0})
+        # The job ran at 1.2x: tests/c3.py's corrected value is 13.337 s, 33% above its stored 10 s.
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.2 * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.2 * 20.0),
+                              ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 1.2 * 13.337))
+        self.assertEqual({"tests/c1.py": 10.0, "tests/c2.py": 20.0, "tests/c3.py": 13.34, "tests/c4.py": 8.0}, linux)
+
+    def test_the_threshold_compares_the_corrected_value_before_rounding(self) -> None:
+        # 12.504 s is 25.04% above the stored 10 s, so the estimate changes, to 12.5 s.
+        fixture = self.fixture(dict(self.STORED))
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 20.0),
+                              ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 12.504))
+        self.assertEqual({**self.STORED, "tests/c3.py": 12.5}, linux)
+
+    def test_an_entry_file_within_a_quarter_of_its_stored_estimate_keeps_it(self) -> None:
+        for corrected in (12.49, 7.51, 12.0, 7.6):
+            with self.subTest(corrected=corrected):
+                fixture = self.fixture(dict(self.STORED))
+                linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.2 * 10.0),
+                                      ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.2 * 20.0), ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 1.2 * corrected))
+                self.assertEqual(self.STORED, linux)
+
+    def test_a_job_without_a_stored_estimate_counts_with_factor_1(self) -> None:
+        fixture = self.fixture({"tests/c1.py": 10.0}, {"tests/w.py": 30.0})
+        # shard-1 has a stored estimate and runs at 1.5x; shard-2 has none.
+        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.5 * 10.0),
+                                    ("linux", "tests/c2.py", "shard-2", WIDE_TO_MID * 7.0), ("linux", "tests/c3.py", "shard-2", WIDE_TO_MID * 9.0))
+        self.assertEqual({"tests/c1.py": 10.0, "tests/c2.py": 7.0, "tests/c3.py": 9.0}, linux)
+        self.assertEqual({"tests/w.py": 30.0}, windows)
+
+    def test_a_job_whose_median_ratio_is_0_counts_with_factor_1(self) -> None:
+        # Two of the three entry files with a stored estimate measured 0 s, so the median ratio is 0.
+        fixture = self.fixture(dict(self.STORED))
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 0.0), ("linux", "tests/c2.py", "shard-1", 0.0),
+                              ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 10.0), ("linux", "tests/c4.py", "shard-1", WIDE_TO_MID * 5.0))
+        self.assertEqual({"tests/c1.py": 0.0, "tests/c2.py": 0.0, "tests/c3.py": 10.0, "tests/c4.py": 5.0}, linux)
+
+    def test_an_entry_file_without_a_stored_estimate_gets_its_corrected_value(self) -> None:
+        fixture = self.fixture(dict(self.STORED))
+        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.2 * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.2 * 20.0),
+                                    ("linux", "tests/c4.py", "shard-1", WIDE_TO_MID * 1.2 * 7.0), ("windows", "tests/w.py", "windows", 12.345))
+        self.assertEqual({**self.STORED, "tests/c4.py": 7.0}, linux)
+        # The Windows job has no stored estimate: its measurement counts at its recorded seconds, rounded to hundredths.
+        self.assertEqual({"tests/w.py": 12.35}, windows)
+
+    def test_an_entry_file_that_was_not_recorded_keeps_its_stored_estimate(self) -> None:
+        fixture = self.fixture({**self.STORED, "tests/c4.py": 8.0})
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 30.0))
+        self.assertEqual({**self.STORED, "tests/c4.py": 8.0}, linux)
+
+    def test_the_conversion_divides_by_the_wide_to_mid_ratio_on_linux_and_by_1_on_windows_before_the_job_correction(self) -> None:
+        # The converted values of the entry files with a stored estimate are 1.0, 2.0 and 2.49 times those estimates, so
+        # the job's factor is 2.0; each converted value is divided by it, and tests/c3.py's 12.45 s stays within 25%. The Windows job has no stored estimate and
+        # shows the conversion alone.
+        fixture = self.fixture({"tests/c1.py": 10.0, "tests/c2.py": 10.0, "tests/c3.py": 10.0})
+        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 20.0),
+                                    ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 24.9), ("linux", "tests/c4.py", "shard-1", WIDE_TO_MID * 30.0),
+                                    ("windows", "tests/w.py", "windows", 16.5))
+        self.assertEqual({"tests/c1.py": 5.0, "tests/c2.py": 10.0, "tests/c3.py": 10.0, "tests/c4.py": 15.0}, linux)
+        self.assertEqual({"tests/w.py": 16.5}, windows)
 
 
 if __name__ == "__main__":

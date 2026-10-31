@@ -16,11 +16,12 @@ full-recording mode it writes the classified reads, the skip state and the durat
 leaves the entry files that the additions name out of the job's passed list, so the job still stores the passes of its
 other entry files. ``apply`` adds a run's additions to the suite list, or, with the results of a full recording,
 replaces the lists of every entry file that exited with 0 and whose test report in an accepted format shows no skipped
-test, and writes the duration estimates. The lists of a suite selected per entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
+test, and writes the duration estimates, corrected for the speed of each shard job. The lists of a suite selected per
+entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
 the commands.
 
     python3 recording.py base [--file <file>]
-    python3 recording.py start [--output <directory>] [--root <repository>] [--environment <file>] [--full]
+    python3 recording.py start [--output <directory>] [--root <repository>] [--environment <file>] [--full [--job <name>]]
     python3 recording.py exec [--output <directory>] --setup <name> -- <command> ...
     python3 recording.py exec [--output <directory>] --entry <file> --suites <suite list> [--root <repository>] [--suite <name>] -- <command> ...
     python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ...
@@ -41,6 +42,7 @@ import os
 import posixpath
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -213,6 +215,8 @@ def run_start(options: argparse.Namespace) -> int:
     settings = {"mode": mode, "trace_set": "wide" if options.full else "mid", "strace": tool}
     if windows:
         settings = {"mode": mode, "trace_set": "etw", **start_session(output, options.root, tool, environment)}
+    if options.job:
+        settings["job"] = options.job
     (output / "recording.json").write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     recorder = "a live Kernel-File ETW session" if windows else f"the {settings['trace_set']} trace set"
     print(f"Recording into {output} with {recorder} ({settings['mode']} mode).")
@@ -430,6 +434,8 @@ def run_exec(options: argparse.Namespace) -> int:
               "suite": options.suite, "command": command, "exit_code": code, "seconds": round(seconds, 3), "skipped": skipped,
               "incomplete_report": incomplete,
               "trace": trace.name, "lookups": lookups.name, "temporary": str(temporary), "cache": str(cache), "cwd": os.getcwd()}
+    if "job" in settings:
+        record["job"] = settings["job"]
     if etw:
         record.update(trace=settings["events"], pid=process.pid, launcher=os.getpid(), recorder=["etw"])
     else:
@@ -1881,8 +1887,8 @@ def etw_summary(settings: dict) -> str:
 def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
                       recorded: list[tuple[suite_selection.Suite, Unit, Reads]], settings: dict) -> int:
     document = {"kind": "full-recording", "suite_list": list_path,
-                "entries": [{"suite": suite.name, "entry": unit.record["name"], "exit_code": unit.record["exit_code"],
-                             "skipped": unit.record["skipped"], "incomplete_report": unit.record.get("incomplete_report"),
+                "entries": [{"suite": suite.name, "entry": unit.record["name"], **({"job": unit.record["job"]} if "job" in unit.record else {}),
+                             "exit_code": unit.record["exit_code"], "skipped": unit.record["skipped"], "incomplete_report": unit.record.get("incomplete_report"),
                              "seconds": unit.record["seconds"], "reads": reads.document()}
                             for suite, unit, reads in recorded]}
     target = options.additions or output / "full-recording.json"
@@ -2126,14 +2132,44 @@ def kept_reason(entry: dict | None) -> str | None:
     return None
 
 
+# A stored duration estimate changes only when the corrected value differs from it by more than this share of it.
+ESTIMATE_THRESHOLD = 0.25
+
+
+def corrected_durations(entries: dict[tuple[str, str], dict], jobs: dict[tuple[str, str], tuple], resolved: dict,
+                        items: dict) -> dict[tuple[str, str], float]:
+    """The corrected value of each recorded entry file: its seconds divided by the full-recording scale of its operating
+    system, then by the speed factor of its shard job. A job's factor is the median, over its entry files with a stored
+    estimate, of the converted seconds divided by that estimate; a job without such an entry file, or whose median is
+    not positive, has factor 1."""
+    converted = {key: entry["seconds"] / suite_selection.full_recording_scale(known_suite(resolved, key[0]).os) for key, entry in entries.items()}
+    ratios: dict[tuple, list[float]] = {}
+    for key, value in converted.items():
+        stored = items[key[0]].get("entry_durations", {}).get(key[1])
+        if stored:
+            ratios.setdefault(jobs[key], []).append(value / stored)
+    factors = {job: median for job, values in ratios.items() if (median := statistics.median(values)) > 0}
+    return {key: value / factors.get(jobs[key], 1.0) for key, value in converted.items()}
+
+
+def new_estimate(corrected: float, stored: float | None) -> float:
+    """The corrected value rounded to hundredths of a second, unless it lies within the threshold of the stored estimate."""
+    return round(corrected, 2) if stored is None or abs(corrected - stored) > ESTIMATE_THRESHOLD * stored else stored
+
+
 def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]]) -> list[str]:
     """Replace the lists of every recorded entry file that exited with 0 and whose test report in an accepted format
     shows no skipped test. The module lookups of a directory become those of the recorded entry files, and keep the
-    stored ones while an entry file whose lists stay looks up modules there."""
+    stored ones while an entry file whose lists stay looks up modules there. Each recorded entry file's duration
+    estimate follows its corrected value as ``corrected_durations`` and ``new_estimate`` say."""
     entries: dict[tuple[str, str], dict] = {}
-    for document in documents:
+    jobs: dict[tuple[str, str], tuple] = {}
+    for index, document in enumerate(documents):
         for entry in document["entries"]:
             entries[(entry["suite"], entry["entry"])] = entry
+            # A result without a job comes from a workflow that names none at start; each such file is one job's result.
+            jobs[(entry["suite"], entry["entry"])] = ("job", entry["job"]) if entry.get("job") else ("result", index)
+    corrected = corrected_durations(entries, jobs, resolved, items)
     recorded_lookups: dict[str, set[str]] = {}
     for entry in entries.values():
         for directory, names in entry["reads"].get("module_lookups", {}).items():
@@ -2147,7 +2183,7 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
         durations = dict(item.get("entry_durations", {}))
         for entry, result in recorded.items():
             if result is not None:
-                durations[entry] = round(result["seconds"] / suite_selection.full_recording_scale(suite.os), 2)
+                durations[entry] = new_estimate(corrected[(name, entry)], durations.get(entry))
         if durations:
             item["entry_durations"] = durations
         if suite.paths is None:
@@ -2243,6 +2279,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     starting.add_argument("--environment", type=Path, help="the job's environment before its setups, as base wrote it "
                           "(default: $RUNNER_TEMP/recording-environment.json when it exists, otherwise the current one)")
     starting.add_argument("--full", action="store_true", help="the full-recording mode: the wide trace set and results for apply")
+    starting.add_argument("--job", help="in the full-recording mode, the name of the shard job, which every measurement of the "
+                          "recording names and apply corrects for its speed")
     executing = commands.add_parser("exec", help="run one setup or one entry file under the recording")
     executing.add_argument("--output", type=Path)
     unit = executing.add_mutually_exclusive_group(required=True)
@@ -2279,6 +2317,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     digesting.add_argument("--expect", help="the digest that select took; a different one fails")
     digesting.add_argument("--github-output", type=Path, help="append a shared-digest= line to this file")
     options = parser.parse_args(argv)
+    if options.command == "start" and options.job is not None and not options.full:
+        parser.error("--job goes with --full")
     if options.command == "exec" and options.entry is None and (options.suite is not None or options.suites is not None):
         parser.error("--suite and --suites go with --entry")
     if options.command == "exec" and options.entry is not None and options.suites is None:

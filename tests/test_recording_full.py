@@ -3,6 +3,7 @@ strace recordings of the fixtures' commands."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 import textwrap
 import unittest
@@ -107,6 +108,19 @@ class FullRecordingTests(unittest.TestCase):
         self.assertIn(STALE, fixture.suite("whole")["paths"])
         self.assertIn("data/ok.txt", fixture.suite("whole")["paths"])
         self.assertIn("whole: kept the list of tests/skip.py: 1 test skipped", applied.stdout)
+
+    def test_every_measurement_names_the_shard_job_it_came_from(self) -> None:
+        fixture = self.fixture()
+        self.assertEqual(0, fixture.record(ENTRIES, full=True, job="shard-3").returncode)
+        self.assertEqual({entry: "shard-3" for entry in ENTRIES}, {item["entry"]: item["job"] for item in fixture.full_result()["entries"]})
+        units = [json.loads(path.read_text(encoding="utf-8")) for path in (fixture.output / "units").glob("*.json")]
+        self.assertEqual(len(ENTRIES), len(units))
+        self.assertTrue(all(unit["job"] == "shard-3" for unit in units))
+
+    def test_start_takes_a_job_only_in_the_full_recording_mode(self) -> None:
+        refused = self.fixture().start(job="shard-1")
+        self.assertEqual(2, refused.returncode)
+        self.assertIn("--job goes with --full", refused.stderr)
 
     def test_it_writes_a_duration_estimate_per_recorded_entry_file(self) -> None:
         fixture = self.fixture()
