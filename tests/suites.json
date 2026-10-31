@@ -455,6 +455,19 @@
         "tests/test_ci_policy_validate.py/**",
         "tests/test_ci_policy_zizmor.py/**",
         "tests/test_ci_step_precision.py/**",
+        "tests/test_consumer_kit_apply_additions.py/**",
+        "tests/test_consumer_kit_auto_merge.py/**",
+        "tests/test_consumer_kit_dependabot.py/**",
+        "tests/test_consumer_kit_full_recording.py/**",
+        "tests/test_consumer_kit_hygiene.py/**",
+        "tests/test_consumer_kit_install_by_need.py/**",
+        "tests/test_consumer_kit_installed_permissions.py/**",
+        "tests/test_consumer_kit_installed_targets.py/**",
+        "tests/test_consumer_kit_installed_validation.py/**",
+        "tests/test_consumer_kit_own_dependabot.py/**",
+        "tests/test_consumer_kit_publication.py/**",
+        "tests/test_consumer_kit_templates.py/**",
+        "tests/test_consumer_kit_validation_workflow.py/**",
         "tests/test_dependabot_auto_merge.py/**",
         "tests/test_dependabot_auto_merge_action.py/**",
         "tests/test_dependabot_auto_merge_caller.py/**",
@@ -566,6 +579,19 @@
           "tests/test_ci_policy_validate.py/**",
           "tests/test_ci_policy_zizmor.py/**",
           "tests/test_ci_step_precision.py/**",
+          "tests/test_consumer_kit_apply_additions.py/**",
+          "tests/test_consumer_kit_auto_merge.py/**",
+          "tests/test_consumer_kit_dependabot.py/**",
+          "tests/test_consumer_kit_full_recording.py/**",
+          "tests/test_consumer_kit_hygiene.py/**",
+          "tests/test_consumer_kit_install_by_need.py/**",
+          "tests/test_consumer_kit_installed_permissions.py/**",
+          "tests/test_consumer_kit_installed_targets.py/**",
+          "tests/test_consumer_kit_installed_validation.py/**",
+          "tests/test_consumer_kit_own_dependabot.py/**",
+          "tests/test_consumer_kit_publication.py/**",
+          "tests/test_consumer_kit_templates.py/**",
+          "tests/test_consumer_kit_validation_workflow.py/**",
           "tests/test_dependabot_auto_merge.py/**",
           "tests/test_dependabot_auto_merge_action.py/**",
           "tests/test_dependabot_auto_merge_caller.py/**",
@@ -1290,6 +1316,58 @@
         },
         {
           "path": "tests/test_ci_step_precision.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_apply_additions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_auto_merge.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_dependabot.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_full_recording.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_hygiene.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_install_by_need.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_permissions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_targets.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_validation.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_own_dependabot.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_publication.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_templates.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_validation_workflow.py",
           "kind": "any"
         },
         {
@@ -2558,6 +2636,58 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_consumer_kit_apply_additions.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_auto_merge.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_dependabot.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_full_recording.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_hygiene.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_install_by_need.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_permissions.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_targets.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_validation.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_own_dependabot.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_publication.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_templates.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_validation_workflow.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_dependabot_auto_merge.py",
             "kind": "any"
           },
@@ -3780,9 +3910,23 @@
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
         "tests/ci_policy_support.py",
+        "tests/consumer_kit_support.py",
         "tests/recording_fixtures.py",
         "tests/setup_ci_support.py",
         "tests/strace_stand_in.py",
+        "tests/test_consumer_kit_apply_additions.py",
+        "tests/test_consumer_kit_auto_merge.py",
+        "tests/test_consumer_kit_dependabot.py",
+        "tests/test_consumer_kit_full_recording.py",
+        "tests/test_consumer_kit_hygiene.py",
+        "tests/test_consumer_kit_install_by_need.py",
+        "tests/test_consumer_kit_installed_permissions.py",
+        "tests/test_consumer_kit_installed_targets.py",
+        "tests/test_consumer_kit_installed_validation.py",
+        "tests/test_consumer_kit_own_dependabot.py",
+        "tests/test_consumer_kit_publication.py",
+        "tests/test_consumer_kit_templates.py",
+        "tests/test_consumer_kit_validation_workflow.py",
         "tests/test_setup_ci_apply_additions.py",
         "tests/test_setup_ci_auto_merge.py",
         "tests/test_setup_ci_dependabot.py",
@@ -3809,18 +3953,23 @@
           "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/test_consumer_kit_apply_additions.py",
           "tests/test_setup_ci_apply_additions.py"
         ],
         "tests/test_consumer_kit_auto_merge.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_auto_merge.py",
           "tests/test_setup_ci_auto_merge.py"
         ],
         "tests/test_consumer_kit_dependabot.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_dependabot.py",
           "tests/test_setup_ci_dependabot.py"
         ],
         "tests/test_consumer_kit_full_recording.py": [
@@ -3828,12 +3977,15 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "tests/ci_policy_support.py",
+          "tests/test_consumer_kit_full_recording.py",
           "tests/test_setup_ci_full_recording.py"
         ],
         "tests/test_consumer_kit_hygiene.py": [
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_hygiene.py",
           "tests/test_setup_ci_hygiene.py"
         ],
         "tests/test_consumer_kit_install_by_need.py": [
@@ -3847,7 +3999,9 @@
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/package-ecosystems.json",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_install_by_need.py",
           "tests/test_setup_ci_install_by_need.py"
         ],
         "tests/test_consumer_kit_installed_permissions.py": [
@@ -3856,7 +4010,9 @@
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_installed_permissions.py",
           "tests/test_setup_ci_installed_permissions.py"
         ],
         "tests/test_consumer_kit_installed_targets.py": [
@@ -3865,7 +4021,9 @@
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_installed_targets.py",
           "tests/test_setup_ci_installed_targets.py"
         ],
         "tests/test_consumer_kit_installed_validation.py": [
@@ -3873,13 +4031,17 @@
           ".github/workflows/suite-verdict.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_installed_validation.py",
           "tests/test_setup_ci_installed_validation.py"
         ],
         "tests/test_consumer_kit_own_dependabot.py": [
           ".github/dependabot.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_own_dependabot.py",
           "tests/test_setup_ci_own_dependabot.py"
         ],
         "tests/test_consumer_kit_publication.py": [
@@ -3891,6 +4053,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "tests/test_consumer_kit_publication.py",
           "tests/test_setup_ci_publication.py"
         ],
         "tests/test_consumer_kit_templates.py": [
@@ -3900,7 +4063,9 @@
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
           "tests/ci_policy_support.py",
+          "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
+          "tests/test_consumer_kit_templates.py",
           "tests/test_setup_ci_templates.py"
         ],
         "tests/test_consumer_kit_validation_workflow.py": [
@@ -3912,6 +4077,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
+          "tests/test_consumer_kit_validation_workflow.py",
           "tests/test_setup_ci_validation_workflow.py"
         ]
       },
@@ -4167,6 +4333,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/consumer_kit_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/consumer_kit_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_kit_support.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/recording_fixtures",
           "kind": "directory"
         },
@@ -4212,6 +4394,214 @@
         },
         {
           "path": "tests/strace_stand_in.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_apply_additions",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_apply_additions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_apply_additions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_apply_additions.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_auto_merge",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_auto_merge.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_auto_merge.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_auto_merge.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_dependabot",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_dependabot.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_dependabot.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_dependabot.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_full_recording",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_full_recording.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_full_recording.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_full_recording.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_hygiene",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_hygiene.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_hygiene.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_hygiene.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_install_by_need",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_install_by_need.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_install_by_need.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_install_by_need.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_permissions",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_permissions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_permissions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_permissions.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_targets",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_targets.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_targets.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_targets.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_validation",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_validation.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_validation.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_validation.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_own_dependabot",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_own_dependabot.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_own_dependabot.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_own_dependabot.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_publication",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_publication.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_publication.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_publication.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_templates",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_templates.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_templates.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_templates.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_validation_workflow",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_validation_workflow.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_validation_workflow.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_validation_workflow.so",
           "kind": "any"
         },
         {
@@ -4570,6 +4960,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_consumer_kit_apply_additions",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_apply_additions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_apply_additions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_apply_additions.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_setup_ci_apply_additions",
             "kind": "directory"
           },
@@ -4616,6 +5022,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -4629,6 +5051,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_auto_merge",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_auto_merge.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_auto_merge.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_auto_merge.so",
             "kind": "any"
           },
           {
@@ -4678,6 +5116,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -4691,6 +5145,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_dependabot",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_dependabot.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_dependabot.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_dependabot.so",
             "kind": "any"
           },
           {
@@ -4748,6 +5218,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_consumer_kit_full_recording",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_full_recording.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_full_recording.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_full_recording.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_setup_ci_full_recording",
             "kind": "directory"
           },
@@ -4794,6 +5280,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -4807,6 +5309,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_hygiene.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_hygiene.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_hygiene.so",
             "kind": "any"
           },
           {
@@ -4856,6 +5374,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -4869,6 +5403,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_install_by_need",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_install_by_need.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_install_by_need.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_install_by_need.so",
             "kind": "any"
           },
           {
@@ -4918,6 +5468,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -4931,6 +5497,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_permissions",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_permissions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_permissions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_permissions.so",
             "kind": "any"
           },
           {
@@ -4980,6 +5562,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -4993,6 +5591,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_targets",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_targets.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_targets.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_targets.so",
             "kind": "any"
           },
           {
@@ -5042,6 +5656,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -5055,6 +5685,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_validation",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_validation.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_validation.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_validation.so",
             "kind": "any"
           },
           {
@@ -5104,6 +5750,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -5117,6 +5779,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_own_dependabot",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_own_dependabot.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_own_dependabot.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_own_dependabot.so",
             "kind": "any"
           },
           {
@@ -5198,6 +5876,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_consumer_kit_publication",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_publication.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_publication.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_publication.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_setup_ci_publication",
             "kind": "directory"
           },
@@ -5260,6 +5954,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/setup_ci_support",
             "kind": "directory"
           },
@@ -5273,6 +5983,22 @@
           },
           {
             "path": "tests/setup_ci_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_templates",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_templates.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_templates.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_templates.so",
             "kind": "any"
           },
           {
@@ -5431,6 +6157,22 @@
           },
           {
             "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_validation_workflow",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_validation_workflow.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_validation_workflow.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_validation_workflow.so",
             "kind": "any"
           },
           {
@@ -6628,6 +7370,19 @@
         "tests/test_ci_policy_validate.py/**",
         "tests/test_ci_policy_zizmor.py/**",
         "tests/test_ci_step_precision.py/**",
+        "tests/test_consumer_kit_apply_additions.py/**",
+        "tests/test_consumer_kit_auto_merge.py/**",
+        "tests/test_consumer_kit_dependabot.py/**",
+        "tests/test_consumer_kit_full_recording.py/**",
+        "tests/test_consumer_kit_hygiene.py/**",
+        "tests/test_consumer_kit_install_by_need.py/**",
+        "tests/test_consumer_kit_installed_permissions.py/**",
+        "tests/test_consumer_kit_installed_targets.py/**",
+        "tests/test_consumer_kit_installed_validation.py/**",
+        "tests/test_consumer_kit_own_dependabot.py/**",
+        "tests/test_consumer_kit_publication.py/**",
+        "tests/test_consumer_kit_templates.py/**",
+        "tests/test_consumer_kit_validation_workflow.py/**",
         "tests/test_dependabot_auto_merge.py/**",
         "tests/test_dependabot_auto_merge_action.py/**",
         "tests/test_dependabot_auto_merge_caller.py/**",
@@ -6732,6 +7487,19 @@
           "tests/test_ci_policy_validate.py/**",
           "tests/test_ci_policy_zizmor.py/**",
           "tests/test_ci_step_precision.py/**",
+          "tests/test_consumer_kit_apply_additions.py/**",
+          "tests/test_consumer_kit_auto_merge.py/**",
+          "tests/test_consumer_kit_dependabot.py/**",
+          "tests/test_consumer_kit_full_recording.py/**",
+          "tests/test_consumer_kit_hygiene.py/**",
+          "tests/test_consumer_kit_install_by_need.py/**",
+          "tests/test_consumer_kit_installed_permissions.py/**",
+          "tests/test_consumer_kit_installed_targets.py/**",
+          "tests/test_consumer_kit_installed_validation.py/**",
+          "tests/test_consumer_kit_own_dependabot.py/**",
+          "tests/test_consumer_kit_publication.py/**",
+          "tests/test_consumer_kit_templates.py/**",
+          "tests/test_consumer_kit_validation_workflow.py/**",
           "tests/test_dependabot_auto_merge.py/**",
           "tests/test_dependabot_auto_merge_action.py/**",
           "tests/test_dependabot_auto_merge_caller.py/**",
@@ -7470,6 +8238,58 @@
         },
         {
           "path": "tests/test_ci_step_precision.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_apply_additions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_auto_merge.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_dependabot.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_full_recording.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_hygiene.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_install_by_need.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_permissions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_targets.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_installed_validation.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_own_dependabot.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_publication.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_templates.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_validation_workflow.py",
           "kind": "any"
         },
         {
@@ -8985,6 +9805,58 @@
           },
           {
             "path": "tests/test_ci_step_precision.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_apply_additions.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_auto_merge.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_dependabot.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_full_recording.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_hygiene.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_install_by_need.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_permissions.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_targets.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_installed_validation.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_own_dependabot.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_publication.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_templates.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_validation_workflow.py",
             "kind": "any"
           },
           {
