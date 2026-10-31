@@ -45,6 +45,13 @@ class RecordingActionTests(unittest.TestCase):
         self.assertIn("set -uo pipefail", check)
         self.assertIn("printf 'status=%s\\n' \"$status\" >> \"$GITHUB_OUTPUT\"", check)
 
+    def test_the_caller_tells_additions_from_a_recording_error_by_the_check_s_status_and_its_additions_document(self) -> None:
+        self.assertRegex(self.text, r"(?m)^  status:\n    description: .*\n    value: \$\{\{ steps\.check\.outputs\.status \}\}$")
+        self.assertRegex(self.text, r"(?m)^  additions:\n    description: .*\n"
+                                    r"    value: \$\{\{ steps\.check\.outputs\.status == '1' && steps\.check\.outputs\.file \|\| '' \}\}$")
+        check = self.steps[2]
+        self.assertLess(check.index("|| status=$?"), check.index("printf 'status=%s"), "the status follows check's own output lines")
+
     def test_the_additions_are_uploaded_as_an_artifact_before_the_job_fails(self) -> None:
         upload, fail = self.steps[3], self.steps[4]
         self.assertRegex(upload, action_pin_pattern("actions/upload-artifact").replace(r"^[ \t]*- uses: ", r"^[ \t]*uses: "))

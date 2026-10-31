@@ -5,11 +5,13 @@ from __future__ import annotations
 import re
 import unittest
 
-from tests.ci_policy_support import REPOSITORY_ROOT, read_workflow
+from tests.ci_policy_support import REPOSITORY_ROOT, passed_list_steps, read_workflow
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 PREFIX = "suite-results-${{ github.event.pull_request.number }}-run-"
-PASSED = "${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outcome == 'success' }}"
+LISTED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '') }}"
+KEPT = "${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}"
+UPLOADED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}"
 
 
 def steps_of(workflow: dict, job: str) -> list[dict]:
@@ -74,19 +76,47 @@ class ValidateJobTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text, self.workflow = read_workflow(WORKFLOWS / "validate.yml")
 
-    def test_each_job_that_runs_units_lists_its_passed_entry_files_only_when_its_check_passed(self) -> None:
-        for job, name in (("linux", "suite-results-shard-${{ matrix.shard.shard }}"), ("windows", "suite-results-windows")):
+    def test_each_job_that_runs_units_uploads_its_passed_entry_files_after_its_check_without_those_with_additions(self) -> None:
+        for job, name, keep in (
+                ("linux", "suite-results-shard-${{ matrix.shard.shard }}",
+                 'python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"'),
+                ("windows", "suite-results-windows",
+                 'python "$env:RECORDING\\recording.py" keep --additions "$env:ADDITIONS" "$env:RUNNER_TEMP\\suite-results\\passed.json"\n'
+                 "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }")):
             with self.subTest(job=job):
                 steps = steps_of(self.workflow, job)
                 check = next(index for index, step in enumerate(steps) if step.get("id") == "check")
-                upload = next(step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@"))
-                self.assertEqual(PASSED, upload["if"])
-                self.assertEqual(name, upload["with"]["name"])
-                self.assertEqual("${{ runner.temp }}/suite-results/passed.json", upload["with"]["path"])
-                self.assertGreater(steps.index(upload), check)
-        listing = next(step for step in steps_of(self.workflow, "linux") if step.get("name") == "List the entry files that passed")
-        self.assertEqual(PASSED, listing["if"])
+                kept = next(index for index, step in enumerate(steps) if step.get("id") == "keep")
+                upload = next(index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/upload-artifact@"))
+                self.assertLess(check, kept)
+                self.assertEqual(kept + 1, upload)
+                self.assertEqual(KEPT, steps[kept]["if"])
+                self.assertEqual({"RECORDING": "${{ steps.recording.outputs.path }}", "ADDITIONS": "${{ steps.check.outputs.additions }}"},
+                                 steps[kept]["env"])
+                self.assertEqual(keep, steps[kept]["run"])
+                self.assertEqual(UPLOADED, steps[upload]["if"])
+                self.assertEqual(name, steps[upload]["with"]["name"])
+                self.assertEqual("${{ runner.temp }}/suite-results/passed.json", steps[upload]["with"]["path"])
+        linux = steps_of(self.workflow, "linux")
+        listing = next(step for step in linux if step.get("name") == "List the entry files that passed")
+        self.assertEqual(LISTED, listing["if"])
         self.assertIn('"$RUNNER_TEMP/entry-logs/${entry//\\//_}.status"', listing["run"])
+        self.assertEqual(linux.index(listing) + 1, next(index for index, step in enumerate(linux) if step.get("id") == "keep"))
+
+    def test_a_check_that_passed_uploads_every_pass_one_with_additions_the_kept_passes_and_a_recording_error_none(self) -> None:
+        listed = {"linux": ["List the entry files that passed"], "windows": []}
+        for job in ("linux", "windows"):
+            steps = steps_of(self.workflow, job)
+            upload = "Upload the entry files that passed"
+            for case, (outcome, additions, keep), expected in (
+                    ("the check passed", ("success", "", "success"), [upload]),
+                    ("additions", ("failure", "additions_json", "success"), ["keep", upload]),
+                    ("additions whose keep failed", ("failure", "additions_json", "failure"), ["keep"]),
+                    ("a recording error", ("failure", "", "success"), []),
+                    ("no check", ("skipped", "", "success"), [])):
+                with self.subTest(job=job, case=case):
+                    ran = passed_list_steps(steps, outcome, additions, keep)
+                    self.assertEqual((listed[job] if expected else []) + expected, ran)
 
     def test_the_runner_labels_and_setup_versions_of_the_key_are_those_the_jobs_use(self) -> None:
         inputs = self.workflow["jobs"]["select"]["with"]

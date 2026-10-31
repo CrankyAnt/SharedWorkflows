@@ -410,5 +410,115 @@ class CheckSummaryRouteTests(unittest.TestCase):
         self.assertEqual("## Recording check\n\nEvery recorded read of 2 entry files lies inside the stored lists.\n", summary)
 
 
+# A suite selected per entry file, a pooled suite with additions and a pooled suite without, each entry file with its own
+# stored path; lib/other.txt lies outside every stored list.
+KEEP_SUITES = {"always": [], "suites": [
+    {"name": "per-entry", "entries": ["tests/a.py", "tests/b.py", "tests/c.py"], "command": ["python3"], "setups": [], "entry_selection": True,
+     "paths": ["tests/a.py", "tests/b.py", "tests/c.py"],
+     "entry_paths": {entry: [entry] for entry in ("tests/a.py", "tests/b.py", "tests/c.py")}},
+    {"name": "pooled", "entries": ["tests/p1.py", "tests/p2.py"], "command": ["python3"], "setups": [], "paths": ["tests/p1.py", "tests/p2.py"]},
+    {"name": "clean", "entries": ["tests/q.py"], "command": ["python3"], "setups": [], "paths": ["tests/q.py"]},
+    {"name": "new-per-entry", "entries": ["tests/n1.py", "tests/n2.py"], "command": ["python3"], "setups": [], "entry_selection": True},
+    {"name": "new-pooled", "entries": ["tests/m.py"], "command": ["python3"], "setups": []},
+]}
+KEEP_TRACKED = frozenset({"tests/a.py", "tests/b.py", "tests/c.py", "tests/p1.py", "tests/p2.py", "tests/q.py", "tests/n1.py", "tests/n2.py",
+                          "tests/m.py", "lib/other.txt"})
+
+
+class KeepPassedTests(unittest.TestCase):
+    """``keep`` leaves the entry files that a job's additions name out of its passed list, so that a job whose check
+    reports additions still stores the passes of its other entry files."""
+
+    def setUp(self) -> None:
+        self.recording = load_recording()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+
+    def additions(self, reads: dict[str, set[str]]) -> Path:
+        """The additions document that check writes for a job that recorded each entry file of ``reads`` with those
+        content reads."""
+        selection = self.recording.suite_selection
+        suite_list = selection.resolve_entries(selection.parse_suite_list(json.dumps(KEEP_SUITES)), set(KEEP_TRACKED))
+        recorded = []
+        for entry, paths in reads.items():
+            unit = self.recording.Unit({"kind": "entry", "name": entry}, self.recording.Reads(paths=set(paths)))
+            recorded.append((self.recording.suite_of(suite_list, unit.record), unit, unit.reads))
+        document = self.recording.additions_document("suites.json", suite_list, recorded, KEEP_TRACKED)
+        path = self.directory / "additions.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def passed(self, pairs: list[tuple[str, str]], *, bom: bool = False) -> Path:
+        path = self.directory / "passed.json"
+        path.write_text(("\ufeff" if bom else "") + json.dumps([{"suite": suite, "entry": entry} for suite, entry in pairs]), encoding="utf-8")
+        return path
+
+    def keep(self, additions: Path, passed: Path) -> int:
+        with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+            return self.recording.main(["keep", "--additions", str(additions), str(passed)])
+
+    def kept(self, passed: Path) -> list[tuple[str, str]]:
+        return [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8"))]
+
+    def test_an_entry_file_with_additions_leaves_the_list_and_every_other_passed_entry_file_of_the_job_stays(self) -> None:
+        additions = self.additions({"tests/a.py": {"tests/a.py"}, "tests/b.py": {"tests/b.py", "lib/other.txt"},
+                                    "tests/c.py": {"tests/c.py"}, "tests/q.py": {"tests/q.py"}})
+        passed = self.passed([("per-entry", "tests/a.py"), ("per-entry", "tests/b.py"), ("clean", "tests/q.py")])
+        self.assertEqual(0, self.keep(additions, passed))
+        self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
+
+    def test_pooled_additions_leave_out_every_recorded_entry_file_of_their_suite_and_no_entry_file_of_another(self) -> None:
+        additions = self.additions({"tests/p1.py": {"tests/p1.py"}, "tests/p2.py": {"tests/p2.py", "lib/other.txt"},
+                                    "tests/a.py": {"tests/a.py"}, "tests/q.py": {"tests/q.py"}})
+        document = json.loads(additions.read_text(encoding="utf-8"))
+        self.assertEqual([("pooled", ["tests/p1.py", "tests/p2.py"])],
+                         [(item["suite"], item["recorded_entries"]) for item in document["suites"]], "check pools the additions")
+        passed = self.passed([("pooled", "tests/p1.py"), ("pooled", "tests/p2.py"), ("per-entry", "tests/a.py"), ("clean", "tests/q.py")])
+        self.assertEqual(0, self.keep(additions, passed))
+        self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
+
+    def test_a_suite_without_a_stored_path_list_leaves_every_recorded_entry_file_out_whatever_it_read(self) -> None:
+        additions = self.additions({"tests/n1.py": {"tests/n1.py"}, "tests/n2.py": {"tests/n2.py"}, "tests/m.py": {"tests/m.py"},
+                                    "tests/q.py": {"tests/q.py"}})
+        document = json.loads(additions.read_text(encoding="utf-8"))
+        self.assertEqual([("new-per-entry", True, True), ("new-pooled", True, False)],
+                         [(item["suite"], item["create"], "entries" in item) for item in document["suites"]])
+        passed = self.passed([("new-per-entry", "tests/n1.py"), ("new-per-entry", "tests/n2.py"), ("new-pooled", "tests/m.py"), ("clean", "tests/q.py")])
+        self.assertEqual(0, self.keep(additions, passed))
+        self.assertEqual([("clean", "tests/q.py")], self.kept(passed))
+
+    def test_a_passed_list_that_windows_powershell_wrote_with_a_byte_order_mark_is_read(self) -> None:
+        additions = self.additions({"tests/a.py": {"tests/a.py", "lib/other.txt"}, "tests/q.py": {"tests/q.py"}})
+        passed = self.passed([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], bom=True)
+        self.assertEqual(0, self.keep(additions, passed))
+        self.assertEqual([("clean", "tests/q.py")], self.kept(passed))
+
+    def test_a_document_that_is_no_additions_document_fails_with_a_recording_error_and_leaves_the_list_as_it_was(self) -> None:
+        passed = self.passed([("clean", "tests/q.py")])
+        before = passed.read_bytes()
+        for name, text in (("full", json.dumps({"kind": "full-recording", "suite_list": "suites.json", "entries": []})),
+                           ("broken", "{"), ("no suites", json.dumps({"kind": "additions"})),
+                           ("bad item", json.dumps({"kind": "additions", "suites": [{"suite": "clean"}]}))):
+            with self.subTest(document=name):
+                additions = self.directory / "other.json"
+                additions.write_text(text, encoding="utf-8")
+                self.assertEqual(2, self.keep(additions, passed))
+                self.assertEqual(before, passed.read_bytes())
+        with self.subTest(document="missing"):
+            self.assertEqual(2, self.keep(self.directory / "missing.json", passed))
+            self.assertEqual(before, passed.read_bytes())
+
+    def test_a_passed_list_that_is_no_list_of_suites_and_entry_files_fails_with_a_recording_error(self) -> None:
+        additions = self.additions({"tests/a.py": {"tests/a.py", "lib/other.txt"}})
+        for text in ("{", json.dumps({"suite": "clean"}), json.dumps([{"suite": "clean"}])):
+            with self.subTest(passed=text):
+                passed = self.directory / "passed.json"
+                passed.write_text(text, encoding="utf-8")
+                self.assertEqual(2, self.keep(additions, passed))
+                self.assertEqual(text, passed.read_text(encoding="utf-8"))
+        self.assertEqual(2, self.keep(additions, self.directory / "absent.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

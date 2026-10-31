@@ -12,10 +12,11 @@ process with the lookup report writes its module lookups beside the recording.
 ``check`` parses and classifies the recording, maps it to repository paths, assigns each setup's reads to the
 suites and entry files of the job that state the setup, and compares the reads with the stored lists. In a
 pull-request or push run it writes the additions, lists them in the job summary and fails when there are any; in the
-full-recording mode it writes the classified reads, the skip state and the duration of every entry file. ``apply``
-adds a run's additions to the suite list, or, with the results of a full recording, replaces the lists of every entry
-file that exited with 0 and whose test report in an accepted format shows no skipped test, and writes the duration
-estimates. The lists of a suite selected per entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
+full-recording mode it writes the classified reads, the skip state and the duration of every entry file. ``keep``
+leaves the entry files that the additions name out of the job's passed list, so the job still stores the passes of its
+other entry files. ``apply`` adds a run's additions to the suite list, or, with the results of a full recording,
+replaces the lists of every entry file that exited with 0 and whose test report in an accepted format shows no skipped
+test, and writes the duration estimates. The lists of a suite selected per entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
 the commands.
 
     python3 recording.py base [--file <file>]
@@ -24,6 +25,7 @@ the commands.
     python3 recording.py exec [--output <directory>] --entry <file> --suites <suite list> [--root <repository>] [--suite <name>] -- <command> ...
     python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ...
     python3 recording.py check [--output <directory>] --suites <suite list> [--root <repository>] [--summary <file>]
+    python3 recording.py keep --additions <additions> <passed list>
     python3 recording.py apply [--root <repository>] [--suites <suite list>] <additions or results> ...
     python3 recording.py digest [--expect <digest>] [--github-output <file>]
 """
@@ -1897,6 +1899,49 @@ def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
     return 0
 
 
+# --- keep -----------------------------------------------------------------------------------------------------
+
+
+def read_json_file(path: Path, what: str) -> object:
+    try:
+        # utf-8-sig: a passed list that PowerShell wrote may start with a byte order mark.
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except ValueError as error:
+        raise RecordingError(f"{path} holds no {what}: {error}") from None
+
+
+def entries_with_additions(document: object, source: Path) -> set[tuple[str, str]]:
+    """The (suite, entry file) pairs that an additions document of ``check`` marks: each entry file listed with additions,
+    and every recorded entry file of a suite whose additions are pooled."""
+    not_additions = RecordingError(f"{source} is no additions document of check")
+    if not isinstance(document, dict) or document.get("kind") != "additions" or not isinstance(document.get("suites"), list):
+        raise not_additions
+    marked = set()
+    for item in document["suites"]:
+        if not isinstance(item, dict) or not isinstance(item.get("suite"), str):
+            raise not_additions
+        # A suite selected per entry file lists its entry files with additions; a pooled suite has no such list.
+        entries = item["entries"] if "entries" in item else item.get("recorded_entries")
+        if not isinstance(entries, (dict, list)) or not all(isinstance(entry, str) for entry in entries):
+            raise not_additions
+        marked |= {(item["suite"], entry) for entry in entries}
+    return marked
+
+
+def run_keep(options: argparse.Namespace) -> int:
+    marked = entries_with_additions(read_json_file(options.additions, "additions document"), options.additions)
+    passed = read_json_file(options.passed, "passed list")
+    if not isinstance(passed, list) or not all(isinstance(record, dict) and isinstance(record.get("suite"), str)
+                                               and isinstance(record.get("entry"), str) for record in passed):
+        raise RecordingError(f"{options.passed} is no list of passed entry files with their suites")
+    kept = [record for record in passed if (record["suite"], record["entry"]) not in marked]
+    left = [record["entry"] for record in passed if (record["suite"], record["entry"]) in marked]
+    options.passed.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+    print(f"Kept {len(kept)} of {len(passed)} passed entry file{'' if len(passed) == 1 else 's'} for reuse"
+          + (f"; left out with additions: {', '.join(left)}." if left else "."))
+    return 0
+
+
 # --- apply ----------------------------------------------------------------------------------------------------
 
 
@@ -2222,6 +2267,9 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     checking.add_argument("--additions", type=Path, help="where to write the additions or the full-recording result")
     checking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file")
+    keeping = commands.add_parser("keep", help="leave the entry files that check's additions name out of a passed list")
+    keeping.add_argument("--additions", type=Path, required=True, help="the additions document that check wrote")
+    keeping.add_argument("passed", type=Path, help="the passed list of the job, a JSON list of suites and entry files, rewritten in place")
     applying = commands.add_parser("apply", help="apply additions or full-recording results to the suite list")
     applying.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")
     applying.add_argument("--suites", type=Path, help="the suite list (default: the one the files name, under the root)")
@@ -2240,7 +2288,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
-    handlers = {"base": run_base, "start": run_start, "exec": run_exec, "provide": run_provide, "check": run_check, "apply": run_apply, "digest": run_digest}
+    handlers = {"base": run_base, "start": run_start, "exec": run_exec, "provide": run_provide, "check": run_check, "keep": run_keep, "apply": run_apply, "digest": run_digest}
     try:
         return handlers[options.command](options)
     except (RecordingError, suite_selection.SuiteListError, OSError) as error:

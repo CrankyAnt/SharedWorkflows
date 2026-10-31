@@ -51,11 +51,41 @@ def verdict_runs(condition: str, select_result: str, identical: str) -> bool:
     """Whether a job whose ``if`` is ``condition``, an expression of always(), !, &&, || and == or != between
     needs.select.result or needs.select.outputs.identical and a quoted string, runs after a select job with this result
     and identical output."""
-    names = {"needs.select.result": repr(select_result), "needs.select.outputs.identical": repr(identical), "always()": "True"}
-    expression = re.sub(r"needs\.select\.result|needs\.select\.outputs\.identical|always\(\)", lambda found: names[found[0]], condition)
+    return condition_holds(condition, {"needs.select.result": select_result, "needs.select.outputs.identical": identical})
+
+
+def condition_holds(condition: str, values: dict[str, str]) -> bool:
+    """Whether an ``if``, an expression of !, &&, ||, parentheses, always(), cancelled() and == or != between a context
+    value that ``values`` names and a quoted string, holds for those values in a run that was not cancelled. A value holds
+    only letters, digits, ``_`` and ``-``; a context value that ``values`` does not name fails the evaluation."""
+    text = condition.strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    assert all(re.fullmatch(r"[\w-]*", value) for value in values.values()), values
+    names = {**{name: repr(value) for name, value in values.items()}, "always()": "True", "cancelled()": "False"}
+    pattern = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
+    expression = re.sub(pattern, lambda found: names[found[0]], text)
     expression = expression.replace("&&", " and ").replace("||", " or ").replace("!=", "<>").replace("!", " not ").replace("<>", "!=")
-    assert re.fullmatch(r"[\sA-Za-z()'=!-]*", expression), condition
+    assert re.fullmatch(r"[\s\w()'=!-]*", expression) and "." not in expression, condition
     return bool(eval(expression, {"__builtins__": {}}, {}))
+
+
+def passed_list_steps(steps: list[dict], check_outcome: str, additions: str, keep_outcome: str = "success") -> list[str]:
+    """The ids, or names, of the steps of a suite job whose condition reads the check's outcome or outputs and that run on a
+    pull request after the step ``check`` ended with ``check_outcome`` and the action output ``additions``. The step
+    ``keep`` ends with ``keep_outcome`` when it runs and with ``skipped`` otherwise."""
+    values = {"github.event_name": "pull_request", "steps.check.outcome": check_outcome, "steps.check.outputs.additions": additions,
+              "steps.keep.outcome": "skipped"}
+    ran = []
+    for step in steps:
+        condition = str(step.get("if") or "")
+        if "steps.check." not in condition or step.get("id") == "check":
+            continue
+        if condition_holds(condition, values):
+            ran.append(step.get("id") or step["name"])
+            if step.get("id") == "keep":
+                values["steps.keep.outcome"] = keep_outcome
+    return ran
 
 
 def read_workflow(path: Path) -> tuple[str, dict]:

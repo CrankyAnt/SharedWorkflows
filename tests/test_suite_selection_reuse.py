@@ -487,6 +487,26 @@ class ReuseTests(FixtureRepository):
         self.assertFalse(self.store(outputs, self.ALL, 9005, result="failure"))
         self.assertFalse(self.record.exists())
 
+    def test_a_later_head_reuses_the_passes_that_keep_left_in_and_runs_the_entry_files_with_additions_again(self) -> None:
+        outputs = self.select_head(self.head({"src/feature.py": "feature v2\n"}))
+        passed, additions = self.root.parent / "passed.json", self.root.parent / "additions.json"
+        passed.write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in self.ALL]), encoding="utf-8")
+        # The additions of one job, in the shape check writes them: an entry file of a suite selected per entry file, and a
+        # pooled suite.
+        additions.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": [
+            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": {"paths": ["README.md"]}}},
+            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": {"paths": ["README.md"]}}]}), encoding="utf-8")
+        completed = subprocess.run([sys.executable, str(SHARED_FOLDER / "recording" / "recording.py"), "keep", "--additions", str(additions), str(passed)],
+                                   capture_output=True, text=True)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        kept = [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8"))]
+        self.assertEqual([("both", "tests/test_both.py"), ("windows", "tests/test_win.py")], kept)
+        self.assertTrue(self.store(outputs, kept, 9007))
+        later = self.select_head(self.head({"README.md": "a change no suite reads\n"}))
+        self.assertEqual(["per-entry", "pr-only"], sorted(name for name, result in json.loads(later["suites"]).items() if result == "run"))
+        self.assertEqual([9007, 9007], sorted(json.loads(later["reused"]).values()))
+        self.assertEqual([["tests/test_one.py"], ["tests/test_pr.py"]], sorted(unit["entries"] for unit in json.loads(later["units"]).values()))
+
     def test_a_suite_split_over_jobs_is_stored_only_when_every_entry_file_passed(self) -> None:
         both = json.loads(json.dumps(SUITES))
         both["suites"][0]["entries"] = ["tests/test_pr.py", "tests/test_main.py"]
