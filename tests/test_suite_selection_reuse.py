@@ -510,6 +510,27 @@ class SharedDigestTests(unittest.TestCase):
         write(self.shared_folder, "recording/__pycache__/recording.cpython-313.pyc", "cache\n")
         self.assertEqual(added, self.taken(), "a part or module it does not load and a bytecode cache are not part of it")
 
+    def test_the_digest_is_the_same_whichever_order_a_platform_sorts_the_shared_files_in(self) -> None:
+        # Windows orders paths case-insensitively and Linux by code point, so the same revision lists its shared
+        # files in two orders: recording/etw-consumer/EtwConsumer.csproj comes after build/ on Windows, before it on Linux.
+        script = (
+            "import sys; from pathlib import PurePosixPath, PureWindowsPath\n"
+            f"sys.path.insert(0, {str(self.shared_folder / 'recording')!r})\n"
+            "import recording\n"
+            "files = recording.shared_files()\n"
+            "for flavour in (PurePosixPath, PureWindowsPath):\n"
+            "    order = sorted(files, key=lambda path: flavour(path.relative_to(recording.SHARED_FOLDER).as_posix()))\n"
+            "    print(' '.join(path.relative_to(recording.SHARED_FOLDER).as_posix() for path in order))\n"
+            "    recording.shared_files = lambda order=order: order\n"
+            "    print(recording.shared_digest())\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        linux_order, linux_digest, windows_order, windows_digest = completed.stdout.splitlines()
+        self.assertNotEqual(linux_order, windows_order, "the shared files sort differently on the two platforms")
+        self.assertEqual(linux_digest, windows_digest)
+        self.assertEqual(self.taken(), linux_digest)
+
     def test_expect_fails_on_a_digest_that_differs_from_the_one_select_took(self) -> None:
         digest = self.taken()
         output = Path(self.temporary.name) / "output.txt"
