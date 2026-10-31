@@ -8005,6 +8005,10 @@
           "kind": "any"
         },
         {
+          "path": "actions/suite-selection/statistics.py",
+          "kind": "any"
+        },
+        {
           "path": "actions/suite-selection/subprocess.py",
           "kind": "any"
         },
@@ -9167,6 +9171,10 @@
           },
           {
             "path": "actions/suite-selection/shutil.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/statistics.py",
             "kind": "any"
           },
           {
@@ -11503,6 +11511,7 @@
         ],
         "tests/test_suite_selection_reuse.py": [
           ".",
+          "actions/recording",
           "actions/suite-selection",
           "tests"
         ]
