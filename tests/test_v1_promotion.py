@@ -510,6 +510,18 @@ class MoveTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.fixture = Fixture(Path(self.temporary.name))
 
+    def refuse_pushes(self) -> None:
+        """Make the origin refuse every push, the way a tag rule or a missing permission does, so no lease is involved."""
+        hook = self.fixture.origin / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\necho 'fixture rule refuses this push' >&2\nexit 1\n", encoding="utf-8", newline="\n")
+        hook.chmod(0o755)
+
+    def move_cli(self, old: str, new: str) -> tuple[int, str, str]:
+        summary = Path(self.temporary.name) / "summary.md"
+        result = subprocess.run([sys.executable, str(SCRIPT), "move", "--repository-root", str(self.fixture.repo), f"--old={old}", "--new", new, "--summary", str(summary)],
+                                capture_output=True, text=True, check=False)
+        return result.returncode, summary.read_text(encoding="utf-8"), result.stdout + result.stderr
+
     def test_an_annotated_tag_is_leased_on_its_tag_object(self) -> None:
         git(self.fixture.repo, "tag", "-f", "-a", "-m", "annotated v1", "v1", self.fixture.v1)
         git(self.fixture.repo, "push", "-q", "--force", "origin", "refs/tags/v1")
@@ -539,12 +551,53 @@ class MoveTests(unittest.TestCase):
         newer = self.fixture.commit("chore: another promotion", {"src/app.py": "print(9)\n"})
         git(self.fixture.repo, "push", "-q", "origin", "main")
         git(self.fixture.repo, "push", "-q", "--force", "origin", f"{newer}:refs/tags/v1")
-        root = Path(self.temporary.name)
-        summary = root / "summary.md"
-        result = subprocess.run([sys.executable, str(SCRIPT), "move", "--repository-root", str(self.fixture.repo), "--old", observed, "--new", commit, "--summary", str(summary)], capture_output=True, text=True, check=False)
-        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        code, text, output = self.move_cli(observed, commit)
+        self.assertEqual(1, code, output)
         self.assertEqual(newer, self.fixture.remote_v1(), "the newer target survives")
-        self.assertIn(f"The push of `v1` to `{commit}` was rejected; the tag no longer names `{observed}`", summary.read_text(encoding="utf-8"))
+        self.assertIn(f"The push of `v1` to `{commit}` was rejected; the tag no longer names `{observed}` and keeps its newer target.", text)
+        self.assertIn("stale info", text, "the summary keeps git's error")
+
+    def test_a_push_that_fails_while_v1_keeps_its_object_says_so_and_not_that_the_tag_moved(self) -> None:
+        commit = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
+        git(self.fixture.repo, "push", "-q", "origin", "main")
+        self.refuse_pushes()
+        code, text, output = self.move_cli(self.fixture.v1, commit)
+        self.assertEqual(1, code, output)
+        self.assertEqual(self.fixture.v1, self.fixture.remote_v1())
+        self.assertIn(f"The push of `v1` to `{commit}` failed; `v1` still names `{self.fixture.v1}`.", text)
+        outcome = text.partition("```")[0]
+        self.assertNotIn("rejected", outcome)
+        self.assertNotIn("newer target", outcome)
+        self.assertNotIn("no longer names", outcome)
+        self.assertIn("fixture rule refuses this push", text, "the summary keeps git's error")
+
+    def test_a_failed_first_creation_without_a_remote_tag_says_that_no_v1_exists(self) -> None:
+        git(self.fixture.repo, "push", "-q", "origin", ":refs/tags/v1")
+        self.refuse_pushes()
+        code, text, output = self.move_cli("", self.fixture.v1)
+        self.assertEqual(1, code, output)
+        self.assertIn(f"The push of `v1` to `{self.fixture.v1}` failed; no `v1` exists.", text)
+        self.assertNotIn("rejected", text.partition("```")[0])
+        self.assertIn("fixture rule refuses this push", text, "the summary keeps git's error")
+
+    def test_a_failed_push_whose_remote_tag_cannot_be_read_again_leaves_the_state_unknown(self) -> None:
+        commit = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
+        git(self.fixture.repo, "push", "-q", "origin", "main")
+        self.refuse_pushes()
+        summary = Path(self.temporary.name) / "summary.md"
+
+        def unreadable(root: Path, remote: str) -> str:
+            raise RuntimeError("git ls-remote failed: network down")
+
+        with mock.patch.object(promote, "remote_object", unreadable):
+            code = promote.main(["move", "--repository-root", str(self.fixture.repo), "--old", self.fixture.v1, "--new", commit, "--summary", str(summary)])
+        self.assertEqual(1, code)
+        text = summary.read_text(encoding="utf-8")
+        self.assertIn(f"The push of `v1` to `{commit}` failed and `refs/tags/v1` could not be read again, so the state of `v1` is unknown.", text)
+        self.assertIn("`git ls-remote origin refs/tags/v1`", text)
+        self.assertIn("network down", text)
+        self.assertNotIn("rejected", text.partition("```")[0])
+        self.assertIn("fixture rule refuses this push", text, "the summary keeps git's error")
 
 
 RAN = {workflow: promote.CiRun("completed", "success") for workflow in promote.CI_WORKFLOWS}
