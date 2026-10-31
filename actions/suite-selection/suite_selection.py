@@ -1455,7 +1455,12 @@ def run_select(options: argparse.Namespace) -> int:
     if options.shared_lookup is not None:
         with record_errors() as reuse:
             shared_lookup = reuse.read_shared_lookup(options.shared_lookup)
-        if shared_lookup.moved:
+        tested = reuse.tested_digest(found)
+        if tested is not None:
+            if tested != shared_lookup.digest:
+                identical = False
+                selection = every_suite(suite_list, f"every suite runs: {reuse.tested_reason(found, shared_lookup.digest)}")
+        elif shared_lookup.moved:
             identical = False
             selection = every_suite(suite_list, f"every suite runs: {shared_lookup.reason}")
     running = reused = None
@@ -1482,7 +1487,7 @@ def run_select(options: argparse.Namespace) -> int:
             if found is not None:
                 handle.write("\n" + reuse.lookup_markdown(found))
             if shared_lookup is not None:
-                handle.write("\n" + reuse.shared_markdown(shared_lookup))
+                handle.write("\n" + reuse.shared_markdown(shared_lookup, found))
             if options.results is not None and options.run_attempt > 1:
                 handle.write(f"\nAttempt {options.run_attempt} is a re-run: it reuses no earlier result.\n")
     # The last write: a step that fails before it leaves the output unset.
