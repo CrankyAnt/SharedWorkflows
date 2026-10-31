@@ -260,7 +260,10 @@ class ApplyAdditionsRunTest(unittest.TestCase):
         for arguments in (("init", "-q", "-b", HEAD_BRANCH), ("add", "-A"), ("commit", "-q", "-m", "feat: adopt"),
                           ("push", "-q", str(remote), HEAD_BRANCH)):
             subprocess.run(["git", *GIT_IDENTITY, "-C", str(seed), *arguments], check=True)
-        subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", HEAD_BRANCH, f"file://{remote}", str(work)], check=True)
+        # From the fixture's own directory: git also probes a file:// address as a relative path, which must not resolve
+        # into this repository, where the recording would store it.
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", HEAD_BRANCH, f"file://{remote}", str(work)], check=True,
+                       cwd=self.base)
         # The real job gets its identity from the App step; the fixture gives the checkout one so that the commit step runs.
         for key, value in (("user.name", "updater[bot]"), ("user.email", "1+updater[bot]@users.noreply.github.com"), ("commit.gpgsign", "false")):
             subprocess.run(["git", "-C", str(work), "config", key, value], check=True)
