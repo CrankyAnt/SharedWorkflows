@@ -42,7 +42,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -1834,20 +1834,39 @@ def run_check(options: argparse.Namespace) -> int:
         print(f"Every recorded read of {len(recorded)} entry file{'' if len(recorded) == 1 else 's'} lies inside the stored lists.")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
-            handle.write(check_summary(lines, len(recorded), target) + etw_summary(settings))
+            route = additions_route(target.name, project.tracked, os.environ.get("GITHUB_RUN_ID"), os.environ.get("GITHUB_EVENT_NAME"))
+            handle.write(check_summary(lines, len(recorded), route) + etw_summary(settings))
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"mode=pull-request\nfile={target if lines else ''}\n")
     return 1 if lines else 0
 
 
-def check_summary(lines: list[tuple[str, str]], count: int, target: Path) -> str:
+# A tracked file that only the repository of the shared parts holds; there the additions follow its maintenance documentation.
+SHARED_PARTS_MARKER = "actions/recording/recording.py"
+
+
+def additions_route(file_name: str, tracked: Collection[str], run_id: str | None, event: str | None) -> str:
+    """The sentence that sends the reader of a failed check to the route that applies its additions in this repository:
+    the maintenance documentation's in the repository of the shared parts, the consumer kit's in a consumer."""
+    kit = 'as the section "Additions" of the suite-selection consumer kit states'
+    if SHARED_PARTS_MARKER in tracked:
+        return (f"Download the additions artifacts (`{file_name}` in each) and apply them to the suite list "
+                'as "Validation" in `docs/maintaining.md` states.')
+    if run_id and event != "pull_request":
+        return (f"This {event} run belongs to no pull request, so the additions workflow cannot propose them; the run of a "
+                f"pull request that makes the same reads reports them again, and that pull request applies them {kit}.")
+    run = f"`{run_id}`" if run_id else "of the pull request's validation run"
+    return (f"Start the workflow `Apply recorded additions` with the run id {run} and merge the pull request it opens into "
+            f"this pull request's branch, {kit}.")
+
+
+def check_summary(lines: list[tuple[str, str]], count: int, route: str) -> str:
     text = ["## Recording check", ""]
     if not lines:
         text.append(f"Every recorded read of {count} entry file{'' if count == 1 else 's'} lies inside the stored lists.")
         return "\n".join(text) + "\n"
-    text += [f"The recording reads outside the stored lists. Download the additions artifact (`{target.name}`) and run "
-             f"`python3 actions/recording/recording.py apply {target.name}` from the repository root.", "",
+    text += [f"The recording reads outside the stored lists. {route}", "",
              "| Suite or entry file | Addition |", "| --- | --- |"]
     text += [f"| {where} | {what} |" for where, what in lines]
     return "\n".join(text) + "\n"

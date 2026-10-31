@@ -3702,6 +3702,7 @@
     {
       "name": "setup-ci-templates",
       "entries": [
+        "tests/test_setup_ci_apply_additions.py",
         "tests/test_setup_ci_auto_merge.py",
         "tests/test_setup_ci_dependabot.py",
         "tests/test_setup_ci_full_recording.py",
@@ -3779,6 +3780,7 @@
         "tests/test_setup_ci_validation_workflow.py"
       ],
       "entry_paths": {
+        "tests/test_setup_ci_apply_additions.py": [],
         "tests/test_setup_ci_auto_merge.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",

@@ -130,7 +130,8 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertIn("`lib/other.txt`", checked.stdout)
         summary = fixture.summary.read_text(encoding="utf-8")
         self.assertIn("| `a` | path `lib/other.txt` |", summary)
-        self.assertIn("additions.json", summary)
+        self.assertIn('section "Additions" of the suite-selection consumer kit', summary, "a consumer's route")
+        self.assertNotIn("actions/recording", summary, "no path into the tree of the shared parts")
         applied = fixture.apply()
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual(["lib/data.txt", "lib/gone.txt", "lib/other.txt", "tests/a.py"], fixture.suite("a")["paths"])
@@ -363,6 +364,50 @@ class VforkChildWorkingDirectoryTests(unittest.TestCase):
             self.assertEqual([("read", f"{self.BASE}/repo/NuGet.Config", f"{self.BASE}/repo"),
                               ("absent", f"{self.BASE}/repo/app/global.json", f"{self.BASE}/repo"),
                               ("exec", f"{self.BASE}/tmp/tmp2qtajhls/dotnet", f"{self.BASE}/repo")], events)
+
+
+class CheckSummaryRouteTests(unittest.TestCase):
+    """The route that the job summary of a failed check names: the consumer kit's in a consumer, the maintenance
+    documentation's in the repository of the shared parts."""
+
+    LINES = [("`a`", "path `lib/other.txt`")]
+    CONSUMER = frozenset({"src/app.py", ".github/suites.json"})
+
+    def summary(self, tracked: frozenset[str], run_id: str | None, event: str | None) -> str:
+        recording = load_recording()
+        return recording.check_summary(self.LINES, 1, recording.additions_route("additions.json", tracked, run_id, event))
+
+    def test_a_consumer_pull_request_run_is_sent_to_the_kit_s_workflow_with_its_run_id_and_no_path_into_the_shared_tree(self) -> None:
+        summary = self.summary(self.CONSUMER, "123456789", "pull_request")
+        self.assertIn("Start the workflow `Apply recorded additions` with the run id `123456789`", summary)
+        self.assertIn('section "Additions" of the suite-selection consumer kit', summary)
+        self.assertIn("| `a` | path `lib/other.txt` |", summary)
+        for text in ("actions/", "docs/maintaining.md", "CrankyAnt/SharedWorkflows", "recording.py"):
+            self.assertNotIn(text, summary)
+
+    def test_a_consumer_run_of_no_pull_request_is_not_sent_to_a_workflow_that_refuses_it(self) -> None:
+        for event in ("push", "repository_dispatch"):
+            with self.subTest(event=event):
+                summary = self.summary(self.CONSUMER, "55", event)
+                self.assertNotIn("Start the workflow", summary)
+                self.assertIn(f"This {event} run belongs to no pull request", summary)
+                self.assertIn('section "Additions" of the suite-selection consumer kit', summary)
+                self.assertNotIn("actions/", summary)
+
+    def test_a_consumer_check_outside_a_run_names_the_pull_request_s_run_without_a_number(self) -> None:
+        self.assertIn("with the run id of the pull request's validation run", self.summary(self.CONSUMER, None, None))
+
+    def test_the_repository_of_the_shared_parts_is_sent_to_validation_in_its_maintenance_documentation(self) -> None:
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                summary = self.summary(frozenset({"actions/recording/recording.py", "docs/maintaining.md"}), "1", event)
+                self.assertIn('as "Validation" in `docs/maintaining.md` states', summary)
+                self.assertIn("`additions.json`", summary)
+                self.assertNotIn("consumer kit", summary)
+
+    def test_every_read_inside_the_lists_names_no_route(self) -> None:
+        summary = load_recording().check_summary([], 2, "any route")
+        self.assertEqual("## Recording check\n\nEvery recorded read of 2 entry files lies inside the stored lists.\n", summary)
 
 
 if __name__ == "__main__":

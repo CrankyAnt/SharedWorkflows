@@ -10,14 +10,14 @@ from tests.setup_ci_support import assert_caller_passes_no_secrets_and_runs_no_s
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
-KIT_TEMPLATES = ("validation.yml", "validation-workflow.yml", "full-recording.yml")
+KIT_TEMPLATES = ("validation.yml", "validation-workflow.yml", "full-recording.yml", "apply-additions.yml")
 # What only this repository has: its suite list and tests, its own validation workflow, a local-path call of a shared
 # workflow or step, and a resolved action pin in place of `<pin>`.
 THIS_REPOSITORY_ONLY = re.compile(r"tests/|validate\.yml|\$/actions/|\$/\.github/workflows/(?:suite-selection|suite-verdict|repository-hygiene)\.yml|@[0-9a-f]{40}")
 
 
 class SelectionConsumerKitTemplatesTest(unittest.TestCase):
-    def test_the_kit_holds_the_three_templates(self) -> None:
+    def test_the_kit_holds_its_four_templates(self) -> None:
         for template in KIT_TEMPLATES:
             with self.subTest(template=template):
                 self.assertTrue((SELECTION_KIT / template).is_file())
