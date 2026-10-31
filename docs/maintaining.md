@@ -558,7 +558,7 @@ The tests fetch no specification and install no package; the updater and move-de
 
 The shared surface is [shared-surface.json](../actions/repository-hygiene/shared-surface.json): the reusable workflows that callers use through `v1`, the part folders they load through `$/`, the pins file and the updater branch. The catalogue is on it, and every consumer kit lies in a part folder, so they are part of it, as is `actions/repository-ruleset`, the ruleset template that the consumer kit of repository hygiene leads to. Callers receive a change under a path of the shared surface only when `v1` moves, and creating or moving `v1` changes the later runs of every caller; moving it back does not undo those runs. This repository's own callers run the changed workflows from the pull request on. A consumer reads the catalogue, the consumer kits and the ruleset template at `v1`, so a change to them reaches consumers only when `v1` moves.
 
-`v1` moves only to a commit whose CI on `main` passed, by a manual promotion and by the automatic move alike. Because this repository calls every shared workflow by local path, that CI has run the workflows the commit carries. The automatic move of a pins-only commit is the exception to the question that [Who moves v1](#who-moves-v1) states; it checks the conditions under [Automatic v1 move](#automatic-v1-move), the commit's CI on `main` among them. A move gets no separate check afterwards: the consumers' ruleset and caller runs right after the move are the check, each consumer's first validation run after it runs every suite ([A move of v1 in a consumer](#a-move-of-v1-in-a-consumer)), and `v1` moves back, as [Roll v1 back](#roll-v1-back) says, when one of them fails on the moved workflows. A `promote-v1.yml` run writes the old and the new commit to its summary, and a caller's run records the commit that `v1` resolved to; no other record of a move is kept.
+`v1` moves only to a commit whose CI on `main` passed, by a manual promotion and by the automatic move alike. Because this repository calls every shared workflow by local path, that CI has run the workflows the commit carries. The automatic move of a pins-only commit is the exception to the question that [Who moves v1](#who-moves-v1) states; it checks the conditions under [Automatic v1 move](#automatic-v1-move), the commit's CI on `main` among them. A move gets no separate check afterwards: the consumers' ruleset and caller runs right after the move are the check, each consumer's first validation run after it runs every suite ([A move of v1 in a consumer](#a-move-of-v1-in-a-consumer)), and `v1` moves back, as [Roll v1 back](#roll-v1-back) says, when one of them fails on the moved workflows. A `promote-v1.yml` run writes the old and the new commit to its summary, `promote` prints them for a manual move, and a caller's run records the commit that `v1` resolved to; no other record of a move is kept.
 
 A move that changes check names ships in one coordinated move. When `v1` moves, no consumer has an open pull request. Right after the move, each consumer updates its default-branch ruleset to the new check names and then its callers, before any other work. A Dependabot pull request that opens in that window is recreated after the cut-over. The ruleset and caller update of each consumer is a question to the user (`docs/agents/publication.md`).
 
@@ -584,24 +584,24 @@ When any condition fails, `v1` stays. When the paths of the shared surface hold 
 
 Every other creation or move of `v1`, including the first promotion of a commit that carries other shared changes, is a question to the user (`docs/agents/publication.md`).
 
-1. Select the exact merged commit on `main`, reviewed and with passed CI on `main`. When `promote-v1.yml` reported that `v1` stays, its run summary names the current `v1` and, when a manual promotion is needed, the reason; when it reported that its push was rejected, `v1` moved after its decision, and step 2 shows where to.
-2. Read the current remote tag object with `git ls-remote origin refs/tags/v1`. For an annotated tag, the line that ends in `^{}` names the commit, and the other line the tag object.
-3. List what changes for callers with `git diff --stat <current v1 commit> <reviewed-merged-commit> -- <paths>`, where `<paths>` are the `paths` in [shared-surface.json](../actions/repository-hygiene/shared-surface.json).
-4. Ask the user before the push. Name the current `v1` commit, the commit to promote and the changed shared-surface files, and say that the move changes the later runs of every caller. Only an answer to that question approves the move.
-5. The push gate in `docs/agents/delivery.md` covers this tag push.
-6. Move the tag with an explicit lease, substituting the reviewed merged commit and the tag object from step 2:
+Two subcommands of [promote_v1.py](../actions/repository-hygiene/promote_v1.py), run from the repository root, carry the move: `prepare` gathers the facts and prints the question, and `promote` moves the tag after the answer. They read the CI through the authentication of the `gh` CLI and scan with the locally installed Gitleaks.
+
+1. Run `prepare`. The target is the head of `origin/main` after its fetch; `--commit <sha>` names another commit on `origin/main`. When `promote-v1.yml` reported that `v1` stays, its run summary names the reason.
 
    ```text
-   git push --force-with-lease=refs/tags/v1:<previous-tag-object> origin <reviewed-merged-commit>:refs/tags/v1
+   python3 actions/repository-hygiene/promote_v1.py prepare [--commit <sha>]
    ```
 
-   For the first creation, when the remote tag does not exist:
+   It reports the current `v1` commit and the object that `git ls-remote origin refs/tags/v1` shows, never a local `v1` tag; the target; the kind of move, a promotion, a rollback or the first creation; the changed files under the `paths` of [shared-surface.json](../actions/repository-hygiene/shared-surface.json); the commits between the two; the conclusions of `validate.yml` and `repository-hygiene-caller.yml` on `main` for the target, read once; and the result of the push gate's Gitleaks scan for the tag push (`docs/agents/delivery.md`).
+2. `prepare` refuses, names the reason, asks no question and exits non-zero when the target is not on `origin/main`, is neither a descendant nor an ancestor of the current `v1`, has CI on `main` that is still running, concluded other than `success` or has no run, when the Gitleaks scan reports a finding or cannot run because Gitleaks is not installed, or when the shared surface is identical at `v1` and the target, so that no move is needed. CI that is still running is not a failure: run `prepare` again once it has completed.
+3. Otherwise `prepare` prints the question, which names the current `v1` commit, the target, the kind of move and the changed shared-surface files and says that the move changes the later runs of every caller, and below it the `promote` command. Ask the user the question as printed. Only a yes to that question approves the move.
+4. After a yes, run the printed command. `--old` is the object the remote ref held, empty (`--old=`) for the first creation:
 
    ```text
-   git push --force-with-lease=refs/tags/v1: origin <reviewed-merged-commit>:refs/tags/v1
+   python3 actions/repository-hygiene/promote_v1.py promote --old <object> --new <commit>
    ```
 
-   A rejected push means that the tag moved after step 2; start again at step 2.
+   `promote` runs the push gate's Gitleaks scan again and pushes nothing on a finding. It pushes with `--force-with-lease=refs/tags/v1:<object>`; a rejected push means that `v1` moved after `prepare` and keeps its newer target, so start again at step 1. On success it prints the old and the new commit; a later rollback names the old one.
 
 Later workflow resolutions in all callers use the new version without repository edits; jobs already running keep the commit they resolved.
 
@@ -609,10 +609,16 @@ Later workflow resolutions in all callers use the new version without repository
 
 A rollback is another one-way move of `v1`, to a previously validated commit. It does not undo the runs that used the newer commit.
 
-1. Select the earlier commit: the old commit in the summary of a `promote-v1.yml` run, or the commit that `v1` resolved to in a caller's run before the move.
-2. Ask the user again before the push, naming the current `v1` commit and the earlier commit. The answer to an earlier promotion does not cover the rollback.
-3. Read and push as steps 2, 5 and 6 of [Promote v1 by hand](#promote-v1-by-hand) say, with the earlier commit in place of the merged commit.
-4. While the shared surface at `v1` differs from the merged commits on `main` in more than `pins.json`, `promote-v1.yml` leaves `v1` in place; the next move is a manual promotion.
+1. Select the earlier commit: the old commit that `promote` printed, the old commit in the summary of a `promote-v1.yml` run, or the commit that `v1` resolved to in a caller's run before the move.
+2. Run `prepare` with the earlier commit, as step 1 of [Promote v1 by hand](#promote-v1-by-hand) says; it names the move a rollback:
+
+   ```text
+   python3 actions/repository-hygiene/promote_v1.py prepare --commit <earlier-commit>
+   ```
+
+3. Ask the user the printed question again. The answer to an earlier promotion does not cover the rollback.
+4. After a yes, run the printed `promote` command, as step 4 of [Promote v1 by hand](#promote-v1-by-hand) says.
+5. While the shared surface at `v1` differs from the merged commits on `main` in more than `pins.json`, `promote-v1.yml` leaves `v1` in place; the next move is a manual promotion.
 
 ### Add a part
 
