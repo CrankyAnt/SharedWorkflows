@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from tests.setup_ci_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml
+from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 AUTO_MERGE_KIT = REPOSITORY_ROOT / "actions" / "dependabot-auto-merge" / "consumer-kit"

@@ -6,8 +6,8 @@ import re
 import subprocess
 import unittest
 from pathlib import Path
-from tests.setup_ci_support import coverage
-from tests.setup_ci_support import read_yaml
+from tests.consumer_kit_support import coverage
+from tests.consumer_kit_support import read_yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 

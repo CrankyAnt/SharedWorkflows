@@ -6,7 +6,7 @@ import re
 import unittest
 from pathlib import Path
 from tests.ci_policy_support import verdict_runs
-from tests.setup_ci_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml, read_yaml_text
+from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml, read_yaml_text
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
