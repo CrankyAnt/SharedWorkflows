@@ -96,6 +96,50 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(["docs/**"], whole["extra_paths"])
         self.assertEqual([{"path": "Directory.Build.props", "kind": "file"}], whole["extra_existence_reads"])
 
+    def test_apply_keeps_the_stored_estimate_of_an_entry_file_that_did_not_run_clean(self) -> None:
+        # tests/a.py stores 4.0; a clean run of 1.65 s would make it 1.0. Each reason keeps the stored estimate instead.
+        cases = [({"exit_code": 1, "skipped": 0}, "it exited with 1"),
+                 ({"exit_code": 0, "skipped": None, "incomplete_report": "its TAP plan does not match its test lines"},
+                  "it printed no complete test report: its TAP plan does not match its test lines"),
+                 ({"exit_code": 0, "skipped": None}, "its test runner reports no skip count"),
+                 ({"exit_code": 0, "skipped": 2}, "2 tests skipped")]
+        for outcome, reason in cases:
+            with self.subTest(reason=reason):
+                fixture = self.fixture()
+                result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+                    {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "seconds": 1.65, "reads": reads(["tests/a.py"]), **outcome}]}
+                applied = fixture.apply(self.write(fixture, "full.json", result))
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                self.assertEqual({"tests/a.py": 4.0}, fixture.suite("whole")["entry_durations"])
+                self.assertIn(f"whole: kept the estimate of tests/a.py: {reason}", applied.stdout)
+
+    def test_apply_writes_no_estimate_for_an_entry_file_without_one_that_did_not_run_clean(self) -> None:
+        fixture = self.fixture()
+        result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "per-entry", "entry": "tests/c2.py", "job": "shard-1", "exit_code": 1, "skipped": 0, "seconds": 16.5,
+             "reads": reads(["tests/c2.py"])}]}
+        applied = fixture.apply(self.write(fixture, "full.json", result))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertNotIn("entry_durations", fixture.suite("per-entry"))
+        self.assertNotIn("kept the estimate of tests/c2.py", applied.stdout)
+
+    def test_apply_writes_the_estimate_of_a_clean_entry_file_beside_a_failing_one_of_a_suite_selected_as_a_whole(self) -> None:
+        # The failing tests/c1.py keeps the suite's lists and its own estimate, and does not count toward the factor of
+        # its job: the job has no clean entry file with a stored estimate, so tests/a.py counts with factor 1. Counting
+        # tests/c1.py (1.0 against 4.0) would have made tests/a.py 40.0.
+        fixture = self.fixture([suite("whole", ["tests/a.py", "tests/c1.py"], paths=["tests/a.py", "tests/c1.py"],
+                                      entry_durations={"tests/c1.py": 4.0})])
+        result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 16.5, "reads": reads(["tests/a.py"])},
+            {"suite": "whole", "entry": "tests/c1.py", "job": "shard-1", "exit_code": 1, "skipped": 0, "seconds": 1.65,
+             "reads": reads(["tests/c1.py"])}]}
+        applied = fixture.apply(self.write(fixture, "full.json", result))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual({"tests/a.py": 10.0, "tests/c1.py": 4.0}, fixture.suite("whole")["entry_durations"])
+        self.assertIn("whole: kept the list of tests/c1.py: it exited with 1", applied.stdout)
+        self.assertIn("whole: kept the estimate of tests/c1.py: it exited with 1", applied.stdout)
+        self.assertNotIn("kept the estimate of tests/a.py", applied.stdout)
+
     def test_apply_writes_the_lists_of_a_suite_selected_per_entry_as_the_union_of_its_entry_lists(self) -> None:
         # The suite's own list holds nothing beyond its entry files' recorded lists, for additions and full recordings alike.
         fixture = self.fixture([suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["stale/**"],
@@ -307,6 +351,24 @@ class JobCorrectionTests(unittest.TestCase):
                                     ("windows", "tests/w.py", "windows", 16.5))
         self.assertEqual({"tests/c1.py": 5.0, "tests/c2.py": 10.0, "tests/c3.py": 10.0, "tests/c4.py": 15.0}, linux)
         self.assertEqual({"tests/w.py": 16.5}, windows)
+
+    def test_an_entry_file_that_keeps_its_estimate_does_not_count_toward_its_job_factor(self) -> None:
+        # shard-1 ran at 1.2x: tests/c1.py ran clean, tests/c2.py exited with 1 after 0.1x its stored time, and tests/c4.py
+        # has no stored estimate. The factor comes from tests/c1.py alone, so tests/c4.py's corrected value is 7.0 s;
+        # counting tests/c2.py would have made the factor 0.65 and tests/c4.py 12.92 s. tests/c3.py was not recorded.
+        fixture = self.fixture(dict(self.STORED))
+        outcomes = [("tests/c1.py", 0, 1.2 * 10.0), ("tests/c2.py", 1, 0.1 * 20.0), ("tests/c4.py", 0, 1.2 * 7.0)]
+        path = fixture.base / "shard-1.json"
+        path.write_text(json.dumps({"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "linux", "entry": entry, "job": "shard-1", "exit_code": exit_code, "skipped": 0, "seconds": WIDE_TO_MID * seconds,
+             "reads": reads([entry])} for entry, exit_code, seconds in outcomes]}), encoding="utf-8")
+        applied = fixture.apply(path)
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual({"tests/c1.py": 10.0, "tests/c2.py": 20.0, "tests/c3.py": 10.0, "tests/c4.py": 7.0}, fixture.suite("linux")["entry_durations"])
+        self.assertIn("linux: kept the estimate of tests/c2.py: it exited with 1", applied.stdout)
+        self.assertIn("linux: kept the estimate of tests/c3.py: it was not recorded", applied.stdout)
+        self.assertNotIn("kept the estimate of tests/c1.py", applied.stdout)
+        self.assertNotIn("kept the estimate of tests/c4.py", applied.stdout)
 
 
 if __name__ == "__main__":

@@ -2139,14 +2139,14 @@ ESTIMATE_THRESHOLD = 0.25
 def corrected_durations(entries: dict[tuple[str, str], dict], jobs: dict[tuple[str, str], tuple], resolved: dict,
                         items: dict) -> dict[tuple[str, str], float]:
     """The corrected value of each recorded entry file: its seconds divided by the full-recording scale of its operating
-    system, then by the speed factor of its shard job. A job's factor is the median, over its entry files with a stored
-    estimate, of the converted seconds divided by that estimate; a job without such an entry file, or whose median is
-    not positive, has factor 1."""
+    system, then by the speed factor of its shard job. A job's factor is the median, over its entry files that ran clean
+    (``kept_reason`` gives none) and have a stored estimate, of the converted seconds divided by that estimate; a job
+    without such an entry file, or whose median is not positive, has factor 1."""
     converted = {key: entry["seconds"] / suite_selection.full_recording_scale(known_suite(resolved, key[0]).os) for key, entry in entries.items()}
     ratios: dict[tuple, list[float]] = {}
     for key, value in converted.items():
         stored = items[key[0]].get("entry_durations", {}).get(key[1])
-        if stored:
+        if stored and kept_reason(entries[key]) is None:
             ratios.setdefault(jobs[key], []).append(value / stored)
     factors = {job: median for job, values in ratios.items() if (median := statistics.median(values)) > 0}
     return {key: value / factors.get(jobs[key], 1.0) for key, value in converted.items()}
@@ -2160,8 +2160,9 @@ def new_estimate(corrected: float, stored: float | None) -> float:
 def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]]) -> list[str]:
     """Replace the lists of every recorded entry file that exited with 0 and whose test report in an accepted format
     shows no skipped test. The module lookups of a directory become those of the recorded entry files, and keep the
-    stored ones while an entry file whose lists stay looks up modules there. Each recorded entry file's duration
-    estimate follows its corrected value as ``corrected_durations`` and ``new_estimate`` say."""
+    stored ones while an entry file whose lists stay looks up modules there. The duration estimate of each entry file
+    that ran clean follows its corrected value as ``corrected_durations`` and ``new_estimate`` say, judged per entry
+    file, also in a suite selected as a whole; every other entry file keeps its stored estimate, or stays without one."""
     entries: dict[tuple[str, str], dict] = {}
     jobs: dict[tuple[str, str], tuple] = {}
     for index, document in enumerate(documents):
@@ -2180,15 +2181,17 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
         suite = known_suite(resolved, name)
         item = items[name]
         recorded = {entry: entries.get((name, entry)) for entry in suite.entries}
+        reasons = {entry: kept_reason(result) for entry, result in recorded.items()}
         durations = dict(item.get("entry_durations", {}))
-        for entry, result in recorded.items():
-            if result is not None:
+        for entry in suite.entries:
+            if reasons[entry] is None:
                 durations[entry] = new_estimate(corrected[(name, entry)], durations.get(entry))
+            elif entry in durations:
+                report.append(f"{name}: kept the estimate of {entry}: {reasons[entry]}")
         if durations:
             item["entry_durations"] = durations
         if suite.paths is None:
             start_list(item, suite, suite.entries, {entry for entry, result in recorded.items() if result is not None})
-        reasons = {entry: kept_reason(result) for entry, result in recorded.items()}
         if suite.entry_selection:
             for entry, result in recorded.items():
                 if result is None:

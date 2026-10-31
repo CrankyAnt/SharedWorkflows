@@ -122,13 +122,14 @@ class FullRecordingTests(unittest.TestCase):
         self.assertEqual(2, refused.returncode)
         self.assertIn("--job goes with --full", refused.stderr)
 
-    def test_it_writes_a_duration_estimate_per_recorded_entry_file(self) -> None:
+    def test_it_writes_a_duration_estimate_only_for_an_entry_file_that_ran_clean(self) -> None:
+        # tests/skip.py skipped a test and tests/plain.py reports no skip count; neither has a stored estimate to keep.
         fixture = self.fixture()
         self.assertEqual(0, fixture.record(ENTRIES, full=True).returncode)
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
         durations = fixture.suite("per-entry")["entry_durations"]
-        self.assertEqual(set(ENTRIES), set(durations))
-        self.assertTrue(all(estimate > 0 for estimate in durations.values()))
+        self.assertEqual(["tests/ok.py"], list(durations))
+        self.assertGreater(durations["tests/ok.py"], 0)
 
 
 @requires_linux
