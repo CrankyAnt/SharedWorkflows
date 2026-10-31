@@ -1536,9 +1536,49 @@ def selected_on(options: argparse.Namespace, root: Path, tracked, suite_list: Su
         changed = sorted(set(changed) | set(edited_ignore_files(root, current_tracked)))
     causes, started = unrecorded_changes(options, root, suite_list, changed, previous, head if previous_tracked is not None else None,
                                          previous_tracked, current_tracked)
-    return select(suite_list, changed, undetermined, root=root, definition=definition, workflow_steps=workflow_steps,
-                  previous_tracked=previous_tracked, current_tracked=current_tracked, ignore=ignore, unrecorded_causes=causes,
-                  started=started)
+    relative = list_path(options, root)
+    estimates_only = changed is not None and relative in changed and estimates_only_change(
+        root, relative, previous, head if previous_tracked is not None else None)
+    selection = select(suite_list, [file for file in changed or () if file != relative] if estimates_only else changed, undetermined,
+                       root=root, definition=definition, workflow_steps=workflow_steps, previous_tracked=previous_tracked,
+                       current_tracked=current_tracked, ignore=ignore, unrecorded_causes=causes, started=started)
+    if estimates_only:
+        # The suite list was left out of the path match, so no suite read it.
+        selection = dataclasses.replace(selection, unread=tuple(file for file in changed or () if file in selection.unread or file == relative))
+    return selection
+
+
+def estimates_only_change(root: Path, relative: str, previous: str | None, head: str | None) -> bool:
+    """Whether the change of the suite list at ``relative`` differs only in its duration estimates, which makes it no
+    changed file for the path match. The sides are those that the unrecorded inputs compare: the previous commit, or
+    the checkout's ``HEAD``, against the head commit or, without one, the working tree. A working tree that differs from
+    ``HEAD`` at most in line endings, such as a list of changed files against a checkout that already holds them, shows
+    no difference, so the change counts as changed."""
+    import unrecorded
+
+    before = unrecorded.Side(root, previous or "HEAD", frozenset()).text(relative)
+    after = unrecorded.Side(root, head, frozenset()).text(relative)
+    if head is None and before is not None and after is not None and before.replace("\r\n", "\n") == after.replace("\r\n", "\n"):
+        return False
+    return differs_in_estimates_only(before, after)
+
+
+def differs_in_estimates_only(before: str | None, after: str | None) -> bool:
+    """Whether two texts of the suite list differ only in ``entry_durations``: they differ, both parse as a suite list,
+    and their parsed content without the duration estimates is equal. A text that is absent or does not parse, or two
+    equal texts, count as a change: a changed file that the comparison sees no difference in may differ in anything."""
+    if before is None or after is None or before == after:
+        return False
+    try:
+        parse_suite_list(before)
+        parse_suite_list(after)
+    except SuiteListError:
+        return False
+
+    def without_estimates(text: str) -> dict:
+        raw = json.loads(text)
+        return {**raw, "suites": [{key: value for key, value in suite.items() if key != "entry_durations"} for suite in raw["suites"]]}
+    return without_estimates(before) == without_estimates(after)
 
 
 def list_path(options: argparse.Namespace, root: Path) -> str:
