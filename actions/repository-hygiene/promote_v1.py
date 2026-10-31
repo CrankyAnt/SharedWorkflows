@@ -1,10 +1,26 @@
-"""Decide whether a commit on the default branch may move ``v1`` automatically, and move it under a lease.
+"""Decide whether a commit on the default branch may move ``v1`` automatically, and move it under a lease; prepare and
+push a manual move of ``v1``.
 
     python3 promote_v1.py read-tag --repository OWNER/NAME [--output GITHUB_OUTPUT]
     python3 promote_v1.py decide --commit SHA --v1 SHA [--v1-object SHA] --app-login LOGIN --owner LOGIN --repository OWNER/NAME
                                  [--pull-request FILE] [--repository-root DIR] [--surface shared-surface.json] [--output GITHUB_OUTPUT]
                                  [--summary FILE]
     python3 promote_v1.py move   --old SHA --new SHA [--remote origin] [--repository-root DIR] [--summary FILE]
+    python3 promote_v1.py prepare [--commit SHA] [--remote origin] [--repository-root DIR]
+    python3 promote_v1.py promote --old OBJECT --new SHA [--remote origin] [--repository-root DIR]
+
+``prepare`` and ``promote`` carry every manual move of ``v1``: a promotion to a descendant of the current ``v1``, a
+rollback to an ancestor of it, and the first creation when no remote ``v1`` exists. ``prepare`` fetches the remote and
+reports the current ``v1`` commit and the object the remote ``refs/tags/v1`` holds, read with ``git ls-remote`` and never
+from a local tag; the target, the head of ``<remote>/main`` unless ``--commit`` names another commit; the kind of move;
+the changed files under the ``paths`` of the shared surface; the commits between the two; the conclusions of both CI
+workflows on ``main`` for the target, read once through the authentication of the ``gh`` CLI; and the push gate's
+Gitleaks scan for the tag push. It refuses, prints no question and exits 1 when the target is not on ``<remote>/main``,
+is neither a descendant nor an ancestor of ``v1``, has CI that is still running, did not pass or has no run, when the
+scan does not pass, or when the shared surface is identical and no move is needed. Otherwise it prints the question for
+the user and, below it, the ``promote`` command. ``promote`` runs the scan again and pushes the commit to ``v1`` with
+``--force-with-lease`` on ``--old``, empty for the first creation; a rejected push means that ``v1`` moved after
+``prepare``, and the move starts again there. On success it prints the old and the new commit.
 
 ``read-tag`` reads ``refs/tags/v1`` through the GitHub API with the token in ``GH_TOKEN``, because the checkout
 holds no credentials, and writes ``v1`` and ``v1_object`` as outputs, both empty when the tag does not exist.
@@ -26,6 +42,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import subprocess
 import time
 import urllib.error
@@ -39,6 +57,12 @@ TAG = "refs/tags/v1"
 REF_URL = "https://api.github.com/repos/{repository}/git/ref/tags/v1"
 TAG_OBJECT_URL = "https://api.github.com/repos/{repository}/git/tags/{sha}"
 RUNS_URL = "https://api.github.com/repos/{repository}/actions/workflows/{workflow}/runs?head_sha={commit}&event=push&branch=main&per_page=100"
+API_HOST = "https://api.github.com/"
+GITHUB_REMOTE = re.compile(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$")
+GITLEAKS_OPTIONS = ("--config", ".gitleaks.toml", "--baseline-path", ".gitleaks-baseline.json")
+SCRIPT_COMMAND = "python3 actions/repository-hygiene/promote_v1.py"
+PROMOTION, ROLLBACK, FIRST_CREATION = "promotion", "rollback", "first creation"
+SCAN_REFUSAL = "the Gitleaks scan of the tag push reports a finding or could not run"
 CI_WORKFLOWS = ("validate.yml", "repository-hygiene-caller.yml")
 CI_TIMEOUT = 10 * 60
 CI_INTERVAL = 30
@@ -49,6 +73,22 @@ Conclusions = Mapping[str, str | None]
 
 class CiReadError(RuntimeError):
     """The CI runs of the commit could not be read on the last poll before the wait ended."""
+
+
+@dataclass(frozen=True)
+class CiRun:
+    """The newest push run on ``main`` of one CI workflow; ``status`` is None when no run exists."""
+
+    status: str | None
+    conclusion: str | None
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    """The push gate's Gitleaks scan of a tag push: whether it passed, and what it printed."""
+
+    passed: bool
+    output: str
 
 
 @dataclass(frozen=True)
@@ -103,15 +143,20 @@ def read_tag(repository: str, fetcher: Fetcher) -> tuple[str, str]:
     return target["sha"], v1_object
 
 
-def ci_conclusions(repository: str, commit: str, fetcher: Fetcher) -> Conclusions:
-    """The conclusion of the newest push run on ``main`` of each CI workflow for ``commit``; None while it has not completed or no run exists."""
-    conclusions: dict[str, str | None] = {}
+def newest_runs(repository: str, commit: str, fetcher: Fetcher) -> dict[str, CiRun]:
+    """The newest push run on ``main`` of each CI workflow for ``commit``."""
+    newest: dict[str, CiRun] = {}
     for workflow in CI_WORKFLOWS:
         body = fetcher(RUNS_URL.format(repository=repository, workflow=workflow, commit=commit))
         runs = json.loads(body).get("workflow_runs", []) if body else []
-        newest = max(runs, key=lambda run: run["id"], default=None)
-        conclusions[workflow] = newest["conclusion"] if newest and newest["status"] == "completed" else None
-    return conclusions
+        run = max(runs, key=lambda candidate: candidate["id"], default=None)
+        newest[workflow] = CiRun(run["status"], run["conclusion"]) if run else CiRun(None, None)
+    return newest
+
+
+def ci_conclusions(repository: str, commit: str, fetcher: Fetcher) -> Conclusions:
+    """The conclusion of the newest push run on ``main`` of each CI workflow for ``commit``; None while it has not completed or no run exists."""
+    return {workflow: run.conclusion if run.status == "completed" else None for workflow, run in newest_runs(repository, commit, fetcher).items()}
 
 
 def wait_for_ci(repository: str, commit: str, fetcher: Fetcher, timeout: float = CI_TIMEOUT, interval: float = CI_INTERVAL,
@@ -227,15 +272,203 @@ def decide(root: Path, commit: str, v1: str, pull_request: dict | None, app_logi
     return Decision(True, "a pins-only updater pull request merged by the repository owner landed, the shared surface otherwise matches the current v1, and the CI of this commit on main passed.", lease, commit)
 
 
-def move(root: Path, remote: str, old: str, new: str) -> tuple[bool, str]:
-    """Push ``new`` to ``v1`` only while the remote tag still names ``old``."""
-    result = subprocess.run(
+def leased_push(root: Path, remote: str, old: str, new: str) -> subprocess.CompletedProcess:
+    """Push ``new`` to ``refs/tags/v1`` only while the remote ref holds ``old``; an empty ``old`` requires that no tag exists."""
+    return subprocess.run(
         ["git", "-C", str(root), "push", f"--force-with-lease={TAG}:{old}", remote, f"{new}:{TAG}"],
         capture_output=True, text=True, check=False,
     )
+
+
+def move(root: Path, remote: str, old: str, new: str) -> tuple[bool, str]:
+    """Push ``new`` to ``v1`` only while the remote tag still names ``old``."""
+    result = leased_push(root, remote, old, new)
     if result.returncode != 0:
         return False, f"## v1 promotion\n\nThe push of `v1` to `{new}` was rejected; the tag no longer names `{old}` and keeps its newer target.\n\n```\n{result.stderr.strip()}\n```\n"
     return True, f"## v1 promotion\n\n`v1` moved from `{old}` to `{new}`.\n"
+
+
+def gh_fetch(url: str) -> bytes | None:
+    """The body of a GitHub API response, read through the authentication of the ``gh`` CLI."""
+    result = subprocess.run(["gh", "api", "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2022-11-28", url.removeprefix(API_HOST)],
+                            capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"gh api failed: {(result.stderr or result.stdout).strip()}")
+    return result.stdout.encode("utf-8")
+
+
+def github_ci(repository: str, commit: str) -> dict[str, CiRun]:
+    """The newest push run on ``main`` of each CI workflow for ``commit``, read once through ``gh``."""
+    return newest_runs(repository, commit, gh_fetch)
+
+
+def github_repository(root: Path, remote: str) -> str:
+    """OWNER/NAME of the GitHub repository behind ``remote``."""
+    url = git(root, "remote", "get-url", remote)
+    match = GITHUB_REMOTE.match(url)
+    if match is None:
+        raise RuntimeError(f"the remote {remote} ({url}) is not a GitHub repository.")
+    return match.group(1)
+
+
+def gitleaks_scan(root: Path, remote: str, commit: str) -> ScanResult:
+    """The push gate's Gitleaks scan of the commits a tag push of ``commit`` would send, after the remote was fetched."""
+    try:
+        result = subprocess.run(["gitleaks", "git", f"--log-opts={commit} --not --remotes={remote}", "--redact", "--no-banner", "--no-color", *GITLEAKS_OPTIONS],
+                                cwd=root, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return ScanResult(False, "Gitleaks is not installed; the push waits until it is.")
+    return ScanResult(result.returncode == 0, "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part))
+
+
+def is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    return subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", ancestor, descendant], capture_output=True, check=False).returncode == 0
+
+
+def fetch_remote(root: Path, remote: str) -> None:
+    """Refresh the remote-tracking refs of ``remote`` and fetch the objects of its ``v1``, without touching a local tag."""
+    git(root, "fetch", "-q", "--prune", "--no-tags", remote)
+    subprocess.run(["git", "-C", str(root), "fetch", "-q", "--no-tags", remote, TAG], capture_output=True, check=False)
+
+
+def remote_object(root: Path, remote: str) -> str:
+    """The object ``refs/tags/v1`` of ``remote`` holds, empty when the tag does not exist; a local tag is never read."""
+    for line in git(root, "ls-remote", remote, TAG).splitlines():
+        sha, _, ref = line.partition("\t")
+        if ref == TAG:
+            return sha
+    return ""
+
+
+def peel(root: Path, sha: str) -> str:
+    """The commit ``sha`` names, or ``sha`` itself when it cannot be peeled here."""
+    result = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"], capture_output=True, text=True, check=False)
+    return result.stdout.strip() if result.returncode == 0 else sha
+
+
+def ci_refusals(runs: Mapping[str, CiRun]) -> list[str]:
+    refusals = []
+    for workflow, run in runs.items():
+        if run.status is None:
+            refusals.append(f"the CI of the target on main did not pass: {workflow} has no push run on main for the target.")
+        elif run.status != "completed":
+            refusals.append(f"CI is still running: {workflow} has not completed ({run.status}); run prepare again once it has.")
+        elif run.conclusion != "success":
+            refusals.append(f"the CI of the target on main did not pass: {workflow} concluded {run.conclusion}.")
+    return refusals
+
+
+@dataclass(frozen=True)
+class Preparation:
+    """The facts of a manual move of ``v1`` and the reasons it is refused; it may be asked only without refusals."""
+
+    v1: str
+    v1_object: str
+    target: str
+    kind: str
+    surface_files: list[str]
+    commits: list[str]
+    ci: Mapping[str, CiRun]
+    scan: ScanResult
+    refusals: list[str]
+
+    def report(self) -> str:
+        current = f"{self.v1} (object {self.v1_object})" if self.v1 else "none: no remote v1 exists"
+        lines = [f"Current v1: {current}", f"Target: {self.target}", f"Kind of move: {self.kind or 'none: the target and v1 are unrelated'}",
+                 "Changed shared-surface files:", *(f"  {path}" for path in self.surface_files or ["(none)"]),
+                 "Commits between:", *(f"  {commit}" for commit in self.commits or ["(none)"]), "CI on main of the target:"]
+        for workflow in CI_WORKFLOWS:
+            run = self.ci.get(workflow)
+            state = "not read" if run is None else "no run" if run.status is None else run.conclusion if run.status == "completed" else f"running ({run.status})"
+            lines.append(f"  {workflow}: {state}")
+        lines.append(f"Gitleaks scan of the tag push: {'no findings' if self.scan.passed else 'did not pass'}")
+        if not self.scan.passed:
+            lines.extend(f"  {line}" for line in self.scan.output.splitlines())
+        return "\n".join(lines)
+
+    def question(self) -> str:
+        files = ", ".join(self.surface_files)
+        if self.kind == FIRST_CREATION:
+            move_text = f"Create v1 at {self.target}, the first creation, which carries the shared-surface files {files}?"
+        else:
+            move_text = f"Move v1 from {self.v1} to {self.target}, a {self.kind} that changes the shared-surface files {files}?"
+        return f"Question: {move_text} The move changes the later runs of every caller. Answer yes or no."
+
+    def command(self, remote: str, root: Path | None) -> str:
+        old = f"--old {shlex.quote(self.v1_object)}" if self.v1_object else "--old="
+        parts = [f"{SCRIPT_COMMAND} promote {old} --new {self.target}"]
+        if remote != "origin":
+            parts.append(f"--remote {shlex.quote(remote)}")
+        if root is not None:
+            parts.append(f"--repository-root {shlex.quote(str(root))}")
+        return " ".join(parts)
+
+
+def prepare(root: Path, remote: str, commit: str, surface: dict, *, ci: Callable[[str], Mapping[str, CiRun]], scan: Callable[[str], ScanResult]) -> Preparation:
+    """Fetch ``remote`` and gather the facts of moving ``v1`` to ``commit``, the head of its ``main`` when empty.
+
+    ``ci`` reads the CI runs of the target once and ``scan`` runs the push gate's Gitleaks scan of the tag push.
+    """
+    fetch_remote(root, remote)
+    v1_object = remote_object(root, remote)
+    v1 = peel(root, v1_object) if v1_object else ""
+    main_ref = f"refs/remotes/{remote}/main"
+    target = git(root, "rev-parse", "--verify", f"{commit or main_ref}^{{commit}}")
+    refusals = []
+    if not is_ancestor(root, target, main_ref):
+        refusals.append(f"the target {target} is not on {remote}/main.")
+    paths = surface["paths"]
+    commits: list[str] = []
+    if not v1:
+        kind = FIRST_CREATION
+        surface_files = [line for line in git(root, "ls-tree", "-r", "--name-only", target, "--", *paths).splitlines() if line]
+    else:
+        kind = PROMOTION if is_ancestor(root, v1, target) else ROLLBACK if is_ancestor(root, target, v1) else ""
+        if not kind:
+            refusals.append(f"the target {target} is neither a descendant nor an ancestor of the current v1 commit {v1}.")
+            surface_files = changed_files(root, v1, target, paths) if has_commit(root, v1) else []
+        else:
+            surface_files = changed_files(root, v1, target, paths)
+            span = f"{v1}..{target}" if kind == PROMOTION else f"{target}..{v1}"
+            commits = [line for line in git(root, "log", "--format=%h %s", span).splitlines() if line]
+        if kind and not surface_files:
+            refusals.append("the shared surface is identical at the current v1 and the target: no move is needed.")
+    runs: Mapping[str, CiRun] = {}
+    try:
+        runs = ci(target)
+    except (OSError, ValueError, RuntimeError) as error:
+        refusals.append(f"the CI runs of the target on main could not be read: {error}")
+    else:
+        refusals.extend(ci_refusals(runs))
+    scanned = scan(target)
+    if not scanned.passed:
+        refusals.append(f"{SCAN_REFUSAL}.")
+    return Preparation(v1, v1_object, target, kind, surface_files, commits, runs, scanned, refusals)
+
+
+def promote(root: Path, remote: str, old: str, new: str, *, scan: Callable[[str], ScanResult]) -> tuple[bool, str]:
+    """Scan, then push ``new`` to ``v1`` under the lease on ``old``, the object ``prepare`` reported."""
+    fetch_remote(root, remote)
+    new_commit = git(root, "rev-parse", "--verify", f"{new}^{{commit}}")
+    scanned = scan(new_commit)
+    if not scanned.passed:
+        return False, f"{SCAN_REFUSAL[0].upper()}{SCAN_REFUSAL[1:]}; nothing was pushed.\n{scanned.output}"
+    old_commit = peel(root, old) if old else ""
+    result = leased_push(root, remote, old, new_commit)
+    if result.returncode != 0:
+        try:
+            held = remote_object(root, remote)
+        except RuntimeError:
+            held = None
+        if held == old:
+            return False, f"The push of v1 to {new_commit} failed; v1 still holds {old or 'nothing'}.\n{result.stderr.strip()}"
+        return False, (f"The push of v1 to {new_commit} was rejected: refs/tags/v1 no longer holds {old or 'nothing'}, so v1 moved after prepare "
+                       f"and keeps its newer target. Start again at prepare.\n{result.stderr.strip()}")
+    if not old_commit:
+        return True, f"v1 was created at {new_commit}."
+    if not has_commit(root, old_commit):
+        old_commit = f"the object {old}"
+    return True, f"v1 moved from {old_commit} to {new_commit}. A later rollback moves v1 back to {old_commit}."
 
 
 def _append(path: Path | None, text: str) -> None:
@@ -269,7 +502,40 @@ def build_parser() -> argparse.ArgumentParser:
     move_parser.add_argument("--old", required=True)
     move_parser.add_argument("--new", required=True)
     move_parser.add_argument("--summary", type=Path)
+    prepare_parser = subcommands.add_parser("prepare", help="gather the facts of a manual move of v1 and print the question and the promote command")
+    prepare_parser.add_argument("--commit", default="", help="the target commit; defaults to the head of <remote>/main after the fetch")
+    prepare_parser.add_argument("--remote", default="origin")
+    prepare_parser.add_argument("--repository-root", type=Path)
+    promote_parser = subcommands.add_parser("promote", help="push the target to v1 under the lease that prepare printed")
+    promote_parser.add_argument("--old", required=True, help="the object refs/tags/v1 held at prepare, empty for the first creation")
+    promote_parser.add_argument("--new", required=True)
+    promote_parser.add_argument("--remote", default="origin")
+    promote_parser.add_argument("--repository-root", type=Path)
     return parser
+
+
+def manual_move(arguments: argparse.Namespace) -> int:
+    """``prepare`` or ``promote``: exit 0 only for a printed question and command, or for a pushed tag."""
+    root = (arguments.repository_root or Path(".")).resolve()
+    remote = arguments.remote
+    scan = lambda commit: gitleaks_scan(root, remote, commit)  # noqa: E731
+    try:
+        if arguments.command == "promote":
+            moved, text = promote(root, remote, arguments.old, arguments.new, scan=scan)
+            print(text)
+            return 0 if moved else 1
+        preparation = prepare(root, remote, arguments.commit, load_surface(SURFACE_PATH), scan=scan,
+                              ci=lambda commit: github_ci(github_repository(root, remote), commit))
+    except RuntimeError as error:
+        print(f"{arguments.command} stopped: {error}")
+        return 1
+    print(preparation.report())
+    if preparation.refusals:
+        print("\nprepare refuses; no question is asked:")
+        print("\n".join(f"  - {reason}" for reason in preparation.refusals))
+        return 1
+    print(f"\n{preparation.question()}\n\nAfter a yes, run:\n{preparation.command(remote, arguments.repository_root)}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -291,6 +557,8 @@ def main(argv: list[str] | None = None) -> int:
         _append(arguments.summary, decision.summary())
         _append(arguments.output, f"move={str(decision.move).lower()}\nold={decision.old}\nnew={decision.new}\n")
         return 0
+    if arguments.command in ("prepare", "promote"):
+        return manual_move(arguments)
     moved, summary = move(arguments.repository_root.resolve(), arguments.remote, arguments.old, arguments.new)
     print(summary)
     _append(arguments.summary, summary)
