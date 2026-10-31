@@ -16,7 +16,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Load the Tool from this workflow revision
+      - name: Load the scripts of the suite selection from this workflow revision
         id: resources
         uses: $/actions/suite-selection
       - name: Download the entry files that passed in the run

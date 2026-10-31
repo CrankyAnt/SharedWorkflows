@@ -1,4 +1,4 @@
-"""YAML parsing and assertion helpers for setup's CI templates."""
+"""YAML parsing and assertion helpers for the tests of the consumer-kit templates."""
 
 from __future__ import annotations
 

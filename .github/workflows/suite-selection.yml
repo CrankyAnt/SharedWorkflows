@@ -72,7 +72,7 @@ jobs:
       shared-digest: ${{ steps.digest.outputs.shared-digest }}
       identical: ${{ steps.select.outputs.identical }}
     steps:
-      - name: Load the Tool from this workflow revision
+      - name: Load the scripts of the suite selection from this workflow revision
         id: resources
         uses: $/actions/suite-selection
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
