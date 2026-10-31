@@ -50,7 +50,7 @@ class ValidateWorkflowTests(unittest.TestCase):
                           "setup-versions": "python=3.13"}, select["with"])
         self.assertEqual("$/.github/workflows/suite-verdict.yml", verdict["uses"])
         self.assertEqual({"needs": "${{ toJSON(needs) }}"}, verdict["with"])
-        self.assertNotIn("suite_selection.py", self.text, "the workflow runs the Tool only through the shared workflows")
+        self.assertNotIn("suite_selection.py", self.text, "the workflow runs the suite selection only through the shared workflows")
 
     def test_select_runs_first_then_the_shards_and_the_windows_job_side_by_side_then_the_verdict(self) -> None:
         self.assertNotIn("needs", self.jobs["select"])

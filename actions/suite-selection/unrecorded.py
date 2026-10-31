@@ -15,7 +15,7 @@ holds the parts of the tested tree.
   that reads the ``windows`` output every Windows entry file; any other suite job runs the units its gate names, or
   every unit without a gate.
 - The jobs above a suite job are the jobs it needs, directly or through other jobs, other than the jobs that run
-  ``select`` (through the suite-selection workflow, or a step that runs the Tool's ``select``), and the caller job of
+  ``select`` (through the suite-selection workflow, or a step that runs ``select`` of the suite selection), and the caller job of
   the workflow that holds it, with the jobs above that caller.
 - A step of a suite job with a suite or entry-file gate belongs to the units of its gate, one whose condition names setups
   to the entry files of the job that state any of them, and one whose condition names a language step to that language
@@ -231,7 +231,7 @@ def is_suite_job(job: object) -> bool:
 
 
 def runs_select(job: object) -> bool:
-    """Whether a step of the job runs the suite-selection Tool's ``select``."""
+    """Whether a step of the job runs ``select`` of the suite selection."""
     steps = job.get("steps") if isinstance(job, dict) else None
     return isinstance(steps, list) and any(isinstance(step, dict) and SELECT_COMMAND.search(str(step.get("run") or "")) for step in steps)
 

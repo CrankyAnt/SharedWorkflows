@@ -14,7 +14,7 @@ after the action path is substituted, and a reference above the repository root 
 Workflow and action files are read with the YAML subset GitHub workflows use: mappings,
 sequences, plain and quoted scalars, block scalars and flow collections kept as text. A file
 this reader cannot read fails selection clearly. The
-reader lives here because the Tool depends on nothing outside its own directory: a shared
+reader lives here because the suite selection depends on nothing outside its own directory: a shared
 workflow loads the directory on its own through ``$/``, and no YAML library is at hand there.
 """
 

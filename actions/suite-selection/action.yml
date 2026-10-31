@@ -1,8 +1,8 @@
 name: Shared suite-selection resources
-description: Expose the suite-selection Tool from the running workflow revision.
+description: Expose the scripts of the suite selection from the running workflow revision.
 outputs:
   path:
-    description: Absolute path to the suite-selection Tool.
+    description: Absolute path to the part folder of the suite selection.
     value: ${{ steps.resources.outputs.path }}
 runs:
   using: composite
