@@ -558,9 +558,9 @@ The tests fetch no specification and install no package; the updater and move-de
 
 The shared surface is [shared-surface.json](../actions/repository-hygiene/shared-surface.json): the reusable workflows that callers use through `v1`, the part folders they load through `$/`, the pins file and the updater branch. The catalogue is on it, and every consumer kit lies in a part folder, so they are part of it, as is `actions/repository-ruleset`, the ruleset template that the consumer kit of repository hygiene leads to. Callers receive a change under a path of the shared surface only when `v1` moves, and creating or moving `v1` changes the later runs of every caller; moving it back does not undo those runs. This repository's own callers run the changed workflows from the pull request on. A consumer reads the catalogue, the consumer kits and the ruleset template at `v1`, so a change to them reaches consumers only when `v1` moves.
 
-`v1` moves only to a commit whose CI on `main` passed, by a manual promotion and by the automatic move alike. Because this repository calls every shared workflow by local path, that CI has run the workflows the commit carries. The automatic move of a pins-only commit is the exception to the question that [Who moves v1](#who-moves-v1) states; it checks the conditions under [Automatic v1 move](#automatic-v1-move), the commit's CI on `main` among them. A move gets no separate check afterwards: the consumers' ruleset and caller runs right after the move are the check, each consumer's first validation run after it runs every suite ([A move of v1 in a consumer](#a-move-of-v1-in-a-consumer)), and `v1` moves back, as [Roll v1 back](#roll-v1-back) says, when one of them fails on the moved workflows. A `promote-v1.yml` run writes the old and the new commit to its summary, `promote` prints them for a manual move, and a caller's run records the commit that `v1` resolved to; no other record of a move is kept.
+`v1` moves only to a commit whose CI on `main` passed, by a manual promotion and by the automatic move alike. Because this repository calls every shared workflow by local path, that CI has run the workflows the commit carries. The automatic move of a pins-only commit is the exception to the question that [Who moves v1](#who-moves-v1) states; it checks the conditions under [Automatic v1 move](#automatic-v1-move), the commit's CI on `main` among them. A move gets no separate check afterwards: the consumers' ruleset and caller runs right after the move are the check ([Find the consumers](#find-the-consumers)), each consumer's first validation run after it runs every suite ([A move of v1 in a consumer](#a-move-of-v1-in-a-consumer)), and `v1` moves back, as [Roll v1 back](#roll-v1-back) says, when one of them fails on the moved workflows. A `promote-v1.yml` run writes the old and the new commit to its summary, `promote` prints them for a manual move, and a caller's run records the commit that `v1` resolved to; no other record of a move is kept.
 
-A move that changes check names ships in one coordinated move. When `v1` moves, no consumer has an open pull request. Right after the move, each consumer updates its default-branch ruleset to the new check names and then its callers, before any other work. A Dependabot pull request that opens in that window is recreated after the cut-over. The ruleset and caller update of each consumer is a question to the user (`docs/agents/publication.md`).
+A move that changes check names ships in one coordinated move. When `v1` moves, no consumer that [Find the consumers](#find-the-consumers) finds has an open pull request. Right after the move, each consumer updates its default-branch ruleset to the new check names and then its callers, before any other work. [Change a check name](#change-a-check-name) gives the procedure.
 
 #### Who moves v1
 
@@ -603,13 +603,13 @@ Two subcommands of [promote_v1.py](../actions/repository-hygiene/promote_v1.py),
 
    `promote` runs the push gate's Gitleaks scan again and pushes nothing on a finding. It pushes with `--force-with-lease=refs/tags/v1:<object>`; a rejected push means that `v1` moved after `prepare` and keeps its newer target, so start again at step 1. On success it prints the old and the new commit; a later rollback names the old one.
 
-Later workflow resolutions in all callers use the new version without repository edits; jobs already running keep the commit they resolved.
+Later workflow resolutions in all callers use the new version without repository edits; jobs already running keep the commit they resolved. [Find the consumers](#find-the-consumers) lists those callers. A move that changes check names follows [Change a check name](#change-a-check-name).
 
 #### Roll v1 back
 
 A rollback is another one-way move of `v1`, to a previously validated commit. It does not undo the runs that used the newer commit.
 
-1. Select the earlier commit: the old commit that `promote` printed, the old commit in the summary of a `promote-v1.yml` run, or the commit that `v1` resolved to in a caller's run before the move.
+1. Select the earlier commit: the old commit that `promote` printed, the old commit in the summary of a `promote-v1.yml` run, or the commit that `v1` resolved to in a caller's run before the move, in one of the consumers ([Find the consumers](#find-the-consumers)).
 2. Run `prepare` with the earlier commit, as step 1 of [Promote v1 by hand](#promote-v1-by-hand) says; it names the move a rollback:
 
    ```text
@@ -619,6 +619,34 @@ A rollback is another one-way move of `v1`, to a previously validated commit. It
 3. Ask the user the printed question again. The answer to an earlier promotion does not cover the rollback.
 4. After a yes, run the printed `promote` command, as step 4 of [Promote v1 by hand](#promote-v1-by-hand) says.
 5. While the shared surface at `v1` differs from the merged commits on `main` in more than `pins.json`, `promote-v1.yml` leaves `v1` in place; the next move is a manual promotion.
+
+A rollback across a check-name change brings back the old check names, so it is a coordinated move as [Change a check name](#change-a-check-name) states, in reverse. Before the rollback, no consumer has an open pull request, as [Find the consumers](#find-the-consumers) shows. Right after it, each consumer reverses its ruleset change and then its caller change, each a question to the user. This repository's callers run by local path from `main`, so its ruleset "main checks" goes back together with a pull request on `main` that reverts the check-name change: the ruleset changes right before that pull request merges, in the same window.
+
+### Find the consumers
+
+A consumer calls the shared workflows at `CrankyAnt/SharedWorkflows/.github/workflows/<workflow>.yml@v1` and the shared steps at `CrankyAnt/SharedWorkflows/actions/<part>@v1` from its workflows; both references start with `CrankyAnt/SharedWorkflows/`. No list of consumers is kept, in this repository or elsewhere: it would go stale, the reason [ADR 0001](adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md) gives against a copy of the catalogue in every consumer. Find them before and after every move of `v1`, with the authentication of the `gh` CLI; this repository calls its shared workflows and shared steps by local path, so neither route lists it.
+
+1. Search the owner's code. Each line names a consumer and one of its workflow files that holds such a reference:
+
+   ```text
+   gh search code "CrankyAnt/SharedWorkflows/" --owner CrankyAnt --limit 1000 --json repository,path --jq '.[] | select(.path | startswith(".github/workflows/")) | .repository.nameWithOwner + " " + .path'
+   ```
+
+   The search also matches documentation, so `--limit` stays above the number of all matches and the filter keeps the workflow files. Code search covers only the code that GitHub has indexed, so it can miss a consumer or a workflow changed since the last indexing.
+
+2. The complete route is the sweep. It lists every repository of the owner and reads each file under `.github/workflows/` on its default branch, in a POSIX shell:
+
+   ```bash
+   for repo in $(gh repo list CrankyAnt --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner'); do
+     gh api "repos/$repo/contents/.github/workflows" --jq '.[].path' 2>/dev/null | while read -r path; do
+       gh api "repos/$repo/contents/$path" -H 'Accept: application/vnd.github.raw' | grep -F 'CrankyAnt/SharedWorkflows/' >/dev/null && echo "$repo $path"
+     done
+   done
+   ```
+
+   A repository without `.github/workflows/` prints nothing. A move uses the sweep's result; the search is the quick check in between.
+
+3. List each consumer's open pull requests with `gh pr list --repo <consumer> --state open`.
 
 ### Add a part
 
@@ -759,8 +787,30 @@ Renew the recordings when `strace`'s output changes, or when a stored fixture's 
 2. When the step's command changes, change the selection's command line in `suite_selection.py` and under [Entrypoint](#entrypoint) with it.
 3. Change the contract tests in `tests/test_suite_selection_workflow.py` and `tests/test_suite_selection_verdict_workflow.py`.
 4. When an input or output changes, change the caller template `suite-selection/consumer-kit/validation.yml` and the [consumer kit](../actions/suite-selection/consumer-kit/README.md)'s explanation and their tests in the `setup-ci-templates` suite.
-5. Validate as [Validation](#validation) says. The pull request's `hygiene / hygiene` check runs actionlint and zizmor over the changed workflow, and `validate.yml`, which calls both workflows by local path, runs the changed workflow in the pull request.
-6. Callers run the changed workflow after [Promote v1 by hand](#promote-v1-by-hand). A changed input with a default, or a new output, needs no change in a caller; a new required input needs a change in every caller before the promotion.
+5. The job id `validation` of `suite-verdict.yml`, with the job id `validation` of the caller template and of `validate.yml`, produces the required check `validation / validation`. A change to either follows [Change a check name](#change-a-check-name).
+6. Validate as [Validation](#validation) says. The pull request's `hygiene / hygiene` check runs actionlint and zizmor over the changed workflow, and `validate.yml`, which calls both workflows by local path, runs the changed workflow in the pull request.
+7. Callers run the changed workflow after [Promote v1 by hand](#promote-v1-by-hand). A changed input with a default, or a new output, needs no change in a caller; a new required input needs a change in every caller before the promotion.
+
+### Change a check name
+
+A check of a job in a shared workflow is named `<caller job> / <shared job>` and a ruleset matches it by that exact string, as [Calling the workflows](#calling-the-workflows) says. A changed job id in a shared workflow or a caller template therefore changes a check name in every consumer, and a ruleset that still requires the old name blocks every pull request. The required checks are `hygiene / hygiene` and `validation / validation`; `select / select`, `auto-merge / auto-merge` and `auto-merge / merge` here, and `select / select`, `dependabot-auto-merge / auto-merge` and `dependabot-auto-merge / merge` in a consumer, are checks that no ruleset requires.
+
+1. Change every binding of the name in one pull request. `git grep -n '<old name>'` and `git grep -n '<old job id>:'` find them in the tree:
+   - the job ids of the shared workflows: `hygiene` in `repository-hygiene.yml`, `validation` in `suite-verdict.yml`, and `auto-merge` and `merge` in `dependabot-auto-merge.yml`;
+   - the caller templates of the consumer kits and their job ids, `actions/*/consumer-kit/*.yml`: `hygiene` in `repository-hygiene.yml`, `dependabot-auto-merge` in `dependabot-auto-merge.yml`, and `select` and `validation` in `validation.yml`;
+   - this repository's callers and their job ids: `hygiene` in `repository-hygiene-caller.yml`, `select` and `validation` in `validate.yml`, and `auto-merge` in `dependabot-auto-merge-caller.yml`;
+   - `required_checks` in the [catalogue](../catalogue.json);
+   - the ruleset template [ruleset-main-template.json](../actions/repository-ruleset/ruleset-main-template.json) and its [README](../actions/repository-ruleset/README.md);
+   - the consumer-kit READMEs of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md), [the suite selection](../actions/suite-selection/consumer-kit/README.md) and [Dependabot auto-merge](../actions/dependabot-auto-merge/consumer-kit/README.md);
+   - the documentation: [Shared callers](agents/ci.md#shared-callers) in `docs/agents/ci.md`; in this document [Calling the workflows](#calling-the-workflows), [Job layout](#job-layout), [Publication checks](#publication-checks), [Repository hygiene](#repository-hygiene), [ETW consumer](#etw-consumer), [Validation](#validation), [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline), [Change the ETW consumer](#change-the-etw-consumer), [Change a selection workflow](#change-a-selection-workflow) and this procedure; and the `validate` line under `## Testing instructions` in `AGENTS.md`;
+   - the tests that pin the names, among them `tests/test_ci_policy_auto_merge_caller.py`, `tests/test_dependabot_auto_merge.py`, `tests/test_suite_selection_reuse.py`, `tests/test_ci_policy_shared_surface.py` and `tests/test_setup_ci_auto_merge.py`;
+   - this repository's ruleset "main checks", which requires `hygiene / hygiene` and `validation / validation` and is not in the tree. It changes in step 4.
+2. Validate as [Validation](#validation) says.
+3. [Find the consumers](#find-the-consumers) and check that none has an open pull request.
+4. This repository's callers run by local path and report the new names from the pull request on. Right before the pull request merges, its ruleset "main checks" changes to the new names; that change is a question to the user (`docs/agents/publication.md`). Merge the pull request.
+5. Right after, check again that no consumer has an open pull request, and move `v1` to the merged commit as [Promote v1 by hand](#promote-v1-by-hand) says.
+6. Right after the move, each consumer updates its default-branch ruleset to the new names and then its callers, before any other work. The update of each consumer is a question to the user. A Dependabot pull request that opens in the window up to this cut-over is recreated after it.
+7. A rollback across the change is a coordinated move too, as [Roll v1 back](#roll-v1-back) says for a rollback across a check-name change.
 
 ### Change the suite-list format
 
