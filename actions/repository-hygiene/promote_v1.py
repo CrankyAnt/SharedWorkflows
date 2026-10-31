@@ -273,11 +273,24 @@ def leased_push(root: Path, remote: str, old: str, new: str) -> subprocess.Compl
 
 
 def move(root: Path, remote: str, old: str, new: str) -> tuple[bool, str]:
-    """Push ``new`` to ``v1`` only while the remote tag still names ``old``."""
+    """Push ``new`` to ``v1`` only while the remote tag still names ``old``; after a failed push, read the remote tag again
+    to tell a lease rejection from a push that failed while ``v1`` kept ``old``."""
     result = leased_push(root, remote, old, new)
-    if result.returncode != 0:
-        return False, f"## v1 promotion\n\nThe push of `v1` to `{new}` was rejected; the tag no longer names `{old}` and keeps its newer target.\n\n```\n{result.stderr.strip()}\n```\n"
-    return True, f"## v1 promotion\n\n`v1` moved from `{old}` to `{new}`.\n"
+    if result.returncode == 0:
+        return True, f"## v1 promotion\n\n`v1` moved from `{old}` to `{new}`.\n"
+    try:
+        held = remote_object(root, remote)
+    except RuntimeError as error:
+        outcome = (f"The push of `v1` to `{new}` failed and `refs/tags/v1` could not be read again, so the state of `v1` is unknown. "
+                   f"`git ls-remote {remote} refs/tags/v1` reads it.\n\n{error}")
+    else:
+        if held != old:
+            outcome = f"The push of `v1` to `{new}` was rejected; the tag no longer names `{old}` and keeps its newer target."
+        elif old:
+            outcome = f"The push of `v1` to `{new}` failed; `v1` still names `{old}`."
+        else:
+            outcome = f"The push of `v1` to `{new}` failed; no `v1` exists."
+    return False, f"## v1 promotion\n\n{outcome}\n\n```\n{result.stderr.strip()}\n```\n"
 
 
 def gh_fetch(url: str) -> bytes | None:
