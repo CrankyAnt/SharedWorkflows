@@ -83,6 +83,14 @@ class SharedWorkflowTests(unittest.TestCase):
                 self.assertRegex(workflow, rf"(?m)^      {output}:\n        description: .*\n        value: \$\{{\{{ jobs\.select\.outputs\.{output} \}}\}}$")
                 self.assertIn(f"      {output}: ${{{{ steps.select.outputs.{output} }}}}\n", workflow)
 
+    def test_both_workflows_name_the_step_by_the_scripts_it_loads(self) -> None:
+        for name, job in (("suite-selection.yml", "select"), ("suite-verdict.yml", "validation")):
+            with self.subTest(workflow=name):
+                _, workflow = read_workflow(WORKFLOWS / name)
+                (resources,) = [step for step in workflow["jobs"][job]["steps"] if step.get("uses") == "$/actions/suite-selection"]
+                self.assertEqual({"name": "Load the scripts of the suite selection from this workflow revision", "id": "resources",
+                                  "uses": "$/actions/suite-selection"}, resources)
+
     def test_select_takes_the_digest_of_the_shared_recording_step_and_compares_it_with_the_base_branch(self) -> None:
         _, workflow = read_workflow(WORKFLOWS / "suite-selection.yml")
         steps = workflow["jobs"]["select"]["steps"]

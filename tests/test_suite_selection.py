@@ -1766,7 +1766,7 @@ LINUX_UNITS = {"checks/test_a.py", "checks/test_b.py", "checks/test_docs.py", "c
 
 class UnrecordedFixture(unittest.TestCase):
     """A fixture repository laid out as this one: the shards and the Windows job in the calling workflow, with the
-    recording step and the selection Tool in the tree."""
+    recording step and the suite selection in the tree."""
 
     WORKFLOW = ".github/workflows/validate.yml"
     SUITES = "checks/suites.json"
@@ -1995,14 +1995,14 @@ class UnrecordedInputTests(UnrecordedFixture):
     def test_the_selection_and_verdict_machinery_selects_only_the_entry_files_that_read_it(self) -> None:
         changes = {
             "a module the recording step does not load": {"actions/suite-selection/report.py": "import os\n"},
-            "a module the selection Tool imports inside a function the recording step does not call": {"actions/suite-selection/reuse.py": "import os\n"},
+            "a module the suite selection imports inside a function the recording step does not call": {"actions/suite-selection/reuse.py": "import os\n"},
             "the suite-selection workflow": {".github/workflows/suite-selection.yml": (self.root / ".github/workflows/suite-selection.yml").read_text(encoding="utf-8") + "# changed\n"},
             "the select job": {self.WORKFLOW: RECORDED_VALIDATE.replace("language-steps: python", "language-steps: python lua")},
             "the validation job": {self.WORKFLOW: RECORDED_VALIDATE.replace("needs: [select, linux, windows]", "needs: [select, windows, linux]")},
             "a step that stores results": {self.WORKFLOW: RECORDED_VALIDATE.replace("echo passed >", "echo passed >>")},
         }
         readers = {"a module the recording step does not load": {"checks/test_selection.py"}, "the suite-selection workflow": {"checks/test_selection.py"},
-                   "a module the selection Tool imports inside a function the recording step does not call": {"checks/test_selection.py"}}
+                   "a module the suite selection imports inside a function the recording step does not call": {"checks/test_selection.py"}}
         for label, files in changes.items():
             with self.subTest(change=label):
                 self.assertRuns(self.head_after(files), readers.get(label, set()))

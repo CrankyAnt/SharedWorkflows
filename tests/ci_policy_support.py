@@ -33,7 +33,7 @@ def is_tracked(path: str, tracked: set[str]) -> bool:
 
 
 def ci_definition():
-    """The CI-definition reader of the suite-selection Tool, loaded once by its path."""
+    """The CI-definition reader of the suite selection, loaded once by its path."""
     import importlib.util
     import sys
 
@@ -59,7 +59,7 @@ def verdict_runs(condition: str, select_result: str, identical: str) -> bool:
 
 
 def read_workflow(path: Path) -> tuple[str, dict]:
-    """The text of a workflow and its document, read with the YAML subset reader of the suite-selection Tool."""
+    """The text of a workflow and its document, read with the YAML subset reader of the suite selection."""
     text = path.read_text(encoding="utf-8")
     document = ci_definition().read_yaml(text, str(path))
     assert isinstance(document, dict), path

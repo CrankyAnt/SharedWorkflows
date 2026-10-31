@@ -1,7 +1,7 @@
 """A caller run through the validation caller template: a suite selected per entry file runs only its selected entries.
 
 The fixture repository holds the filled caller template, a validation workflow in the form that setup gives it, and a
-suite list with one suite selected per entry file and one selected as a whole. The selection Tool runs as the shared
+suite list with one suite selected per entry file and one selected as a whole. The suite selection runs as the shared
 selection workflow runs it; the caller's `with` values and the validation workflow's conditions and `env` values are
 then evaluated for the expression forms they use, and each step that runs executes its command in the fixture.
 """

@@ -20,6 +20,8 @@ Single-context: `GLOSSARY.md` and `docs/adr/` at the repository root. See `docs/
 
 Research, delivery paths including direct-main, publication rules and CI: see `docs/agents/`.
 
+Maintenance of the shared parts: start from [Recurring tasks](docs/maintaining.md#recurring-tasks) in `docs/maintaining.md`.
+
 ## Repository standard
 
 Documentation goes to one of three places:

@@ -110,6 +110,7 @@
         "actions/suite-selection/action.yml",
         "actions/suite-selection/ci_definition.py",
         "actions/suite-selection/consumer-kit/README.md",
+        "actions/suite-selection/consumer-kit/apply-additions.yml",
         "actions/suite-selection/consumer-kit/full-recording.yml",
         "actions/suite-selection/consumer-kit/validation-workflow.yml",
         "actions/suite-selection/consumer-kit/validation.yml",
@@ -184,6 +185,7 @@
           "actions/repository-ruleset/README.md",
           "actions/repository-ruleset/ruleset-main-template.json",
           "actions/suite-selection/consumer-kit/README.md",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
@@ -303,6 +305,7 @@
           "actions/repository-hygiene/shared-surface.json",
           "actions/repository-hygiene/zizmor-policy.yml",
           "actions/suite-selection/action.yml",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
@@ -490,6 +493,7 @@
         "tests/test_recording_lookups.py/**",
         "tests/test_recording_pathspecs.py/**",
         "tests/test_repository_hygiene.py/**",
+        "tests/test_setup_ci_apply_additions.py/**",
         "tests/test_setup_ci_auto_merge.py/**",
         "tests/test_setup_ci_dependabot.py/**",
         "tests/test_setup_ci_full_recording.py/**",
@@ -600,6 +604,7 @@
           "tests/test_recording_lookups.py/**",
           "tests/test_recording_pathspecs.py/**",
           "tests/test_repository_hygiene.py/**",
+          "tests/test_setup_ci_apply_additions.py/**",
           "tests/test_setup_ci_auto_merge.py/**",
           "tests/test_setup_ci_dependabot.py/**",
           "tests/test_setup_ci_full_recording.py/**",
@@ -1437,6 +1442,10 @@
         },
         {
           "path": "tests/test_repository_hygiene.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_setup_ci_apply_additions.py",
           "kind": "any"
         },
         {
@@ -2701,6 +2710,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_setup_ci_apply_additions.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_setup_ci_auto_merge.py",
             "kind": "any"
           },
@@ -3702,6 +3715,7 @@
     {
       "name": "setup-ci-templates",
       "entries": [
+        "tests/test_setup_ci_apply_additions.py",
         "tests/test_setup_ci_auto_merge.py",
         "tests/test_setup_ci_dependabot.py",
         "tests/test_setup_ci_full_recording.py",
@@ -3751,10 +3765,12 @@
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
+        "actions/recording/recording.py",
         "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
         "actions/repository-hygiene/dependabot_coverage.py",
         "actions/repository-hygiene/package-ecosystems.json",
         "actions/suite-selection/ci_definition.py",
+        "actions/suite-selection/consumer-kit/apply-additions.yml",
         "actions/suite-selection/consumer-kit/full-recording.yml",
         "actions/suite-selection/consumer-kit/validation-workflow.yml",
         "actions/suite-selection/consumer-kit/validation.yml",
@@ -3764,7 +3780,10 @@
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
         "tests/ci_policy_support.py",
+        "tests/recording_fixtures.py",
         "tests/setup_ci_support.py",
+        "tests/strace_stand_in.py",
+        "tests/test_setup_ci_apply_additions.py",
         "tests/test_setup_ci_auto_merge.py",
         "tests/test_setup_ci_dependabot.py",
         "tests/test_setup_ci_full_recording.py",
@@ -3779,6 +3798,19 @@
         "tests/test_setup_ci_validation_workflow.py"
       ],
       "entry_paths": {
+        "tests/test_setup_ci_apply_additions.py": [
+          "actions/recording/recording.py",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
+          "actions/suite-selection/consumer-kit/full-recording.yml",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_selection.py",
+          "tests/ci_policy_support.py",
+          "tests/recording_fixtures.py",
+          "tests/strace_stand_in.py",
+          "tests/test_setup_ci_apply_additions.py"
+        ],
         "tests/test_setup_ci_auto_merge.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
@@ -3855,6 +3887,7 @@
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
           "actions/python-language-step/consumer-kit/python-language-step.yml",
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
@@ -3862,6 +3895,7 @@
         ],
         "tests/test_setup_ci_templates.py": [
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
@@ -3963,6 +3997,10 @@
         {
           "path": "actions/python-language-step/consumer-kit/publication-checks.yml",
           "kind": "any"
+        },
+        {
+          "path": "actions/recording",
+          "kind": "directory"
         },
         {
           "path": "actions/recording/consumer-kit",
@@ -4129,6 +4167,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/recording_fixtures",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/recording_fixtures.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/recording_fixtures.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/recording_fixtures.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/setup_ci_support",
           "kind": "directory"
         },
@@ -4142,6 +4196,38 @@
         },
         {
           "path": "tests/setup_ci_support.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/strace_stand_in",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/strace_stand_in.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/strace_stand_in.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/strace_stand_in.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_setup_ci_apply_additions",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_setup_ci_apply_additions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_setup_ci_apply_additions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_setup_ci_apply_additions.so",
           "kind": "any"
         },
         {
@@ -4338,6 +4424,168 @@
         }
       ],
       "entry_existence_reads": {
+        "tests/test_setup_ci_apply_additions.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/recording",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/recording_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/recording_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/recording_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/recording_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/strace_stand_in",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/strace_stand_in.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/strace_stand_in.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/strace_stand_in.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_setup_ci_apply_additions",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_setup_ci_apply_additions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_setup_ci_apply_additions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_setup_ci_apply_additions.so",
+            "kind": "any"
+          }
+        ],
         "tests/test_setup_ci_auto_merge.py": [
           {
             "path": "actions",
@@ -5205,10 +5453,17 @@
       },
       "lookup_directories": [
         ".",
+        "actions/recording",
         "actions/suite-selection",
         "tests"
       ],
       "entry_lookup_directories": {
+        "tests/test_setup_ci_apply_additions.py": [
+          ".",
+          "actions/recording",
+          "actions/suite-selection",
+          "tests"
+        ],
         "tests/test_setup_ci_auto_merge.py": [
           ".",
           "tests"
@@ -5337,6 +5592,7 @@
         "actions/suite-selection/action.yml",
         "actions/suite-selection/ci_definition.py",
         "actions/suite-selection/consumer-kit/README.md",
+        "actions/suite-selection/consumer-kit/apply-additions.yml",
         "actions/suite-selection/consumer-kit/full-recording.yml",
         "actions/suite-selection/consumer-kit/validation-workflow.yml",
         "actions/suite-selection/consumer-kit/validation.yml",
@@ -6200,6 +6456,7 @@
           "actions/suite-selection/action.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/README.md",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
@@ -6409,6 +6666,7 @@
         "tests/test_recording_lookups.py/**",
         "tests/test_recording_pathspecs.py/**",
         "tests/test_repository_hygiene.py/**",
+        "tests/test_setup_ci_apply_additions.py/**",
         "tests/test_setup_ci_auto_merge.py/**",
         "tests/test_setup_ci_dependabot.py/**",
         "tests/test_setup_ci_full_recording.py/**",
@@ -6512,6 +6770,7 @@
           "tests/test_recording_lookups.py/**",
           "tests/test_recording_pathspecs.py/**",
           "tests/test_repository_hygiene.py/**",
+          "tests/test_setup_ci_apply_additions.py/**",
           "tests/test_setup_ci_auto_merge.py/**",
           "tests/test_setup_ci_dependabot.py/**",
           "tests/test_setup_ci_full_recording.py/**",
@@ -7475,6 +7734,10 @@
         },
         {
           "path": "tests/test_repository_hygiene.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_setup_ci_apply_additions.py",
           "kind": "any"
         },
         {
@@ -8874,6 +9137,10 @@
           },
           {
             "path": "tests/test_repository_hygiene.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_setup_ci_apply_additions.py",
             "kind": "any"
           },
           {

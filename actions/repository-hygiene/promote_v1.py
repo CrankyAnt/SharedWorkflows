@@ -9,18 +9,10 @@ push a manual move of ``v1``.
     python3 promote_v1.py prepare [--commit SHA] [--remote origin] [--repository-root DIR]
     python3 promote_v1.py promote --old OBJECT --new SHA [--remote origin] [--repository-root DIR]
 
-``prepare`` and ``promote`` carry every manual move of ``v1``: a promotion to a descendant of the current ``v1``, a
-rollback to an ancestor of it, and the first creation when no remote ``v1`` exists. ``prepare`` fetches the remote and
-reports the current ``v1`` commit and the object the remote ``refs/tags/v1`` holds, read with ``git ls-remote`` and never
-from a local tag; the target, the head of ``<remote>/main`` unless ``--commit`` names another commit; the kind of move;
-the changed files under the ``paths`` of the shared surface; the commits between the two; the conclusions of both CI
-workflows on ``main`` for the target, read once through the authentication of the ``gh`` CLI; and the push gate's
-Gitleaks scan for the tag push. It refuses, prints no question and exits 1 when the target is not on ``<remote>/main``,
-is neither a descendant nor an ancestor of ``v1``, has CI that is still running, did not pass or has no run, when the
-scan does not pass, or when the shared surface is identical and no move is needed. Otherwise it prints the question for
-the user and, below it, the ``promote`` command. ``promote`` runs the scan again and pushes the commit to ``v1`` with
-``--force-with-lease`` on ``--old``, empty for the first creation; a rejected push means that ``v1`` moved after
-``prepare``, and the move starts again there. On success it prints the old and the new commit.
+``prepare`` and ``promote`` carry every manual move of ``v1``: ``prepare`` reports the facts of the move and prints the
+question for the user with the ``promote`` command below it, or refuses, and ``promote`` pushes the tag after a yes.
+"Promote v1 by hand" in ``docs/maintaining.md`` states what ``prepare`` reports, when it refuses and what ``promote``
+does.
 
 ``read-tag`` reads ``refs/tags/v1`` through the GitHub API with the token in ``GH_TOKEN``, because the checkout
 holds no credentials, and writes ``v1`` and ``v1_object`` as outputs, both empty when the tag does not exist.

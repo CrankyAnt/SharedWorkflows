@@ -30,11 +30,19 @@ _Avoid_: Validate caller, validation.yml
 A consumer's own workflow that runs suites, started only by the validation caller, with each suite gated on the selection.
 _Avoid_: Test workflow, called workflow
 
+**Repository workflow**:
+A workflow of this repository that is no shared workflow and no caller and that runs only for this repository, such as the pins updater, `promote-v1.yml` or the full recording of this repository's own suites.
+_Avoid_: Shared workflow, internal workflow, maintenance workflow
+
 ### Shared parts
 
 **Shared part**:
 A part of Shared Workflows that a consumer can adopt, such as repository hygiene, Dependabot auto-merge or the suite selection, with its shared workflows and shared steps.
 _Avoid_: Central part, shared component, offering
+
+**Part folder**:
+The subfolder of `actions/` that holds one shared step: its composite action and the scripts and files it loads, and the consumer kit of its shared part where that kit lies.
+_Avoid_: Part (for the folder), tool folder, Tool
 
 **Catalogue**:
 The one entry, read at `v1`, through which an agent in a consumer learns which shared parts exist, what each is for, and where its consumer kit is.
@@ -48,6 +56,28 @@ _Avoid_: Central surface, public API
 What an agent in a consumer needs to adopt one shared part, its templates and their explanation, kept with that part and apart from the documentation for maintaining the shared parts.
 _Avoid_: Consumer documentation, setup template
 
+### The v1 channel
+
+**v1 channel**:
+The tag `v1` through which every consumer receives the shared surface: a change under its paths reaches a caller only when `v1` moves, and every move changes the later runs of every caller.
+_Avoid_: Release, release channel, v1 branch
+
+**Promotion**:
+A move of `v1` forward to a descendant commit whose CI on `main` passed: by hand after the user's yes, or automatically, by `promote-v1.yml`, for the updater App's pins pull request once the repository owner merged it. A move back to an earlier commit is a rollback.
+_Avoid_: Release, publish, tag bump
+
+**Pins file**:
+The file `actions/repository-hygiene/pins.json`, which holds every exact version and sha256 of the tools that the shared workflows and shared steps install.
+_Avoid_: Lock file, versions file, pins.json
+
+**Updater App**:
+The GitHub App whose installation token the workflows that propose or push changes use, so that their pull request or push starts CI: the pins updater, the specification updater, the full recording, the additions workflow and the rebuild workflow of the ETW consumer. Only its pins pull request lets `promote-v1.yml` move `v1`.
+_Avoid_: Bot account, publication-checks App
+
+**Shared digest**:
+The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
+_Avoid_: Shared CI digest, recording hash
+
 ### Checks
 
 **Shared check**:
@@ -59,8 +89,12 @@ The shared step that runs the shared checks of one language inside the consumer'
 _Avoid_: Lint job, language job, language workflow
 
 **Floor**:
-The checks that every change runs, whatever it touches.
+The checks that every pull request runs, whatever it touches: the convention checks of its branch name, commit subjects and title, and the credential scan, which also runs on every other event.
 _Avoid_: Baseline checks, always-on checks
+
+**Check name**:
+The name `<caller job> / <shared job>` that the check of a job in a shared workflow carries in a caller and by which a ruleset requires that check.
+_Avoid_: Status check name, job name
 
 **Verdict**:
 The one check of a validation run that a repository requires: it passes only when the suite selection succeeded and no unit it started failed or was cancelled.
@@ -71,6 +105,14 @@ _Avoid_: Status check, gate job
 **Tested tree**:
 The tree that a pull-request run checked out: the head merged with the base at the moment of the run.
 _Avoid_: PR tree, head tree
+
+**Push lookup**:
+The step of a push run, or of a run on a merged Dependabot commit, that finds the pull-request run that tested the pushed commit and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection and the hygiene job select.
+_Avoid_: PR lookup, merge lookup
+
+**Landing base**:
+The commit that a push lands on: the push's previous head, or the pushed commit's first parent when the push has no previous head or the run is on a merged Dependabot commit.
+_Avoid_: Push base, before commit
 
 **Suite selection**:
 The shared step that decides, from a change and the suite list, which units run and which reuse a passed result.
@@ -149,6 +191,10 @@ _Avoid_: Read lists, path lists (for all of them)
 **Addition**:
 A read in a recording that the stored lists do not hold; the recording step reports it, and the change adds it to the lists.
 _Avoid_: New read, missing path
+
+**Additions workflow**:
+The workflow of a consumer, from the consumer kit of the suite selection, that applies the additions of a validation run to the suite list and proposes the change as a pull request onto the branch that reported them.
+_Avoid_: Apply workflow, apply-additions.yml
 
 **Setup read**:
 A read that a step before the suites of a job makes, such as installing dependencies or building, and that belongs to the path list of every suite and entry file that needs the step.

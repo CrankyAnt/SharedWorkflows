@@ -27,7 +27,7 @@
       "workflows": [".github/workflows/suite-selection.yml", ".github/workflows/suite-verdict.yml"],
       "steps": ["actions/suite-selection", "actions/recording"],
       "required_checks": ["validation / validation"],
-      "needs": "A validation workflow that runs the repository's suites on pull requests and pushes, a suite list of those suites, and for the full recording a GitHub App that may open pull requests.",
+      "needs": "A validation workflow that runs the repository's suites on pull requests and pushes, a suite list of those suites, and for the full recording and the additions workflow a GitHub App that may open pull requests.",
       "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs.",
       "consumer_kit": "actions/suite-selection/consumer-kit"
     },
