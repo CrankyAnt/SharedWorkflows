@@ -548,11 +548,41 @@ The user configures these settings; the workflows change none of them. The consu
 
 Each procedure lists the files to change in order and how the change reaches callers.
 
+### Recurring tasks
+
+- Every change: [Validation](#validation) and [Apply recorded additions](#apply-recorded-additions).
+- `v1`: [Promote v1 by hand](#promote-v1-by-hand), [Roll v1 back](#roll-v1-back) and [Act on a failed `promote-v1.yml` run](#act-on-a-failed-promote-v1yml-run).
+- Consumers: [Find the consumers](#find-the-consumers), [Onboard a consumer](#onboard-a-consumer) and [A skipped suite in a consumer](#a-skipped-suite-in-a-consumer).
+- The parts: [Add a part](#add-a-part), [Change a naming rule](#change-a-naming-rule), [Change a hygiene check](#change-a-hygiene-check), [Add or remove a pinned tool](#add-or-remove-a-pinned-tool), [Change an auto-merge rule](#change-an-auto-merge-rule), [Change a selection rule](#change-a-selection-rule), [Change a selection workflow](#change-a-selection-workflow), [Change a check name](#change-a-check-name) and [Change the suite-list format](#change-the-suite-list-format).
+- The recording step: [Change the ETW consumer](#change-the-etw-consumer), [Renew the stored strace recordings](#renew-the-stored-strace-recordings) and [Renew the standard-library names](#renew-the-standard-library-names).
+- This repository's own files: [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline).
+- The GitHub App: [Rotate the App's private key](#rotate-the-apps-private-key) and [Replace the App](#replace-the-app).
+- Pull requests and runs of the automation: [Act on an updater pull request or a failed updater run](#act-on-an-updater-pull-request-or-a-failed-updater-run) and [Act on the full recording's pull request or a failed `close`](#act-on-the-full-recordings-pull-request-or-a-failed-close).
+
 ### Validation
 
-CI is the only gate. While building, run the narrow validation that the ticket or Work Brief needs: the entry files of the changed behaviour, each with its suite's `command` from `tests/suites.json`, as `tests/README.md` says, together with the tools some entry files need. No local copy of the CI's selection runs before a push; the required validation is the one that `docs/agents/delivery.md` states. The pull request's CI then runs the selected suites under the recording, and its `hygiene / hygiene` check runs the hygiene checks over the changed workflows, Markdown and package files. A recording check that fails lists the additions in its job summary and uploads them as the artifact `recording-additions-shard-<number>` or `recording-additions-windows`; download it with `gh run download <run id> -n <artifact>`, apply it with `python3 actions/recording/recording.py apply --suites tests/suites.json <additions file>`, and push the changed suite list in the same change.
+CI is the only gate. While building, run the narrow validation that the ticket or Work Brief needs: the entry files of the changed behaviour, each with its suite's `command` from `tests/suites.json`, as `tests/README.md` says, together with the tools some entry files need. No local copy of the CI's selection runs before a push; the required validation is the one that `docs/agents/delivery.md` states. The pull request's CI then runs the selected suites under the recording, and its `hygiene / hygiene` check runs the hygiene checks over the changed workflows, Markdown and package files. A recording check that fails reports additions; [Apply recorded additions](#apply-recorded-additions) applies them in the same change.
 
 The tests fetch no specification and install no package; the updater and move-decision tests run offline against mocked responses and local fixture repositories. They prove policy and update behaviour; cross-repository event delivery, App authentication, repository settings and tag promotion show only in a caller's live runs.
+
+#### Apply recorded additions
+
+A recording check that fails lists the additions in its job summary, and every Linux shard and the Windows job whose check reported additions uploads its own artifact, `recording-additions-shard-<number>` or `recording-additions-windows`. Each artifact holds one file named `additions.json`.
+
+1. Take the run id from the address of the failed run, `.../actions/runs/<run-id>`, and download every additions artifact of the run, each into its own directory under `<dir>`:
+
+   ```text
+   gh run download <run-id> -p 'recording-additions-*' -D <dir>
+   ```
+
+   With `-p`, `gh` extracts each artifact into a directory named after it, so the files named `additions.json` stay apart.
+2. Apply every `additions.json` in one command, from the repository root:
+
+   ```text
+   python3 actions/recording/recording.py apply --suites tests/suites.json <dir>/*/additions.json
+   ```
+
+3. Push the changed suite list in the same change. The next run checks the applied lists.
 
 ### The v1 channel
 
@@ -602,8 +632,9 @@ Two subcommands of [promote_v1.py](../actions/repository-hygiene/promote_v1.py),
    ```
 
    `promote` runs the push gate's Gitleaks scan again and pushes nothing on a finding. It pushes with `--force-with-lease=refs/tags/v1:<object>`; a rejected push means that `v1` moved after `prepare` and keeps its newer target, so start again at step 1. On success it prints the old and the new commit; a later rollback names the old one.
+5. Watch the consumers' first runs after the move. Later workflow resolutions in all callers use the new version without repository edits; jobs already running keep the commit they resolved. [Find the consumers](#find-the-consumers) lists the consumers. In each, watch the first run of every caller after the move: the runs of the checks that its ruleset requires, `hygiene / hygiene` and, with the suite selection, `validation / validation`, and the runs of its other callers. Each starts with the consumer's next pull request, push or Dependabot merge; `gh run list --repo <consumer>` lists them, and a run records the commit that `v1` resolved to. A failure that the consumer can fix in its own repository, as the section "When `v1` moves" of its consumer kit says, is fixed there. When a run fails on the moved workflows, roll `v1` back as [Roll v1 back](#roll-v1-back) says.
 
-Later workflow resolutions in all callers use the new version without repository edits; jobs already running keep the commit they resolved. [Find the consumers](#find-the-consumers) lists those callers. A move that changes check names follows [Change a check name](#change-a-check-name).
+A move that changes check names follows [Change a check name](#change-a-check-name).
 
 #### Roll v1 back
 
@@ -619,6 +650,7 @@ A rollback is another one-way move of `v1`, to a previously validated commit. It
 3. Ask the user the printed question again. The answer to an earlier promotion does not cover the rollback.
 4. After a yes, run the printed `promote` command, as step 4 of [Promote v1 by hand](#promote-v1-by-hand) says.
 5. While the shared surface at `v1` differs from the merged commits on `main` in more than `pins.json`, `promote-v1.yml` leaves `v1` in place; the next move is a manual promotion.
+6. Watch the consumers' first runs after the rollback, as step 5 of [Promote v1 by hand](#promote-v1-by-hand) says. When a run fails on the workflows that `v1` names after the rollback, roll `v1` back again, to another validated commit, from step 1 of this procedure.
 
 A rollback across a check-name change brings back the old check names, so it is a coordinated move as [Change a check name](#change-a-check-name) states, in reverse. Before the rollback, no consumer has an open pull request, as [Find the consumers](#find-the-consumers) shows. Right after it, each consumer reverses its ruleset change and then its caller change, each a question to the user. This repository's callers run by local path from `main`, so its ruleset "main checks" goes back together with a pull request on `main` that reverts the check-name change: the ruleset changes right before that pull request merges, in the same window.
 
@@ -648,18 +680,40 @@ A consumer calls the shared workflows at `CrankyAnt/SharedWorkflows/.github/work
 
 3. List each consumer's open pull requests with `gh pr list --repo <consumer> --state open`.
 
+### Onboard a consumer
+
+A consumer adopts shared parts through the [catalogue](../catalogue.json) and the consumer kits, read at `v1`, as [ADR 0001](adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md) states; the kit sections below carry each step. Every repository setting, ruleset and App installation in them is a question to the user.
+
+1. Choose the parts. Repository hygiene applies to every repository; each other part applies as its entry under `applies` in the catalogue and its kit say: [Dependabot auto-merge](../actions/dependabot-auto-merge/consumer-kit/README.md#when-a-repository-adopts-it), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-a-repository-adopts-it) and the [Python language step](../actions/python-language-step/consumer-kit/README.md), for a repository with Python files. The consumer's own CI guide names where the catalogue is, the parts it uses, the principles of its CI and the route for reports.
+2. Set the [merge settings](../actions/repository-hygiene/consumer-kit/README.md#merge-settings) and read them back.
+3. Add the hygiene caller in a pull request, as [The caller](../actions/repository-hygiene/consumer-kit/README.md#the-caller) and [Inputs and the files it reads](../actions/repository-hygiene/consumer-kit/README.md#inputs-and-the-files-it-reads) of repository hygiene say. Without a Dependabot configuration the Dependabot coverage check fails on a repository with a recognised package file, so such a repository adds [the Dependabot configuration](../actions/dependabot-auto-merge/consumer-kit/README.md#the-dependabot-configuration) in the same pull request.
+4. For the suite selection, add the [additions workflow](../actions/suite-selection/consumer-kit/README.md#additions) in a pull request of its own first: GitHub starts a workflow by hand only from the default branch, and the suites report additions on their first run.
+5. For the suite selection, install the GitHub App on the consumer and set its repository variable and secret, as [The full recording](../actions/suite-selection/consumer-kit/README.md#the-full-recording) and [Repository settings](../actions/suite-selection/consumer-kit/README.md#repository-settings) of the suite selection say; [GitHub App](#github-app) describes the App.
+6. For the suite selection, adopt it in one pull request: [the validation caller](../actions/suite-selection/consumer-kit/README.md#the-validation-caller), [the validation workflows](../actions/suite-selection/consumer-kit/README.md#the-validation-workflows), their [setups](../actions/suite-selection/consumer-kit/README.md#setups), [the suite list](../actions/suite-selection/consumer-kit/README.md#the-suite-list) and [the full recording](../actions/suite-selection/consumer-kit/README.md#the-full-recording), and in a repository with Python files the Python language step in the first job of a validation workflow, as [How a validation workflow calls it](../actions/python-language-step/consumer-kit/README.md#how-a-validation-workflow-calls-it) says. Apply the additions of its first run through the [additions workflow](../actions/suite-selection/consumer-kit/README.md#additions). Without the suite selection, a repository with Python files adds the Python language step without its `if` to a job that installs Python, as the same section says.
+7. Create the default-branch ruleset from the [ruleset template](../actions/repository-ruleset/README.md#fill-the-template-for-a-repository) with the required checks of the parts the consumer uses, as [Default-branch ruleset](../actions/repository-hygiene/consumer-kit/README.md#default-branch-ruleset) of repository hygiene says, with `enforcement` set to `disabled`. Activate it once the callers are on the default branch and each required check has reported on a pull request since, as [When to activate](../actions/repository-ruleset/README.md#when-to-activate) says.
+8. For Dependabot auto-merge, add [the caller](../actions/dependabot-auto-merge/consumer-kit/README.md#the-caller) with the workflows that produce the required checks, [the Dependabot configuration](../actions/dependabot-auto-merge/consumer-kit/README.md#the-dependabot-configuration) unless step 3 added it, and the [repository settings](../actions/dependabot-auto-merge/consumer-kit/README.md#repository-settings). It merges only while an active ruleset requires a check, as [Which updates merge on their own](../actions/dependabot-auto-merge/consumer-kit/README.md#which-updates-merge-on-their-own) says, so it follows step 7.
+9. Check that the sweep of [Find the consumers](#find-the-consumers) lists the consumer. From then on, each move of `v1` reaches it as the sections "When `v1` moves" of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md#when-v1-moves), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-v1-moves) and the [Python language step](../actions/python-language-step/consumer-kit/README.md#when-v1-moves) say.
+
 ### Add a part
 
 A part is a subfolder of `actions/` with the scripts and files of one shared workflow or of several that belong together, loaded through a resource-only composite action `uses: $/actions/<part>`; the parts are grouped by kind once there are many. A part folder holds no `TOOL.md` and no `README.md`: this document describes it. Its consumer kit, the subfolder `consumer-kit/`, holds the caller templates and a `README.md` for consumers.
 
 1. Add the folder with its `action.yml`. The existing ones, such as [dependabot-auto-merge/action.yml](../actions/dependabot-auto-merge/action.yml), output their own path from `github.action_path` and check out nothing. A package manifest in the folder needs an `updates` entry in `.github/dependabot.yml`, or the Dependabot coverage check fails.
 2. Add the workflow, `.github/workflows/<name>.yml` with `on: workflow_call`, `permissions: {}` at the top and its rights on its jobs, loading its files only through `$/actions/<part>`.
-3. Add the workflow's path and the folder's path to `paths` in [shared-surface.json](../actions/repository-hygiene/shared-surface.json), and to the expected list in `tests/test_ci_policy_shared_surface.py`, which fails while a shared workflow loads a `$/` resource outside the list. Add the workflow's file name to `SHARED_WORKFLOWS` there and in `tests/test_setup_ci_install_by_need.py`, and `CrankyAnt/SharedWorkflows/.github/workflows/<name>.yml: ref-pin` to the shared [zizmor policy](#zizmor-policy). The `ci-policy` check compares the policy with the shared workflows in `shared-surface.json` and names any missing or extra exception.
+3. Add the workflow's path and the folder's path to `paths` in [shared-surface.json](../actions/repository-hygiene/shared-surface.json), and to the expected list in `tests/test_ci_policy_shared_surface.py`, which fails while a shared workflow loads a `$/` resource outside the list. Add the workflow's file name to `SHARED_WORKFLOWS` there and in `tests/test_setup_ci_install_by_need.py`, and `CrankyAnt/SharedWorkflows/.github/workflows/<name>.yml: ref-pin` to the shared [zizmor policy](#zizmor-policy). When a caller template of a consumer kit calls the part's action as a step, `CrankyAnt/SharedWorkflows/actions/<part>: ref-pin` joins the policy too, as the line of the recording step does. The `ci-policy` check compares the policy with the shared workflows in `shared-surface.json` and the actions that the consumer kits call, and names any missing or extra exception.
 4. Add the local caller `.github/workflows/<name>-caller.yml`, with the inputs that a consumer passes through `v1`. It calls the workflow by local path, `uses: $/.github/workflows/<name>.yml`, as [Same-repository references](#same-repository-references) says, sets `permissions: {}` at the top and the rights on its one job, uses the shared job id as its job id, and never names `@v1`.
 5. Add the part's entry to the [catalogue](../catalogue.json), which `tests/test_ci_policy_shared_surface.py` keeps in step with `shared-surface.json`, and its consumer kit `actions/<part>/consumer-kit/` with the caller template `<name>.yml`, which calls `CrankyAnt/SharedWorkflows/.github/workflows/<name>.yml@v1`, and a `README.md` that explains what the part does, what it needs from a repository and when it applies, with no path, setting or value of this repository's own; a part of several workflows has one template named after the part. Test the templates in the `setup-ci-templates` suite.
 6. Give the part a section under [What the workflows do](#what-the-workflows-do) and a row in the parts table, and give its tests a suite in `tests/suites.json`, as `tests/README.md` says. The part's tests read only its own folder and its own workflows; a check that spans the parts goes in the matching `tests/test_ci_policy_*.py` entry file of `ci-policy`.
-7. Validate as [Validation](#validation) says.
-8. Callers call the workflow at `v1`, so a caller works only once the workflow exists there. The part reaches callers through [Promote v1 by hand](#promote-v1-by-hand) after the merge.
+7. Add a line for the shared workflow and one for its local caller under `## Testing instructions` in `AGENTS.md`, in the form of the lines there.
+8. Validate as [Validation](#validation) says.
+9. Callers call the workflow at `v1`, so a caller works only once the workflow exists there. The part reaches callers through [Promote v1 by hand](#promote-v1-by-hand) after the merge.
+
+A part without a shared workflow, such as the Python language step, is a shared step that a consumer's job calls at `CrankyAnt/SharedWorkflows/actions/<part>@v1`. Its `action.yml` runs the part's commands instead of being resource-only. Steps 2 and 4 drop out, and the others change:
+
+- In step 3, only the folder's path joins `paths` in `shared-surface.json` and `PARTS` in `tests/test_ci_policy_shared_surface.py`, and `CrankyAnt/SharedWorkflows/actions/<part>: ref-pin` joins the zizmor policy.
+- This repository runs the step by local path, `uses: $/actions/<part>`, in a job of its own CI, as `validate.yml` runs the Python language step in its first Linux shard.
+- In step 5, the catalogue entry has `"workflows": []` and the part's path under `steps`, and the kit's template, named after the part, holds the step that calls `CrankyAnt/SharedWorkflows/actions/<part>@v1`.
+- In step 7, the `AGENTS.md` line of the caller whose job runs the step names the step.
 
 ### Change a naming rule
 
@@ -760,6 +814,7 @@ A tool that pip installs, such as `reuse`, `ruff` or `mypy`, is an entry under `
 2. Run `python actions/recording/etw_consumer_build.py build` from the repository root, and commit the source and `etw-consumer/build/` in the same change.
 3. A Dependabot update of the package or the SDK changes the source without the build: the `etw-consumer-build` suite fails on it, and with it `validation / validation`. The [rebuild workflow](#the-rebuild-workflow) then commits the rebuilt build and the run's recording additions to that pull request's branch, and the next run of `Validate` checks them.
 4. Renew the recorded neutral event files of the tests when the consumer's output changes: run `python -m tests.record_etw_fixture <directory>` on Windows with administrator rights and copy its `classification`, `linked` and `node` directories over those in `tests/fixtures/recording_etw`; naming runs after the directory, such as `node`, records only those.
+5. The source and its build are files of the shared digest, as [A move of v1 in a consumer](#a-move-of-v1-in-a-consumer) defines it. A merged change, a Dependabot update with its rebuild included, is no pins-only commit, so it reaches callers through [Promote v1 by hand](#promote-v1-by-hand), and the first validation run after that move runs every suite in every consumer with the suite selection.
 
 ### Renew the stored strace recordings
 
@@ -780,6 +835,7 @@ Renew the recordings when `strace`'s output changes, or when a stored fixture's 
 
 1. Run `python3 actions/recording/stdlib_names.py <interpreter> ...` with one interpreter of each of those versions; it writes the file with the versions it read.
 2. Commit the file. It belongs to the shared digest, so the change runs every entry file of the jobs that record.
+3. The changed shared digest reaches callers through [Promote v1 by hand](#promote-v1-by-hand) after the merge, and the first validation run after that move runs every suite in every consumer with the suite selection, as [A move of v1 in a consumer](#a-move-of-v1-in-a-consumer) says.
 
 ### Change a selection workflow
 
@@ -848,6 +904,12 @@ A specification update pull request is reviewed before it merges:
 3. Compare the changes with the local subset in `check-branch.cjs`. A branch that the subset accepts but the new regex rejects fails every caller's check after the promotion. A change to the subset follows [Change a naming rule](#change-a-naming-rule) in a pull request of its own; a commit added to the review branch is lost when the next updater run pushes that branch again.
 4. Merge the pull request when its CI is green and the subset still holds. A closed pull request leaves the vendored version in place, and the next weekly run proposes the version again. `spec.json` is part of the shared surface, so callers check against the new specification after [Promote v1 by hand](#promote-v1-by-hand). A merged pins update moves `v1` by itself, as [Automatic v1 move](#automatic-v1-move) says.
 
+A pins update pull request is reviewed before it merges too:
+
+1. Read the column "sha256 source" of its body for each proposed tool. A tool whose pin names a `checksums` asset shows that upstream checksums file, against which the run checked every download; only a tool with `checksums: null`, such as ShellCheck and zizmor, shows a sha256 computed from the download. A tool under `python` takes the sha256 values that PyPI lists, and the Node.js pin is not downloaded by the updater: `actions/setup-node` verifies the download it installs.
+2. Find the follow-ups that `pins.json` cannot carry, with the release notes of each proposed version and the pull request's CI: the actionlint ignore patterns `ACTIONLINT_IGNORE`, `ACTIONLINT_WORKFLOW_IGNORE` and `ACTIONLINT_LABEL_IGNORE` in `hygiene.py`, which match the text of actionlint's messages; the output of a tool that `hygiene.py` reads; and new findings of a tool in this repository's workflows. A follow-up goes in a pull request of its own, since a commit added to the review branch is lost when the next updater run pushes that branch again. A follow-up under the shared surface reaches callers only through [Promote v1 by hand](#promote-v1-by-hand), and once it is on `main`, `promote-v1.yml` keeps `v1` at a pins merge until that promotion.
+3. Merge the pull request from the repository owner's account when its CI is green. Only the owner's merge of the App's pull request from `chore/update-ci-pins` lets `promote-v1.yml` move `v1`, as [Automatic v1 move](#automatic-v1-move) says. Its run summary then says whether `v1` moved; after a move, watch the consumers' first runs as step 5 of [Promote v1 by hand](#promote-v1-by-hand) says, and for a stay that needs a manual promotion, follow that procedure. A failed run follows [Act on a failed `promote-v1.yml` run](#act-on-a-failed-promote-v1yml-run).
+
 For a failed run, `gh run list --workflow <update-ci-pins.yml or update-publication-spec.yml>` lists the runs and `gh run view <run-id> --log-failed` prints the log of the failed step. The next step depends on the step that failed:
 
 - `actions/create-github-app-token`, the first step of `propose`: check the repository variable `PUBLICATION_CHECKS_APP_CLIENT_ID`, the repository secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY`, and the App's installation with Contents and Pull requests read and write, as [GitHub App](#github-app) describes. Changing any of them is a question to the user (`docs/agents/publication.md`).
@@ -861,6 +923,15 @@ For a failed run, `gh run list --workflow <update-ci-pins.yml or update-publicat
 - Any other step, such as `Configure the GitHub App identity` or the commit step: record it as an issue with the run link.
 
 To run an updater again, `gh run rerun <run-id> --failed` repeats the failed jobs of that run, and `gh workflow run update-ci-pins.yml -f apply=true -f cooldown_days=7` or `gh workflow run update-publication-spec.yml -f apply=true` starts a new run that proposes; without `apply=true` a run only previews. The scheduled run on the next Monday also tries again.
+
+### Act on a failed `promote-v1.yml` run
+
+A failed run of [Automatic v1 move](#automatic-v1-move) leaves `v1` where it was, unless the tag moved after the decision. `gh run list --workflow promote-v1.yml` lists the runs and `gh run view <run-id> --log-failed` prints the log of the failed step. The next step depends on where the run failed:
+
+- `Identify the updater App`, the App step of `decide`: the job could not mint its metadata-only App token. Check the repository variable `PUBLICATION_CHECKS_APP_CLIENT_ID`, the repository secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY` and the App's installation on this repository, as [GitHub App](#github-app) describes; changing any of them is a question to the user (`docs/agents/publication.md`). Once they hold, `gh run rerun <run-id>` decides again for the same commit and checks every condition anew.
+- `decide` ended by its timeout: the runner stopped the job at its `timeout-minutes`, before the decision and its summary. The wait for CI ends before that limit, so a step outside the wait, such as the checkout, the tag reads or the App token, took the job's time. Check with `gh run list --commit <sha> --branch main` that the commit's runs of `validate.yml` and `repository-hygiene-caller.yml` have completed, then run `gh run rerun <run-id>`, which decides again.
+- `Move v1 under a lease on its previous commit`, the push of `move`: the summary calls every failed push rejected and shows git's error below it. Compare the object that `git ls-remote origin refs/tags/v1` shows with the object that the summary says the tag no longer names. When they differ, the lease rejected the push, git's error says `stale info`, and `v1` keeps its newer target. When `v1` still names that object, the push failed for another reason: after a network or server error, `gh run rerun <run-id> --failed` repeats the move under the same lease; a refusal for permission, such as a `403` or a rule on tags, points to the job's `contents: write` or a ruleset of this repository. Changing a ruleset or a setting is a question to the user; run the move again once it is resolved.
+- Any other step: record it as an issue with the run link.
 
 ### Act on the full recording's pull request or a failed `close`
 
