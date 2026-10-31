@@ -4,7 +4,8 @@ The push lookup finds the pull request of a pushed commit through ``commits/<sha
 from the ``actions/checkout`` log of that pull request's last successful run of the calling workflow, and verifies it
 from its parents. It decides the case of the push: its tree equals the passed tested tree, its pull request was behind,
 the selection runs over the pull request's files, or over the push's own changed files. The shared lookup reads the
-digest of the shared recording step that the last passed run on the base branch took; for an identical tree the push
+digest of the shared recording step that the last passed run on the base branch took, found by walking the base
+branch's first-parent history and asking for the passed runs of each commit; for an identical tree the push
 lookup also reads the digest that the passed pull-request run took, which decides in its place. The reuse key of a unit
 holds the content of its reads in the tested tree, its command, the versions its setups pin, the runner label of its
 job, the content of every unrecorded input that selects it (``unrecorded.py``) and the digest of the shared recording
@@ -22,7 +23,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,13 +31,15 @@ from revisions import ALL_ZERO, commit_id, git
 from suite_selection import module_name
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from suite_selection import IgnoreRules
 
 LOG_LINE = re.compile(r"HEAD is now at ([0-9a-f]{7,40}) Merge ([0-9a-f]{40}) into ([0-9a-f]{40})")
 FETCH_LINE = re.compile(r"\+([0-9a-f]{40}):refs/remotes/pull/([0-9]+)/merge\b")  # git/commits answers only a full id
 DIGEST_LINE = re.compile(r"shared CI digest ([0-9a-f]{64})\b")  # printed by ``recording.py digest``
 DIGEST_STEP = "Take the digest of the shared recording step"  # the step of suite-selection.yml that prints it
-BRANCH_RUNS = 20  # the successful runs of the base branch that the shared lookup reads
+WALK_COMMITS = 20  # the first-parent commits of the base branch whose passed runs the shared lookup asks for
 BRANCH_EVENTS = ("push", "repository_dispatch")
 CASES = ("identical", "behind", "pull-request", "own")
 API_TIMEOUT = 20  # seconds per request
@@ -99,6 +102,7 @@ class Api:
         self.token = token
         self.opener = urllib.request.build_opener(_KeepRedirect)
         self.calls = 0
+        self.request_id: str | None = None  # the x-github-request-id of the last answer of the API
 
     def _get(self, path: str) -> tuple[bytes, str | None]:
         """The body of a response, or the location of a redirect."""
@@ -106,10 +110,13 @@ class Api:
         if self.token:
             request.add_header("Authorization", f"Bearer {self.token}")
         self.calls += 1
+        self.request_id = None
         try:
             with self.opener.open(request, timeout=API_TIMEOUT) as response:
+                self.request_id = response.headers.get("X-GitHub-Request-Id")
                 return response.read(), None
         except urllib.error.HTTPError as error:
+            self.request_id = error.headers.get("X-GitHub-Request-Id") if error.headers is not None else None
             error.close()
             if error.code in (301, 302, 303, 307, 308) and error.headers.get("Location"):
                 return b"", error.headers["Location"]
@@ -232,6 +239,7 @@ class SharedLookup:
     previous: str | None
     reason: str
     run: int | None = None
+    log: tuple[str, ...] = field(default=(), compare=False)  # the lines the lookup logs; not in the document
 
     @property
     def moved(self) -> bool:
@@ -254,29 +262,95 @@ def read_shared_lookup(path: Path) -> SharedLookup:
                          raw.get("run") if isinstance(raw.get("run"), int) else None)
 
 
-def shared_lookup(api: Api, workflow: str, branch: str, digest: str) -> SharedLookup:
-    """The digest that the last passed push or dispatch run of the calling workflow on the base branch took, read from the
-    log of its job with the digest step. A run, a step or a log line that cannot be found leaves ``previous`` empty, so
-    that every suite runs."""
+def run_mismatch(run: dict, commit: str, branch: str) -> str | None:
+    """Why the shared lookup does not take a returned run of ``commit``, or None when it is a passed push or dispatch
+    run of that commit on the base branch."""
+    if not isinstance(run.get("id"), int) or isinstance(run.get("id"), bool):
+        return "it has no numeric id"
+    if run.get("head_sha") != commit:
+        return f"its head_sha is not {commit}"
+    if run.get("head_branch") != branch:
+        return f"its head_branch is not {branch}"
+    if run.get("event") not in BRANCH_EVENTS:
+        return f"its event is not {' or '.join(BRANCH_EVENTS)}"
+    return None
+
+
+def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digest: str, pushed: str | None) -> SharedLookup:
+    """The digest that the last passed push or dispatch run of the calling workflow on the base branch took. The walk
+    reads the base branch's first-parent history, newest first, from the fetched tip ``origin/<branch>`` or, on a push,
+    from the first parent of the pushed commit, and asks for each commit's successful runs; the newest accepted run of
+    the first commit that has one decides, and its digest is read from the log of its job with the digest step. A walk
+    that reaches its bound, a failed request, or a step or a log line that cannot be found leaves ``previous`` empty, so
+    that every suite runs. ``log`` names every request, every returned run with its verdict, the start and the outcome."""
+    log: list[str] = []
+
+    def result(previous: str | None, reason: str, run: int | None = None) -> SharedLookup:
+        if previous is None:
+            log.append(f"No digest to compare with: {reason}.")
+        return SharedLookup(digest, previous, reason, run, tuple(log))
+
+    def get(path: str, read: Callable[[str], object]):
+        try:
+            answer = read(path)
+        except ApiError as error:
+            log.append(f"GET {path}: x-github-request-id {api.request_id or 'none'}, failed: {error}")
+            raise
+        count = f", total_count {answer['total_count']}" if isinstance(answer, dict) and "total_count" in answer else ""
+        log.append(f"GET {path}: x-github-request-id {api.request_id or 'none'}{count}")
+        return answer
+
+    if pushed:
+        start, origin = commit_id(root, f"{pushed}^1"), f"the first parent of the pushed commit {pushed}"
+        if start is None:
+            return result(None, f"the pushed commit {pushed} has no first parent in this job's checkout")
+    else:
+        start, origin = commit_id(root, f"refs/remotes/origin/{branch}"), f"the tip of `origin/{branch}` fetched in this job"
+        if start is None:
+            return result(None, f"`origin/{branch}` is not in this job's checkout, so its first-parent history cannot be walked")
+    listing = git(root, "rev-list", "--first-parent", f"--max-count={WALK_COMMITS + 1}", start)
+    if listing.returncode != 0:
+        return result(None, f"the first-parent history of {start} cannot be read: {listing.stderr.strip()}")
+    commits = listing.stdout.split()
+    log.append(f"The walk starts at {start}, {origin}, and reads at most {WALK_COMMITS} first-parent commits.")
+    run = None
     try:
-        runs = api.json(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?branch={urllib.parse.quote(branch)}&status=success&per_page={BRANCH_RUNS}")
-        run = next((item for item in (runs.get("workflow_runs") or [] if isinstance(runs, dict) else [])
-                    if isinstance(item, dict) and item.get("event") in BRANCH_EVENTS and isinstance(item.get("id"), int)), None)
+        for number, commit in enumerate(commits[:WALK_COMMITS], 1):
+            answer = get(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?head_sha={commit}&status=success&per_page=100", api.json)
+            accepted = []
+            for item in answer.get("workflow_runs") or [] if isinstance(answer, dict) else []:
+                if not isinstance(item, dict):
+                    log.append(f"  {json.dumps(item)}: not taken, it is no run object")
+                    continue
+                mismatch = run_mismatch(item, commit, branch)
+                log.append(f"  run {item.get('id')}: head_sha {item.get('head_sha')}, head_branch {item.get('head_branch')}, event {item.get('event')}: "
+                           + (f"not taken, {mismatch}" if mismatch else "accepted"))
+                if mismatch is None:
+                    accepted.append(item)
+            if accepted:
+                run = max(accepted, key=lambda item: (str(item.get("created_at") or ""), item["id"]))
+                log.append(f"Took run {run['id']} of {commit}: the newest accepted run of the newest first-parent commit that has one, "
+                           f"{number} commit{'' if number == 1 else 's'} into the walk.")
+                break
         if run is None:
-            return SharedLookup(digest, None, f"no push or dispatch run of `{workflow}` on `{branch}` passed among its last {BRANCH_RUNS} successful runs")
-        jobs = api.json(f"actions/runs/{run['id']}/jobs?per_page=100")
+            end = (f"the walk reached its bound of {WALK_COMMITS} first-parent commits" if len(commits) > WALK_COMMITS
+                   else f"the walk reached the first commit of `{branch}` after {len(commits)} first-parent commit{'' if len(commits) == 1 else 's'}")
+            return result(None, f"{end} from {start} without a passed push or dispatch run of `{workflow}` on `{branch}`")
+        jobs = get(f"actions/runs/{run['id']}/jobs?per_page=100", api.json)
         job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
                     and any(step.get("name") == DIGEST_STEP for step in item.get("steps") or [] if isinstance(step, dict))), None)
         if job is None:
-            return SharedLookup(digest, None, f"run {run['id']} on `{branch}` took no digest of the shared recording step", run["id"])
-        match = DIGEST_LINE.search(api.text(f"actions/jobs/{job['id']}/logs"))
+            return result(None, f"run {run['id']} on `{branch}` took no digest of the shared recording step", run["id"])
+        match = DIGEST_LINE.search(get(f"actions/jobs/{job['id']}/logs", api.text))
     except ApiError as error:
-        return SharedLookup(digest, None, f"the last passed run on `{branch}` could not be read: {error}")
+        if run is None:
+            return result(None, f"a request of the walk over `{branch}` failed: {error}")
+        return result(None, f"run {run['id']} on `{branch}` could not be read: {error}", run["id"])
     if match is None:
-        return SharedLookup(digest, None, f"the log of run {run['id']} on `{branch}` names no digest of the shared recording step", run["id"])
+        return result(None, f"the log of run {run['id']} on `{branch}` names no digest of the shared recording step", run["id"])
     previous = match.group(1)
     comparison = "equals" if previous == digest else "differs from"
-    return SharedLookup(digest, previous, f"the shared recording step {comparison} that of run {run['id']}, the last passed run on `{branch}`", run["id"])
+    return result(previous, f"the shared recording step {comparison} that of run {run['id']}, the last passed run on `{branch}`", run["id"])
 
 
 def tested_digest(found: Lookup | None) -> str | None:

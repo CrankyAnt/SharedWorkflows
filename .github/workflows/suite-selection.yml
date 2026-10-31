@@ -105,7 +105,8 @@ jobs:
           WORKFLOW: ${{ github.workflow_ref }}
           DIGEST: ${{ steps.digest.outputs.shared-digest }}
           BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --digest "$DIGEST" --branch "$BRANCH" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+          PUSHED: ${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && (github.event.client_payload.sha || github.sha) || '' }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Restore the passed results of the pull request
         if: github.event_name == 'pull_request' && github.run_attempt == 1
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

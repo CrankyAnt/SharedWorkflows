@@ -17,7 +17,8 @@ the file format, the rules and the commands.
     python suite_selection.py select --root <repository> --suites <suite list> --changed-file <path>
     python suite_selection.py verdict --needs <needs context as JSON> --summary "$GITHUB_STEP_SUMMARY"
     python suite_selection.py lookup --root <repository> --sha <commit> --before <commit> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
-    python suite_selection.py shared-lookup --digest <digest> --branch <base branch> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
+    python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> [--pushed <commit>] \\
+        --workflow "$GITHUB_WORKFLOW_REF" --output <file>
     python suite_selection.py store --needs <needs context as JSON> --passed <directory> --run-id <id> --output <record file>
 
 ``lookup``, ``shared-lookup``, ``store`` and the reuse of passed results live in ``reuse.py``.
@@ -1384,7 +1385,10 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     looking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     shared_parser = commands.add_parser("shared-lookup", help="find the digest of the shared recording step of the last passed run on the base branch")
     shared_parser.add_argument("--digest", required=True, help="the digest of the shared recording step that this run took")
+    shared_parser.add_argument("--root", type=Path, required=True, help="the checkout whose first-parent history of the base branch the lookup walks")
     shared_parser.add_argument("--branch", required=True, help="the base branch: the pull request's base, or the pushed branch")
+    shared_parser.add_argument("--pushed", default="", help="the pushed commit of a push or dispatch run, whose first parent starts the walk; "
+                               "empty to start at the fetched tip origin/<branch>")
     shared_parser.add_argument("--workflow", required=True, help="the calling workflow: its repository path, or github.workflow_ref")
     shared_parser.add_argument("--output", type=Path, required=True, help="write the shared lookup as JSON to this file")
     shared_parser.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
@@ -1633,8 +1637,11 @@ def run_lookup(options: argparse.Namespace) -> int:
 def run_shared_lookup(options: argparse.Namespace) -> int:
     import reuse
 
-    found = reuse.shared_lookup(reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.branch, options.digest)
+    found = reuse.shared_lookup(options.root.resolve(), reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.branch,
+                                options.digest, options.pushed or None)
     options.output.write_text(json.dumps(found.document(), indent=2) + "\n", encoding="utf-8")
+    for line in found.log:
+        print(line)
     print(f"{'moved' if found.moved else 'unchanged'}: {found.reason}")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
