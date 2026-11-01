@@ -928,8 +928,10 @@ class FakeGh:
     """The ``gh`` calls of the sweep and the dispatches: the owner's repositories with the workflow files of their default
     branch, None for a repository without ``.github/workflows/``; every call is recorded."""
 
-    def __init__(self, repositories: dict[str, dict[str, str] | None]) -> None:
+    def __init__(self, repositories: dict[str, dict[str, str] | None], archived: dict[str, dict[str, str] | None] | None = None) -> None:
         self.repositories = repositories
+        self.archived = archived or {}
+        self.everything = {**repositories, **self.archived}
         self.calls: list[list[str]] = []
         self.list_error = ""
         self.read_errors: dict[str, str] = {}
@@ -942,21 +944,25 @@ class FakeGh:
             return subprocess.CompletedProcess(["gh", *arguments], returncode, stdout=stdout, stderr=stderr)
 
         if arguments[:2] == ["repo", "list"]:
-            return answer(returncode=1, stderr=self.list_error) if self.list_error else answer("".join(f"{name}\n" for name in self.repositories))
+            if self.list_error:
+                return answer(returncode=1, stderr=self.list_error)
+            listed = self.repositories if "--no-archived" in arguments else self.everything
+            return answer("".join(f"{name}\n" for name in listed))
         if arguments[:3] == ["api", "--method", "POST"]:
             name = arguments[3].removeprefix("repos/").removesuffix("/dispatches")
             return answer(returncode=1, stderr=self.dispatch_errors[name]) if name in self.dispatch_errors else answer()
+        if arguments[:2] == ["api", "graphql"]:
+            fields = dict(argument.split("=", 1) for argument in arguments[3::2])
+            assert fields["query"] == promote.WORKFLOW_FOLDER_QUERY, fields
+            name = f"{fields['owner']}/{fields['name']}"
+            if name in self.read_errors:
+                return answer(returncode=1, stderr=self.read_errors[name])
+            files = self.everything[name]
+            folder = None if files is None else {"entries": [{"name": Path(each).name, "type": "blob", "mode": 0o100644} for each in files]
+                                                             + [{"name": "templates", "type": "tree"}]}
+            return answer(json.dumps({"data": {"repository": {"object": folder}}}))
         owner, repository, _, file = arguments[-1].removeprefix("repos/").split("/", 3)
-        name = f"{owner}/{repository}"
-        if name in self.read_errors:
-            return answer(returncode=1, stderr=self.read_errors[name])
-        files = self.repositories[name]
-        if file == ".github/workflows":
-            if files is None:
-                return answer(returncode=1, stderr="gh: Not Found (HTTP 404)")
-            return answer(json.dumps([{"name": Path(each).name, "path": each, "type": "file"} for each in files]
-                                     + [{"name": "templates", "path": ".github/workflows/templates", "type": "dir"}]))
-        return answer(files[urllib.parse.unquote(file)])
+        return answer(self.everything[f"{owner}/{repository}"][urllib.parse.unquote(file)])
 
     def dispatched(self) -> list[str]:
         return [call[3].removeprefix("repos/").removesuffix("/dispatches") for call in self.calls if call[:3] == ["api", "--method", "POST"]]
@@ -974,7 +980,7 @@ class ConsumerDispatchTests(ManualMove):
             "CrankyAnt/Unlisted": {".github/workflows/validation.yml": UNLISTED_CALLER},
             "CrankyAnt/HygieneOnly": {".github/workflows/hygiene.yml": HYGIENE_ONLY},
             "CrankyAnt/NoWorkflows": None,
-        })
+        }, archived={"CrankyAnt/Archived": {".github/workflows/validation.yml": CALLER}})
 
     def promote_v1(self, old: str, new: str) -> tuple[int, str]:
         return self.run_main("promote", f"--old={old}", "--new", new)
@@ -990,7 +996,7 @@ class ConsumerDispatchTests(ManualMove):
         for name in ["CrankyAnt/Listing", "CrankyAnt/BlockList"]:
             self.assertIn([part.format(name=name) for part in SENT], self.gh.calls, "only event_type, no client_payload")
             self.assertIn(f"  {name}: v1-moved sent.\n", output)
-        self.assertEqual(["repo", "list", "CrankyAnt", "--limit", "1000", "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"], self.gh.calls[0])
+        self.assertEqual(["repo", "list", "CrankyAnt", "--no-archived", "--limit", "1000", "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"], self.gh.calls[0])
         self.assertIn(["api", "-H", "Accept: application/vnd.github.raw", "repos/CrankyAnt/Listing/contents/.github/workflows/validation.yml"], self.gh.calls)
         self.assertNotIn(["api", "-H", "Accept: application/vnd.github.raw", "repos/CrankyAnt/BlockList/contents/.github/workflows/notes.txt"], self.gh.calls,
                          "only .yml and .yaml files are workflow files")
@@ -1011,6 +1017,7 @@ class ConsumerDispatchTests(ManualMove):
                 self.assertNotIn(name, self.gh.dispatched())
                 self.assertNotIn(name, output)
         self.gh.repositories = {"CrankyAnt/NoWorkflows": None, "CrankyAnt/HygieneOnly": {".github/workflows/hygiene.yml": HYGIENE_ONLY}}
+        self.gh.everything = {**self.gh.repositories, **self.gh.archived}
         self.gh.calls.clear()
         code, output = self.promote_v1(self.fixture.remote_v1(), self.shared_change("name: hygiene 3\n"))
         self.assertEqual(0, code, output)
@@ -1070,9 +1077,32 @@ class ConsumerDispatchTests(ManualMove):
         code, output = self.promote_v1(self.fixture.v1, self.shared_change())
         self.assertEqual(1, code, output)
         self.assertEqual(["CrankyAnt/Listing", "CrankyAnt/BlockList"], self.gh.dispatched())
-        self.assertIn("  CrankyAnt/Unlisted: its workflow files could not be read, so it was not checked: gh api repos/CrankyAnt/Unlisted/contents/"
-                      ".github/workflows failed: gh: Server Error (HTTP 502).", output)
+        self.assertIn("  CrankyAnt/Unlisted: its workflow files could not be read, so it was not checked: the GraphQL listing of "
+                      "CrankyAnt/Unlisted/.github/workflows failed: gh: Server Error (HTTP 502).", output)
         self.assertIn("gh api --method POST repos/CrankyAnt/Unlisted/dispatches -f event_type=v1-moved", output)
+
+    def test_an_archived_repository_is_left_out_of_the_sweep_and_gets_no_event_and_no_line(self) -> None:
+        code, output = self.promote_v1(self.fixture.v1, self.shared_change())
+        self.assertEqual(0, code, output)
+        self.assertIn("--no-archived", self.gh.calls[0], "the listing leaves archived repositories out")
+        self.assertNotIn("CrankyAnt/Archived", self.gh.dispatched())
+        self.assertNotIn("CrankyAnt/Archived", output)
+        self.assertFalse([call for call in self.gh.calls if "name=Archived" in call or any("CrankyAnt/Archived" in part for part in call)],
+                         "no file of an archived repository is read")
+
+    def test_a_null_workflows_folder_gives_no_line_and_a_failed_listing_is_named_with_its_error(self) -> None:
+        listing = ["api", "graphql", "-f", f"query={promote.WORKFLOW_FOLDER_QUERY}", "-f", "owner=CrankyAnt", "-f", "name=NoWorkflows"]
+        code, output = self.promote_v1(self.fixture.v1, self.shared_change())
+        self.assertEqual(0, code, output)
+        self.assertIn(listing, self.gh.calls)
+        self.assertNotIn("CrankyAnt/NoWorkflows", output, "a null folder object is a repository without workflows")
+        self.gh.calls.clear()
+        self.gh.read_errors["CrankyAnt/NoWorkflows"] = "gh: Not Found (HTTP 404)"
+        code, output = self.promote_v1(self.fixture.remote_v1(), self.shared_change("name: hygiene 3\n"))
+        self.assertEqual(1, code, output)
+        self.assertIn("  CrankyAnt/NoWorkflows: its workflow files could not be read, so it was not checked: the GraphQL listing of "
+                      "CrankyAnt/NoWorkflows/.github/workflows failed: gh: Not Found (HTTP 404).", output)
+        self.assertEqual(["CrankyAnt/Listing", "CrankyAnt/BlockList"], self.gh.dispatched())
 
     def test_a_failed_sweep_says_that_v1_moved_that_the_consumers_could_not_be_found_and_why_and_exits_1(self) -> None:
         self.gh.list_error = "gh: HTTP 401: Bad credentials"
@@ -1140,6 +1170,24 @@ class WorkflowFileTests(unittest.TestCase):
         ]:
             with self.subTest(text=text):
                 self.assertEqual(calls, promote.calls_selection(text, self.REPOSITORY))
+
+    def test_the_workflow_folder_listing_takes_file_blobs_ending_in_yml_or_yaml_and_none_for_a_null_or_odd_object(self) -> None:
+        def answering(body: str, returncode: int = 0):
+            return lambda arguments: subprocess.CompletedProcess(["gh", *arguments], returncode, stdout=body, stderr="")
+
+        entries = {"data": {"repository": {"object": {"entries": [{"name": "a.yml", "type": "blob", "mode": 0o100644},
+                                                                  {"name": "b.yaml", "type": "blob", "mode": 0o100755},
+                                                                  {"name": "c.txt", "type": "blob", "mode": 0o100644},
+                                                                  {"name": "d.yml", "type": "tree", "mode": 0o040000},
+                                                                  {"name": "e.yml", "type": "blob", "mode": 0o120000}]}}}}
+        self.assertEqual([".github/workflows/a.yml", ".github/workflows/b.yaml"], promote.workflow_files("CrankyAnt/Listing", answering(json.dumps(entries))))
+        for folder in [None, {}]:
+            with self.subTest(folder=folder):
+                body = json.dumps({"data": {"repository": {"object": folder}}})
+                self.assertEqual([], promote.workflow_files("CrankyAnt/Listing", answering(body)))
+        for body in ["not json", json.dumps({"errors": [{"message": "Could not resolve to a Repository"}]})]:
+            with self.subTest(body=body), self.assertRaises(promote.SweepError):
+                promote.workflow_files("CrankyAnt/Listing", answering(body))
 
     def test_gh_runs_with_its_own_authentication_and_a_missing_gh_is_a_failed_request(self) -> None:
         completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")

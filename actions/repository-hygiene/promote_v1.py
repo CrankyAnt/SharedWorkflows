@@ -62,6 +62,9 @@ MOVED_EVENT = "v1-moved"
 SELECTION_WORKFLOW = ".github/workflows/suite-selection.yml@v1"
 WORKFLOW_SUFFIXES = (".yml", ".yaml")
 SWEEP_LIMIT = 1000
+WORKFLOW_FOLDER_QUERY = ("query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { "
+                         "object(expression: \"HEAD:.github/workflows\") { ... on Tree { entries { name type mode } } } } }")
+SYMLINK_MODE = 0o120000
 CI_TIMEOUT = 10 * 60
 CI_INTERVAL = 30
 REQUEST_TIMEOUT = 20
@@ -589,20 +592,23 @@ def calls_selection(text: str, repository: str) -> bool:
 
 
 def workflow_files(name: str, gh: GhRunner) -> list[str]:
-    """The paths of the workflow files under ``.github/workflows/`` on the default branch of ``name``; none without the folder."""
-    result = gh(["api", f"repos/{name}/contents/.github/workflows"])
+    """The paths of the workflow files under ``.github/workflows/`` on the default branch of ``name``: the blob entries,
+    symbolic links left out, whose names end in ``.yml`` or ``.yaml``. A null GraphQL object of ``HEAD:.github/workflows``
+    means that the folder, or the default branch, does not exist; every failed request is a :class:`SweepError`."""
+    owner, _, repository = name.partition("/")
+    result = gh(["api", "graphql", "-f", f"query={WORKFLOW_FOLDER_QUERY}", "-f", f"owner={owner}", "-f", f"name={repository}"])
     if result.returncode != 0:
-        if "HTTP 404" in (result.stderr or ""):
-            return []
-        raise SweepError(f"gh api repos/{name}/contents/.github/workflows failed: {_gh_error(result)}")
+        raise SweepError(f"the GraphQL listing of {name}/.github/workflows failed: {_gh_error(result)}")
     try:
-        entries = json.loads(result.stdout)
-    except ValueError as error:
-        raise SweepError(f"the listing of {name}/.github/workflows is no JSON: {error}") from error
+        answer = json.loads(result.stdout)
+        folder = answer["data"]["repository"]["object"]
+    except (ValueError, KeyError, TypeError) as error:
+        raise SweepError(f"the GraphQL listing of {name}/.github/workflows has no repository object: {error!r}") from error
+    entries = folder.get("entries") if isinstance(folder, dict) else None
     if not isinstance(entries, list):
         return []
-    return [entry["path"] for entry in entries if isinstance(entry, dict) and entry.get("type") == "file"
-            and isinstance(entry.get("path"), str) and entry["path"].endswith(WORKFLOW_SUFFIXES)]
+    return [f".github/workflows/{entry['name']}" for entry in entries if isinstance(entry, dict) and entry.get("type") == "blob"
+            and entry.get("mode") != SYMLINK_MODE and isinstance(entry.get("name"), str) and entry["name"].endswith(WORKFLOW_SUFFIXES)]
 
 
 def workflow_text(name: str, path: str, gh: GhRunner) -> str:
@@ -614,11 +620,12 @@ def workflow_text(name: str, path: str, gh: GhRunner) -> str:
 
 
 def sweep(repository: str, gh: GhRunner) -> list[SweptRepository]:
-    """The repositories of the owner of ``repository`` whose default-branch workflow files call its suite selection at
-    ``v1``, by the sweep of "Find the consumers" in ``docs/maintaining.md``, and each one whose files could not be read.
+    """The repositories of the owner of ``repository``, archived ones left out, whose default-branch workflow files call its
+    suite selection at ``v1``, by the sweep of "Find the consumers" in ``docs/maintaining.md``, and each one whose files
+    could not be read.
     :class:`SweepError` means that the repositories could not be listed."""
     owner = repository.split("/", 1)[0]
-    listed = gh(["repo", "list", owner, "--limit", str(SWEEP_LIMIT), "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"])
+    listed = gh(["repo", "list", owner, "--no-archived", "--limit", str(SWEEP_LIMIT), "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"])
     if listed.returncode != 0:
         raise SweepError(f"gh repo list {owner} failed: {_gh_error(listed)}")
     swept = []
