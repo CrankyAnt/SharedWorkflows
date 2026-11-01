@@ -4,7 +4,7 @@ The consumer kit of repository hygiene, a shared part of the [catalogue](../../.
 
 ## The caller
 
-Copy [repository-hygiene.yml](repository-hygiene.yml) to `.github/workflows/repository-hygiene.yml` and replace `<default-branch>` with the repository's default branch. The caller sets `permissions: {}` at the top and `actions: read`, `contents: read` and `pull-requests: read` on its one job, passes no secrets and runs no step of its own. It runs on pull requests, `edited` included, on pushes to the default branch, and on the `repository_dispatch` event `dependabot-merged`, which Dependabot auto-merge sends after each merge; on that event the job checks out the commit that `client_payload.sha` names, or the default branch's tip without one.
+Copy [repository-hygiene.yml](repository-hygiene.yml) to `.github/workflows/repository-hygiene.yml` and replace `<default-branch>` with the repository's default branch. The caller sets `permissions: {}` at the top and `actions: read`, `contents: read` and `pull-requests: read` on its one job, passes no secrets and runs no step of its own. It runs on pull requests, `edited` included, on pushes to the default branch, and on the `repository_dispatch` event `dependabot-merged`, which Dependabot auto-merge sends after each merge; on that event the job checks out the commit that `client_payload.sha` names, or the default branch's tip without one. The job fails, and runs no checks, when `client_payload.sha` is malformed, absent from the checkout, or a commit off the default branch.
 
 The job id `hygiene` gives the check `hygiene / hygiene`. It is the one check that repository hygiene adds to the checks the default-branch ruleset requires.
 

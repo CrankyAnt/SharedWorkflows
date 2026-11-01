@@ -11,6 +11,8 @@ WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 PREFIX = "suite-results-${{ github.event.pull_request.number }}-run-"
 LISTED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '') }}"
 KEPT = "${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}"
+DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
+DISPATCH_IF = "github.event_name == 'repository_dispatch' && github.event.client_payload.sha"
 UPLOADED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}"
 
 
@@ -23,10 +25,18 @@ class SelectionStepTests(unittest.TestCase):
         self.text, workflow = read_workflow(WORKFLOWS / "suite-selection.yml")
         self.steps = steps_of(workflow, "select")
 
-    def test_the_push_lookup_is_the_first_step_after_the_checkout_and_starts_a_dispatch_run_from_its_payload(self) -> None:
+    def test_the_dispatch_check_follows_the_checkout_and_the_push_lookup_starts_a_dispatch_run_from_its_payload(self) -> None:
         self.assertEqual("$/actions/suite-selection", self.steps[0]["uses"])
         self.assertTrue(self.steps[1]["uses"].startswith("actions/checkout@"))
-        lookup = self.steps[2]
+        check = self.steps[2]
+        self.assertEqual(DISPATCH_CHECK, check["name"])
+        self.assertEqual(DISPATCH_IF, check["if"])
+        self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "PAYLOAD": "${{ github.event.client_payload.sha }}",
+                          "BRANCH": "${{ github.event.repository.default_branch }}"}, check["env"])
+        self.assertIn('suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"', check["run"])
+        self.assertTrue(all("if" not in step or "always()" not in step["if"] and "cancelled()" not in step["if"] for step in self.steps),
+                        "a failed dispatch check skips every later step")
+        lookup = self.steps[3]
         self.assertIn('suite_selection.py" lookup --root . --sha "$SHA"', lookup["run"])
         self.assertEqual("github.event_name == 'push' || github.event_name == 'repository_dispatch'", lookup["if"])
         self.assertEqual("${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}", lookup["env"]["SHA"])

@@ -80,6 +80,13 @@ jobs:
           ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
       - name: Look up the tested tree of the pushed commit's pull request
         if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
         env:

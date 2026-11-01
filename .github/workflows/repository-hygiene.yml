@@ -53,6 +53,14 @@ jobs:
           ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        id: dispatch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
       - name: Look up the tested tree of the pushed commit's pull request
         if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
         env:
@@ -163,7 +171,7 @@ jobs:
         run: printf '%s\n' "$LINK_EXCLUDE" | PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"
       - name: Install the pinned tools and verify their checksums
         id: install
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           ACTIONLINT: ${{ steps.changes.outputs.actionlint }}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -82,6 +83,17 @@ class SharedWorkflowTests(unittest.TestCase):
             with self.subTest(output=output):
                 self.assertRegex(workflow, rf"(?m)^      {output}:\n        description: .*\n        value: \$\{{\{{ jobs\.select\.outputs\.{output} \}}\}}$")
                 self.assertIn(f"      {output}: ${{{{ steps.select.outputs.{output} }}}}\n", workflow)
+
+    def test_both_shared_workflows_check_the_dispatched_commit_with_options_the_selection_accepts(self) -> None:
+        import suite_selection
+
+        for name in ("suite-selection.yml", "repository-hygiene.yml"):
+            with self.subTest(workflow=name):
+                lines = [line for line in (WORKFLOWS / name).read_text(encoding="utf-8").splitlines() if 'suite_selection.py" check-dispatch ' in line]
+                self.assertEqual(1, len(lines))
+                arguments = shlex.split(re.sub(r'"\$(\w+)"', r"\1", lines[0].split('suite_selection.py" ', 1)[1]))
+                options = suite_selection.parse_arguments(arguments)
+                self.assertEqual(("check-dispatch", "PAYLOAD", "BRANCH"), (options.command, options.sha, options.branch))
 
     def test_both_workflows_name_the_step_by_the_scripts_it_loads(self) -> None:
         for name, job in (("suite-selection.yml", "select"), ("suite-verdict.yml", "validation")):
