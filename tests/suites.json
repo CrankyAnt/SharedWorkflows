@@ -16048,6 +16048,8 @@
       },
       "entry_selection": true,
       "paths": [
+        "actions/recording/action.yml",
+        "actions/recording/etw-consumer/Program.cs",
         "actions/recording/etw-consumer/build/EtwConsumer.deps.json",
         "actions/recording/etw-consumer/build/EtwConsumer.dll",
         "actions/recording/etw-consumer/build/EtwConsumer.runtimeconfig.json",
@@ -16061,6 +16063,8 @@
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
+        "tests/etw_access.ps1",
+        "tests/record_etw_fixture.py",
         "tests/recording_fixtures.py",
         "tests/strace_stand_in.py",
         "tests/test_recording_classification.py",
@@ -16068,6 +16072,8 @@
       ],
       "entry_paths": {
         "tests/test_windows_recording.py": [
+          "actions/recording/action.yml",
+          "actions/recording/etw-consumer/Program.cs",
           "actions/recording/etw-consumer/build/EtwConsumer.deps.json",
           "actions/recording/etw-consumer/build/EtwConsumer.dll",
           "actions/recording/etw-consumer/build/EtwConsumer.runtimeconfig.json",
@@ -16081,6 +16087,8 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
+          "tests/etw_access.ps1",
+          "tests/record_etw_fixture.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/test_recording_classification.py",
