@@ -503,6 +503,7 @@
         "tests/test_recording_classification.py/**",
         "tests/test_recording_etw.py/**",
         "tests/test_recording_full.py/**",
+        "tests/test_recording_full_close.py/**",
         "tests/test_recording_lookups.py/**",
         "tests/test_recording_pathspecs.py/**",
         "tests/test_repository_hygiene.py/**",
@@ -627,6 +628,7 @@
           "tests/test_recording_classification.py/**",
           "tests/test_recording_etw.py/**",
           "tests/test_recording_full.py/**",
+          "tests/test_recording_full_close.py/**",
           "tests/test_recording_lookups.py/**",
           "tests/test_recording_pathspecs.py/**",
           "tests/test_repository_hygiene.py/**",
@@ -1508,6 +1510,10 @@
         },
         {
           "path": "tests/test_recording_full.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_recording_full_close.py",
           "kind": "any"
         },
         {
@@ -2825,6 +2831,10 @@
           },
           {
             "path": "tests/test_recording_full.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_recording_full_close.py",
             "kind": "any"
           },
           {
@@ -6307,6 +6317,7 @@
       },
       "entry_selection": true,
       "paths": [
+        ".github/workflows/full-recording.yml",
         ".github/workflows/suite-selection.yml",
         ".github/workflows/suite-verdict.yml",
         ".github/workflows/validate.yml",
@@ -7081,6 +7092,15 @@
           "tests/test_recording_full.py"
         ],
         "tests/test_recording_full_close.py": [
+          ".github/workflows/full-recording.yml",
+          "actions/recording/recording.py",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/reuse.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_selection.py",
+          "actions/suite-selection/unrecorded.py",
+          "tests/ci_policy_support.py",
           "tests/test_recording_full_close.py"
         ],
         "tests/test_recording_apply.py": [
@@ -7423,6 +7443,7 @@
         "tests/test_recording_classification.py/**",
         "tests/test_recording_etw.py/**",
         "tests/test_recording_full.py/**",
+        "tests/test_recording_full_close.py/**",
         "tests/test_recording_lookups.py/**",
         "tests/test_recording_pathspecs.py/**",
         "tests/test_repository_hygiene.py/**",
@@ -7540,6 +7561,7 @@
           "tests/test_recording_classification.py/**",
           "tests/test_recording_etw.py/**",
           "tests/test_recording_full.py/**",
+          "tests/test_recording_full_close.py/**",
           "tests/test_recording_lookups.py/**",
           "tests/test_recording_pathspecs.py/**",
           "tests/test_repository_hygiene.py/**",
@@ -8519,6 +8541,26 @@
         },
         {
           "path": "tests/test_recording_full.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_recording_full_close",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_recording_full_close.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_recording_full_close.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_recording_full_close.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_recording_full_close.so",
           "kind": "any"
         },
         {
@@ -10013,6 +10055,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_recording_full_close.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_recording_lookups.py",
             "kind": "any"
           },
@@ -10638,6 +10684,164 @@
           },
           {
             "path": "tests/test_recording_full.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_recording_full_close.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/recording",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_recording_full_close",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_recording_full_close.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_recording_full_close.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_recording_full_close.so",
             "kind": "any"
           }
         ],
@@ -11486,6 +11690,12 @@
           "tests"
         ],
         "tests/test_recording_full.py": [
+          ".",
+          "actions/recording",
+          "actions/suite-selection",
+          "tests"
+        ],
+        "tests/test_recording_full_close.py": [
           ".",
           "actions/recording",
           "actions/suite-selection",
