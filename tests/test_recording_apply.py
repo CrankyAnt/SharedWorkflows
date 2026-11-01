@@ -255,6 +255,113 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual({"tests/w.py": 16.5}, fixture.suite("windows")["entry_durations"])
 
 
+SELECTS = "the change since the recorded commit selects it"
+UNSELECTED = "the change since the recorded commit could not be selected"
+
+
+def clean(suite_name: str, entry: str, paths: list[str], seconds: float = 1.0) -> dict:
+    return {"suite": suite_name, "entry": entry, "exit_code": 0, "skipped": 0, "seconds": seconds, "reads": reads(paths)}
+
+
+class KeptListTests(unittest.TestCase):
+    """apply on the suite list of a newer commit: the entry files that the selection of the change since the recorded
+    commit selects keep their stored reads, and results the suite list no longer holds are left out."""
+
+    def fixture(self, suite_list: list[dict] | None = None) -> RecordingFixture:
+        return RecordingFixture(self.addCleanup, FILES, suite_list or [
+            suite("whole", ["tests/a.py"], paths=["tests/a.py", "added.txt"], entry_durations={"tests/a.py": 4.0}),
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=[],
+                  entry_paths={"tests/c1.py": ["tests/c1.py", "added.txt"], "tests/c2.py": ["tests/c2.py", "stale.txt"]})])
+
+    def write(self, fixture: RecordingFixture, name: str, text: str):
+        path = fixture.base / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def result(self, fixture: RecordingFixture, *entries: dict):
+        return self.write(fixture, "full.json", json.dumps({"kind": "full-recording", "suite_list": "suites.json", "entries": list(entries)}))
+
+    def selection(self, fixture: RecordingFixture, suites: dict, entries: dict):
+        """The output of select --json-output for the change since the recorded commit."""
+        return self.write(fixture, "selection.txt", f"suites={json.dumps(suites)}\nentries={json.dumps(entries)}\nshards=[]\nwindows=\n")
+
+    def test_a_selected_entry_file_that_ran_clean_keeps_its_stored_reads_beside_the_recorded_ones(self) -> None:
+        fixture = self.fixture()
+        selected = self.selection(fixture, {"whole": "skip", "per-entry": "run"}, {"per-entry": ["tests/c1.py"]})
+        applied = fixture.run("apply", "--keep-lists", str(selected), str(self.result(
+            fixture, clean("per-entry", "tests/c1.py", ["tests/c1.py", "new.txt"]), clean("per-entry", "tests/c2.py", ["tests/c2.py"]),
+            clean("whole", "tests/a.py", ["tests/a.py"]))))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        stored = fixture.suite("per-entry")["entry_paths"]
+        self.assertEqual(["added.txt", "new.txt", "tests/c1.py"], stored["tests/c1.py"])
+        self.assertIn(f"per-entry: kept the list of tests/c1.py: {SELECTS}", applied.stdout)
+        # Not selected: replaced as before.
+        self.assertEqual(["tests/c2.py"], stored["tests/c2.py"])
+        self.assertEqual(["tests/a.py"], fixture.suite("whole")["paths"])
+        self.assertNotIn("tests/c2.py", applied.stdout)
+        self.assertNotIn("tests/a.py", applied.stdout)
+
+    def test_every_entry_file_of_a_suite_selected_as_a_whole_keeps_its_stored_reads(self) -> None:
+        # whole is selected as a whole; per-entry runs without a list of its own in entries, which counts as a whole too.
+        for entries in ({}, {"per-entry": ["tests/c1.py", "tests/c2.py"]}):
+            with self.subTest(entries=entries):
+                fixture = self.fixture()
+                selected = self.selection(fixture, {"whole": "run", "per-entry": "run"}, entries)
+                applied = fixture.run("apply", "--keep-lists", str(selected), str(self.result(
+                    fixture, clean("whole", "tests/a.py", ["tests/a.py", "new.txt"]), clean("per-entry", "tests/c1.py", ["tests/c1.py"]),
+                    clean("per-entry", "tests/c2.py", ["tests/c2.py"]))))
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                self.assertEqual(["added.txt", "new.txt", "tests/a.py"], fixture.suite("whole")["paths"])
+                self.assertEqual({"tests/c1.py": ["added.txt", "tests/c1.py"], "tests/c2.py": ["stale.txt", "tests/c2.py"]},
+                                 fixture.suite("per-entry")["entry_paths"])
+                for name, entry in (("whole", "tests/a.py"), ("per-entry", "tests/c1.py"), ("per-entry", "tests/c2.py")):
+                    self.assertIn(f"{name}: kept the list of {entry}: {SELECTS}", applied.stdout)
+
+    def test_without_a_selection_every_entry_file_keeps_its_stored_reads(self) -> None:
+        fixture = self.fixture()
+        applied = fixture.run("apply", "--keep-all-lists", str(self.result(
+            fixture, clean("whole", "tests/a.py", ["tests/a.py", "new.txt"]), clean("per-entry", "tests/c1.py", ["tests/c1.py"]),
+            clean("per-entry", "tests/c2.py", ["tests/c2.py"]))))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual(["added.txt", "new.txt", "tests/a.py"], fixture.suite("whole")["paths"])
+        self.assertEqual({"tests/c1.py": ["added.txt", "tests/c1.py"], "tests/c2.py": ["stale.txt", "tests/c2.py"]},
+                         fixture.suite("per-entry")["entry_paths"])
+        for name, entry in (("whole", "tests/a.py"), ("per-entry", "tests/c1.py"), ("per-entry", "tests/c2.py")):
+            self.assertIn(f"{name}: kept the list of {entry}: {UNSELECTED}", applied.stdout)
+
+    def test_a_kept_entry_file_that_ran_clean_gets_its_duration_estimate_as_before(self) -> None:
+        # tests/c2.py has no stored estimate and its job no clean entry file with one: factor 1, 16.5 / 1.65 = 10.0.
+        for option in (["--keep-all-lists"], ["--keep-lists", "selection"]):
+            with self.subTest(option=option[0]):
+                fixture = self.fixture()
+                if option[0] == "--keep-lists":
+                    option = ["--keep-lists", str(self.selection(fixture, {"whole": "skip", "per-entry": "run"}, {"per-entry": ["tests/c2.py"]}))]
+                applied = fixture.run("apply", *option, str(self.result(fixture, clean("per-entry", "tests/c2.py", ["tests/c2.py"], 16.5))))
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                self.assertEqual({"tests/c2.py": 10.0}, fixture.suite("per-entry")["entry_durations"])
+                self.assertNotIn("kept the estimate of tests/c2.py", applied.stdout)
+
+    def test_results_for_a_suite_or_an_entry_file_the_suite_list_lacks_are_left_out_and_reported(self) -> None:
+        fixture = self.fixture()
+        applied = fixture.apply(self.result(
+            fixture, clean("gone", "tests/a.py", ["tests/a.py"]), clean("per-entry", "tests/c3.py", ["tests/c3.py"]),
+            clean("per-entry", "tests/c1.py", ["tests/c1.py"])))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertIn("left out the results of the suite gone: the suite list lacks it", applied.stdout)
+        self.assertIn("per-entry: left out the result of tests/c3.py: the suite list lacks it", applied.stdout)
+        self.assertEqual(["tests/c1.py"], fixture.suite("per-entry")["entry_paths"]["tests/c1.py"])
+        self.assertNotIn("tests/c3.py", json.dumps(fixture.suites()))
+        self.assertEqual({"whole", "per-entry"}, {item["name"] for item in fixture.suites()["suites"]})
+
+    def test_the_kept_lists_go_with_full_recording_results_only(self) -> None:
+        fixture = self.fixture()
+        change = self.write(fixture, "additions.json", json.dumps(additions(
+            {"suite": "whole", "create": False, "recorded_entries": ["tests/a.py"], "reads": reads(["x.txt"])})))
+        refused = fixture.run("apply", "--keep-all-lists", str(change))
+        self.assertEqual(2, refused.returncode)
+        self.assertIn("--keep-lists and --keep-all-lists go with full-recording results", refused.stderr)
+
+
 class JobCorrectionTests(unittest.TestCase):
     """apply corrects each measurement of a full recording for the speed of its shard job, and changes a stored duration
     estimate only when the corrected value differs from it by more than 25%."""
