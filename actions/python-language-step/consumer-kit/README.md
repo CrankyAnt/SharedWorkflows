@@ -30,15 +30,15 @@ A repository that wants ruff format checked passes the input:
 
 ## How a validation workflow calls it
 
-Add the step of [python-language-step.yml](python-language-step.yml) to the first job of the repository's validation workflow, after the steps that run the suites. The job installs Python before the step, and the step runs outside the suite recording, so its reads join no suite's path list.
+Add the step of [python-language-step.yml](python-language-step.yml) to the shard job of the repository's validation workflow, after the step that checks the recording. The job installs Python before the step, and the step runs outside the suite recording, so its reads join no suite's path list.
 
-The step runs under `if: ${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}`. The validation workflow takes the input `language-steps` (`type: string`, `required: false`), which the validation caller passes from the `language-steps` output of the shared `suite-selection.yml`; the caller names the step there with `language-steps: python`. That output holds `run` when a changed file is a Python file or Python configuration. The first job's own gate joins `|| fromJSON(inputs.language-steps).python == 'run'`, so the job runs whenever the step is selected, and its other steps keep their suite gate.
+The step runs under `if: ${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}`. The validation workflow takes the input `language-steps` (`type: string`, `required: false`), which the validation caller passes from the `language-steps` output of the shared `suite-selection.yml`; the caller names the step there with `language-steps: python`. That output holds `run` when a changed file is a Python file or Python configuration. In the shard job the condition also holds `matrix.shard.shard == 1`, so shard 1 alone runs the step; the suite selection gives one shard without entry files when only the step is selected.
 
 A job outside the suite selection that already installs Python calls the step without the `if`.
 
 ## Where it runs
 
-The step runs on the job's runner, Linux or Windows, in a job that has Python installed. With the suite selection, that is the first job of a validation workflow, where the verdict reports its result. The step adds no check to the default-branch ruleset: its result is part of that job.
+The step runs on the job's runner, Linux or Windows, in a job that has Python installed. With the suite selection, that is shard 1 of the validation workflow, where the verdict reports its result. The step adds no check to the default-branch ruleset: its result is part of that job.
 
 ## When `v1` moves
 

@@ -2,10 +2,10 @@ name: <name>
 on:
   workflow_call:
     inputs:
-      suites:
+      shards:
         type: string
-        required: true
-      entries:
+        required: false
+      windows:
         type: string
         required: false
       language-steps:
@@ -16,11 +16,18 @@ on:
         required: true
 permissions: {}
 jobs:
-  <job>:
-    if: fromJSON(inputs.suites).<suite> == 'run' || fromJSON(inputs.language-steps).python == 'run'
-    runs-on: <runner>
+  linux:
+    if: inputs.shards != '' && inputs.shards != '[]'
+    name: shard ${{ matrix.shard.shard }}
+    runs-on: <linux-runner>
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    env:
+      SHARD: ${{ toJSON(matrix.shard) }}
     steps:
       - uses: actions/checkout@<pin>
         with:
@@ -32,46 +39,61 @@ jobs:
           digest: ${{ inputs.shared-digest }}
       - name: Set up Python outside the recording
         id: python
-        if: fromJSON(inputs.suites).<suite> == 'run'
+        if: contains(matrix.shard.setups, 'python')
         uses: actions/setup-python@<pin>
         with:
           python-version: "<python-version>"
           update-environment: false
       - name: Start the recording
         id: start
-        if: fromJSON(inputs.suites).<suite> == 'run'
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: python3 "$RECORDING/recording.py" start
       - name: Provide the set-up Python with the lookup report to the entry files that state it
-        if: fromJSON(inputs.suites).<suite> == 'run'
+        if: contains(matrix.shard.setups, 'python')
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           PYTHON_PATH: ${{ steps.python.outputs.python-path }}
         run: python3 "$RECORDING/recording.py" provide --setup python --path "$(dirname "$PYTHON_PATH")" --python "$PYTHON_PATH"
       - name: Run the setup <setup> under the recording
-        if: fromJSON(inputs.suites).<suite> == 'run'
+        if: contains(matrix.shard.setups, '<setup>')
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: |
           python3 "$RECORDING/recording.py" exec --setup <setup> -- <setup-command>
           python3 "$RECORDING/recording.py" provide --setup <setup> <setup-provides>
-      - name: Run the entry files of <suite> under the recording
-        if: fromJSON(inputs.suites).<suite> == 'run'
+      - name: Run the shard's entry files under the recording, two at a time
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
-          ENTRIES: <entry-files>
         run: |
           set -uo pipefail
-          mkdir -p "$RUNNER_TEMP/suite-results"
+          export LOGS="$RUNNER_TEMP/entry-logs"
+          mkdir -p "$LOGS"
+          # shellcheck disable=SC2329 # xargs invokes run_entry through bash -c
+          run_entry() {
+            local suite entry name command
+            suite="$(jq -r .suite <<<"$1")"
+            entry="$(jq -r .entry <<<"$1")"
+            mapfile -t command < <(jq -r '.command[]' <<<"$1")
+            name="${entry//\//_}"
+            python3 "$RECORDING/recording.py" exec --entry "$entry" --suites .github/suites.json --suite "$suite" -- "${command[@]}" "$entry" > "$LOGS/$name.log" 2>&1
+            echo "$?" > "$LOGS/$name.status"
+            echo "$entry exited with $(cat "$LOGS/$name.status")"
+          }
+          export -f run_entry
+          # shellcheck disable=SC2016 # the inner script expands $1 itself
+          jq -c '.entries[]' <<<"$SHARD" | xargs -d '\n' -r -n 1 -P 2 bash -c 'run_entry "$1"' _
           failed=0
-          for entry in $ENTRIES; do
-            if python3 "$RECORDING/recording.py" exec --entry "$entry" --suites .github/suites.json --suite <suite> -- <command> "$entry"; then
-              jq -nc --arg entry "$entry" '{suite: "<suite>", entry: $entry}' >> "$RUNNER_TEMP/suite-results/passed.jsonl"
-            else
+          while IFS= read -r entry; do
+            name="${entry//\//_}"
+            echo "::group::$entry"
+            cat "$LOGS/$name.log"
+            echo "::endgroup::"
+            if [[ "$(cat "$LOGS/$name.status" 2>/dev/null)" != 0 ]]; then
+              echo "::error::$entry failed"
               failed=1
             fi
-          done
+          done < <(jq -r '.entries[].entry' <<<"$SHARD")
           exit "$failed"
       - name: Check the recording against the suite list
         id: check
@@ -80,17 +102,20 @@ jobs:
         with:
           check: "true"
           suites: .github/suites.json
-          artifact-name: recording-additions-<job>
+          artifact-name: recording-additions-shard-${{ matrix.shard.shard }}
       - name: Run the Python language step outside the recording
-        if: ${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}
+        if: ${{ !cancelled() && matrix.shard.shard == 1 && fromJSON(inputs.language-steps).python == 'run' }}
         uses: CrankyAnt/SharedWorkflows/actions/python-language-step@v1
       - name: List the entry files that passed
         if: ${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '') }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/suite-results"
-          touch "$RUNNER_TEMP/suite-results/passed.jsonl"
-          jq -s . "$RUNNER_TEMP/suite-results/passed.jsonl" > "$RUNNER_TEMP/suite-results/passed.json"
+          while IFS=$'\t' read -r suite entry; do
+            if [[ "$(cat "$RUNNER_TEMP/entry-logs/${entry//\//_}.status" 2>/dev/null)" == 0 ]]; then
+              jq -n --arg suite "$suite" --arg entry "$entry" '{suite: $suite, entry: $entry}'
+            fi
+          done < <(jq -r '.entries[] | [.suite, .entry] | @tsv' <<<"$SHARD") | jq -s . > "$RUNNER_TEMP/suite-results/passed.json"
       - name: Leave the entry files with additions out of the passed list
         id: keep
         if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
@@ -102,15 +127,18 @@ jobs:
         if: ${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
         uses: actions/upload-artifact@<pin>
         with:
-          name: suite-results-<job>
+          name: suite-results-shard-${{ matrix.shard.shard }}
           path: ${{ runner.temp }}/suite-results/passed.json
           retention-days: 1
           if-no-files-found: error
   <windows-job>:
-    if: fromJSON(inputs.suites).<windows-suite> == 'run'
+    if: inputs.windows != ''
     runs-on: <windows-runner>
     permissions:
       contents: read
+    env:
+      WINDOWS: ${{ inputs.windows }}
+      SETUPS: ${{ inputs.windows != '' && toJSON(fromJSON(inputs.windows).setups) || '[]' }}
     steps:
       - uses: actions/checkout@<pin>
         with:
@@ -127,6 +155,7 @@ jobs:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: python "$env:RECORDING\recording.py" start
       - name: Run the setup <windows-setup> under the recording
+        if: contains(fromJSON(env.SETUPS), '<windows-setup>')
         shell: pwsh
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
@@ -135,20 +164,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python "$env:RECORDING\recording.py" provide --setup <windows-setup> <windows-setup-provides>
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run the entry files of <windows-suite> under the recording
+      - name: Run the selected Windows entry files under the recording
         shell: pwsh
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
-          ENTRIES: <windows-entry-files>
         run: |
-          $failed = $false
+          $job = $env:WINDOWS | ConvertFrom-Json
+          $failed = @()
           $passed = @()
-          foreach ($entry in -split $env:ENTRIES) {
-            python "$env:RECORDING\recording.py" exec --entry $entry --suites .github/suites.json --suite <windows-suite> -- <windows-command> $entry
-            if ($LASTEXITCODE -eq 0) {
-              $passed += [ordered]@{ suite = '<windows-suite>'; entry = $entry }
+          foreach ($item in $job.entries) {
+            $command = @($item.command)
+            Write-Output "::group::$($item.entry)"
+            python "$env:RECORDING\recording.py" exec --entry $item.entry --suites .github/suites.json --suite $item.suite -- @command $item.entry
+            $status = $LASTEXITCODE
+            Write-Output "::endgroup::"
+            if ($status -ne 0) {
+              Write-Output "::error::$($item.entry) exited with $status"
+              $failed += $item.entry
             } else {
-              $failed = $true
+              $passed += [ordered]@{ suite = $item.suite; entry = $item.entry }
             }
           }
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\suite-results" | Out-Null
@@ -161,7 +195,7 @@ jobs:
         with:
           check: "true"
           suites: .github/suites.json
-          artifact-name: recording-additions-<windows-job>
+          artifact-name: recording-additions-windows
       - name: Leave the entry files with additions out of the passed list
         id: keep
         if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
@@ -176,7 +210,7 @@ jobs:
         if: ${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
         uses: actions/upload-artifact@<pin>
         with:
-          name: suite-results-<windows-job>
+          name: suite-results-windows
           path: ${{ runner.temp }}/suite-results/passed.json
           retention-days: 1
           if-no-files-found: error

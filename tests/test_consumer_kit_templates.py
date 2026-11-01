@@ -71,17 +71,22 @@ class ValidationCallerTemplateTest(unittest.TestCase):
         self.assertEqual(list(self.jobs)[0], "select")
         self.assertEqual(list(self.jobs)[-1], "validation")
 
-    def test_each_validation_job_needs_select_and_passes_the_selection_to_a_local_workflow(self) -> None:
+    def test_the_one_validation_job_needs_select_and_passes_the_shards_and_the_windows_job_to_a_local_workflow(self) -> None:
         validation_jobs = {name: job for name, job in self.jobs.items() if name not in ("select", "validation")}
-        self.assertTrue(validation_jobs)
+        self.assertEqual(["<validation-workflow>"], list(validation_jobs))
         for name, job in validation_jobs.items():
             with self.subTest(job=name):
                 self.assertEqual("select", job["needs"])
                 self.assertTrue(job["uses"].startswith("$/.github/workflows/"), job["uses"])
-                self.assertEqual({"suites": "${{ needs.select.outputs.suites }}", "entries": "${{ needs.select.outputs.entries }}",
+                self.assertEqual({"shards": "${{ needs.select.outputs.shards }}", "windows": "${{ needs.select.outputs.windows }}",
                                   "language-steps": "${{ needs.select.outputs.language-steps }}",
                                   "shared-digest": "${{ needs.select.outputs.shared-digest }}"}, job["with"])
-                self.assertNotIn("if", job, "the validation workflow gates its own suite jobs")
+                self.assertNotIn("if", job, "the validation workflow gates its own jobs")
+        self.assertEqual(["select", "<validation-workflow>"], self.jobs["validation"]["needs"])
+
+    def test_the_validation_job_passes_exactly_the_inputs_that_the_validation_workflow_template_declares(self) -> None:
+        _, workflow = read_workflow(SELECTION_KIT / "validation-workflow.yml")
+        self.assertEqual(set(workflow["on"]["workflow_call"]["inputs"]), set(self.jobs["<validation-workflow>"]["with"]))
 
     def test_each_validation_job_id_is_its_workflow_s_file_name_without_the_extension(self) -> None:
         """The job id rule: the check of a validation workflow is `<file name> / <job>`."""
@@ -95,6 +100,51 @@ class ValidationCallerTemplateTest(unittest.TestCase):
         _, caller = read_yaml_text(filled)
         self.assertEqual("$/.github/workflows/tests.yml", caller["jobs"]["tests"]["uses"])
         self.assertEqual(["select", "tests"], caller["jobs"]["validation"]["needs"])
+
+
+class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
+    """The kit holds the sharded form of the validation workflow alone, and its README and an ADR describe it."""
+
+    def setUp(self) -> None:
+        self.readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
+        start = self.readme.index("## The validation workflow\n")
+        self.section = self.readme[start:self.readme.index("\n## ", start + 1)]
+
+    def test_no_template_of_the_kit_gates_on_a_suite_or_reads_the_per_suite_inputs(self) -> None:
+        for template in KIT_TEMPLATES:
+            with self.subTest(template=template):
+                text = (SELECTION_KIT / template).read_text(encoding="utf-8")
+                for per_suite in ("inputs.suites", "inputs.entries", "outputs.suites", "outputs.entries", "<suite>", "<entry-files>"):
+                    self.assertNotIn(per_suite, text)
+
+    def test_the_readme_describes_the_sharded_form_only(self) -> None:
+        for per_suite in ("<suite>", "<job>", "<entry-files>", "<windows-suite>", "passed.jsonl", "fromJSON(inputs.suites)",
+                          "fromJSON(inputs.entries)", "suite-results-<job>", "one per validation workflow"):
+            with self.subTest(absent=per_suite):
+                self.assertNotIn(per_suite, self.readme)
+        for placeholder in ("`<name>`", "`<linux-runner>`", "`<windows-job>`", "`<windows-runner>`", "`<python-version>`", "`<setup>`", "`<pin>`"):
+            with self.subTest(placeholder=placeholder):
+                self.assertIn(placeholder, self.section)
+        for text in ("contains(matrix.shard.setups, '<setup>')", "contains(fromJSON(env.SETUPS), '<setup>')", "two at a time",
+                     "log group", "`Check the recording against the suite list`", "matrix.shard.shard == 1",
+                     "`suite-results-shard-<number>`", "`suite-results-windows`", "one after another"):
+            with self.subTest(text=text):
+                self.assertIn(text, self.section)
+
+    def test_the_readme_names_the_one_linux_runner_label_the_check_names_and_that_a_step_change_runs_every_suite(self) -> None:
+        self.assertIn("all on one runner label", self.section)
+        self.assertIn("the runner label that `runner-labels` gives for `linux`", self.section)
+        self.assertIn("`<file name> / shard <number>`", self.readme)
+        self.assertIn("`<file name> / <windows-job>`", self.readme)
+        self.assertIn("none of them is a required check", self.readme)
+        self.assertIn("a change to one of its steps runs every suite", self.section)
+
+    def test_an_adr_records_the_shards_on_one_linux_runner_label_and_that_a_step_change_runs_every_suite(self) -> None:
+        records = [path for path in (REPOSITORY_ROOT / "docs" / "adr").glob("*.md") if "timed shards" in path.read_text(encoding="utf-8")]
+        self.assertEqual(1, len(records))
+        text = records[0].read_text(encoding="utf-8")
+        self.assertIn("one runner label", text)
+        self.assertIn("therefore runs every suite", text)
 
 
 class V1MovedRunTest(unittest.TestCase):

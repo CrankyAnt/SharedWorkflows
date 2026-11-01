@@ -1,9 +1,10 @@
-"""A caller run through the validation caller template: a suite selected per entry file runs only its selected entries.
+"""A caller run through the validation caller template: the selection's shards run only the selected entry files.
 
-The fixture repository holds the filled caller template, a validation workflow in the form that setup gives it, and a
-suite list with one suite selected per entry file and one selected as a whole. The suite selection runs as the shared
-selection workflow runs it; the caller's `with` values and the validation workflow's conditions and `env` values are
-then evaluated for the expression forms they use, and each step that runs executes its command in the fixture.
+The fixture repository holds the filled caller template, the filled validation workflow template and a suite list with
+one suite selected per entry file and one selected as a whole. The suite selection runs as the shared selection
+workflow runs it; the caller's `with` values become the validation workflow's inputs, and each shard of its `shards`
+input runs, as the shard job does, the setups whose gate holds for the shard and then each of its entry files with the
+command the shard gives for it.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ import json
 import os
 import re
 import shlex
-import string
 import subprocess
 import sys
 import tempfile
@@ -28,73 +28,39 @@ sys.path.insert(0, str(TOOL))
 import ci_definition  # noqa: E402
 GIT_IDENTITY = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
 
-VALIDATION_WORKFLOW = """\
-name: Tests
-on:
-  workflow_call:
-    inputs:
-      suites:
-        type: string
-        required: true
-      entries:
-        type: string
-        required: false
-      language-steps:
-        type: string
-        required: false
-      shared-digest:
-        type: string
-        required: true
-permissions: {}
-jobs:
-  tests:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@0000000000000000000000000000000000000000 # v1.0.0
-        with:
-          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
-          persist-credentials: false
-      - name: Prepare the second unit entry
-        if: contains(fromJSON(inputs.entries).unit, 'checks/test_two.py')
-        run: python tooling/prepare.py
-      - name: Run the selected unit entries
-        if: fromJSON(inputs.suites).unit == 'run'
-        env:
-          ENTRIES: ${{ join(fromJSON(inputs.entries).unit, ' ') }}
-        run: python -m unittest $ENTRIES -v
-      - name: Run the lint suite
-        if: fromJSON(inputs.suites).lint == 'run'
-        run: python -m unittest checks/test_lint.py -v
-"""
+# The validation workflow template as a consumer fills it: one Linux setup `prepare`, which only the second unit entry
+# file states, and the Windows job without a Windows suite in the suite list.
+PLACEHOLDERS = {
+    "<name>": "Tests", "<linux-runner>": "ubuntu-latest", "<windows-runner>": "windows-latest", "<windows-job>": "windows",
+    "<python-version>": "3.13", "<setup>": "prepare", "<setup-command>": "python tooling/prepare.py",
+    "<setup-provides>": '--path "$RUNNER_TEMP/setups/prepare"', "<windows-setup>": "dotnet",
+    "<windows-setup-command>": "dotnet --info", "<windows-setup-provides>": "--path $env:DOTNET_ROOT",
+    "@<pin>": "@0000000000000000000000000000000000000000 # v1.0.0",
+}
+
+
+def filled(template: str) -> str:
+    for placeholder, value in PLACEHOLDERS.items():
+        template = template.replace(placeholder, value)
+    assert re.search(r"<[a-z][a-z-]*>", template) is None, "every placeholder is filled"
+    return template
+
+
+VALIDATION_WORKFLOW = filled((SELECTION_KIT / "validation-workflow.yml").read_text(encoding="utf-8"))
+COMMAND = ["python", "-m", "unittest", "-v"]
 
 SUITE_LIST = {"always": [], "suites": [
-    {"name": "unit", "entries": ["checks/test_one.py", "checks/test_two.py"],
-     "entry_selection": True, "paths": ["checks/test_one.py", "checks/test_two.py", "src/one.txt", "src/two.txt"],
+    {"name": "unit", "entries": ["checks/test_one.py", "checks/test_two.py"], "command": COMMAND,
+     "entry_selection": True, "entry_setups": {"checks/test_two.py": ["prepare"]},
+     "paths": ["checks/test_one.py", "checks/test_two.py", "src/one.txt", "src/two.txt"],
      "entry_paths": {"checks/test_one.py": ["checks/test_one.py", "src/one.txt"],
                      "checks/test_two.py": ["checks/test_two.py", "src/two.txt"]}},
-    {"name": "lint", "entries": ["checks/test_lint.py"],
+    {"name": "lint", "entries": ["checks/test_lint.py"], "command": COMMAND,
      "paths": ["checks/test_lint.py", "src/lint.txt"]},
 ]}
 
-WHOLE_VALIDATION_WORKFLOW = VALIDATION_WORKFLOW.replace("""\
-      - name: Prepare the second unit entry
-        if: contains(fromJSON(inputs.entries).unit, 'checks/test_two.py')
-        run: python tooling/prepare.py
-      - name: Run the selected unit entries
-        if: fromJSON(inputs.suites).unit == 'run'
-        env:
-          ENTRIES: ${{ join(fromJSON(inputs.entries).unit, ' ') }}
-        run: python -m unittest $ENTRIES -v
-""", """\
-      - name: Run the unit suite
-        if: fromJSON(inputs.suites).unit == 'run'
-        run: python -m unittest checks/test_one.py checks/test_two.py -v
-""")
-
 WHOLE_SUITE_LIST = {"always": [], "suites": [
-    {"name": "unit", "entries": ["checks/test_one.py", "checks/test_two.py"],
+    {"name": "unit", "entries": ["checks/test_one.py", "checks/test_two.py"], "command": COMMAND,
      "paths": ["checks/test_one.py", "checks/test_two.py", "src/one.txt", "src/two.txt"]},
     SUITE_LIST["suites"][1],
 ]}
@@ -118,9 +84,8 @@ Path(os.environ["MARKERS"], "prepare").write_text("ran", encoding="utf-8")
 """
 
 OUTPUT = re.compile(r"^\$\{\{ needs\.select\.outputs\.([a-z0-9-]+) \}\}$")
-RUN_GATE = re.compile(r"^fromJSON\(inputs\.([a-z0-9-]+)\)\.([a-z0-9-]+) == 'run'$")
-JSON_ENTRY_GATE = re.compile(r"^contains\(fromJSON\(inputs\.([a-z0-9-]+)\)\.([a-z0-9-]+), '([^']+)'\)$")
-JOINED_ENTRIES = re.compile(r"^\$\{\{ join\(fromJSON\(inputs\.([a-z0-9-]+)\)\.([a-z0-9-]+), ' '\) \}\}$")
+SETUP_GATE = re.compile(r"^contains\(matrix\.shard\.setups, '([^']+)'\)$")
+SETUP_COMMAND = re.compile(r"recording\.py\" exec --setup \S+ -- (.+)$", re.MULTILINE)
 
 
 def git(repository: Path, *arguments: str) -> str:
@@ -135,11 +100,10 @@ def place(repository: Path, relative: str, text: str) -> None:
 
 
 class CallerRun(unittest.TestCase):
-    """A fixture caller repository with the filled template, `WORKFLOW` as its validation workflow and `SUITES` as its
-    suite list; it holds no tests of its own."""
+    """A fixture caller repository with the filled caller template, the filled validation workflow template as
+    `tests.yml` and `SUITES` as its suite list; it holds no tests of its own."""
 
     SUITES: dict = SUITE_LIST
-    WORKFLOW = VALIDATION_WORKFLOW
 
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
@@ -151,7 +115,7 @@ class CallerRun(unittest.TestCase):
         caller = template.replace("<default-branch>", "main").replace("<validation-workflow>", "tests")
         files = {
             ".github/workflows/validation.yml": caller,
-            ".github/workflows/tests.yml": self.WORKFLOW,
+            ".github/workflows/tests.yml": VALIDATION_WORKFLOW,
             ".github/suites.json": json.dumps(self.SUITES, indent=2) + "\n",
             "tooling/prepare.py": MARKING_SCRIPT,
         }
@@ -164,15 +128,15 @@ class CallerRun(unittest.TestCase):
         git(self.repository, "add", "-A")
         git(self.repository, "commit", "-q", "-m", "base")
         self.caller = ci_definition.read_yaml(caller)
-        self.validation = ci_definition.read_yaml(self.WORKFLOW)
+        self.validation = ci_definition.read_yaml(VALIDATION_WORKFLOW)
 
-    def change(self, *relatives: str) -> str:
+    def change(self, *relatives: str, edit=lambda text: text + "# changed\n") -> str:
         """Commit a change to each file and return the new commit; it records the commit before it as the base that
         `select` compares with."""
         self.base = git(self.repository, "rev-parse", "HEAD")
         for relative in relatives:
             path = self.repository.joinpath(*relative.split("/"))
-            path.write_text(path.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
+            path.write_text(edit(path.read_text(encoding="utf-8")), encoding="utf-8")
         git(self.repository, "commit", "-q", "-am", "change")
         return git(self.repository, "rev-parse", "HEAD")
 
@@ -197,36 +161,33 @@ class CallerRun(unittest.TestCase):
             match = OUTPUT.match(value)
             self.assertIsNotNone(match, f"unexpected caller input form: {value}")
             passed[name] = outputs.get(match.group(1), "")
-        declared = self.validation["on"]["workflow_call"]["inputs"]
-        self.assertLessEqual(set(passed), set(declared), "a called workflow rejects an input it does not declare")
+        self.assertEqual(set(self.validation["on"]["workflow_call"]["inputs"]), set(passed),
+                         "a called workflow rejects an input it does not declare and the caller passes every one")
         return passed
 
-    def expression(self, text: str, inputs: dict[str, str]) -> object:
-        text = text.strip()
-        if match := RUN_GATE.match(text):
-            return json.loads(inputs[match.group(1)])[match.group(2)] == "run"
-        if match := JSON_ENTRY_GATE.match(text):
-            return match.group(3) in json.loads(inputs[match.group(1)])[match.group(2)]
-        if match := JOINED_ENTRIES.match(text):
-            return " ".join(json.loads(inputs[match.group(1)])[match.group(2)])
-        self.fail(f"unexpected expression form: {text}")
-
     def run_validation(self, inputs: dict[str, str]) -> set[str]:
-        """Each step of the validation workflow whose condition holds runs its command; the result is what ran."""
+        """Each shard of the `shards` input runs its gated setups and then its entry files; the result is what ran."""
         self.markers.mkdir(exist_ok=True)
         for marker in self.markers.iterdir():
             marker.unlink()
-        for step in self.validation["jobs"]["tests"]["steps"]:
-            if "run" not in step or ("if" in step and not self.expression(step["if"], inputs)):
-                continue
-            environment = {name: self.expression(value, inputs) for name, value in step.get("env", {}).items()}
-            command = shlex.split(string.Template(step["run"]).substitute(environment))
-            self.assertEqual("python", command[0])
-            completed = subprocess.run([sys.executable, *command[1:]], cwd=self.repository, capture_output=True, text=True,
-                                       env={**os.environ, **environment, "MARKERS": str(self.markers),
-                                            "PYTHONPYCACHEPREFIX": str(Path(self.repository.parent, "pycache"))})
-            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual("", inputs["windows"], "the suite list has no Windows suite")
+        if inputs["shards"] in ("", "[]"):
+            return set()
+        environment = {**os.environ, "MARKERS": str(self.markers), "PYTHONPYCACHEPREFIX": str(Path(self.repository.parent, "pycache"))}
+        for shard in json.loads(inputs["shards"]):
+            for step in self.validation["jobs"]["linux"]["steps"]:
+                gate = SETUP_GATE.match(str(step.get("if", "")))
+                command = SETUP_COMMAND.search(str(step.get("run", "")))
+                if gate and command and gate.group(1) in shard["setups"]:
+                    self.execute(shlex.split(command.group(1)), environment)
+            for item in shard["entries"]:
+                self.execute([*item["command"], item["entry"]], environment)
         return {marker.name for marker in self.markers.iterdir()}
+
+    def execute(self, command: list[str], environment: dict[str, str]) -> None:
+        self.assertEqual("python", command[0])
+        completed = subprocess.run([sys.executable, *command[1:]], cwd=self.repository, capture_output=True, text=True, env=environment)
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
 
 
 class CallerEntrySelectionTest(CallerRun):
@@ -236,14 +197,17 @@ class CallerEntrySelectionTest(CallerRun):
         self.assertEqual({"unit": ["checks/test_one.py"]}, json.loads(outputs["entries"]))
         self.assertEqual({"one"}, self.run_validation(self.inputs(outputs)))
 
-    def test_a_change_both_entries_read_runs_both_entries(self) -> None:
+    def test_a_change_both_entries_read_runs_both_entries_and_the_setup_that_one_of_them_states(self) -> None:
         outputs = self.select(self.change("src/one.txt", "src/two.txt"))
         self.assertEqual({"one", "two", "prepare"}, self.run_validation(self.inputs(outputs)))
 
-    def test_a_file_only_an_entry_gated_step_names_runs_that_entry_alone(self) -> None:
-        outputs = self.select(self.change("tooling/prepare.py"))
-        self.assertEqual({"unit": ["checks/test_two.py"]}, json.loads(outputs["entries"]))
+    def test_a_setup_runs_only_in_a_shard_whose_entry_files_state_it(self) -> None:
+        outputs = self.select(self.change("src/two.txt"))
+        self.assertEqual([["prepare"]], [shard["setups"] for shard in json.loads(outputs["shards"])])
         self.assertEqual({"prepare", "two"}, self.run_validation(self.inputs(outputs)))
+        outputs = self.select(self.change("src/one.txt"))
+        self.assertEqual([[]], [shard["setups"] for shard in json.loads(outputs["shards"])])
+        self.assertEqual({"one"}, self.run_validation(self.inputs(outputs)))
 
     def test_a_suite_selected_as_a_whole_runs_on_run_and_skips_on_skip(self) -> None:
         outputs = self.select(self.change("src/lint.txt"))
@@ -253,18 +217,26 @@ class CallerEntrySelectionTest(CallerRun):
         self.assertEqual({"unit": "run", "lint": "skip"}, json.loads(outputs["suites"]))
         self.assertEqual({"prepare", "two"}, self.run_validation(self.inputs(outputs)))
 
+    def test_a_change_to_a_step_of_the_validation_workflow_runs_every_suite(self) -> None:
+        for before, after in (("persist-credentials: false", "persist-credentials: false\n          fetch-depth: 1"),
+                              ("-r -n 1 -P 2", "-r -n 1 -P 3")):
+            with self.subTest(change=after):
+                self.assertIn(before, VALIDATION_WORKFLOW, "a step of the shard job")
+                outputs = self.select(self.change(".github/workflows/tests.yml", edit=lambda text: text.replace(before, after, 1)))
+                self.assertEqual({"unit": "run", "lint": "run"}, json.loads(outputs["suites"]))
+                self.assertEqual({"unit": ["checks/test_one.py", "checks/test_two.py"]}, json.loads(outputs["entries"]))
+                self.assertEqual({"one", "two", "lint", "prepare"}, self.run_validation(self.inputs(outputs)))
+
 
 class CallerWithoutEntrySelectionTest(CallerRun):
-    """A suite list that selects no suite per entry file: the selection writes no `entries`, the caller passes it empty,
-    and each suite runs or skips as a whole."""
+    """A suite list that selects no suite per entry file: each suite runs or skips as a whole."""
 
     SUITES = WHOLE_SUITE_LIST
-    WORKFLOW = WHOLE_VALIDATION_WORKFLOW
 
     def test_each_suite_runs_with_every_entry_file_on_run_and_skips_on_skip(self) -> None:
         outputs = self.select(self.change("src/one.txt"))
         self.assertNotIn("entries", outputs)
-        self.assertEqual({"suites": outputs["suites"], "entries": "", "language-steps": "", "shared-digest": ""}, self.inputs(outputs))
+        self.assertEqual({"shards": outputs["shards"], "windows": "", "language-steps": "", "shared-digest": ""}, self.inputs(outputs))
         self.assertEqual({"unit": "run", "lint": "skip"}, json.loads(outputs["suites"]))
         self.assertEqual({"one", "two"}, self.run_validation(self.inputs(outputs)))
         outputs = self.select(self.change("src/lint.txt"))

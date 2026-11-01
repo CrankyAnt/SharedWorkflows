@@ -37,7 +37,7 @@
       "workflows": [],
       "steps": ["actions/python-language-step"],
       "required_checks": [],
-      "needs": "A job that installs Python; with the suite selection, the first job of a validation workflow, where the verdict reports its result.",
+      "needs": "A job that installs Python; with the suite selection, shard 1 of the validation workflow, where the verdict reports its result.",
       "applies": "A repository with Python files.",
       "consumer_kit": "actions/python-language-step/consumer-kit"
     }
