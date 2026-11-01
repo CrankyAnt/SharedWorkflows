@@ -23,11 +23,11 @@ A workflow that calls one shared workflow and runs no step of its own: in a cons
 _Avoid_: Wrapper, caller repository
 
 **Validation caller**:
-The caller that runs the suite selection, calls each validation workflow with its result, and gives the verdict. This repository's own validation caller calls the shared workflows by local path and runs its suites itself.
+The caller that runs the suite selection, calls the one validation workflow with its shards and its Windows entry files, and gives the verdict. This repository's own validation caller calls the shared workflows by local path and runs its suites itself.
 _Avoid_: Validate caller, validation.yml
 
 **Validation workflow**:
-A consumer's own workflow that runs suites, started only by the validation caller, with each suite gated on the selection.
+A consumer's one workflow that runs its selected entry files, started only by the validation caller: the Linux entry files in shard jobs on one runner label, and the Windows entry files in one Windows job.
 _Avoid_: Test workflow, called workflow
 
 **Repository workflow**:
