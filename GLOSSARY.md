@@ -141,12 +141,24 @@ A named step that a job runs before its entry files, such as installing dependen
 _Avoid_: Install step, prepare step
 
 **Duration estimate**:
-The traced test time that one entry file is expected to take, stored in the suite list. The full recording corrects each measurement for the speed of its shard job and changes a stored estimate only when the corrected value differs from it by more than 25%.
+The traced test time that one entry file is expected to take, stored in the suite list. Only the full recording renews it, from the corrected value of a clean entry file, and only when that value differs from the stored estimate by more than 25%.
 _Avoid_: Duration, test timing
 
 **Shard**:
-One Linux job that runs a share of the selected entry files, with the setups they need, sized so that its estimated time stays under a bound.
+A share of the selected Linux entry files, with the setups they need, sized so that its estimated time stays under a bound; one shard job runs it.
 _Avoid_: Partition, batch, chunk
+
+**Shard job**:
+A job that runs entry files in a validation run or a full recording: on Linux the job of one shard, on Windows the one job that runs every Windows entry file.
+_Avoid_: Runner, worker, test job
+
+**Speed factor**:
+How much slower or faster one shard job ran in a full recording than the duration estimates expect: the median ratio of its clean entry files' measured times to their stored estimates, or 1 when it has no such entry file.
+_Avoid_: Machine speed, runner speed
+
+**Corrected value**:
+An entry file's traced time in a full recording, brought to the trace set of the duration estimates and divided by the speed factor of its shard job, which is what the full recording compares with the stored duration estimate.
+_Avoid_: Adjusted duration, normalised time
 
 **Entry file**:
 A file that a suite starts directly, such as a test module, a script or a test project, whose reads a recording keeps apart from those of the suite's other entry files.
@@ -181,8 +193,12 @@ The shared step that records what a job's entry files and setups read, and compa
 _Avoid_: Tracer, recorder
 
 **Full recording**:
-The periodic run that records every entry file of a repository and replaces its stored lists and duration estimates; the only run that removes a stored read.
+The periodic run that records every entry file of a repository and, for each clean entry file, replaces its stored lists and renews its duration estimate, while every other entry file keeps both; the only run that removes a stored read.
 _Avoid_: Re-seed, seeding, full trace
+
+**Clean entry file**:
+An entry file that, in a full recording, exited with 0 and whose test report shows no skipped test; only a clean entry file can lose a stored read or get a new duration estimate.
+_Avoid_: Passing entry file, green entry file
 
 **Stored lists**:
 The path list, directory memberships, existence reads and lookup directories that the suite list holds for a suite or an entry file, written from recordings.
