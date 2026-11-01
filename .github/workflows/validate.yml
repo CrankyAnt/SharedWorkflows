@@ -117,31 +117,32 @@ jobs:
           set -uo pipefail
           export LOGS="$RUNNER_TEMP/entry-logs"
           mkdir -p "$LOGS"
+          # Each entry file's log and status are named after its position in the shard, which no other entry file of the
+          # shard shares, also when two paths flatten alike or one entry file runs for two suites.
           # shellcheck disable=SC2329 # xargs invokes run_entry through bash -c
           run_entry() {
-            local suite entry name command
+            local index suite entry command
+            index="$(jq -r .index <<<"$1")"
             suite="$(jq -r .suite <<<"$1")"
             entry="$(jq -r .entry <<<"$1")"
             mapfile -t command < <(jq -r '.command[]' <<<"$1")
-            name="${entry//\//_}"
-            python3 "$RECORDING/recording.py" exec --entry "$entry" --suites tests/suites.json --suite "$suite" -- "${command[@]}" "$entry" > "$LOGS/$name.log" 2>&1
-            echo "$?" > "$LOGS/$name.status"
-            echo "$entry exited with $(cat "$LOGS/$name.status")"
+            python3 "$RECORDING/recording.py" exec --entry "$entry" --suites tests/suites.json --suite "$suite" -- "${command[@]}" "$entry" > "$LOGS/$index.log" 2>&1
+            echo "$?" > "$LOGS/$index.status"
+            echo "$entry ($suite) exited with $(cat "$LOGS/$index.status")"
           }
           export -f run_entry
           # shellcheck disable=SC2016 # the inner script expands $1 itself
-          jq -c '.entries[]' <<<"$SHARD" | xargs -d '\n' -r -n 1 -P 2 bash -c 'run_entry "$1"' _
+          jq -c '.entries | to_entries[] | .value + {index: .key}' <<<"$SHARD" | xargs -d '\n' -r -n 1 -P 2 bash -c 'run_entry "$1"' _
           failed=0
-          while IFS= read -r entry; do
-            name="${entry//\//_}"
-            echo "::group::$entry"
-            cat "$LOGS/$name.log"
+          while IFS=$'\t' read -r index suite entry; do
+            echo "::group::$entry ($suite)"
+            cat "$LOGS/$index.log"
             echo "::endgroup::"
-            if [[ "$(cat "$LOGS/$name.status" 2>/dev/null)" != 0 ]]; then
-              echo "::error::$entry failed"
+            if [[ "$(cat "$LOGS/$index.status" 2>/dev/null)" != 0 ]]; then
+              echo "::error::$entry ($suite) failed"
               failed=1
             fi
-          done < <(jq -r '.entries[].entry' <<<"$SHARD")
+          done < <(jq -r '.entries | to_entries[] | [(.key | tostring), .value.suite, .value.entry] | @tsv' <<<"$SHARD")
           exit "$failed"
       - name: Check the recording against the suite list
         id: check
@@ -159,11 +160,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/suite-results"
-          while IFS=$'\t' read -r suite entry; do
-            if [[ "$(cat "$RUNNER_TEMP/entry-logs/${entry//\//_}.status" 2>/dev/null)" == 0 ]]; then
+          while IFS=$'\t' read -r index suite entry; do
+            if [[ "$(cat "$RUNNER_TEMP/entry-logs/$index.status" 2>/dev/null)" == 0 ]]; then
               jq -n --arg suite "$suite" --arg entry "$entry" '{suite: $suite, entry: $entry}'
             fi
-          done < <(jq -r '.entries[] | [.suite, .entry] | @tsv' <<<"$SHARD") | jq -s . > "$RUNNER_TEMP/suite-results/passed.json"
+          done < <(jq -r '.entries | to_entries[] | [(.key | tostring), .value.suite, .value.entry] | @tsv' <<<"$SHARD") | jq -s . > "$RUNNER_TEMP/suite-results/passed.json"
       - name: Leave the entry files with additions out of the passed list
         id: keep
         if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}

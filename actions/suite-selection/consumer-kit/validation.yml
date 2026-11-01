@@ -27,8 +27,8 @@ jobs:
       contents: read
     uses: $/.github/workflows/<validation-workflow>.yml
     with:
-      suites: ${{ needs.select.outputs.suites }}
-      entries: ${{ needs.select.outputs.entries }}
+      shards: ${{ needs.select.outputs.shards }}
+      windows: ${{ needs.select.outputs.windows }}
       language-steps: ${{ needs.select.outputs.language-steps }}
       shared-digest: ${{ needs.select.outputs.shared-digest }}
   validation:

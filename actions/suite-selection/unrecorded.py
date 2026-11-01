@@ -8,12 +8,15 @@ the recording step. ``parts`` names the content of each such input per entry fil
 the checkout, or its working tree. An entry file whose part differs between the two sides is selected; the reuse key
 holds the parts of the tested tree.
 
-- A suite job is a job that runs entry files under the selection: in the repository that holds the shared CI a Linux
-  shard or the Windows job, in a consumer a job of its validation workflow whose gate names its suites or entry files.
-  Every suite job records its entry files, so a job that uses the recording step is a suite job; a test on the workflow
-  templates shows that the two agree. A job whose condition, strategy or environment reads the ``shards`` output runs every Linux entry file, one
-  that reads the ``windows`` output every Windows entry file; any other suite job runs the units its gate names, or
-  every unit without a gate.
+- A suite job is a job that runs entry files under the selection. In the repository that holds the shared CI, and in a
+  consumer's validation workflow made from the kit's template, it is a Linux shard job or the Windows job; in a
+  consumer's validation workflow that still gates its jobs per suite, it is a job whose gate names its suites or entry
+  files. Every suite job records its entry files, so a job that uses the recording step is a suite job; a test on the
+  workflow templates shows that each job of the template is one. A job whose condition, strategy or environment reads the
+  ``shards`` output of ``select`` runs every Linux entry file, one that reads its ``windows`` output every Windows entry
+  file; any other suite job runs the units its gate names, or every unit without a gate. The shard job and the
+  Windows job of the kit's template read ``shards`` and ``windows`` as inputs of the called workflow and have no gate,
+  so each of them runs every unit: a change to either job runs every suite.
 - The jobs above a suite job are the jobs it needs, directly or through other jobs, other than the jobs that run
   ``select`` (through the suite-selection workflow, or a step that runs ``select`` of the suite selection), and the caller job of
   the workflow that holds it, with the jobs above that caller.
