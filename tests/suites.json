@@ -3934,6 +3934,7 @@
         "actions/repository-hygiene/dependabot_coverage.py",
         "actions/repository-hygiene/package-ecosystems.json",
         "actions/suite-selection/ci_definition.py",
+        "actions/suite-selection/consumer-kit/README.md",
         "actions/suite-selection/consumer-kit/apply-additions.yml",
         "actions/suite-selection/consumer-kit/full-recording.yml",
         "actions/suite-selection/consumer-kit/validation-workflow.yml",
@@ -3943,6 +3944,9 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
+        "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
+        "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
+        "docs/adr/0003-a-consumer-s-validation-runs-its-linux-entry-files-in-timed-shards.md",
         "tests/ci_policy_support.py",
         "tests/consumer_kit_support.py",
         "tests/recording_fixtures.py",
@@ -4101,10 +4105,14 @@
         "tests/test_consumer_kit_templates.py": [
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/consumer-kit/README.md",
           "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
+          "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
+          "docs/adr/0003-a-consumer-s-validation-runs-its-linux-entry-files-in-timed-shards.md",
           "tests/ci_policy_support.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
@@ -4112,6 +4120,7 @@
           "tests/test_setup_ci_templates.py"
         ],
         "tests/test_consumer_kit_validation_workflow.py": [
+          ".github/workflows/validate.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/recording_modules.py",
@@ -4152,7 +4161,8 @@
         "actions/dependabot-auto-merge/consumer-kit",
         "actions/python-language-step/consumer-kit",
         "actions/repository-hygiene/consumer-kit",
-        "actions/suite-selection/consumer-kit"
+        "actions/suite-selection/consumer-kit",
+        "docs/adr"
       ],
       "entry_directory_memberships": {
         "tests/test_consumer_kit_install_by_need.py": [
@@ -4186,6 +4196,9 @@
           "actions/python-language-step/consumer-kit",
           "actions/repository-hygiene/consumer-kit",
           "actions/suite-selection/consumer-kit"
+        ],
+        "tests/test_consumer_kit_templates.py": [
+          "docs/adr"
         ]
       },
       "existence_reads": [
@@ -6778,6 +6791,7 @@
         ],
         "tests/test_suite_selection_caller_entries.py": [
           "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
