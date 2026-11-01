@@ -3,6 +3,7 @@ full-recording mode, with its own setups, shards and closing job, and proposes t
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
 OWN_FULL_RECORDING = REPOSITORY_ROOT / ".github" / "workflows" / "full-recording.yml"
 RECORDING = "CrankyAnt/SharedWorkflows/actions/recording@v1"
+SELECTION = "CrankyAnt/SharedWorkflows/actions/suite-selection@v1"
 ON_DEFAULT_BRANCH = "github.ref_name == github.event.repository.default_branch"
 # The actions each job of the template references with `@<pin>`, in their order; setup replaces each `@<pin>` at install.
 PIN_PLACEHOLDER_ACTIONS = {
@@ -108,11 +110,29 @@ class FullRecordingTemplateTest(unittest.TestCase):
     def test_the_closing_job_applies_the_joined_results_to_the_suite_list_only(self) -> None:
         steps = self.jobs["close"]["steps"]
         join = named(steps, "Join the results, apply the removals and write the duration estimates")
-        self.assertIn('recording.py" apply --suites .github/suites.json --summary "$GITHUB_STEP_SUMMARY" '
+        self.assertIn('recording.py" apply --suites .github/suites.json "$@" --summary "$GITHUB_STEP_SUMMARY" '
                       '"$RUNNER_TEMP"/full-recording/*/full-recording.json', join["run"])
         self.assertIn(".github/suites.json) ;;", named(steps, "Check the changed files")["run"])
         self.assertIn("git add .github/suites.json", named(steps, "Commit the recorded lists")["run"])
         self.assertNotIn("tests/suites.json", self.text)
+
+    def test_the_closing_job_applies_to_the_default_branch_s_tip_as_this_repository_s_does(self) -> None:
+        # The checkout, the shared steps and the apply step are this repository's own, apart from the placeholders: the
+        # pins, the shared steps at v1, the suite list and the consumer's validation caller.
+        def as_template(step: dict) -> dict:
+            text = json.dumps(with_pin_placeholder(step))
+            for ours, theirs in (("$/actions/recording", RECORDING), ("$/actions/suite-selection", SELECTION),
+                                 ("tests/suites.json", ".github/suites.json"), (".github/workflows/validate.yml", "<validation-caller>")):
+                text = text.replace(ours, theirs)
+            return json.loads(text)
+
+        own_steps, steps = self.own["jobs"]["close"]["steps"], self.jobs["close"]["steps"]
+        for key in ("checkout", "recording", "selection", "Join the results, apply the removals and write the duration estimates"):
+            with self.subTest(step=key):
+                def find(items: list[dict]) -> dict:
+                    return next(item for item in items if key in (item.get("id"), item.get("name")) or str(item.get("uses", "")).startswith(f"actions/{key}@"))
+                self.assertEqual(as_template(find(own_steps)), find(steps))
+        self.assertIn("--workflow <validation-caller>", named(steps, "Join the results, apply the removals and write the duration estimates")["run"])
 
     def test_the_updater_app_makes_the_pull_request_after_a_credential_scan(self) -> None:
         own_steps = self.own["jobs"]["close"]["steps"]

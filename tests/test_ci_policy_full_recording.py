@@ -11,6 +11,7 @@ from tests.ci_policy_support import REPOSITORY_ROOT, action_pin_pattern, read_wo
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 FULL_RECORDING = WORKFLOWS / "full-recording.yml"
 VALIDATE = WORKFLOWS / "validate.yml"
+APPLY_STEP = "Join the results, apply the removals and write the duration estimates"
 ON_DEFAULT_BRANCH = "github.ref_name == github.event.repository.default_branch"
 VERIFY_TOKEN = {"description": "Mint the updater App's token even without a change to propose, to verify its private key",
                 "required": "false", "type": "boolean", "default": "false"}
@@ -76,7 +77,11 @@ class FullRecordingWorkflowTests(unittest.TestCase):
                 checkouts = [step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")]
                 self.assertEqual(1, len(checkouts))
                 self.assertEqual("false", checkouts[0]["with"]["persist-credentials"])
-                self.assertNotIn("ref", checkouts[0]["with"], "every job records and proposes from the run's own commit")
+                if name == "close":
+                    self.assertEqual(f"${{{{ {ON_DEFAULT_BRANCH} && github.event.repository.default_branch || '' }}}}", checkouts[0]["with"]["ref"],
+                                     "on the default branch close applies to its tip, elsewhere to the run's own commit")
+                else:
+                    self.assertNotIn("ref", checkouts[0]["with"], "every recording job records the run's own commit")
 
     def test_the_actions_are_pinned_and_the_recording_step_is_used_by_local_path(self) -> None:
         external = sorted({uses.split("@")[0] for uses in re.findall(r"(?m)^\s*(?:- )?uses: ([^$\s]\S*)", self.text)})
@@ -141,8 +146,8 @@ class ClosingJobTests(unittest.TestCase):
     def test_it_joins_every_result_applies_it_and_uploads_the_joined_result(self) -> None:
         download = next(step for step in self.steps if str(step.get("uses", "")).startswith("actions/download-artifact@"))
         self.assertEqual({"pattern": "full-recording-*", "path": "${{ runner.temp }}/full-recording"}, download["with"])
-        apply = named(self.steps, "Join the results, apply the removals and write the duration estimates")
-        self.assertIn('python3 "$RECORDING/recording.py" apply --suites tests/suites.json --summary "$GITHUB_STEP_SUMMARY" '
+        apply = named(self.steps, APPLY_STEP)
+        self.assertIn('python3 "$RECORDING/recording.py" apply --suites tests/suites.json "$@" --summary "$GITHUB_STEP_SUMMARY" '
                       '"$RUNNER_TEMP"/full-recording/*/full-recording.json', apply["run"])
         upload = next(step for step in self.steps if str(step.get("uses", "")).startswith("actions/upload-artifact@"))
         self.assertLess(self.steps.index(apply), self.steps.index(upload))
@@ -192,6 +197,19 @@ class ClosingJobTests(unittest.TestCase):
         # Every step that commits, pushes or opens the pull request still needs a change.
         for name in ("Configure the GitHub App identity", "Commit the recorded lists", "Push the review branch", "Create or update the review pull request"):
             self.assertTrue(named(self.steps, name)["if"].startswith("steps.changes.outputs.changed == 'true' && "), name)
+
+    def test_on_a_moved_default_branch_apply_keeps_the_lists_of_the_entry_files_the_change_selects(self) -> None:
+        apply = named(self.steps, APPLY_STEP)
+        selection = next(step for step in self.steps if step.get("id") == "selection")
+        self.assertEqual("$/actions/suite-selection", selection["uses"])
+        self.assertLess(self.steps.index(selection), self.steps.index(apply))
+        self.assertEqual({"RECORDING": "${{ steps.recording.outputs.path }}", "SELECTION": "${{ steps.selection.outputs.path }}",
+                          "RECORDED": "${{ github.sha }}", "REPORT": "${{ runner.temp }}/full-recording-report.md"}, apply["env"])
+        self.assertIn('if [ "$head" != "$RECORDED" ]; then', apply["run"])
+        self.assertIn('python3 "$SELECTION/suite_selection.py" select --root . --suites tests/suites.json --base "$RECORDED" --head "$head" '
+                      '--compare direct --workflow .github/workflows/validate.yml --json-output "$RUNNER_TEMP/moved-selection.txt"', apply["run"])
+        self.assertIn('set -- --keep-lists "$RUNNER_TEMP/moved-selection.txt"', apply["run"])
+        self.assertIn("set -- --keep-all-lists", apply["run"])
 
     def test_a_failing_app_step_stops_the_run_and_names_the_question_to_the_user(self) -> None:
         stopped = next(step for step in self.steps if step.get("id") == "stopped")

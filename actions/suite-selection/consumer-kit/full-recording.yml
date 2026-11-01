@@ -215,6 +215,7 @@ jobs:
     steps:
       - uses: actions/checkout@<pin>
         with:
+          ref: ${{ github.ref_name == github.event.repository.default_branch && github.event.repository.default_branch || '' }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@<pin>
@@ -223,14 +224,31 @@ jobs:
           path: ${{ runner.temp }}/full-recording
       - id: recording
         uses: CrankyAnt/SharedWorkflows/actions/recording@v1
+      - id: selection
+        uses: CrankyAnt/SharedWorkflows/actions/suite-selection@v1
       - name: Join the results, apply the removals and write the duration estimates
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
+          SELECTION: ${{ steps.selection.outputs.path }}
+          RECORDED: ${{ github.sha }}
           REPORT: ${{ runner.temp }}/full-recording-report.md
         run: |
           set -euo pipefail
           printf 'The full recording of run %s/%s/actions/runs/%s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$REPORT"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites .github/suites.json --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/full-recording/*/full-recording.json | sed 's/^/- /' >> "$REPORT"
+          # On the default branch the checkout is its tip; when that moved past the recorded commit, the entry files that
+          # the change selects keep their stored reads, and all of them when the change cannot be selected.
+          set --
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$RECORDED" ]; then
+            printf 'The default branch moved from %s to %s during the run; the lists apply to %s.\n\n' "$RECORDED" "$head" "$head" >> "$REPORT"
+            if PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites .github/suites.json --base "$RECORDED" --head "$head" --compare direct --workflow <validation-caller> --json-output "$RUNNER_TEMP/moved-selection.txt" >&2; then
+              set -- --keep-lists "$RUNNER_TEMP/moved-selection.txt"
+            else
+              printf 'The change could not be selected, so every entry file keeps its stored reads.\n\n' >> "$REPORT"
+              set -- --keep-all-lists
+            fi
+          fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites .github/suites.json "$@" --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/full-recording/*/full-recording.json | sed 's/^/- /' >> "$REPORT"
       - id: changes
         name: Find whether the stored lists changed
         run: |

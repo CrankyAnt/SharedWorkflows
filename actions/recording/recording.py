@@ -16,7 +16,8 @@ full-recording mode it writes the classified reads, the skip state and the durat
 leaves the entry files that the additions name out of the job's passed list, so the job still stores the passes of its
 other entry files. ``apply`` adds a run's additions to the suite list, or, with the results of a full recording,
 replaces the lists of every entry file that exited with 0 and whose test report in an accepted format shows no skipped
-test, and writes the duration estimates, corrected for the speed of each shard job. The lists of a suite selected per
+test, and writes the duration estimates, corrected for the speed of each shard job; ``--keep-lists`` and
+``--keep-all-lists`` name the entry files whose recorded reads it adds instead. The lists of a suite selected per
 entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
 the commands.
 
@@ -27,7 +28,7 @@ the commands.
     python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ...
     python3 recording.py check [--output <directory>] --suites <suite list> [--root <repository>] [--summary <file>]
     python3 recording.py keep --additions <additions> <passed list>
-    python3 recording.py apply [--root <repository>] [--suites <suite list>] <additions or results> ...
+    python3 recording.py apply [--root <repository>] [--suites <suite list>] [--keep-lists <selection> | --keep-all-lists] <additions or results> ...
     python3 recording.py digest [--expect <digest>] [--github-output <file>]
 """
 
@@ -2057,9 +2058,11 @@ def run_apply(options: argparse.Namespace) -> int:
     items = {suite.name: suite.entry() for suite in raw.suites}
     lookups = {directory: list(names) for directory, names in raw.module_lookups}
     if documents[0]["kind"] == "additions":
+        if options.keep_lists is not None or options.keep_all_lists:
+            raise RecordingError("--keep-lists and --keep-all-lists go with full-recording results")
         report = apply_additions(documents, raw, resolved, items, lookups)
     else:
-        report = apply_full(documents, raw, resolved, items, lookups)
+        report = apply_full(documents, raw, resolved, items, lookups, kept_lists(options, resolved))
     for item in items.values():
         join_entry_lists(item)
         canonical_order(item)
@@ -2157,31 +2160,73 @@ def new_estimate(corrected: float, stored: float | None) -> float:
     return round(corrected, 2) if stored is None or abs(corrected - stored) > ESTIMATE_THRESHOLD * stored else stored
 
 
-def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]]) -> list[str]:
+# Why apply keeps the stored reads of an entry file that the selection of the change since the recorded commit selects,
+# and of every entry file when that selection could not be computed.
+SELECTED_REASON = "the change since the recorded commit selects it"
+UNSELECTED_REASON = "the change since the recorded commit could not be selected"
+
+
+def kept_lists(options: argparse.Namespace, resolved: dict) -> dict[tuple[str, str], str]:
+    """The suite and entry file pairs whose stored reads a full recording keeps, with the reason: every entry file under
+    ``--keep-all-lists``; under ``--keep-lists``, each entry file of a suite that the selection runs, limited to the
+    selection's ``entries`` of that suite when it names them."""
+    if options.keep_all_lists:
+        return {(suite.name, entry): UNSELECTED_REASON for suite in resolved.values() for entry in suite.entries}
+    if options.keep_lists is None:
+        return {}
+    try:
+        outputs = dict(line.split("=", 1) for line in options.keep_lists.read_text(encoding="utf-8").splitlines() if "=" in line)
+        suites = json.loads(outputs["suites"])
+        listed = json.loads(outputs.get("entries") or "{}")
+    except (OSError, KeyError, ValueError) as error:
+        raise RecordingError(f"cannot read the selection {options.keep_lists}: {error!r}") from error
+    kept = {}
+    for name, result in suites.items():
+        if result == "run" and name in resolved:
+            for entry in listed.get(name, resolved[name].entries):
+                kept[(name, entry)] = SELECTED_REASON
+    return kept
+
+
+def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]],
+               kept: dict[tuple[str, str], str]) -> list[str]:
     """Replace the lists of every recorded entry file that exited with 0 and whose test report in an accepted format
-    shows no skipped test. The module lookups of a directory become those of the recorded entry files, and keep the
-    stored ones while an entry file whose lists stay looks up modules there. The duration estimate of each entry file
-    that ran clean follows its corrected value as ``corrected_durations`` and ``new_estimate`` say, judged per entry
-    file, also in a suite selected as a whole; every other entry file keeps its stored estimate, or stays without one."""
+    shows no skipped test, unless ``kept`` names it with a reason to keep its stored reads. The module lookups of a
+    directory become those of the recorded entry files, and keep the stored ones while an entry file whose lists stay
+    looks up modules there. The duration estimate of each entry file that ran clean follows its corrected value as
+    ``corrected_durations`` and ``new_estimate`` say, judged per entry file, also in a suite selected as a whole; every
+    other entry file keeps its stored estimate, or stays without one. Results for a suite or an entry file that the
+    suite list lacks are left out and reported."""
     entries: dict[tuple[str, str], dict] = {}
     jobs: dict[tuple[str, str], tuple] = {}
+    report: list[str] = []
     for index, document in enumerate(documents):
         for entry in document["entries"]:
-            entries[(entry["suite"], entry["entry"])] = entry
-            # A result without a job comes from a workflow that names none at start; each such file is one job's result.
-            jobs[(entry["suite"], entry["entry"])] = ("job", entry["job"]) if entry.get("job") else ("result", index)
+            key = (entry["suite"], entry["entry"])
+            if key[0] not in resolved:
+                line = f"left out the results of the suite {key[0]}: the suite list lacks it"
+            elif key[1] not in resolved[key[0]].entries:
+                line = f"{key[0]}: left out the result of {key[1]}: the suite list lacks it"
+            else:
+                entries[key] = entry
+                # A result without a job comes from a workflow that names none at start; each such file is one job's result.
+                jobs[key] = ("job", entry["job"]) if entry.get("job") else ("result", index)
+                continue
+            if line not in report:
+                report.append(line)
     corrected = corrected_durations(entries, jobs, resolved, items)
     recorded_lookups: dict[str, set[str]] = {}
     for entry in entries.values():
         for directory, names in entry["reads"].get("module_lookups", {}).items():
             recorded_lookups.setdefault(directory, set()).update(names)
     replaced: set[tuple[str, str]] = set()
-    report = []
     for name in sorted({suite for suite, _ in entries}):
         suite = known_suite(resolved, name)
         item = items[name]
         recorded = {entry: entries.get((name, entry)) for entry in suite.entries}
         reasons = {entry: kept_reason(result) for entry, result in recorded.items()}
+        # What keeps a list: the reason of the recording, and for an entry file that ran clean, the reason ``kept`` gives.
+        list_reasons = {entry: reason if reason is not None else kept.get((name, entry)) for entry, reason in reasons.items()}
         durations = dict(item.get("entry_durations", {}))
         for entry in suite.entries:
             if reasons[entry] is None:
@@ -2195,24 +2240,24 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
         if suite.entry_selection:
             for entry, result in recorded.items():
                 if result is None:
-                    report.append(f"{name}: kept the list of {entry}: {reasons[entry]}")
-                elif reasons[entry] is None:
+                    report.append(f"{name}: kept the list of {entry}: {list_reasons[entry]}")
+                elif list_reasons[entry] is None:
                     replace_reads(item, result["reads"], raw_entries(suite, entry))
                     replaced.add((name, entry))
                 else:
                     add_reads(item, result["reads"], raw_entries(suite, entry))
-                    report.append(f"{name}: kept the list of {entry}: {reasons[entry]}")
+                    report.append(f"{name}: kept the list of {entry}: {list_reasons[entry]}")
             continue
         union = Reads()
         for result in recorded.values():
             if result is not None:
                 union.update(Reads.of(result["reads"]))
-        if all(reason is None for reason in reasons.values()):
+        if all(reason is None for reason in list_reasons.values()):
             replace_reads(item, union.document(), None)
             replaced.update((name, entry) for entry in suite.entries)
         else:
             add_reads(item, union.document(), None)
-            report += [f"{name}: kept the list of {entry}: {reason}" for entry, reason in reasons.items() if reason is not None]
+            report += [f"{name}: kept the list of {entry}: {reason}" for entry, reason in list_reasons.items() if reason is not None]
     directories_of_kept_lists = {directory for suite in resolved.values() for entry in suite.entries if (suite.name, entry) not in replaced
                                  for directory in suite.lookup_directories_of(entry)}
     stored_lookups = dict(lookups)
@@ -2315,6 +2360,11 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     applying.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")
     applying.add_argument("--suites", type=Path, help="the suite list (default: the one the files name, under the root)")
     applying.add_argument("--summary", type=Path, help="append the Markdown report to this file")
+    kept = applying.add_mutually_exclusive_group()
+    kept.add_argument("--keep-lists", type=Path, help="the output of select --json-output for the change since the recorded commit: "
+                      "the recorded reads of each entry file it selects are added to its stored lists instead of replacing them")
+    kept.add_argument("--keep-all-lists", action="store_true", help="add the recorded reads of every entry file to its stored lists: "
+                      "the change since the recorded commit could not be selected")
     applying.add_argument("files", type=Path, nargs="+", help="additions or full-recording results")
     digesting = commands.add_parser("digest", help="print the digest of the shared recording step")
     digesting.add_argument("--expect", help="the digest that select took; a different one fails")
