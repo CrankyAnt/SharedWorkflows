@@ -66,6 +66,10 @@ _Avoid_: Release, release channel, v1 branch
 A move of `v1` forward to a descendant commit whose CI on `main` passed: by hand after the user's yes, or automatically, by `promote-v1.yml`, for the updater App's pins pull request once the repository owner merged it. A move back to an earlier commit is a rollback.
 _Avoid_: Release, publish, tag bump
 
+**Sweep**:
+The search through the owner's repositories, archived ones left out, for the consumers of the suite selection: each repository whose default-branch workflow files call the suite selection at `v1`. A manual move of `v1` sends a `v1-moved` dispatch run to each one whose calling workflow lists that event.
+_Avoid_: Scan, consumer search
+
 **Pins file**:
 The file `actions/repository-hygiene/pins.json`, which holds every exact version and sha256 of the tools that the shared workflows and shared steps install.
 _Avoid_: Lock file, versions file, pins.json
@@ -106,12 +110,16 @@ _Avoid_: Status check, gate job
 The tree that a pull-request run checked out: the head merged with the base at the moment of the run.
 _Avoid_: PR tree, head tree
 
+**Dispatch run**:
+A run on the default branch that a `repository_dispatch` event starts and that selects and checks as a push of one commit would: a `dependabot-merged` run on the commit of a Dependabot merge, or a `v1-moved` run on the default branch's tip after a manual move of `v1`.
+_Avoid_: Repository dispatch, triggered run
+
 **Push lookup**:
-The step of a push run, or of a run on a merged Dependabot commit, that finds the pull-request run that tested the pushed commit and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection and the hygiene job select.
+The step of a push run or a dispatch run that finds the pull-request run that tested the commit it runs on and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection and the hygiene job select.
 _Avoid_: PR lookup, merge lookup
 
 **Landing base**:
-The commit that a push lands on: the push's previous head, or the pushed commit's first parent when the push has no previous head or the run is on a merged Dependabot commit.
+The commit that a push lands on: the push's previous head, or the commit's first parent when the push has no previous head or the run is a dispatch run.
 _Avoid_: Push base, before commit
 
 **Suite selection**:
