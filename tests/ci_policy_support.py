@@ -70,6 +70,80 @@ def condition_holds(condition: str, values: dict[str, str]) -> bool:
     return bool(eval(expression, {"__builtins__": {}}, {}))
 
 
+EXPRESSION_TOKEN = re.compile(r"\s*(?:(\|\||&&|==|!=|\(|\)|!)|'([^']*)'|([A-Za-z_][A-Za-z0-9_.-]*))")
+
+
+def expression_value(expression: str, context: dict) -> object:
+    """The value of a GitHub Actions expression made of context paths, string literals, ``==``, ``!=``, ``!``, ``&&``,
+    ``||`` and parentheses; a missing property is null, and ``&&`` and ``||`` return an operand, as GitHub's do."""
+    text = expression.strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    tokens, position = [], 0
+    while text[position:].strip():
+        match = EXPRESSION_TOKEN.match(text, position)
+        assert match, f"unexpected expression text: {text[position:]}"
+        tokens.append(("op", match.group(1)) if match.group(1) else ("str", match.group(2)) if match.group(2) is not None else ("path", match.group(3)))
+        position = match.end()
+    index = 0
+
+    def peek() -> str | None:
+        return tokens[index][1] if index < len(tokens) and tokens[index][0] == "op" else None
+
+    def primary() -> object:
+        nonlocal index
+        kind, value = tokens[index]
+        index += 1
+        if kind == "op" and value == "(":
+            result = either()
+            index += 1
+            return result
+        if kind == "op" and value == "!":
+            return not primary()
+        if kind == "str":
+            return value
+        current: object = context
+        for part in value.split("."):
+            current = current.get(part) if isinstance(current, dict) else None
+        return current
+
+    def comparison() -> object:
+        nonlocal index
+        left = primary()
+        while peek() in ("==", "!="):
+            operator = peek()
+            index += 1
+            right = primary()
+            left = (left == right) if operator == "==" else (left != right)
+        return left
+
+    def both() -> object:
+        nonlocal index
+        left = comparison()
+        while peek() == "&&":
+            index += 1
+            right = comparison()
+            left = right if left else left
+        return left
+
+    def either() -> object:
+        nonlocal index
+        left = both()
+        while peek() == "||":
+            index += 1
+            right = both()
+            left = left if left else right
+        return left
+
+    return either()
+
+
+# A ``v1-moved`` run: ``repository_dispatch`` without a ``client_payload``, on the default branch's tip.
+V1_MOVED_TIP = "c" * 40
+V1_MOVED_CONTEXT = {"github": {"event_name": "repository_dispatch", "sha": V1_MOVED_TIP, "ref_name": "main",
+                               "event": {"action": "v1-moved", "repository": {"default_branch": "main"}}}}
+
+
 def passed_list_steps(steps: list[dict], check_outcome: str, additions: str, keep_outcome: str = "success") -> list[str]:
     """The ids, or names, of the steps of a suite job whose condition reads the check's outcome or outputs and that run on a
     pull request after the step ``check`` ended with ``check_outcome`` and the action output ``additions``. The step

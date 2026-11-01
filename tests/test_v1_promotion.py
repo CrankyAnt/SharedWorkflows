@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
@@ -619,6 +620,10 @@ class ManualMove(unittest.TestCase):
         self.scans: list[str] = []
         self.ci_result: dict = dict(RAN)
         self.scan_result = CLEAN
+        self.gh = FakeGh({})
+
+    def repository(self, root: Path, remote: str) -> str:
+        return Api.REPOSITORY
 
     def ci(self, repository: str, commit: str) -> dict:
         self.ci_reads.append(commit)
@@ -630,7 +635,8 @@ class ManualMove(unittest.TestCase):
 
     def run_main(self, *arguments: str) -> tuple[int, str]:
         patches = [mock.patch.object(promote, "SURFACE_PATH", self.surface_file), mock.patch.object(promote, "github_ci", self.ci),
-                   mock.patch.object(promote, "gitleaks_scan", self.scan), mock.patch.object(promote, "github_repository", lambda root, remote: Api.REPOSITORY)]
+                   mock.patch.object(promote, "gitleaks_scan", self.scan), mock.patch.object(promote, "github_repository", lambda root, remote: self.repository(root, remote)),
+                   mock.patch.object(promote, "run_gh", lambda arguments: self.gh(arguments))]
         with contextlib.ExitStack() as stack:
             for patch in patches:
                 stack.enter_context(patch)
@@ -884,6 +890,266 @@ class PromoteTests(ManualMove):
         self.assertEqual(self.fixture.v1, self.fixture.remote_v1())
         self.assertIn("The Gitleaks scan of the tag push reports a finding or could not run; nothing was pushed.", output)
         self.assertIn("leaks found: 1", output)
+
+
+CALLER = """name: Validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [dependabot-merged, v1-moved]
+jobs:
+  select:
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1
+"""
+BLOCK_CALLER = """name: Validation
+'on':
+  push:
+  repository_dispatch:
+    # both events start a run on the default branch
+    types:
+      - dependabot-merged
+      - "v1-moved"
+jobs:
+  select:
+    uses: 'CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1'  # the selection
+"""
+UNLISTED_CALLER = CALLER.replace(", v1-moved]", "]")
+HYGIENE_ONLY = """on: [pull_request]
+jobs:
+  hygiene:
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/repository-hygiene.yml@v1
+"""
+SENT = ["api", "--method", "POST", "repos/{name}/dispatches", "-f", "event_type=v1-moved"]
+
+
+class FakeGh:
+    """The ``gh`` calls of the sweep and the dispatches: the owner's repositories with the workflow files of their default
+    branch, None for a repository without ``.github/workflows/``; every call is recorded."""
+
+    def __init__(self, repositories: dict[str, dict[str, str] | None]) -> None:
+        self.repositories = repositories
+        self.calls: list[list[str]] = []
+        self.list_error = ""
+        self.read_errors: dict[str, str] = {}
+        self.dispatch_errors: dict[str, str] = {}
+
+    def __call__(self, arguments: list[str]) -> subprocess.CompletedProcess:
+        self.calls.append(list(arguments))
+
+        def answer(stdout: str = "", returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
+            return subprocess.CompletedProcess(["gh", *arguments], returncode, stdout=stdout, stderr=stderr)
+
+        if arguments[:2] == ["repo", "list"]:
+            return answer(returncode=1, stderr=self.list_error) if self.list_error else answer("".join(f"{name}\n" for name in self.repositories))
+        if arguments[:3] == ["api", "--method", "POST"]:
+            name = arguments[3].removeprefix("repos/").removesuffix("/dispatches")
+            return answer(returncode=1, stderr=self.dispatch_errors[name]) if name in self.dispatch_errors else answer()
+        owner, repository, _, file = arguments[-1].removeprefix("repos/").split("/", 3)
+        name = f"{owner}/{repository}"
+        if name in self.read_errors:
+            return answer(returncode=1, stderr=self.read_errors[name])
+        files = self.repositories[name]
+        if file == ".github/workflows":
+            if files is None:
+                return answer(returncode=1, stderr="gh: Not Found (HTTP 404)")
+            return answer(json.dumps([{"name": Path(each).name, "path": each, "type": "file"} for each in files]
+                                     + [{"name": "templates", "path": ".github/workflows/templates", "type": "dir"}]))
+        return answer(files[urllib.parse.unquote(file)])
+
+    def dispatched(self) -> list[str]:
+        return [call[3].removeprefix("repos/").removesuffix("/dispatches") for call in self.calls if call[:3] == ["api", "--method", "POST"]]
+
+
+class ConsumerDispatchTests(ManualMove):
+    """``promote`` after a pushed move: the sweep of the owner's repositories and ``v1-moved`` to every consumer of the
+    suite selection whose calling workflow lists it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.gh = FakeGh({
+            "CrankyAnt/Listing": {".github/workflows/validation.yml": CALLER, ".github/workflows/hygiene.yml": HYGIENE_ONLY},
+            "CrankyAnt/BlockList": {".github/workflows/ci.yaml": BLOCK_CALLER, ".github/workflows/notes.txt": CALLER},
+            "CrankyAnt/Unlisted": {".github/workflows/validation.yml": UNLISTED_CALLER},
+            "CrankyAnt/HygieneOnly": {".github/workflows/hygiene.yml": HYGIENE_ONLY},
+            "CrankyAnt/NoWorkflows": None,
+        })
+
+    def promote_v1(self, old: str, new: str) -> tuple[int, str]:
+        return self.run_main("promote", f"--old={old}", "--new", new)
+
+    def assert_nothing_sent(self) -> None:
+        self.assertEqual([], self.gh.calls, "no sweep and no event")
+
+    def test_a_pushed_move_sends_v1_moved_without_a_payload_to_every_consumer_whose_caller_lists_it(self) -> None:
+        target = self.shared_change()
+        code, output = self.promote_v1(self.fixture.v1, target)
+        self.assertEqual(0, code, output)
+        self.assertEqual(["CrankyAnt/Listing", "CrankyAnt/BlockList"], self.gh.dispatched())
+        for name in ["CrankyAnt/Listing", "CrankyAnt/BlockList"]:
+            self.assertIn([part.format(name=name) for part in SENT], self.gh.calls, "only event_type, no client_payload")
+            self.assertIn(f"  {name}: v1-moved sent.\n", output)
+        self.assertEqual(["repo", "list", "CrankyAnt", "--limit", "1000", "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"], self.gh.calls[0])
+        self.assertIn(["api", "-H", "Accept: application/vnd.github.raw", "repos/CrankyAnt/Listing/contents/.github/workflows/validation.yml"], self.gh.calls)
+        self.assertNotIn(["api", "-H", "Accept: application/vnd.github.raw", "repos/CrankyAnt/BlockList/contents/.github/workflows/notes.txt"], self.gh.calls,
+                         "only .yml and .yaml files are workflow files")
+        self.assertLess(output.index(f"v1 moved from {self.fixture.v1} to {target}."), output.index("Consumers of the suite selection"))
+
+    def test_a_consumer_whose_caller_does_not_list_v1_moved_gets_nothing_and_a_line(self) -> None:
+        code, output = self.promote_v1(self.fixture.v1, self.shared_change())
+        self.assertEqual(0, code, output)
+        self.assertNotIn("CrankyAnt/Unlisted", self.gh.dispatched())
+        self.assertIn("  CrankyAnt/Unlisted: .github/workflows/validation.yml calls suite-selection.yml@v1 without listing v1-moved among its "
+                      "repository_dispatch types, so no v1-moved run reaches it and its next pull-request runs still run every suite.\n", output)
+
+    def test_a_repository_without_workflows_or_without_a_call_of_the_selection_gets_no_event_and_no_line(self) -> None:
+        code, output = self.promote_v1(self.fixture.v1, self.shared_change())
+        self.assertEqual(0, code, output)
+        for name in ["CrankyAnt/NoWorkflows", "CrankyAnt/HygieneOnly"]:
+            with self.subTest(repository=name):
+                self.assertNotIn(name, self.gh.dispatched())
+                self.assertNotIn(name, output)
+        self.gh.repositories = {"CrankyAnt/NoWorkflows": None, "CrankyAnt/HygieneOnly": {".github/workflows/hygiene.yml": HYGIENE_ONLY}}
+        self.gh.calls.clear()
+        code, output = self.promote_v1(self.fixture.remote_v1(), self.shared_change("name: hygiene 3\n"))
+        self.assertEqual(0, code, output)
+        self.assertIn("Consumers of the suite selection among the repositories of CrankyAnt:\n  none found.", output)
+        self.assertEqual([], self.gh.dispatched())
+
+    def test_a_rollback_and_the_first_creation_send_the_same_events_as_a_promotion(self) -> None:
+        later = self.shared_change()
+        git(self.fixture.repo, "push", "-q", "--force", "origin", f"{later}:refs/tags/v1")
+        code, output = self.promote_v1(later, self.fixture.v1)
+        self.assertEqual(0, code, output)
+        self.assertIn(f"v1 moved from {later} to {self.fixture.v1}.", output)
+        rollback = self.gh.dispatched()
+        self.gh.calls.clear()
+        git(self.fixture.repo, "push", "-q", "origin", ":refs/tags/v1")
+        code, output = self.promote_v1("", later)
+        self.assertEqual(0, code, output)
+        self.assertIn(f"v1 was created at {later}.", output)
+        self.assertEqual(["CrankyAnt/Listing", "CrankyAnt/BlockList"], rollback)
+        self.assertEqual(rollback, self.gh.dispatched())
+
+    def test_a_scan_finding_or_a_rejected_or_failed_push_sends_no_event(self) -> None:
+        target = self.shared_change()
+        self.scan_result = promote.ScanResult(False, "leaks found: 1")
+        code, output = self.promote_v1(self.fixture.v1, target)
+        self.assertEqual(1, code, output)
+        self.assert_nothing_sent()
+        self.scan_result = CLEAN
+        newer = self.shared_change("name: hygiene 3\n")
+        git(self.fixture.repo, "push", "-q", "--force", "origin", f"{newer}:refs/tags/v1")
+        code, output = self.promote_v1(self.fixture.v1, target)
+        self.assertEqual(1, code, output)
+        self.assertIn("v1 moved after prepare", output)
+        self.assert_nothing_sent()
+        failed = subprocess.CompletedProcess([], 1, stdout="", stderr="remote: refused")
+        with mock.patch.object(promote, "leased_push", return_value=failed):
+            code, output = self.promote_v1(newer, target)
+        self.assertEqual(1, code, output)
+        self.assertIn("failed; v1 still holds", output)
+        self.assert_nothing_sent()
+
+    def test_a_failed_dispatch_leaves_the_others_sent_names_the_error_and_the_command_and_exits_1(self) -> None:
+        self.gh.dispatch_errors["CrankyAnt/Listing"] = "gh: Resource not accessible by integration (HTTP 403)"
+        target = self.shared_change()
+        code, output = self.promote_v1(self.fixture.v1, target)
+        self.assertEqual(1, code, output)
+        self.assertEqual(target, self.fixture.remote_v1(), "v1 stays moved")
+        self.assertEqual(["CrankyAnt/Listing", "CrankyAnt/BlockList"], self.gh.dispatched())
+        self.assertIn("  CrankyAnt/BlockList: v1-moved sent.\n", output)
+        line = ("  CrankyAnt/Listing: the v1-moved request failed: gh: Resource not accessible by integration (HTTP 403). "
+                "Send it again with: gh api --method POST repos/CrankyAnt/Listing/dispatches -f event_type=v1-moved")
+        self.assertIn(line, output)
+        self.assertLess(output.index(f"v1 moved from {self.fixture.v1} to {target}."), output.index(line))
+
+    def test_a_repository_whose_files_cannot_be_read_is_named_while_the_others_are_sent_and_promote_exits_1(self) -> None:
+        self.gh.read_errors["CrankyAnt/Unlisted"] = "gh: Server Error (HTTP 502)"
+        code, output = self.promote_v1(self.fixture.v1, self.shared_change())
+        self.assertEqual(1, code, output)
+        self.assertEqual(["CrankyAnt/Listing", "CrankyAnt/BlockList"], self.gh.dispatched())
+        self.assertIn("  CrankyAnt/Unlisted: its workflow files could not be read, so it was not checked: gh api repos/CrankyAnt/Unlisted/contents/"
+                      ".github/workflows failed: gh: Server Error (HTTP 502).", output)
+        self.assertIn("gh api --method POST repos/CrankyAnt/Unlisted/dispatches -f event_type=v1-moved", output)
+
+    def test_a_failed_sweep_says_that_v1_moved_that_the_consumers_could_not_be_found_and_why_and_exits_1(self) -> None:
+        self.gh.list_error = "gh: HTTP 401: Bad credentials"
+        target = self.shared_change()
+        code, output = self.promote_v1(self.fixture.v1, target)
+        self.assertEqual(1, code, output)
+        self.assertEqual(target, self.fixture.remote_v1())
+        self.assertEqual([], self.gh.dispatched())
+        moved = output.index(f"v1 moved from {self.fixture.v1} to {target}.")
+        failure = output.index("The consumers of the suite selection could not be found, so no v1-moved event was sent: "
+                               "gh repo list CrankyAnt failed: gh: HTTP 401: Bad credentials")
+        self.assertLess(moved, failure)
+        self.gh.list_error = ""
+        newer = self.shared_change("name: hygiene 3\n")
+
+        def unknown(root: Path, remote: str) -> str:
+            raise RuntimeError("the remote origin (/srv/origin.git) is not a GitHub repository.")
+
+        self.repository = unknown  # type: ignore[method-assign]
+        code, output = self.promote_v1(target, newer)
+        self.assertEqual(1, code, output)
+        self.assertEqual(newer, self.fixture.remote_v1())
+        self.assertLess(output.index(f"v1 moved from {target} to {newer}."), output.index("could not be found, so no v1-moved event was sent: the remote origin"))
+
+    def test_the_question_of_prepare_states_that_promote_sends_v1_moved_to_the_consumers_it_finds(self) -> None:
+        self.shared_change()
+        code, output = self.prepare()
+        self.assertEqual(0, code, output)
+        self.assertIn("promote also sends v1-moved to every consumer of the suite selection that it finds", self.question(output))
+        self.assert_nothing_sent()
+
+
+class WorkflowFileTests(unittest.TestCase):
+    """The reads of a consumer's workflow file: the call of the suite selection and the ``repository_dispatch`` types."""
+
+    REPOSITORY = "CrankyAnt/SharedWorkflows"
+
+    def test_the_types_are_read_in_flow_block_and_scalar_form_from_the_top_level_on(self) -> None:
+        for text, types in [
+            (CALLER, {"dependabot-merged", "v1-moved"}),
+            (BLOCK_CALLER, {"dependabot-merged", "v1-moved"}),
+            ("on:\n  repository_dispatch:\n    types: v1-moved   # one type\n", {"v1-moved"}),
+            ("on:\n  repository_dispatch: {types: [v1-moved]}\n", {"v1-moved"}),
+            ("on: {push: null, repository_dispatch: {types: ['v1-moved']}}\n", {"v1-moved"}),
+            ("on:\n  repository_dispatch:\n    types:\n    - v1-moved\n  push:\n", {"v1-moved"}),
+            ("on:\n  repository_dispatch:\n  push:\n    branches: [v1-moved]\n", set()),
+            ("on: [push, repository_dispatch]\n", set()),
+            (UNLISTED_CALLER, {"dependabot-merged"}),
+            ("on:\n  push:\njobs:\n  a:\n    steps:\n      - run: |\n          repository_dispatch:\n            types: [v1-moved]\n", set()),
+            ("name: no trigger\n", set()),
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(frozenset(types), promote.dispatch_types(text))
+
+    def test_only_a_uses_of_the_suite_selection_at_v1_is_a_call(self) -> None:
+        for text, calls in [
+            (CALLER, True),
+            (BLOCK_CALLER, True),
+            ("jobs:\n  select:\n    uses: crankyant/sharedworkflows/.github/workflows/suite-selection.yml@v1\n", True),
+            (HYGIENE_ONLY, False),
+            ("jobs:\n  select:\n    # uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1\n", False),
+            ("jobs:\n  select:\n    uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@main\n", False),
+            ("jobs:\n  select:\n    uses: ./.github/workflows/suite-selection.yml\n", False),
+            ("jobs:\n  select:\n    uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1-beta\n", False),
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(calls, promote.calls_selection(text, self.REPOSITORY))
+
+    def test_gh_runs_with_its_own_authentication_and_a_missing_gh_is_a_failed_request(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(promote.subprocess, "run", return_value=completed) as run:
+            promote.run_gh(["api", "--method", "POST", "repos/CrankyAnt/Listing/dispatches", "-f", "event_type=v1-moved"])
+        run.assert_called_once_with(["gh", "api", "--method", "POST", "repos/CrankyAnt/Listing/dispatches", "-f", "event_type=v1-moved"],
+                                    capture_output=True, text=True, check=False)
+        with mock.patch.object(promote.subprocess, "run", side_effect=FileNotFoundError("gh")):
+            result = promote.run_gh(["repo", "list", "CrankyAnt"])
+        self.assertEqual((127, "the gh CLI is not installed"), (result.returncode, result.stderr))
 
 
 class ManualMoveToolTests(unittest.TestCase):

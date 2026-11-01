@@ -696,6 +696,17 @@ class SharedLookupTests(FixtureRepository):
         self.assertEqual(self.requested()[:4], [self.runs_of(self.base), f"actions/runs/{self.RUN}/jobs?per_page=100",
                                                 f"actions/jobs/{self.RUN + 100}/logs", f"/storage/{self.RUN + 100}"])
 
+    def test_a_passed_v1_moved_run_on_the_tip_makes_a_later_pull_request_run_see_the_digest_as_unchanged(self) -> None:
+        self.record_commit(self.base, [self.passed(self.RUN - 1, self.base, created="2026-10-29T09:00:00Z"),
+                                       self.passed(self.RUN, self.base, created="2026-10-29T11:00:00Z", event="repository_dispatch")])
+        self.record_run(self.RUN - 1, self.MOVED)
+        self.record_run(self.RUN, self.DIGEST)
+        head = self.commit("head", {"README.md": "a change no suite reads\n"})
+        outputs, _, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.shared_lookup(self.DIGEST)))
+        self.assertEqual(self.runs(outputs), [])
+        self.assertIn("The selection runs as usual: the shared recording step equals that of run 5100", summary)
+        self.assertIn(f"  run {self.RUN}: head_sha {self.base}, head_branch main, event repository_dispatch: accepted\n", self.printed.getvalue())
+
     def test_the_lookup_takes_the_run_of_the_newest_first_parent_commit_while_the_branch_query_answers_an_older_one(self) -> None:
         commits = self.history(3)
         self.api.json(self.BRANCH_QUERY, {"total_count": 2, "workflow_runs": [self.passed(1, self.base), self.passed(self.RUN, commits[0])]})

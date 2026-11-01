@@ -10,9 +10,10 @@ push a manual move of ``v1``.
     python3 promote_v1.py promote --old OBJECT --new SHA [--remote origin] [--repository-root DIR]
 
 ``prepare`` and ``promote`` carry every manual move of ``v1``: ``prepare`` reports the facts of the move and prints the
-question for the user with the ``promote`` command below it, or refuses, and ``promote`` pushes the tag after a yes.
-"Promote v1 by hand" in ``docs/maintaining.md`` states what ``prepare`` reports, when it refuses and what ``promote``
-does.
+question for the user with the ``promote`` command below it, or refuses, and ``promote`` pushes the tag after a yes and
+then sends ``repository_dispatch`` of type ``v1-moved`` to every consumer of the suite selection that the sweep of the
+owner's repositories finds. "Promote v1 by hand" in ``docs/maintaining.md`` states what ``prepare`` reports, when it
+refuses and what ``promote`` does.
 
 ``read-tag`` reads ``refs/tags/v1`` through the GitHub API with the token in ``GH_TOKEN``, because the checkout
 holds no credentials, and writes ``v1`` and ``v1_object`` as outputs, both empty when the tag does not exist.
@@ -39,6 +40,7 @@ import shlex
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +58,10 @@ SCRIPT_COMMAND = "python3 actions/repository-hygiene/promote_v1.py"
 PROMOTION, ROLLBACK, FIRST_CREATION = "promotion", "rollback", "first creation"
 SCAN_REFUSAL = "the Gitleaks scan of the tag push reports a finding or could not run"
 CI_WORKFLOWS = ("validate.yml", "repository-hygiene-caller.yml")
+MOVED_EVENT = "v1-moved"
+SELECTION_WORKFLOW = ".github/workflows/suite-selection.yml@v1"
+WORKFLOW_SUFFIXES = (".yml", ".yaml")
+SWEEP_LIMIT = 1000
 CI_TIMEOUT = 10 * 60
 CI_INTERVAL = 30
 REQUEST_TIMEOUT = 20
@@ -397,7 +403,8 @@ class Preparation:
             move_text = f"Create v1 at {self.target}, the first creation, which carries the shared-surface files {files}?"
         else:
             move_text = f"Move v1 from {self.v1} to {self.target}, a {self.kind} that changes the shared-surface files {files}?"
-        return f"Question: {move_text} The move changes the later runs of every caller. Answer yes or no."
+        return (f"Question: {move_text} The move changes the later runs of every caller, and promote also sends {MOVED_EVENT} to every "
+                f"consumer of the suite selection that it finds, which starts a run on its default branch. Answer yes or no.")
 
     def command(self, remote: str, root: Path | None) -> str:
         old = f"--old {shlex.quote(self.v1_object)}" if self.v1_object else "--old="
@@ -476,6 +483,206 @@ def promote(root: Path, remote: str, old: str, new: str, *, scan: Callable[[str]
     return True, f"v1 moved from {old_commit} to {new_commit}. A later rollback moves v1 back to {old_commit}."
 
 
+GhRunner = Callable[[list[str]], subprocess.CompletedProcess]
+
+
+class SweepError(RuntimeError):
+    """A request of the sweep failed."""
+
+
+@dataclass(frozen=True)
+class SweptRepository:
+    """A repository of the sweep: its default-branch workflow files that call the suite selection at ``v1`` and list
+    ``v1-moved`` among their ``repository_dispatch`` types, those that call it without, or why its files could not be read."""
+
+    name: str
+    with_event: tuple[str, ...] = ()
+    without_event: tuple[str, ...] = ()
+    error: str = ""
+
+
+def run_gh(arguments: list[str]) -> subprocess.CompletedProcess:
+    """Run the ``gh`` CLI with its own authentication; no token and no environment are handed to it."""
+    try:
+        return subprocess.run(["gh", *arguments], capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(["gh", *arguments], 127, stdout="", stderr="the gh CLI is not installed")
+
+
+def _gh_error(result: subprocess.CompletedProcess) -> str:
+    return (result.stderr or result.stdout or "").strip() or f"gh exited with {result.returncode}"
+
+
+def _scalar(value: str) -> str:
+    value = re.sub(r"(?:^|\s+)#.*$", "", value).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1]
+    return value
+
+
+def _flow_types(value: str) -> frozenset[str]:
+    """The types of a flow ``repository_dispatch`` value such as ``{types: [a, b]}``; empty for any other form."""
+    match = re.search(r"\btypes\s*:\s*\[([^\]]*)\]", value)
+    return frozenset(item for item in (_scalar(part) for part in match.group(1).split(",")) if item) if match else frozenset()
+
+
+def _block(lines: list[str], start: int, indent: int) -> list[str]:
+    """The lines after ``start`` that are blank, comments or indented deeper than ``indent``."""
+    block = []
+    for line in lines[start + 1:]:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and len(line) - len(line.lstrip()) <= indent:
+            break
+        block.append(line)
+    return block
+
+
+def _option_types(options: list[str]) -> frozenset[str]:
+    """The ``types`` that the option lines of ``repository_dispatch`` list, in flow, scalar or block form."""
+    for offset, option in enumerate(options):
+        types = re.match(r"^(\s+)types\s*:(.*)$", option)
+        if types is None:
+            continue
+        value = _scalar(types.group(2))
+        if value.startswith("["):
+            return _flow_types(f"types: {value}")
+        if value:
+            return frozenset({value})
+        items = []
+        for entry in options[offset + 1:]:
+            if not entry.strip() or entry.strip().startswith("#"):
+                continue
+            item = re.match(r"^(\s*)-\s*(.*)$", entry)
+            if item is None or len(item.group(1)) < len(types.group(1)):
+                break
+            items.append(_scalar(item.group(2)))
+        return frozenset(item for item in items if item)
+    return frozenset()
+
+
+def dispatch_types(text: str) -> frozenset[str]:
+    """The ``repository_dispatch`` types that the top-level ``on:`` of a workflow file lists; empty when it lists none."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        trigger = re.match(r"""^(?:on|"on"|'on')\s*:(.*)$""", line)
+        if trigger is None:
+            continue
+        rest = _scalar(trigger.group(1))
+        if rest:
+            dispatch = re.search(r"\brepository_dispatch\s*:\s*(\{[^{}]*\})", rest)
+            return _flow_types(dispatch.group(1)) if dispatch else frozenset()
+        block = _block(lines, index, 0)
+        for position, child in enumerate(block):
+            dispatch = re.match(r"^(\s+)repository_dispatch\s*:(.*)$", child)
+            if dispatch is None:
+                continue
+            value = _scalar(dispatch.group(2))
+            return _flow_types(value) if value else _option_types(_block(block, position, len(dispatch.group(1))))
+        return frozenset()
+    return frozenset()
+
+
+def calls_selection(text: str, repository: str) -> bool:
+    """Whether a workflow file has a ``uses:`` of ``<repository>/.github/workflows/suite-selection.yml@v1``."""
+    reference = f"(?i:{re.escape(repository)})/{re.escape(SELECTION_WORKFLOW)}"
+    return re.search(rf"""^\s*(?:-\s+)?uses\s*:\s*(["']?){reference}\1\s*(?:#.*)?$""", text, re.MULTILINE) is not None
+
+
+def workflow_files(name: str, gh: GhRunner) -> list[str]:
+    """The paths of the workflow files under ``.github/workflows/`` on the default branch of ``name``; none without the folder."""
+    result = gh(["api", f"repos/{name}/contents/.github/workflows"])
+    if result.returncode != 0:
+        if "HTTP 404" in (result.stderr or ""):
+            return []
+        raise SweepError(f"gh api repos/{name}/contents/.github/workflows failed: {_gh_error(result)}")
+    try:
+        entries = json.loads(result.stdout)
+    except ValueError as error:
+        raise SweepError(f"the listing of {name}/.github/workflows is no JSON: {error}") from error
+    if not isinstance(entries, list):
+        return []
+    return [entry["path"] for entry in entries if isinstance(entry, dict) and entry.get("type") == "file"
+            and isinstance(entry.get("path"), str) and entry["path"].endswith(WORKFLOW_SUFFIXES)]
+
+
+def workflow_text(name: str, path: str, gh: GhRunner) -> str:
+    """The content of one workflow file on the default branch of ``name``."""
+    result = gh(["api", "-H", "Accept: application/vnd.github.raw", f"repos/{name}/contents/{urllib.parse.quote(path)}"])
+    if result.returncode != 0:
+        raise SweepError(f"gh api repos/{name}/contents/{path} failed: {_gh_error(result)}")
+    return result.stdout
+
+
+def sweep(repository: str, gh: GhRunner) -> list[SweptRepository]:
+    """The repositories of the owner of ``repository`` whose default-branch workflow files call its suite selection at
+    ``v1``, by the sweep of "Find the consumers" in ``docs/maintaining.md``, and each one whose files could not be read.
+    :class:`SweepError` means that the repositories could not be listed."""
+    owner = repository.split("/", 1)[0]
+    listed = gh(["repo", "list", owner, "--limit", str(SWEEP_LIMIT), "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"])
+    if listed.returncode != 0:
+        raise SweepError(f"gh repo list {owner} failed: {_gh_error(listed)}")
+    swept = []
+    for name in listed.stdout.split():
+        with_event: list[str] = []
+        without_event: list[str] = []
+        try:
+            for path in workflow_files(name, gh):
+                text = workflow_text(name, path, gh)
+                if calls_selection(text, repository):
+                    (with_event if MOVED_EVENT in dispatch_types(text) else without_event).append(path)
+        except SweepError as error:
+            swept.append(SweptRepository(name, error=str(error)))
+            continue
+        if with_event or without_event:
+            swept.append(SweptRepository(name, tuple(with_event), tuple(without_event)))
+    return swept
+
+
+def dispatch_arguments(name: str) -> list[str]:
+    """The ``gh`` arguments that send ``v1-moved`` to ``name``, with only ``event_type`` and no ``client_payload``."""
+    return ["api", "--method", "POST", f"repos/{name}/dispatches", "-f", f"event_type={MOVED_EVENT}"]
+
+
+def dispatch_command(name: str) -> str:
+    return shlex.join(["gh", *dispatch_arguments(name)])
+
+
+def sweep_failure(reason: str) -> str:
+    return (f"The consumers of the suite selection could not be found, so no {MOVED_EVENT} event was sent: {reason}\n"
+            f"Find them as \"Find the consumers\" in docs/maintaining.md says, and send the event to each one whose caller lists "
+            f"{MOVED_EVENT} with: {dispatch_command('<consumer>')}")
+
+
+def notify_consumers(repository: str, gh: GhRunner) -> tuple[bool, str]:
+    """Send ``repository_dispatch`` of type ``v1-moved``, without a ``client_payload``, to every consumer of the suite
+    selection whose calling workflow file lists it; one line per consumer found. False when the sweep or a request failed."""
+    try:
+        swept = sweep(repository, gh)
+    except SweepError as error:
+        return False, sweep_failure(str(error))
+    complete = True
+    lines = [f"Consumers of the suite selection among the repositories of {repository.split('/', 1)[0]}:"]
+    for found in swept:
+        if found.error:
+            complete = False
+            lines.append(f"  {found.name}: its workflow files could not be read, so it was not checked: {found.error}. "
+                         f"When it calls suite-selection.yml@v1 and lists {MOVED_EVENT}, send the event with: {dispatch_command(found.name)}")
+            continue
+        if found.with_event:
+            result = gh(dispatch_arguments(found.name))
+            if result.returncode == 0:
+                lines.append(f"  {found.name}: {MOVED_EVENT} sent.")
+            else:
+                complete = False
+                lines.append(f"  {found.name}: the {MOVED_EVENT} request failed: {_gh_error(result)}. Send it again with: {dispatch_command(found.name)}")
+        for path in found.without_event:
+            lines.append(f"  {found.name}: {path} calls suite-selection.yml@v1 without listing {MOVED_EVENT} among its repository_dispatch types, "
+                         f"so no {MOVED_EVENT} run reaches it and its next pull-request runs still run every suite.")
+    if not swept:
+        lines.append("  none found.")
+    return complete, "\n".join(lines)
+
+
 def _append(path: Path | None, text: str) -> None:
     if path:
         with path.open("a", encoding="utf-8") as handle:
@@ -520,7 +727,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def manual_move(arguments: argparse.Namespace) -> int:
-    """``prepare`` or ``promote``: exit 0 only for a printed question and command, or for a pushed tag."""
+    """``prepare`` or ``promote``: exit 0 only for a printed question and command, or for a pushed tag whose consumers were
+    all found and sent ``v1-moved`` where their caller lists it."""
     root = (arguments.repository_root or Path(".")).resolve()
     remote = arguments.remote
     scan = lambda commit: gitleaks_scan(root, remote, commit)  # noqa: E731
@@ -528,7 +736,16 @@ def manual_move(arguments: argparse.Namespace) -> int:
         if arguments.command == "promote":
             moved, text = promote(root, remote, arguments.old, arguments.new, scan=scan)
             print(text)
-            return 0 if moved else 1
+            if not moved:
+                return 1
+            try:
+                repository = github_repository(root, remote)
+            except RuntimeError as error:
+                print(f"\n{sweep_failure(str(error))}")
+                return 1
+            notified, report = notify_consumers(repository, run_gh)
+            print(f"\n{report}")
+            return 0 if notified else 1
         preparation = prepare(root, remote, arguments.commit, load_surface(SURFACE_PATH), scan=scan,
                               ci=lambda commit: github_ci(github_repository(root, remote), commit))
     except RuntimeError as error:
