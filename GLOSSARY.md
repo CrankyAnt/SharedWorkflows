@@ -194,6 +194,10 @@ _Avoid_: Unit test, fast test
 A test that hands the code under test to a long-lived process that many tests share, instead of starting it as its own process.
 _Avoid_: In-process test, batch test, warm test
 
+**ETW access setup**:
+The one-time setting, made from an elevated shell and undone by its own restore, that lets one local account start the recording step's live ETW session without elevation: membership of Performance Log Users and access to the kernel file, kernel process and system trace providers.
+_Avoid_: ETW permissions, admin setup, elevation setup
+
 ### Reads
 
 **Recording**:
