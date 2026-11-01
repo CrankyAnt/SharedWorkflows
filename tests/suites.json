@@ -170,10 +170,18 @@
           "tests/test_ci_policy_auto_merge_caller.py"
         ],
         "tests/test_ci_policy_shared_surface.py": [
+          ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
+          ".github/workflows/full-recording.yml",
+          ".github/workflows/promote-v1.yml",
+          ".github/workflows/rebuild-etw-consumer.yml",
+          ".github/workflows/repository-hygiene-caller.yml",
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/update-ci-pins.yml",
+          ".github/workflows/update-publication-spec.yml",
+          ".github/workflows/validate.yml",
           "actions/dependabot-auto-merge/consumer-kit/README.md",
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
@@ -184,6 +192,7 @@
           "actions/repository-hygiene/shared-surface.json",
           "actions/repository-ruleset/README.md",
           "actions/repository-ruleset/ruleset-main-template.json",
+          "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/README.md",
           "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
@@ -403,6 +412,7 @@
       },
       "directory_memberships": [
         ".github/workflows",
+        ".github/workflows/**",
         ".github/workflows/dependabot-auto-merge.yml/**",
         ".github/workflows/repository-hygiene.yml/**",
         ".github/workflows/suite-selection.yml/**",
@@ -536,6 +546,7 @@
           ".github/workflows"
         ],
         "tests/test_ci_policy_shared_surface.py": [
+          ".github/workflows/**",
           ".github/workflows/dependabot-auto-merge.yml/**",
           ".github/workflows/repository-hygiene.yml/**",
           ".github/workflows/suite-selection.yml/**",
@@ -688,6 +699,10 @@
         ]
       },
       "existence_reads": [
+        {
+          "path": ".github/workflows",
+          "kind": "any"
+        },
         {
           "path": ".github/workflows/dependabot-auto-merge.yml",
           "kind": "any"
@@ -1731,6 +1746,10 @@
           }
         ],
         "tests/test_ci_policy_shared_surface.py": [
+          {
+            "path": ".github/workflows",
+            "kind": "any"
+          },
           {
             "path": ".github/workflows/dependabot-auto-merge.yml",
             "kind": "any"
@@ -3898,10 +3917,15 @@
         ".github/workflows/dependabot-auto-merge-caller.yml",
         ".github/workflows/dependabot-auto-merge.yml",
         ".github/workflows/full-recording.yml",
+        ".github/workflows/promote-v1.yml",
+        ".github/workflows/rebuild-etw-consumer.yml",
         ".github/workflows/repository-hygiene-caller.yml",
         ".github/workflows/repository-hygiene.yml",
         ".github/workflows/suite-selection.yml",
         ".github/workflows/suite-verdict.yml",
+        ".github/workflows/update-ci-pins.yml",
+        ".github/workflows/update-publication-spec.yml",
+        ".github/workflows/validate.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
@@ -4002,13 +4026,21 @@
           ".github/dependabot.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
+          ".github/workflows/full-recording.yml",
+          ".github/workflows/promote-v1.yml",
+          ".github/workflows/rebuild-etw-consumer.yml",
           ".github/workflows/repository-hygiene-caller.yml",
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/update-ci-pins.yml",
+          ".github/workflows/update-publication-spec.yml",
+          ".github/workflows/validate.yml",
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/package-ecosystems.json",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
           "tests/test_consumer_kit_install_by_need.py",
@@ -4114,6 +4146,7 @@
         "**/pyproject.toml/**",
         "**/requirements*.txt",
         "**/requirements*.txt/**",
+        ".github/workflows/**",
         "actions",
         "actions/dependabot-auto-merge/consumer-kit",
         "actions/python-language-step/consumer-kit",
@@ -4143,7 +4176,8 @@
           "**/pyproject.toml",
           "**/pyproject.toml/**",
           "**/requirements*.txt",
-          "**/requirements*.txt/**"
+          "**/requirements*.txt/**",
+          ".github/workflows/**"
         ],
         "tests/test_consumer_kit_publication.py": [
           "actions",
@@ -4154,6 +4188,10 @@
         ]
       },
       "existence_reads": [
+        {
+          "path": ".github/workflows",
+          "kind": "any"
+        },
         {
           "path": "actions",
           "kind": "directory"
@@ -5356,6 +5394,10 @@
         ],
         "tests/test_consumer_kit_install_by_need.py": [
           {
+            "path": ".github/workflows",
+            "kind": "any"
+          },
+          {
             "path": "actions",
             "kind": "directory"
           },
@@ -5381,6 +5423,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
             "kind": "any"
           },
           {
