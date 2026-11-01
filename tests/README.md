@@ -66,7 +66,21 @@ The suites need Python, and selected publication entry files need Node.js and np
   npm ci --ignore-scripts --no-audit --no-fund --userconfig /dev/null --prefix <directory>
   ```
 
-- Windows suites (`windows`, `etw-consumer-build`). Windows; the cases skip on other systems. The live ETW recording cases of `tests/test_windows_recording.py` also need `dotnet` with the .NET runtime that the ETW consumer's project names, and administrator rights, and skip without them.
+- Windows suites (`windows`, `etw-consumer-build`). Windows; the cases skip on other systems. The live ETW recording cases of `tests/test_windows_recording.py` also need `dotnet` with the .NET runtime that the ETW consumer's project names, and an account that may start the consumer's ETW session. Before they run, they start and stop that session once; when it cannot start, each of them skips with a reason that names the denied part. An elevated shell may start it, as in the `windows` job. Without elevation, an account needs three settings:
+
+  - membership of Performance Log Users (`S-1-5-32-559`), which takes effect at the account's next log-on;
+  - an allow entry with the mask `0x0081` on `Microsoft-Windows-Kernel-File` and on `Microsoft-Windows-Kernel-Process`;
+  - an allow entry with the mask `0x0FF7` on SystemTraceProvider (`9e814aad-3204-11d2-9a82-006008a86939`).
+
+  The account gains no administrator rights from them, but any process of the account may then trace these providers. [`etw_access.ps1`](etw_access.ps1) sets them up once, from an elevated PowerShell, for the account that runs it or for the account it names:
+
+  ```text
+  pwsh -NoProfile -File tests/etw_access.ps1 inspect [<account>]
+  pwsh -NoProfile -File tests/etw_access.ps1 setup [<account>]
+  pwsh -NoProfile -File tests/etw_access.ps1 restore [<account>]
+  ```
+
+  `inspect` lists the stored allow entries of the three providers and of the default descriptor with their account and mask, and the account's membership, and changes nothing. `setup` first records the stored descriptors of the three providers and the membership in `HKLM\SOFTWARE\SharedWorkflows\EtwAccess\<account SID>`, outside every checkout, and then gives the account the three settings; a repeated `setup` adds no duplicate entries and keeps the first record. `restore` writes the recorded descriptors back, removes a descriptor that was absent, removes the membership only when `setup` added it, and then removes the record; without a record it changes nothing. `restore` returns each of the three descriptors as a whole to its recorded state, so it also undoes any later entry on them, such as one that `setup` gave another account. A log-on after `setup` or `restore` brings the membership into effect. When an elevated prompt runs under another administrator account, `setup` and `restore` name the account that runs the tests.
 
 - Python language step and Python floor (`python-language-step`, `python-floor`). The pinned ruff and mypy from the `python` tools of the pins file, in `HYGIENE_TOOLS` or on `PATH`, which `install_tools.py` installs with `--tool ruff --tool mypy`; the cases skip without them.
 

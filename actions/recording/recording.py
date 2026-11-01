@@ -268,7 +268,8 @@ def start_session(output: Path, root: Path, dotnet: str, environment: dict[str, 
     while not ready.is_file():
         if process.poll() is not None:
             raise RecordingError(f"the ETW consumer exited with {process.returncode} before its session ran; it needs administrator "
-                                 f"rights: {log.read_text(encoding='utf-8', errors='replace').strip()}")
+                                 "rights or, without elevation, an account that the one-time setup tests/etw_access.ps1 of "
+                                 f"CrankyAnt/SharedWorkflows prepared: {log.read_text(encoding='utf-8', errors='replace').strip()}")
         if time.monotonic() > deadline:
             raise RecordingError(f"the ETW session did not start within {ETW_WAIT_SECONDS} s")
         time.sleep(0.05)
