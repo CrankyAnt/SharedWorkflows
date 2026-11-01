@@ -168,8 +168,9 @@ def tracked_workflows(root: Path) -> dict[str, str]:
             if re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)}
 
 
-def _flow_items(text: str) -> list[str]:
-    """The top-level items of a flow list or flow mapping's inner text, split at commas outside brackets and quotes."""
+def flow_items(text: str) -> list[str]:
+    """The top-level items of the inner text of a flow list, a flow mapping or a jq object program, split at commas outside
+    brackets and quotes: the one splitter of such text in the tests."""
     items, depth, quote, start = [], 0, "", 0
     for index, character in enumerate(text):
         if quote:
@@ -195,7 +196,7 @@ def workflow_triggers(text: str, source: str) -> set[str]:
     if isinstance(on, dict):
         return set(on)
     if isinstance(on, str) and on[:1] + on[-1:] in ("[]", "{}"):
-        on = [item.split(":", 1)[0] if on[0] == "{" else item for item in _flow_items(on[1:-1])]
+        on = [item.split(":", 1)[0] if on[0] == "{" else item for item in flow_items(on[1:-1])]
     if isinstance(on, list):
         return {str(item).strip().strip("'\"") for item in on}
     return {on} if isinstance(on, str) else set()
@@ -204,6 +205,16 @@ def workflow_triggers(text: str, source: str) -> set[str]:
 def shared_workflows(workflows: dict[str, str]) -> list[str]:
     """The paths of the workflows, from path to text, whose triggers hold ``workflow_call``: the shared workflows."""
     return [path for path, text in workflows.items() if "workflow_call" in workflow_triggers(text, path)]
+
+
+def uses_values(text: str, source: str) -> list[str]:
+    """The ``uses:`` value of each job and then each step of a workflow, read from the document that the YAML subset reader
+    returns, so that quotes and a trailing comment are no part of a value."""
+    document = ci_definition().read_yaml(text, source)
+    job_map = document.get("jobs") if isinstance(document, dict) else None
+    jobs = [job for job in job_map.values() if isinstance(job, dict)] if isinstance(job_map, dict) else []
+    steps = [step for job in jobs if isinstance(job.get("steps"), list) for step in job["steps"] if isinstance(step, dict)]
+    return [str(item["uses"]) for item in [*jobs, *steps] if item.get("uses")]
 
 
 def read_workflow(path: Path) -> tuple[str, dict]:
