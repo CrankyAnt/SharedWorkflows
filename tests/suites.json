@@ -6271,6 +6271,7 @@
         "tests/test_recording_check.py",
         "tests/test_recording_classification.py",
         "tests/test_recording_full.py",
+        "tests/test_recording_full_close.py",
         "tests/test_recording_apply.py",
         "tests/test_recording_lookups.py",
         "tests/test_recording_etw.py",
@@ -6648,6 +6649,7 @@
         "tests/test_recording_classification.py",
         "tests/test_recording_etw.py",
         "tests/test_recording_full.py",
+        "tests/test_recording_full_close.py",
         "tests/test_recording_lookups.py",
         "tests/test_recording_pathspecs.py",
         "tests/test_suite_selection.py",
@@ -7077,6 +7079,9 @@
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/test_recording_full.py"
+        ],
+        "tests/test_recording_full_close.py": [
+          "tests/test_recording_full_close.py"
         ],
         "tests/test_recording_apply.py": [
           "actions/recording/recording.py",
