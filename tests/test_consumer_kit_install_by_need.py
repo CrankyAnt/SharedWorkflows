@@ -6,6 +6,7 @@ import re
 import subprocess
 import unittest
 from pathlib import Path
+from tests.ci_policy_support import shared_workflows, tracked_workflows
 from tests.consumer_kit_support import coverage
 from tests.consumer_kit_support import read_yaml
 
@@ -17,7 +18,6 @@ OWN_WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 OWN_CALLERS = ("dependabot-auto-merge-caller.yml", "repository-hygiene-caller.yml")
 OWN_DEPENDABOT = REPOSITORY_ROOT / ".github" / "dependabot.yml"
 HYGIENE_RESOURCES = REPOSITORY_ROOT / "actions" / "repository-hygiene"
-SHARED_WORKFLOWS = ("dependabot-auto-merge.yml", "repository-hygiene.yml", "suite-selection.yml", "suite-verdict.yml")
 
 
 def template_job(template: str) -> dict:
@@ -50,11 +50,11 @@ def own_dependencies() -> list[str]:
     listing = subprocess.run(["git", "ls-files", "-z", "--", *pathspecs], cwd=REPOSITORY_ROOT, capture_output=True, text=True,
                              encoding="utf-8", check=True)
     found = [path for path in filter(None, listing.stdout.split("\0")) if coverage.ecosystem_of(path, ecosystems)]
-    for name in SHARED_WORKFLOWS:
-        path = OWN_WORKFLOWS / name
-        for reference in re.findall(r"(?m)^\s*(?:-\s+)?uses:\s*(\S+)", path.read_text(encoding="utf-8")):
+    workflows = tracked_workflows(REPOSITORY_ROOT)
+    for path in shared_workflows(workflows):
+        for reference in re.findall(r"(?m)^\s*(?:-\s+)?uses:\s*(\S+)", workflows[path]):
             if not reference.startswith(("./", "$/", "CrankyAnt/SharedWorkflows/")):
-                found.append(f"{path.name}: {reference}")
+                found.append(f"{Path(path).name}: {reference}")
     return found
 
 
