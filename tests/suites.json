@@ -12001,6 +12001,7 @@
           "actions/repository-hygiene/link_check.py",
           "actions/repository-hygiene/pins.json",
           "actions/repository-hygiene/pins.py",
+          "actions/repository-hygiene/zizmor-policy.yml",
           "tests/hygiene_fixtures.py",
           "tests/test_hygiene_zizmor_configuration.py",
           "tests/zizmor_fixtures.py"
