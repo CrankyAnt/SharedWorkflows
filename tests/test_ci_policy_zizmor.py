@@ -36,7 +36,7 @@ class ZizmorPolicyTests(unittest.TestCase):
     def test_zizmor_policies_grant_ref_pin_to_exactly_the_shared_workflows(self) -> None:
         shared_workflow_exceptions = {f"CrankyAnt/SharedWorkflows/{workflow}" for workflow in shared_workflows()}
         expected_exceptions = {
-            SHARED_POLICY: shared_workflow_exceptions | {f"CrankyAnt/SharedWorkflows/{action}" for action in consumer_actions()} | {"actions/*"},
+            SHARED_POLICY: shared_workflow_exceptions | {f"CrankyAnt/SharedWorkflows/{action}" for action in consumer_actions()},
         }
         for policy_path, expected in expected_exceptions.items():
             policy = policy_path.read_text(encoding="utf-8")

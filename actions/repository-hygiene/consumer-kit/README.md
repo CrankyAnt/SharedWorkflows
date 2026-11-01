@@ -52,6 +52,8 @@ Pass `gitleaks-config` and `gitleaks-baseline` with the files that the repositor
 
 Beside the inputs, the job reads these files of the repository when they exist: the workflows under `.github/workflows/` and every `action.yml`; `.github/actionlint.yml` or `.yaml`; `.github/zizmor.yml` or `zizmor.yml`, either with a `.yaml` extension, in place of the shared zizmor policy; `.github/dependabot.yml` or `.yaml` and every tracked package file; every tracked Markdown file; and `REUSE.toml` with `LICENSES/`. A recognised package file is a package manifest of an ecosystem that Dependabot updates, such as `package.json`, `pyproject.toml` or `global.json`; a workflow is none. Without a Dependabot configuration, the coverage check passes only when the repository has no recognised package file.
 
+The shared zizmor policy holds every `uses:` reference outside the repository to a commit pin, `actions/*` included: `actions/checkout@<40-hex commit>` passes, and `actions/checkout@v7` fails with `unpinned-uses`. Only the shared workflows and the shared actions that the consumer kits call, such as `CrankyAnt/SharedWorkflows/.github/workflows/repository-hygiene.yml@v1`, may use a moving ref. The consumer kits pair each commit pin with a version comment, such as `# v7.0.1`; the policy does not check it.
+
 ## Repository settings
 
 The shared parts rely on the merge settings and the default-branch ruleset below. The user configures them; the job changes none of them. An agent shows the user the values it will set and sets them only after the user's approval.

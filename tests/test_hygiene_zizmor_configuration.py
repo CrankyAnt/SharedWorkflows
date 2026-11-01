@@ -7,10 +7,12 @@ import unittest
 from pathlib import Path
 
 from tests.hygiene_fixtures import REPOSITORY_ROOT, fixture_repository, tools_available, tools_directory
-from tests.zizmor_fixtures import CHECKOUT_TAG, WORKFLOW_HEAD
+from tests.zizmor_fixtures import CALLER_HEAD, WORKFLOW_HEAD, caller_job
 
 
 HYGIENE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "hygiene.py"
+SHARED_POLICY = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "zizmor-policy.yml"
+SHARED_WORKFLOW_V1 = "CrankyAnt/SharedWorkflows/.github/workflows/repository-hygiene.yml@v1"
 
 
 def configured_hygiene(root: Path, policy: Path) -> subprocess.CompletedProcess[str]:
@@ -37,15 +39,21 @@ class ConsumerConfigurationTests(unittest.TestCase):
         result = configured_hygiene(own, unused_policy)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("using the repository's zizmor configuration .github/zizmor.yml", result.stdout)
+        shared_caller = CALLER_HEAD + caller_job("shared", SHARED_WORKFLOW_V1)
+        lenient = fixture_repository(self.root / "lenient", {".github/workflows/caller.yml": shared_caller})
+        result = configured_hygiene(lenient, SHARED_POLICY)
+        self.assertEqual(0, result.returncode, "the shared policy accepts a shared workflow at v1\n" + result.stdout + result.stderr)
+        self.assertIn("using the shared policy", result.stdout)
         strict = fixture_repository(self.root / "strict", {
-            ".github/workflows/steps.yml": WORKFLOW_HEAD + CHECKOUT_TAG,
+            ".github/workflows/caller.yml": shared_caller,
             ".github/zizmor.yml": 'rules:\n  unpinned-uses:\n    config:\n      policies:\n        "*": hash-pin\n',
         })
-        result = configured_hygiene(strict, unused_policy)
+        result = configured_hygiene(strict, SHARED_POLICY)
         self.assertNotEqual(0, result.returncode, "the repository's stricter policy must apply")
-        self.assertIn("actions/checkout@v7", result.stdout + result.stderr)
+        self.assertIn("unpinned-uses", result.stdout + result.stderr)
+        self.assertIn(SHARED_WORKFLOW_V1, result.stdout + result.stderr)
         yaml_extension = fixture_repository(self.root / "yaml", {
-            ".github/workflows/steps.yml": WORKFLOW_HEAD + CHECKOUT_TAG,
+            ".github/workflows/caller.yml": shared_caller,
             ".github/zizmor.yaml": 'rules:\n  unpinned-uses:\n    config:\n      policies:\n        "*": hash-pin\n',
         })
         result = configured_hygiene(yaml_extension, unused_policy)
