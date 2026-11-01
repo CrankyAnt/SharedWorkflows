@@ -56,6 +56,10 @@ _Avoid_: Central surface, public API
 What an agent in a consumer needs to adopt one shared part, its templates and their explanation, kept with that part and apart from the documentation for maintaining the shared parts.
 _Avoid_: Consumer documentation, setup template
 
+**Pin source**:
+The workflow of this repository at `v1` whose action pins a consumer copies into a consumer kit template, one named per template; it holds action pins, where the pins file holds tool pins.
+_Avoid_: Pin file, pin reference
+
 ### The v1 channel
 
 **v1 channel**:
