@@ -33,7 +33,7 @@ Copy [validation.yml](validation.yml) to `.github/workflows/validation.yml` and 
 
 Keep `language-steps: python` on `select`, and the input `language-steps` of each validation job, in a repository with Python files; drop both otherwise. Each validation job's `uses:` keeps `$/` as the template writes it: `$/` is GitHub's reference to the running workflow's own repository and revision.
 
-The caller runs on pull requests, on pushes to the default branch and on the `repository_dispatch` event `dependabot-merged`, which Dependabot auto-merge sends after each merge, without `paths:` or `paths-ignore:`. A pull-request run is cancelled when the workflow starts for a newer head of the same pull request; push and dispatch runs are never cancelled. A workflow-level `concurrency` of a validation workflow moves to the caller.
+The caller runs on pull requests, on pushes to the default branch and on the `repository_dispatch` event `dependabot-merged`, which Dependabot auto-merge sends after each merge, without `paths:` or `paths-ignore:`. A pull-request run is cancelled when the workflow starts for a newer head of the same pull request; push and dispatch runs are never cancelled. On a dispatch run, `select` fails, and with it the run, when `client_payload.sha` is malformed, absent from the checkout, or a commit off the default branch. The validation workflow's jobs wait for `select`, so they need no check of their own. A workflow-level `concurrency` of a validation workflow moves to the caller.
 
 The job `select` calls `CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1`:
 

@@ -20,6 +20,7 @@ the file format, the rules and the commands.
     python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> [--pushed <commit>] \\
         --workflow "$GITHUB_WORKFLOW_REF" --output <file>
     python suite_selection.py store --needs <needs context as JSON> --passed <directory> --run-id <id> --output <record file>
+    python suite_selection.py check-dispatch --root <repository> --sha <client_payload.sha> --branch <default branch>
 
 ``lookup``, ``shared-lookup``, ``store`` and the reuse of passed results live in ``reuse.py``.
 """
@@ -1398,6 +1399,10 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     storing.add_argument("--run-id", type=int, required=True, help="github.run_id")
     storing.add_argument("--output", type=Path, required=True, help="write the record to this file")
     storing.add_argument("--github-output", type=Path, help="append stored=true or stored=false to this file")
+    checking = commands.add_parser("check-dispatch", help="fail unless client_payload.sha of a dependabot-merged run is a commit on the default branch")
+    checking.add_argument("--root", type=Path, required=True, help="the checkout, with the default branch fetched as origin/<branch>")
+    checking.add_argument("--sha", required=True, help="client_payload.sha of the dependabot-merged run")
+    checking.add_argument("--branch", required=True, help="the default branch")
     deciding = commands.add_parser("verdict", help="pass or fail on the results of the selection and the called jobs")
     deciding.add_argument("--needs", type=Path, required=True, help="a file with the caller's needs context as JSON")
     deciding.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
@@ -1708,6 +1713,35 @@ def run_store(options: argparse.Namespace) -> int:
     return 0
 
 
+FULL_COMMIT_ID = re.compile(r"[0-9a-f]{40}")
+
+
+def dispatch_problem(root: Path, payload: str, branch: str) -> str | None:
+    """Why the payload commit of a dispatch run is not a commit on the fetched default branch, or None when it is."""
+    if not FULL_COMMIT_ID.fullmatch(payload):
+        return f"client_payload.sha {payload!r} is malformed: it is not a full 40-character commit ID in lowercase hexadecimal."
+    if commit_id(root, payload) != payload:
+        return f"client_payload.sha {payload} is absent from this job's checkout: it names no commit there."
+    tip = f"refs/remotes/origin/{branch}"
+    if commit_id(root, tip) is None:
+        return f"client_payload.sha {payload} cannot be checked: `origin/{branch}`, the default branch, is not in this job's checkout."
+    reached = git(root, "merge-base", "--is-ancestor", payload, tip)
+    if reached.returncode == 1:
+        return f"client_payload.sha {payload} is not on the default branch: `origin/{branch}` does not reach it."
+    if reached.returncode != 0:
+        return f"client_payload.sha {payload} cannot be checked: git merge-base failed: {reached.stderr.strip()}"
+    return None
+
+
+def run_check_dispatch(options: argparse.Namespace) -> int:
+    problem = dispatch_problem(options.root.resolve(), options.sha, options.branch)
+    if problem is not None:
+        print(problem, file=sys.stderr)
+        return 1
+    print(f"client_payload.sha {options.sha} is on `origin/{options.branch}`, the default branch.")
+    return 0
+
+
 def run_verdict(options: argparse.Namespace) -> int:
     outcome = verdict(parse_needs(options.needs.read_text(encoding="utf-8")))
     sys.stdout.write(verdict_text(outcome))
@@ -1728,6 +1762,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_lookup(options)
         if options.command == "shared-lookup":
             return run_shared_lookup(options)
+        if options.command == "check-dispatch":
+            return run_check_dispatch(options)
         return run_store(options)
     except (SuiteListError, VerdictError, OSError) as error:
         print(str(error), file=sys.stderr)

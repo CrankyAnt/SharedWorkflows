@@ -6318,6 +6318,7 @@
       "entry_selection": true,
       "paths": [
         ".github/workflows/full-recording.yml",
+        ".github/workflows/repository-hygiene.yml",
         ".github/workflows/suite-selection.yml",
         ".github/workflows/suite-verdict.yml",
         ".github/workflows/validate.yml",
@@ -6744,6 +6745,7 @@
           "tests/test_suite_selection_verdict_workflow.py"
         ],
         "tests/test_suite_selection_workflow.py": [
+          ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
           ".github/workflows/validate.yml",

@@ -885,5 +885,57 @@ class SharedLookupTests(FixtureRepository):
                          "the same reads under another shared recording step reuse no pass")
 
 
+class DispatchCommitTests(FixtureRepository):
+    """A dependabot-merged run stands in for a push on the default branch only with a payload commit on that branch."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.earlier = self.commit("earlier", {"src/feature.py": "feature v2\n"})
+        self.tip = self.commit("tip", {"src/other.py": "other v2\n"})
+        git(self.root, "checkout", "-q", "-b", "side", self.earlier)
+        self.side = self.commit("side", {"src/moved.py": "moved v2\n"})
+        git(self.root, "checkout", "-q", "main")
+        git(self.root, "update-ref", "refs/remotes/origin/main", self.tip)
+
+    def check(self, payload: str) -> tuple[int, str, str]:
+        printed, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(printed), mock.patch.object(sys, "stderr", errors):
+            code = suite_selection.main(["check-dispatch", "--root", str(self.root), "--sha", payload, "--branch", "main"])
+        return code, printed.getvalue(), errors.getvalue()
+
+    def test_a_payload_commit_on_the_default_branch_passes_at_its_tip_and_before_it(self) -> None:
+        for commit in (self.tip, self.earlier, self.base):
+            with self.subTest(commit=commit):
+                code, printed, errors = self.check(commit)
+                self.assertEqual((code, errors), (0, ""))
+                self.assertEqual(f"client_payload.sha {commit} is on `origin/main`, the default branch.\n", printed)
+
+    def test_a_payload_commit_off_the_default_branch_fails_with_the_commit_and_the_reason(self) -> None:
+        code, printed, errors = self.check(self.side)
+        self.assertEqual((code, printed), (1, ""))
+        self.assertEqual(f"client_payload.sha {self.side} is not on the default branch: `origin/main` does not reach it.\n", errors)
+
+    def test_a_malformed_payload_fails_with_the_value(self) -> None:
+        for payload in (self.tip[:7], self.tip.upper(), self.tip + "0", "main", "HEAD", f"{self.tip}^", ""):
+            with self.subTest(payload=payload):
+                code, printed, errors = self.check(payload)
+                self.assertEqual((code, printed), (1, ""))
+                self.assertEqual(f"client_payload.sha '{payload}' is malformed: it is not a full 40-character commit ID in lowercase hexadecimal.\n", errors)
+
+    def test_a_payload_absent_from_the_checkout_fails_with_the_value(self) -> None:
+        tree = git(self.root, "rev-parse", f"{self.tip}^{{tree}}")
+        for payload in ("0123456789abcdef0123456789abcdef01234567", tree):
+            with self.subTest(payload=payload):
+                code, printed, errors = self.check(payload)
+                self.assertEqual((code, printed), (1, ""))
+                self.assertEqual(f"client_payload.sha {payload} is absent from this job's checkout: it names no commit there.\n", errors)
+
+    def test_a_default_branch_that_the_job_did_not_fetch_fails(self) -> None:
+        git(self.root, "update-ref", "-d", "refs/remotes/origin/main")
+        code, printed, errors = self.check(self.tip)
+        self.assertEqual((code, printed), (1, ""))
+        self.assertEqual(f"client_payload.sha {self.tip} cannot be checked: `origin/main`, the default branch, is not in this job's checkout.\n", errors)
+
+
 if __name__ == "__main__":
     unittest.main()
