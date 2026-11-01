@@ -58,12 +58,15 @@ def run_entries(fixture: RecordingFixture, entries: list[str] = ENTRIES) -> None
 
 def windows_settings(fixture: RecordingFixture) -> None:
     """Write the settings and the job's environment as start writes them on Windows, without the session: exec does not
-    talk to the consumer."""
+    talk to the consumer. The job's environment leaves out PYTHONDONTWRITEBYTECODE of the process that runs the tests, as
+    the hosted job does not set it: the entry files then write bytecode, as compiled-after True of the bytecode-cache test
+    expects."""
     for part in ("units", "logs", "setups"):
         (fixture.output / part).mkdir(parents=True)
     (fixture.output / "recording.json").write_text(json.dumps({"mode": "pull-request", "trace_set": "etw", "events": "events.tsv"}),
                                                    encoding="utf-8")
-    (fixture.output / "environment.json").write_text(json.dumps(dict(os.environ)), encoding="utf-8")
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONDONTWRITEBYTECODE"}
+    (fixture.output / "environment.json").write_text(json.dumps(environment), encoding="utf-8")
 
 
 @unittest.skipUnless(sys.platform == "win32", "the Windows recording runs on Windows")
