@@ -88,6 +88,50 @@ def passed_list_steps(steps: list[dict], check_outcome: str, additions: str, kee
     return ran
 
 
+def tracked_workflows(root: Path) -> dict[str, str]:
+    """The text of each tracked workflow directly under ``.github/workflows/``, keyed by its repository path."""
+    return {path: (root / path).read_text(encoding="utf-8") for path in sorted(tracked_files(root, [".github/workflows"]))
+            if re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)}
+
+
+def _flow_items(text: str) -> list[str]:
+    """The top-level items of a flow list or flow mapping's inner text, split at commas outside brackets and quotes."""
+    items, depth, quote, start = [], 0, "", 0
+    for index, character in enumerate(text):
+        if quote:
+            quote = "" if character == quote else quote
+        elif character in "'\"":
+            quote = character
+        elif character in "[{":
+            depth += 1
+        elif character in "]}":
+            depth -= 1
+        elif character == "," and depth == 0:
+            items.append(text[start:index])
+            start = index + 1
+    return [item.strip() for item in [*items, text[start:]] if item.strip()]
+
+
+def workflow_triggers(text: str, source: str) -> set[str]:
+    """The events in a workflow's ``on``, stated as a string, a list or a mapping. The YAML subset reader returns a flow
+    list such as ``[push, workflow_call]`` or a flow mapping such as ``{workflow_call: {}}`` as its text, so its top-level
+    items are split here."""
+    document = ci_definition().read_yaml(text, source)
+    on = document.get("on") if isinstance(document, dict) else None
+    if isinstance(on, dict):
+        return set(on)
+    if isinstance(on, str) and on[:1] + on[-1:] in ("[]", "{}"):
+        on = [item.split(":", 1)[0] if on[0] == "{" else item for item in _flow_items(on[1:-1])]
+    if isinstance(on, list):
+        return {str(item).strip().strip("'\"") for item in on}
+    return {on} if isinstance(on, str) else set()
+
+
+def shared_workflows(workflows: dict[str, str]) -> list[str]:
+    """The paths of the workflows, from path to text, whose triggers hold ``workflow_call``: the shared workflows."""
+    return [path for path, text in workflows.items() if "workflow_call" in workflow_triggers(text, path)]
+
+
 def read_workflow(path: Path) -> tuple[str, dict]:
     """The text of a workflow and its document, read with the YAML subset reader of the suite selection."""
     text = path.read_text(encoding="utf-8")
