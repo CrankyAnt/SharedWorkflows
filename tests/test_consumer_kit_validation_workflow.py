@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import NamedTuple
-from tests.ci_policy_support import ci_definition, passed_list_steps, read_workflow
+from tests.ci_policy_support import ci_definition, flow_items, passed_list_steps, read_workflow
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
@@ -98,7 +98,7 @@ def passed_record(script: str) -> dict[str, str]:
             arguments = {tokens[index + 1]: tokens[index + 2] for index, token in enumerate(tokens) if token == "--arg"}
             program = next(token for token in tokens if token.startswith("{") and token.endswith("}"))
             fields = {}
-            for item in program[1:-1].split(","):
+            for item in flow_items(program[1:-1]):
                 key, value = (part.strip() for part in item.split(":", 1))
                 fields[key] = arguments[value[1:]] if value.startswith("$") else value.strip('"')
             return fields
@@ -445,6 +445,12 @@ class SuiteJobDefinitionTest(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertTrue(unrecorded.is_suite_job(job))
                 self.assertEqual(units, unrecorded.job_units(job, units))
+
+
+class PassedRecordTest(unittest.TestCase):
+    def test_a_quoted_value_with_a_comma_in_the_jq_object_program_is_returned_whole(self) -> None:
+        script = """jq -n --arg a "$suite" '{entry: $a, note: "x,y", braces: "{a, b}"}' >> passed.json"""
+        self.assertEqual({"entry": "$suite", "note": "x,y", "braces": "{a, b}"}, passed_record(script))
 
 
 if __name__ == "__main__":

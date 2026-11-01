@@ -6,7 +6,7 @@ import json
 import re
 import unittest
 
-from tests.ci_policy_support import REPOSITORY_ROOT
+from tests.ci_policy_support import REPOSITORY_ROOT, flow_items
 
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
@@ -20,7 +20,7 @@ class AutoMergeCallerTests(unittest.TestCase):
         workflows = re.search(r"(?m)^  workflow_run:.*\n    workflows: \[(.*)\]\n    types: \[completed\]\n", CALLER.read_text(encoding="utf-8"))
         self.assertIsNotNone(workflows)
         names = [re.search(r"(?m)^name: (.*)$", (WORKFLOWS / name).read_text(encoding="utf-8"))[1] for name in REQUIRED_CHECK_WORKFLOWS]
-        self.assertEqual(sorted(names), sorted(name.strip() for name in workflows[1].split(",")))
+        self.assertEqual(sorted(names), sorted(flow_items(workflows[1])))
 
 
 class RulesetTemplateTests(unittest.TestCase):

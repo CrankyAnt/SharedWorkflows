@@ -7,7 +7,7 @@ import re
 import unittest
 from pathlib import Path
 
-from tests.ci_policy_support import REPOSITORY_ROOT, is_tracked, shared_workflows, tracked_files, tracked_workflows
+from tests.ci_policy_support import REPOSITORY_ROOT, is_tracked, shared_workflows, tracked_files, tracked_workflows, uses_values
 
 
 SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
@@ -29,7 +29,8 @@ def shared_workflow_problems(workflows: dict[str, str], surface_paths: list[str]
     problems += [f"{path} is on the shared surface without a workflow_call trigger" for path in surface_paths
                  if path.startswith(".github/workflows/") and path not in shared]
     problems += [f"{path} loads {reference} outside the shared surface" for path in shared
-                 for reference in re.findall(r"uses: \$/([^\s]+)", workflows[path]) if reference not in surface_paths]
+                 for reference in (value.removeprefix("$/") for value in uses_values(workflows[path], path) if value.startswith("$/"))
+                 if reference not in surface_paths]
     return problems
 
 
@@ -135,6 +136,8 @@ class SharedSurfaceTests(unittest.TestCase):
 
 class SharedWorkflowProblemTests(unittest.TestCase):
     SURFACE_PATHS = [".github/workflows/shared.yml", "catalogue.json", "actions/part"]
+    # A uses value written plain, double-quoted and single-quoted.
+    QUOTES = ("", '"', "'")
 
     def test_a_workflow_with_a_workflow_call_trigger_that_the_shared_surface_lacks_fails_and_is_named(self) -> None:
         workflows = {".github/workflows/shared.yml": "on: workflow_call\njobs: {}\n",
@@ -168,18 +171,48 @@ class SharedWorkflowProblemTests(unittest.TestCase):
                                  shared_workflow_problems(workflows, self.SURFACE_PATHS))
 
     def test_a_workflow_with_a_workflow_call_trigger_that_loads_a_path_outside_the_shared_surface_fails_and_is_named(self) -> None:
-        steps = "jobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: $/actions/part\n      - uses: $/actions/elsewhere\n"
         surface_paths = [*self.SURFACE_PATHS, ".github/workflows/second.yml"]
-        for form, on in (("string", "on: workflow_call\n"), ("flow list", "on: [push, workflow_call]\n"), ("mapping", "on:\n  workflow_call:\n")):
-            with self.subTest(form=form):
-                workflows = {".github/workflows/shared.yml": "on: workflow_call\n", ".github/workflows/second.yml": on + steps}
-                self.assertEqual([".github/workflows/second.yml loads actions/elsewhere outside the shared surface"],
-                                 shared_workflow_problems(workflows, surface_paths))
+        for quote in self.QUOTES:
+            steps = (f"jobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: {quote}$/actions/part{quote}\n"
+                     f"      - name: Elsewhere\n        uses: {quote}$/actions/elsewhere{quote}\n")
+            for form, on in (("string", "on: workflow_call\n"), ("flow list", "on: [push, workflow_call]\n"), ("mapping", "on:\n  workflow_call:\n")):
+                with self.subTest(quote=quote, form=form):
+                    workflows = {".github/workflows/shared.yml": "on: workflow_call\n", ".github/workflows/second.yml": on + steps}
+                    self.assertEqual([".github/workflows/second.yml loads actions/elsewhere outside the shared surface"],
+                                     shared_workflow_problems(workflows, surface_paths))
+
+    def test_a_workflow_with_a_workflow_call_trigger_that_calls_a_workflow_outside_the_shared_surface_fails_and_is_named(self) -> None:
+        for quote in self.QUOTES:
+            with self.subTest(quote=quote):
+                text = (f"on: workflow_call\njobs:\n  shared:\n    uses: {quote}$/.github/workflows/shared.yml{quote}\n"
+                        f"  elsewhere:\n    uses: {quote}$/.github/workflows/elsewhere.yml{quote}\n")
+                self.assertEqual([".github/workflows/shared.yml loads .github/workflows/elsewhere.yml outside the shared surface"],
+                                 shared_workflow_problems({".github/workflows/shared.yml": text}, self.SURFACE_PATHS))
+
+    def test_a_trailing_comment_after_a_uses_value_is_no_part_of_the_reported_path(self) -> None:
+        for quote in self.QUOTES:
+            with self.subTest(quote=quote):
+                text = (f"on: workflow_call\njobs:\n  caller:\n    uses:   {quote}$/.github/workflows/elsewhere.yml{quote}   # the caller, v2\n"
+                        f"  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: {quote}$/actions/elsewhere{quote} # a step, not shared\n"
+                        f"      - uses:  {quote}$/actions/part{quote}  # on the surface\n")
+                self.assertEqual([".github/workflows/shared.yml loads .github/workflows/elsewhere.yml outside the shared surface",
+                                  ".github/workflows/shared.yml loads actions/elsewhere outside the shared surface"],
+                                 shared_workflow_problems({".github/workflows/shared.yml": text}, self.SURFACE_PATHS))
+
+    def test_a_workflow_with_a_workflow_call_trigger_that_loads_only_paths_on_the_shared_surface_passes(self) -> None:
+        for quote in self.QUOTES:
+            with self.subTest(quote=quote):
+                text = (f"on: workflow_call\njobs:\n  shared:\n    uses: {quote}$/.github/workflows/shared.yml{quote} # itself\n"
+                        f"  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: {quote}$/actions/part{quote}\n"
+                        f"      - uses: {quote}actions/checkout@v6{quote}\n      - run: echo 'uses: $/actions/elsewhere'\n")
+                self.assertEqual([], shared_workflow_problems({".github/workflows/shared.yml": text}, self.SURFACE_PATHS))
 
     def test_a_workflow_without_a_workflow_call_trigger_may_load_a_path_outside_the_shared_surface(self) -> None:
-        workflows = {".github/workflows/shared.yml": "on: workflow_call\n",
-                     ".github/workflows/caller.yml": "on: push\njobs:\n  unit:\n    uses: $/.github/workflows/elsewhere.yml\n"}
-        self.assertEqual([], shared_workflow_problems(workflows, self.SURFACE_PATHS))
+        for quote in self.QUOTES:
+            with self.subTest(quote=quote):
+                workflows = {".github/workflows/shared.yml": "on: workflow_call\n",
+                             ".github/workflows/caller.yml": f"on: push\njobs:\n  unit:\n    uses: {quote}$/.github/workflows/elsewhere.yml{quote}\n"}
+                self.assertEqual([], shared_workflow_problems(workflows, self.SURFACE_PATHS))
 
 
 class CatalogueTests(unittest.TestCase):

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import re
 import subprocess
 import unittest
 from pathlib import Path
-from tests.ci_policy_support import shared_workflows, tracked_workflows
+from tests.ci_policy_support import shared_workflows, tracked_workflows, uses_values
 from tests.consumer_kit_support import coverage
 from tests.consumer_kit_support import read_yaml
 
@@ -52,7 +51,7 @@ def own_dependencies() -> list[str]:
     found = [path for path in filter(None, listing.stdout.split("\0")) if coverage.ecosystem_of(path, ecosystems)]
     workflows = tracked_workflows(REPOSITORY_ROOT)
     for path in shared_workflows(workflows):
-        for reference in re.findall(r"(?m)^\s*(?:-\s+)?uses:\s*(\S+)", workflows[path]):
+        for reference in uses_values(workflows[path], path):
             if not reference.startswith(("./", "$/", "CrankyAnt/SharedWorkflows/")):
                 found.append(f"{Path(path).name}: {reference}")
     return found
