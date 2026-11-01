@@ -3,9 +3,14 @@ under the recording step, in the form of this repository's own `validate.yml`.""
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import NamedTuple
@@ -274,8 +279,8 @@ class ValidationWorkflowTemplateTest(unittest.TestCase):
         self.assertEqual(["exec", "--entry", "$entry", "--suites", ".github/suites.json", "--suite", "$suite", "--", "${command[@]}", "$entry"],
                          call[:10])
         script = entries["run"]
-        self.assertIn("jq -c '.entries[]' <<<\"$SHARD\" | xargs -d '\\n' -r -n 1 -P 2 ", script, "two entry files at a time")
-        self.assertIn('echo "::group::$entry"', script)
+        self.assertIn("<<<\"$SHARD\" | xargs -d '\\n' -r -n 1 -P 2 ", script, "two entry files at a time")
+        self.assertIn('echo "::group::$entry ($suite)"', script)
         self.assertIn('echo "::endgroup::"', script)
         self.assertIn("set -uo pipefail", script, "a failed entry file stops none of the others")
         self.assertTrue(script.rstrip().endswith('exit "$failed"'), "the shard fails after every entry file ran")
@@ -348,6 +353,76 @@ class ValidationWorkflowTemplateTest(unittest.TestCase):
                 with self.subTest(job=job, case=case):
                     ran = passed_list_steps(self.jobs[job]["steps"], outcome, additions, keep)
                     self.assertEqual((listed[job] if expected else []) + expected, ran)
+
+
+# A stand-in for recording.py: `exec --entry ... -- <command> <entry>` runs the command and exits with its status.
+RECORDING_STAND_IN = """\
+import subprocess
+import sys
+
+arguments = sys.argv[1:]
+assert arguments[:2] == ["exec", "--entry"], arguments
+sys.exit(subprocess.call(arguments[arguments.index("--") + 1:]))
+"""
+# Two paths that flatten to the same name, and one entry file that runs for two suites; each exits with the status its
+# command names and prints its own marker.
+SHARD = {"shard": 1, "setups": [], "entries": [
+    {"suite": "one", "entry": "a/b_c.py", "command": ["sh", "-c", "echo marker-one-a-b_c; exit 1"]},
+    {"suite": "one", "entry": "a_b/c.py", "command": ["sh", "-c", "echo marker-one-a_b-c; exit 0"]},
+    {"suite": "one", "entry": "x.py", "command": ["sh", "-c", "echo marker-one-x; exit 0"]},
+    {"suite": "two", "entry": "x.py", "command": ["sh", "-c", "echo marker-two-x; exit 1"]},
+]}
+
+
+@unittest.skipUnless(sys.platform == "linux" and shutil.which("jq") and shutil.which("bash"), "the shard scripts need Linux for GNU xargs, bash and jq")
+class ShardEntryRunTest(unittest.TestCase):
+    """The shard job's step that runs the entry files, and in a validation run its step that lists those that passed,
+    run as GitHub runs them: for the validation workflow template, validate.yml, the full-recording template and this
+    repository's full recording."""
+
+    ENTRIES_STEP = "Run the shard's entry files under the recording, two at a time"
+    LISTING_STEP = "List the entry files that passed"
+
+    def scripts(self) -> dict[str, tuple[str, str | None]]:
+        """The script of each source's entry step and of its listing step, None for a full recording, which lists none."""
+        sources = {"validation-workflow.yml template": (SELECTION_KIT / "validation-workflow.yml", self.LISTING_STEP),
+                   "validate.yml": (OWN_VALIDATE, self.LISTING_STEP),
+                   "full-recording.yml template": (SELECTION_KIT / "full-recording.yml", None),
+                   "full-recording.yml": (REPOSITORY_ROOT / ".github" / "workflows" / "full-recording.yml", None)}
+        scripts = {}
+        for source, (path, listing) in sources.items():
+            steps = {step.get("name"): step for step in read_workflow(path)[1]["jobs"]["linux"]["steps"]}
+            scripts[source] = (steps[self.ENTRIES_STEP]["run"], steps[listing]["run"] if listing else None)
+        return scripts
+
+    def run_step(self, script: str, environment: dict[str, str], directory: Path) -> subprocess.CompletedProcess:
+        path = directory / "step.sh"
+        path.write_text(script, encoding="utf-8")
+        return subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", str(path)], cwd=directory,
+                              capture_output=True, text=True, env=environment)
+
+    def test_each_entry_file_of_a_shard_keeps_its_own_status_and_log_group(self) -> None:
+        for source, (entries, listing) in self.scripts().items():
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                (directory / "recording").mkdir()
+                (directory / "recording" / "recording.py").write_text(RECORDING_STAND_IN, encoding="utf-8")
+                (directory / "runner-temp").mkdir()
+                environment = {**os.environ, "RECORDING": str(directory / "recording"), "RUNNER_TEMP": str(directory / "runner-temp"),
+                               "SHARD": json.dumps(SHARD)}
+                ran = self.run_step(entries, environment, directory)
+                self.assertEqual(1, ran.returncode, ran.stdout + ran.stderr)
+                groups = re.findall(r"::group::(.*)\n(.*)\n::endgroup::", ran.stdout)
+                self.assertEqual([("a/b_c.py (one)", "marker-one-a-b_c"), ("a_b/c.py (one)", "marker-one-a_b-c"),
+                                  ("x.py (one)", "marker-one-x"), ("x.py (two)", "marker-two-x")], groups)
+                self.assertEqual(["a/b_c.py (one)", "x.py (two)"], re.findall(r"::error::(.*) failed", ran.stdout),
+                                 "each entry file fails on its own status")
+                if listing is None:
+                    continue
+                listed = self.run_step(listing, environment, directory)
+                self.assertEqual(0, listed.returncode, listed.stdout + listed.stderr)
+                self.assertEqual([{"suite": "one", "entry": "a_b/c.py"}, {"suite": "one", "entry": "x.py"}],
+                                 json.loads((directory / "runner-temp" / "suite-results" / "passed.json").read_text(encoding="utf-8")))
 
 
 class SuiteJobDefinitionTest(unittest.TestCase):

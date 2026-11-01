@@ -110,7 +110,7 @@ class ValidateJobTests(unittest.TestCase):
         linux = steps_of(self.workflow, "linux")
         listing = next(step for step in linux if step.get("name") == "List the entry files that passed")
         self.assertEqual(LISTED, listing["if"])
-        self.assertIn('"$RUNNER_TEMP/entry-logs/${entry//\\//_}.status"', listing["run"])
+        self.assertIn('"$RUNNER_TEMP/entry-logs/$index.status"', listing["run"])
         self.assertEqual(linux.index(listing) + 1, next(index for index, step in enumerate(linux) if step.get("id") == "keep"))
 
     def test_a_check_that_passed_uploads_every_pass_one_with_additions_the_kept_passes_and_a_recording_error_none(self) -> None:

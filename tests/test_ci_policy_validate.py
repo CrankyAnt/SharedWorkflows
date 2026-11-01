@@ -133,7 +133,7 @@ class RecordedJobTests(unittest.TestCase):
             if run:
                 self.assertFalse(installs_outside_the_recording(run), f"the setup step {step.get('name')} runs under the recording")
         script = str(steps[entries]["run"])
-        self.assertIn("jq -c '.entries[]' <<<\"$SHARD\" | xargs -d '\\n' -r -n 1 -P 2 bash -c 'run_entry \"$1\"' _", script)
+        self.assertIn("jq -c '.entries | to_entries[] | .value + {index: .key}' <<<\"$SHARD\" | xargs -d '\\n' -r -n 1 -P 2 bash -c 'run_entry \"$1\"' _", script)
         self.assertIn('exec --entry "$entry" --suites tests/suites.json --suite "$suite" -- "${command[@]}" "$entry"', script)
         self.assertEqual("${{ toJSON(matrix.shard) }}", self.jobs["linux"]["env"]["SHARD"])
 
