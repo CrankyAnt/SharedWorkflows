@@ -83,7 +83,15 @@ A job without Windows suites drops `<windows-job>`, and a repository without Pyt
 - The job ends with the steps `List the entry files that passed`, `Leave the entry files with additions out of the passed list` and `Upload the entry files that passed`, with `suite-results-<job>` as the artifact name. The verdict stores the passed results of a pull request from these artifacts, and a later head of the pull request reuses them. When the recording check passed, the job uploads every entry file that passed. When it reported additions, the middle step runs `recording.py keep` with the check's output `additions`, and the job uploads the entry files that passed minus those that the additions name, and still fails. After a recording error the job uploads no passed list.
 - On a Windows runner, a job takes the form of the template's job `<windows-job>`: the recording commands run as `python "$env:RECORDING\recording.py" ...` in `shell: pwsh` steps, the step that runs the entry files writes the entry files that passed to `$RUNNER_TEMP\suite-results\passed.json`, and the job ends with `Leave the entry files with additions out of the passed list` and `Upload the entry files that passed`.
 
-Each action reference of the templates carries `<pin>` after `@`, such as `uses: actions/checkout@<pin>`. Replace each `@<pin>` with the commit and version comment of the same action in the workflow of `CrankyAnt/SharedWorkflows` at `v1` that runs the same steps: `.github/workflows/validate.yml` for [validation-workflow.yml](validation-workflow.yml), and `.github/workflows/full-recording.yml` for [full-recording.yml](full-recording.yml) and [apply-additions.yml](apply-additions.yml). The installed line then reads, for example, `uses: actions/checkout@<40-hex commit> # v<version>`. A call of a shared workflow or a shared step keeps `@v1`.
+Each action reference of the templates carries `<pin>` after `@`, such as `uses: actions/checkout@<pin>`. Replace each `@<pin>` with the commit and version comment of the same action in the template's pin source, the workflow of `CrankyAnt/SharedWorkflows` at `v1` that runs the same steps:
+
+| Template | Pin source |
+| --- | --- |
+| [validation-workflow.yml](validation-workflow.yml) | `.github/workflows/validate.yml` |
+| [full-recording.yml](full-recording.yml) | `.github/workflows/full-recording.yml` |
+| [apply-additions.yml](apply-additions.yml) | `.github/workflows/full-recording.yml` |
+
+The installed line then reads, for example, `uses: actions/checkout@<40-hex commit> # v<version>`. A call of a shared workflow or a shared step keeps `@v1`.
 
 A validation workflow of the repository's own carries an action from outside the repository, so the repository needs a Dependabot configuration with a `github-actions` entry that ignores `CrankyAnt/SharedWorkflows`.
 
