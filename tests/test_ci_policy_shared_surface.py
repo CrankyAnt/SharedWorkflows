@@ -14,6 +14,8 @@ SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.j
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
 PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
+# The header of the pin-source table of a consumer kit's README, which consumers follow and the pin-source test reads.
+PIN_SOURCE_HEADER = "| Template | Pin source |"
 
 
 def on_surface(path: str, surface_paths: list[str]) -> bool:
@@ -36,6 +38,47 @@ def led_to(readme: Path) -> set[str]:
     targets = re.findall(r"\]\(([^)\s#]+)(?:#[^)]*)?\)", readme.read_text(encoding="utf-8"))
     return {(readme.parent / target).resolve().relative_to(REPOSITORY_ROOT).as_posix()
             for target in targets if "://" not in target and (readme.parent / target).resolve().is_relative_to(REPOSITORY_ROOT)}
+
+
+def pin_sources(readme: str) -> dict[str, list[str]]:
+    """The pin sources that the pin-source table of a consumer kit's README names, from template link target to workflow paths."""
+    lines = readme.splitlines()
+    if PIN_SOURCE_HEADER not in lines:
+        return {}
+    sources: dict[str, list[str]] = {}
+    for line in lines[lines.index(PIN_SOURCE_HEADER) + 2:]:
+        if not line.startswith("|"):
+            break
+        template_cell, _, source_cell = line.strip("| ").partition(" | ")
+        for template in re.findall(r"\]\(([^)#\s]+)\)", template_cell):
+            sources.setdefault(template, []).extend(re.findall(r"`([^`]+)`", source_cell))
+    return sources
+
+
+def kit_pin_problems(readme: str, templates: dict[str, str], workflows: dict[str, str]) -> list[str]:
+    """Each way the pin source that the README names for a template, from file name to text, fails to pin an action that
+    the template references with `@<pin>`; ``workflows`` maps the path of each tracked workflow to its text."""
+    sources = pin_sources(readme)
+    problems = []
+    for template, text in sorted(templates.items()):
+        actions = sorted(set(re.findall(r"""uses:\s*['"]?([^\s@'"]+)@<pin>""", text)))
+        if not actions:
+            continue
+        named = sources.get(template, [])
+        if len(named) != 1:
+            problems.append(f"{template} carries @<pin> but the README names {len(named) or 'no'} pin sources for it, not one")
+            continue
+        source = named[0]
+        if not source.startswith(".github/workflows/") or source not in workflows:
+            problems.append(f"{template}: its pin source {source} is no tracked workflow under .github/workflows/")
+            continue
+        for action in actions:
+            references = re.findall(rf"(?m)uses:\s*{re.escape(action)}@(.*)$", workflows[source])
+            if not references:
+                problems.append(f"{template}: its pin source {source} does not reference {action}")
+            elif not all(re.fullmatch(r"[0-9a-f]{40} # v\d+(?:\.\d+)*[ \t]*", reference) for reference in references):
+                problems.append(f"{template}: its pin source {source} references {action} without a 40-character commit SHA and a version comment")
+    return problems
 
 
 def catalogue_problems(catalogue: dict, surface_paths: list[str], tracked: set[str]) -> list[str]:
@@ -237,3 +280,69 @@ class AutoMergeConsumerKitTests(unittest.TestCase):
         self.assertIn("pull-requests: write", caller)
         self.assertIn("dependency-name: CrankyAnt/SharedWorkflows", (self.kit / "dependabot.yml").read_text(encoding="utf-8"))
         self.assertIn("CrankyAnt/SharedWorkflows", self.readme)
+
+
+class SelectionConsumerKitPinSourceTests(unittest.TestCase):
+    KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
+    README = ("Replace each `@<pin>`:\n\n| Template | Pin source |\n| --- | --- |\n"
+              "| [kit.yml](kit.yml) | `.github/workflows/source.yml` |\n\nThe installed line then reads ...\n")
+    TEMPLATE = {"kit.yml": "jobs:\n  unit:\n    steps:\n      - uses: actions/checkout@<pin>\n        with:\n          persist-credentials: false\n"}
+    PINNED = "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+
+    def test_the_readme_names_a_pin_source_for_each_template_that_pins_every_action_the_template_references(self) -> None:
+        readme = (self.KIT / "README.md").read_text(encoding="utf-8")
+        kit = self.KIT.relative_to(REPOSITORY_ROOT).as_posix()
+        templates = {Path(path).name: (REPOSITORY_ROOT / path).read_text(encoding="utf-8")
+                     for path in sorted(tracked_files(REPOSITORY_ROOT, [kit])) if re.fullmatch(rf"{re.escape(kit)}/[^/]+\.ya?ml", path)}
+        self.assertEqual({"validation.yml", "validation-workflow.yml", "full-recording.yml", "apply-additions.yml"}, set(templates))
+        self.assertEqual({"validation-workflow.yml": [".github/workflows/validate.yml"],
+                          "full-recording.yml": [".github/workflows/full-recording.yml"],
+                          "apply-additions.yml": [".github/workflows/full-recording.yml"]}, pin_sources(readme))
+        self.assertEqual([], kit_pin_problems(readme, templates, tracked_workflows(REPOSITORY_ROOT)))
+
+    def test_a_pin_source_that_pins_every_action_of_its_template_passes(self) -> None:
+        self.assertEqual([], kit_pin_problems(self.README, self.TEMPLATE, {".github/workflows/source.yml": self.PINNED}))
+
+    def test_a_quoted_action_reference_of_a_template_is_checked_by_its_action(self) -> None:
+        for quote in ("'", '"'):
+            with self.subTest(quote=quote):
+                template = {"kit.yml": f"      - uses: {quote}actions/setup-python@<pin>{quote}\n"}
+                self.assertEqual(["kit.yml: its pin source .github/workflows/source.yml does not reference actions/setup-python"],
+                                 kit_pin_problems(self.README, template, {".github/workflows/source.yml": self.PINNED}))
+
+    def test_an_action_that_the_pin_source_does_not_reference_fails_and_names_the_template_the_action_and_the_pin_source(self) -> None:
+        workflows = {".github/workflows/source.yml": "      - uses: actions/checkout-extra@3d3c42e5aac5ba805825da76410c181273ba90b1 # v1.0.0\n"}
+        self.assertEqual(["kit.yml: its pin source .github/workflows/source.yml does not reference actions/checkout"],
+                         kit_pin_problems(self.README, self.TEMPLATE, workflows))
+
+    def test_an_action_that_the_pin_source_references_without_a_commit_sha_and_a_version_comment_fails(self) -> None:
+        for form, reference in (("tag", "v7"), ("short sha", "3d3c42e # v7.0.1"), ("no version comment", "3d3c42e5aac5ba805825da76410c181273ba90b1"),
+                                ("one of two references", "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n      - uses: actions/checkout@v7")):
+            with self.subTest(form=form):
+                workflows = {".github/workflows/source.yml": f"      - uses: actions/checkout@{reference}\n"}
+                self.assertEqual(["kit.yml: its pin source .github/workflows/source.yml references actions/checkout"
+                                  " without a 40-character commit SHA and a version comment"],
+                                 kit_pin_problems(self.README, self.TEMPLATE, workflows))
+
+    def test_a_pin_source_that_is_no_tracked_workflow_fails_and_names_the_template_and_the_pin_source(self) -> None:
+        renamed = {".github/workflows/renamed.yml": self.PINNED}
+        self.assertEqual(["kit.yml: its pin source .github/workflows/source.yml is no tracked workflow under .github/workflows/"],
+                         kit_pin_problems(self.README, self.TEMPLATE, renamed))
+        elsewhere = self.README.replace(".github/workflows/source.yml", "actions/source.yml")
+        self.assertEqual(["kit.yml: its pin source actions/source.yml is no tracked workflow under .github/workflows/"],
+                         kit_pin_problems(elsewhere, self.TEMPLATE, {"actions/source.yml": self.PINNED}))
+
+    def test_a_template_with_a_pin_but_no_single_pin_source_fails_and_is_named(self) -> None:
+        workflows = {".github/workflows/source.yml": self.PINNED, ".github/workflows/other.yml": self.PINNED}
+        two_sources = self.README.replace("`.github/workflows/source.yml` |", "`.github/workflows/source.yml`, `.github/workflows/other.yml` |")
+        two_rows = self.README.replace("| [kit.yml](kit.yml) |", "| [kit.yml](kit.yml) | `.github/workflows/other.yml` |\n| [kit.yml](kit.yml) |")
+        for form, readme, count in (("no row", self.README.replace("[kit.yml](kit.yml)", "[other.yml](other.yml)"), "no"),
+                                    ("no table", "Replace each `@<pin>` with the pin of the same action.\n", "no"),
+                                    ("two sources in a row", two_sources, "2"), ("two rows", two_rows, "2")):
+            with self.subTest(form=form):
+                self.assertEqual([f"kit.yml carries @<pin> but the README names {count} pin sources for it, not one"],
+                                 kit_pin_problems(readme, self.TEMPLATE, workflows))
+
+    def test_a_template_without_a_pin_needs_no_pin_source(self) -> None:
+        template = {"caller.yml": "jobs:\n  select:\n    uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1\n"}
+        self.assertEqual([], kit_pin_problems("No table.\n", template, {}))
