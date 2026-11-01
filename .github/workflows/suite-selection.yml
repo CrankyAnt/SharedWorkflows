@@ -49,7 +49,7 @@ on:
         description: The digest of the shared recording step that the selection took; every suite job of a consumer checks it.
         value: ${{ jobs.select.outputs.shared-digest }}
       identical:
-        description: true on a push or dependabot-merged run whose tree equals a passed tested tree and that runs no suite; empty otherwise. The verdict does not run on such a run.
+        description: true on a push or dispatch run whose tree equals a passed tested tree and that runs no suite; empty otherwise. The verdict does not run on such a run.
         value: ${{ jobs.select.outputs.identical }}
 
 permissions: {}

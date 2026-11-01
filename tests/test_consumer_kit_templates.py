@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
-from tests.ci_policy_support import verdict_runs
+from tests.ci_policy_support import V1_MOVED_CONTEXT, expression_value, read_workflow, verdict_runs
 from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml, read_yaml_text
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -35,8 +35,9 @@ class ValidationCallerTemplateTest(unittest.TestCase):
         self.text, self.caller = read_yaml(SELECTION_KIT / "validation.yml")
         self.jobs = self.caller["jobs"]
 
-    def test_runs_on_pull_request_on_push_to_the_default_branch_and_on_a_dependabot_merge_without_a_path_filter(self) -> None:
-        self.assertEqual({"pull_request": None, "push": {"branches": ["<default-branch>"]}, "repository_dispatch": {"types": ["dependabot-merged"]}}, self.caller["on"])
+    def test_runs_on_pull_request_on_push_to_the_default_branch_on_a_dependabot_merge_and_on_a_v1_move_without_a_path_filter(self) -> None:
+        self.assertEqual({"pull_request": None, "push": {"branches": ["<default-branch>"]},
+                          "repository_dispatch": {"types": ["dependabot-merged", "v1-moved"]}}, self.caller["on"])
         self.assertNotIn("paths:", self.text)
         self.assertNotIn("paths-ignore:", self.text)
 
@@ -94,6 +95,24 @@ class ValidationCallerTemplateTest(unittest.TestCase):
         _, caller = read_yaml_text(filled)
         self.assertEqual("$/.github/workflows/tests.yml", caller["jobs"]["tests"]["uses"])
         self.assertEqual(["select", "tests"], caller["jobs"]["validation"]["needs"])
+
+
+class V1MovedRunTest(unittest.TestCase):
+    """A ``v1-moved`` run of the validation workflow template: ``repository_dispatch`` without a ``client_payload``."""
+
+    def test_every_checkout_takes_the_default_branch_s_tip(self) -> None:
+        _, validation = read_workflow(SELECTION_KIT / "validation-workflow.yml")
+        checkouts = [step for job in validation["jobs"].values() for step in job.get("steps", []) if str(step.get("uses", "")).startswith("actions/checkout@")]
+        self.assertGreaterEqual(len(checkouts), 2)
+        for step in checkouts:
+            with self.subTest(job=step.get("name")):
+                self.assertEqual("", expression_value(step["with"]["ref"], V1_MOVED_CONTEXT), "an empty ref checks out github.sha, the default branch's tip")
+
+    def test_the_expression_value_returns_operands_as_github_does(self) -> None:
+        context = {"github": {"event_name": "repository_dispatch", "event": {"client_payload": {"sha": "abc"}}, "sha": "tip"}}
+        self.assertEqual("abc", expression_value("${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}", context))
+        self.assertEqual("tip", expression_value("${{ github.event_name == 'push' && github.event.client_payload.sha || github.sha }}", context))
+        self.assertTrue(expression_value("!(github.event_name == 'push')", context))
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ on:
   push:
     branches: [<default-branch>]
   repository_dispatch:
-    types: [dependabot-merged]
+    types: [dependabot-merged, v1-moved]
 permissions: {}
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}

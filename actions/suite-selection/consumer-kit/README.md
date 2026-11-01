@@ -33,7 +33,7 @@ Copy [validation.yml](validation.yml) to `.github/workflows/validation.yml` and 
 
 Keep `language-steps: python` on `select`, and the input `language-steps` of each validation job, in a repository with Python files; drop both otherwise. Each validation job's `uses:` keeps `$/` as the template writes it: `$/` is GitHub's reference to the running workflow's own repository and revision.
 
-The caller runs on pull requests, on pushes to the default branch and on the `repository_dispatch` event `dependabot-merged`, which Dependabot auto-merge sends after each merge, without `paths:` or `paths-ignore:`. A pull-request run is cancelled when the workflow starts for a newer head of the same pull request; push and dispatch runs are never cancelled. On a dispatch run, `select` fails, and with it the run, when `client_payload.sha` is malformed, absent from the checkout, or a commit off the default branch. The validation workflow's jobs wait for `select`, so they need no check of their own. A workflow-level `concurrency` of a validation workflow moves to the caller.
+The caller runs on pull requests, on pushes to the default branch and on the `repository_dispatch` events `dependabot-merged`, which Dependabot auto-merge sends after each merge, and `v1-moved`, which a manual move of `v1` sends ([When `v1` moves](#when-v1-moves)), without `paths:` or `paths-ignore:`. A pull-request run is cancelled when the workflow starts for a newer head of the same pull request; push and dispatch runs are never cancelled. On a `dependabot-merged` run, `select` fails, and with it the run, when `client_payload.sha` is malformed, absent from the checkout, or a commit off the default branch; a `v1-moved` run carries no `client_payload` and runs on the default branch's tip. The validation workflow's jobs wait for `select`, so they need no check of their own. A workflow-level `concurrency` of a validation workflow moves to the caller.
 
 The job `select` calls `CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1`:
 
@@ -50,7 +50,7 @@ The job `select` calls `CrankyAnt/SharedWorkflows/.github/workflows/suite-select
 | `entries` | one JSON object with the selected entry files of each suite selected per entry file, empty when there is none |
 | `language-steps` | one JSON object with `run` or `skip` for each language step |
 | `shared-digest` | the digest of the shared recording step that `select` took |
-| `identical` | `true` on a push or `dependabot-merged` run whose tree equals a tree that passed on its pull request under the same shared digest, empty otherwise |
+| `identical` | `true` on a push or dispatch run whose tree equals a tree that passed on its pull request under the same shared digest, empty otherwise |
 
 The job `validation` calls `CrankyAnt/SharedWorkflows/.github/workflows/suite-verdict.yml@v1` with `${{ toJSON(needs) }}` and runs under `if: always() && !(needs.select.result == 'success' && needs.select.outputs.identical == 'true')`. It fails when `select` did not succeed or a called job ended `failure` or `cancelled`; a skipped job is a suite that the selection did not run. Its check `validation / validation` is the one check that the suite selection adds to the checks the default-branch ruleset requires. A validation job's check is `<file name> / <job>`, the job being the one of the validation workflow, such as `tests / test` for the job `test` of `tests.yml`, and it is no required check. A required check of a validation workflow from before the adoption changes its name once the workflow runs through the caller; a change to the ruleset is a question to the user.
 
@@ -202,7 +202,11 @@ The user configures these settings; the workflows change none of them:
 
 ## When `v1` moves
 
-The recording step comes from `CrankyAnt/SharedWorkflows` at `v1`, not from the repository. `select` takes a digest of it and compares it with the digest of the last passed run of the caller on the base branch; when the two differ, or that run cannot be found, every suite runs. The first run after `v1` moves therefore runs every suite once. When `v1` moves during a run, a suite job fails on its digest; start the whole run again, since a re-run of the failed jobs keeps the earlier `select`.
+The recording step comes from `CrankyAnt/SharedWorkflows` at `v1`, not from the repository. `select` takes a digest of it and compares it with the digest of the last passed run of the caller on the base branch; when the two differ, or that run cannot be found, every suite runs. The first run after `v1` moves therefore runs every suite once.
+
+After each manual move of `v1`, a promotion, a rollback or the first creation alike, `promote_v1.py promote`, which moves `v1` by hand in Shared Workflows, sends the `repository_dispatch` event `v1-moved`, without a `client_payload`, to every repository of the owner that is not archived and whose default-branch workflow file calls `CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1` and lists `v1-moved` among its `repository_dispatch` types. The caller template lists it; a caller copied from an earlier template adds `v1-moved` to the `types` of its `repository_dispatch` trigger. The `v1-moved` run checks out the default branch's tip and selects as a push of that commit: every suite runs when the shared digest moved, and no suite runs when the tree equals a tree that passed on its pull request under an unchanged digest. Once that run has passed, every later pull-request run takes it as the last passed run on the base branch and runs its normal selection; a pull-request run that starts before it passed still runs every suite. A caller that does not list `v1-moved` gets no event, and its pull-request runs run every suite until a push or a Dependabot merge passes under the new digest. The automatic move of a pins-only commit sends no event, since it leaves the shared digest unchanged.
+
+When `v1` moves during a run, a suite job fails on its digest; start the whole run again, since a re-run of the failed jobs keeps the earlier `select`.
 
 ## A skipped suite
 
