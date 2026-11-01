@@ -7,19 +7,28 @@ import re
 import unittest
 from pathlib import Path
 
-from tests.ci_policy_support import REPOSITORY_ROOT, is_tracked, tracked_files
+from tests.ci_policy_support import REPOSITORY_ROOT, is_tracked, shared_workflows, tracked_files, tracked_workflows
 
 
-WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
-SHARED_WORKFLOWS = ("repository-hygiene.yml", "dependabot-auto-merge.yml", "suite-selection.yml", "suite-verdict.yml")
 PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
 
 
 def on_surface(path: str, surface_paths: list[str]) -> bool:
     return any(path == item or path.startswith(item + "/") for item in surface_paths)
+
+
+def shared_workflow_problems(workflows: dict[str, str], surface_paths: list[str]) -> list[str]:
+    """Each way the workflows, from path to text, are out of step with the shared surface."""
+    shared = shared_workflows(workflows)
+    problems = [f"{path} has a workflow_call trigger but the shared surface lacks it" for path in shared if path not in surface_paths]
+    problems += [f"{path} is on the shared surface without a workflow_call trigger" for path in surface_paths
+                 if path.startswith(".github/workflows/") and path not in shared]
+    problems += [f"{path} loads {reference} outside the shared surface" for path in shared
+                 for reference in re.findall(r"uses: \$/([^\s]+)", workflows[path]) if reference not in surface_paths]
+    return problems
 
 
 def led_to(readme: Path) -> set[str]:
@@ -69,18 +78,65 @@ def catalogue_problems(catalogue: dict, surface_paths: list[str], tracked: set[s
 class SharedSurfaceTests(unittest.TestCase):
     def test_the_shared_surface_covers_every_resource_a_shared_workflow_loads_and_names_tracked_paths_only(self) -> None:
         surface = json.loads(SURFACE.read_text(encoding="utf-8"))
-        self.assertEqual([f".github/workflows/{workflow}" for workflow in SHARED_WORKFLOWS] + ["catalogue.json"] + [f"actions/{part}" for part in PARTS]
-                         + ["actions/repository-ruleset"], surface["paths"])
+        workflows = tracked_workflows(REPOSITORY_ROOT)
+        self.assertTrue(shared_workflows(workflows), "no tracked workflow has a workflow_call trigger")
+        self.assertEqual([], shared_workflow_problems(workflows, surface["paths"]))
+        surface_workflows = [path for path in surface["paths"] if path.startswith(".github/workflows/")]
+        self.assertEqual(surface_workflows + ["catalogue.json"] + [f"actions/{part}" for part in PARTS] + ["actions/repository-ruleset"], surface["paths"])
         tracked = tracked_files(REPOSITORY_ROOT, [surface["pins"], *surface["paths"]])
         self.assertIn(surface["pins"], tracked)
         for path in surface["paths"]:
             with self.subTest(path=path):
                 self.assertTrue(is_tracked(path, tracked), f"{path} is in the shared surface but Git tracks nothing there")
-        for workflow in SHARED_WORKFLOWS:
-            text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
-            self.assertIn(f".github/workflows/{workflow}", surface["paths"])
-            for reference in re.findall(r"uses: \$/([^\s]+)", text):
-                self.assertIn(reference, surface["paths"], f"{workflow} loads {reference} outside the shared surface")
+
+
+class SharedWorkflowProblemTests(unittest.TestCase):
+    SURFACE_PATHS = [".github/workflows/shared.yml", "catalogue.json", "actions/part"]
+
+    def test_a_workflow_with_a_workflow_call_trigger_that_the_shared_surface_lacks_fails_and_is_named(self) -> None:
+        workflows = {".github/workflows/shared.yml": "on: workflow_call\njobs: {}\n",
+                     ".github/workflows/new.yml": "on: workflow_call\njobs:\n  unit:\n    runs-on: ubuntu-latest\n"}
+        self.assertEqual([".github/workflows/new.yml has a workflow_call trigger but the shared surface lacks it"],
+                         shared_workflow_problems(workflows, self.SURFACE_PATHS))
+
+    def test_a_workflow_call_trigger_in_a_list_or_a_mapping_that_the_shared_surface_lacks_fails_and_is_named(self) -> None:
+        for form, on in (("flow list", "on: [push, workflow_call]\n"), ("quoted flow list", "on: ['push', \"workflow_call\"]\n"),
+                         ("block list", "on:\n  - push\n  - workflow_call\n"),
+                         ("mapping", "on:\n  push:\n    branches: [main]\n  workflow_call:\n    inputs:\n      name:\n        type: string\n"),
+                         ("empty mapping entry", "on:\n  workflow_call:\n"),
+                         ("flow mapping", "on: {push: {branches: [main, 'a,b']}, workflow_call: {}}\n")):
+            with self.subTest(form=form):
+                workflows = {".github/workflows/shared.yml": "on: workflow_call\n", ".github/workflows/new.yml": on + "jobs:\n  unit:\n    runs-on: ubuntu-latest\n"}
+                self.assertEqual([".github/workflows/new.yml has a workflow_call trigger but the shared surface lacks it"],
+                                 shared_workflow_problems(workflows, self.SURFACE_PATHS))
+
+    def test_a_workflow_without_a_workflow_call_trigger_off_the_shared_surface_passes(self) -> None:
+        for form, on in (("string", "on: push\n"), ("flow list", "on: [push, workflow_dispatch]\n"), ("block list", "on:\n  - push\n"),
+                         ("mapping", "on:\n  push:\n  workflow_run:\n    workflows: [workflow_call]\n")):
+            with self.subTest(form=form):
+                workflows = {".github/workflows/shared.yml": "on: workflow_call\n", ".github/workflows/caller.yml": on}
+                self.assertEqual([], shared_workflow_problems(workflows, self.SURFACE_PATHS))
+
+    def test_a_workflow_on_the_shared_surface_without_a_workflow_call_trigger_fails_and_is_named(self) -> None:
+        for form, on in (("string", "on: push\n"), ("flow list", "on: [push, workflow_dispatch]\n"), ("mapping", "on:\n  push:\n")):
+            with self.subTest(form=form):
+                workflows = {".github/workflows/shared.yml": on}
+                self.assertEqual([".github/workflows/shared.yml is on the shared surface without a workflow_call trigger"],
+                                 shared_workflow_problems(workflows, self.SURFACE_PATHS))
+
+    def test_a_workflow_with_a_workflow_call_trigger_that_loads_a_path_outside_the_shared_surface_fails_and_is_named(self) -> None:
+        steps = "jobs:\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: $/actions/part\n      - uses: $/actions/elsewhere\n"
+        surface_paths = [*self.SURFACE_PATHS, ".github/workflows/second.yml"]
+        for form, on in (("string", "on: workflow_call\n"), ("flow list", "on: [push, workflow_call]\n"), ("mapping", "on:\n  workflow_call:\n")):
+            with self.subTest(form=form):
+                workflows = {".github/workflows/shared.yml": "on: workflow_call\n", ".github/workflows/second.yml": on + steps}
+                self.assertEqual([".github/workflows/second.yml loads actions/elsewhere outside the shared surface"],
+                                 shared_workflow_problems(workflows, surface_paths))
+
+    def test_a_workflow_without_a_workflow_call_trigger_may_load_a_path_outside_the_shared_surface(self) -> None:
+        workflows = {".github/workflows/shared.yml": "on: workflow_call\n",
+                     ".github/workflows/caller.yml": "on: push\njobs:\n  unit:\n    uses: $/.github/workflows/elsewhere.yml\n"}
+        self.assertEqual([], shared_workflow_problems(workflows, self.SURFACE_PATHS))
 
 
 class CatalogueTests(unittest.TestCase):
