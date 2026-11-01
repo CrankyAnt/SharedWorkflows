@@ -4120,8 +4120,10 @@
           "tests/test_setup_ci_templates.py"
         ],
         "tests/test_consumer_kit_validation_workflow.py": [
+          ".github/workflows/full-recording.yml",
           ".github/workflows/validate.yml",
           "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
