@@ -6,13 +6,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.recording_fixtures import RecordingFixture, entry_command, requires_etw, suite
+from tests import recording_fixtures
+from tests.recording_fixtures import ROOT, RecordingFixture, entry_command, requires_etw, suite
 from tests.test_recording_classification import (ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, ClassificationRules, classification_fixture,
                                                  classified_lists, linked_worktree_fixture)
 
@@ -186,6 +189,210 @@ class ConcurrentEtwAttributionTests(unittest.TestCase):
             paths = fixture.reads_of(f"tests/{name}.py")["paths"]
             self.assertLessEqual({f"tests/{name}.py", f"data/{name}.txt", f"data/{name}-child.txt", f"data/{name}-after.txt"}, set(paths))
             self.assertEqual([], [path for path in paths if path.startswith(f"data/{other}") or path == f"tests/{other}.py"], paths)
+
+
+PERFORMANCE_LOG_USERS_ROW = '"BUILTIN\\Performance Log Users","Alias","S-1-5-32-559","Mandatory group, Enabled by default, Enabled group"\n'
+DENIED_AT_KERNEL_PROVIDER = """\
+Unhandled exception. System.UnauthorizedAccessException: Access is denied. (0x80070005 (E_ACCESSDENIED))
+   at Microsoft.Diagnostics.Tracing.Session.TraceEventSession.EnableKernelProvider(Keywords flags, Keywords stackCapture)
+   at Program.Main(String[] args)
+"""
+DENIED_AT_PROVIDER = """\
+Unhandled exception. System.UnauthorizedAccessException: Access is denied. (0x80070005 (E_ACCESSDENIED))
+   at Microsoft.Diagnostics.Tracing.Session.TraceEventSession.EnableProvider(Guid providerGuid, TraceEventLevel providerLevel)
+   at Program.Main(String[] args)
+"""
+
+
+class SessionStandIn:
+    """Stands in for ``subprocess.run`` of the gate: the ETW consumer exits with ``consumer`` and ``output``, ``whoami``
+    lists the Performance Log Users membership when ``member`` is true, and ``logman`` is denied the providers in
+    ``denied``."""
+
+    def __init__(self, consumer: int = 0, output: str = "", *, member: bool = True, denied: tuple[str, ...] = ()) -> None:
+        self.consumer, self.output, self.member, self.denied = consumer, output, member, denied
+        self.calls: list[list[str]] = []
+        self.stop_existed: list[bool] = []
+
+    def __call__(self, command: list[str], **options) -> subprocess.CompletedProcess[str]:
+        self.calls.append(list(command))
+        program = Path(command[0]).name.lower()
+        if program == "whoami.exe":
+            return subprocess.CompletedProcess(command, 0, PERFORMANCE_LOG_USERS_ROW if self.member else "", "")
+        if program == "logman.exe":
+            if command[1] == "start" and any(provider in command for provider in self.denied):
+                return subprocess.CompletedProcess(command, -2147024891, "Access is denied.\n", "")
+            return subprocess.CompletedProcess(command, 0, "The command completed successfully.\n", "")
+        self.stop_existed.append(Path(command[5]).is_file())
+        return subprocess.CompletedProcess(command, self.consumer, "", self.output)
+
+    def programs(self) -> list[str]:
+        return [Path(command[0]).name.lower() for command in self.calls]
+
+
+class EtwGateTests(unittest.TestCase):
+    """The gate of the live ETW tests decides by a real session start, here replaced by a stand-in."""
+
+    def denial(self, stand_in: SessionStandIn) -> str | None:
+        with mock.patch.object(recording_fixtures.subprocess, "run", stand_in):
+            return recording_fixtures.etw_session_denial("dotnet")
+
+    def test_a_session_that_starts_and_stops_opens_the_gate(self) -> None:
+        stand_in = SessionStandIn()
+        self.assertIsNone(self.denial(stand_in))
+        self.assertEqual(1, len(stand_in.calls))
+        self.assertEqual(["dotnet", str(recording_fixtures.ETW_CONSUMER)], stand_in.calls[0][:2])
+        self.assertEqual([True], stand_in.stop_existed, "the probe session stops as soon as it runs")
+
+    def test_a_log_on_without_the_membership_names_the_membership_and_the_setup(self) -> None:
+        reason = self.denial(SessionStandIn(1, DENIED_AT_KERNEL_PROVIDER, member=False))
+        assert reason is not None
+        self.assertIn("Performance Log Users", reason)
+        self.assertIn("next log-on", reason)
+        self.assertIn("tests/etw_access.ps1", reason)
+
+    def test_a_denied_system_logger_session_names_the_system_trace_provider_alone(self) -> None:
+        stand_in = SessionStandIn(1, DENIED_AT_KERNEL_PROVIDER)
+        reason = self.denial(stand_in)
+        assert reason is not None
+        self.assertIn("SystemTraceProvider", reason)
+        self.assertNotIn("Kernel-File", reason)
+        self.assertNotIn("Kernel-Process", reason)
+        self.assertIn("tests/etw_access.ps1", reason)
+
+    def test_a_denied_provider_is_named_and_every_probe_session_is_stopped(self) -> None:
+        stand_in = SessionStandIn(1, DENIED_AT_PROVIDER, denied=(recording_fixtures.KERNEL_FILE,))
+        reason = self.denial(stand_in)
+        assert reason is not None
+        self.assertIn("Microsoft-Windows-Kernel-File", reason)
+        self.assertNotIn("Kernel-Process", reason)
+        self.assertNotIn("SystemTraceProvider", reason)
+        self.assertIn("tests/etw_access.ps1", reason)
+        starts = [command[2] for command in stand_in.calls if command[1:2] == ["start"]]
+        stops = [command[2] for command in stand_in.calls if command[1:2] == ["stop"]]
+        self.assertEqual(2, len(starts))
+        self.assertEqual(starts, stops)
+
+    def test_a_denied_provider_that_starts_on_its_own_names_neither_provider_alone_nor_the_system_trace_provider(self) -> None:
+        reason = self.denial(SessionStandIn(1, DENIED_AT_PROVIDER))
+        assert reason is not None
+        self.assertIn("Microsoft-Windows-Kernel-Process or Microsoft-Windows-Kernel-File", reason)
+        self.assertNotIn("SystemTraceProvider", reason)
+
+    def test_a_probe_that_does_not_end_in_time_counts_as_denied(self) -> None:
+        def run(command: list[str], **options) -> subprocess.CompletedProcess[str]:
+            if Path(command[0]).name.lower() == "logman.exe" and command[1] == "start":
+                raise subprocess.TimeoutExpired(command, options.get("timeout") or 0)
+            return SessionStandIn(1, DENIED_AT_PROVIDER)(command, **options)
+
+        with mock.patch.object(recording_fixtures.subprocess, "run", run):
+            reason = recording_fixtures.etw_session_denial("dotnet")
+        assert reason is not None
+        self.assertIn("Microsoft-Windows-Kernel-Process; Microsoft-Windows-Kernel-File", reason)
+
+    def test_a_consumer_that_fails_for_another_reason_is_named_with_its_first_line(self) -> None:
+        stand_in = SessionStandIn(1, "You must install or update .NET to run this application.\n")
+        reason = self.denial(stand_in)
+        assert reason is not None
+        self.assertIn("did not start", reason)
+        self.assertIn("You must install or update .NET to run this application.", reason)
+        self.assertIn("tests/etw_access.ps1", reason)
+        self.assertEqual(["dotnet"], stand_in.programs())
+
+    def test_every_test_of_a_gated_class_skips_with_the_reason(self) -> None:
+        @recording_fixtures.etw_gate("a live ETW session was denied: SystemTraceProvider")
+        class Gated(unittest.TestCase):
+            def test_one(self) -> None:
+                pass
+
+            def test_two(self) -> None:
+                pass
+
+        result = unittest.TestResult()
+        unittest.defaultTestLoader.loadTestsFromTestCase(Gated).run(result)
+        self.assertEqual(2, result.testsRun)
+        self.assertEqual(["a live ETW session was denied: SystemTraceProvider"] * 2, [reason for _, reason in result.skipped])
+
+    def test_an_open_gate_runs_the_tests(self) -> None:
+        @recording_fixtures.etw_gate(None)
+        class Gated(unittest.TestCase):
+            def test_one(self) -> None:
+                pass
+
+        result = unittest.TestResult()
+        unittest.defaultTestLoader.loadTestsFromTestCase(Gated).run(result)
+        self.assertEqual((1, []), (result.testsRun, result.skipped))
+
+    def test_the_gate_does_not_ask_whether_the_user_is_an_administrator(self) -> None:
+        self.assertNotIn("IsUserAnAdmin", Path(recording_fixtures.__file__).read_text(encoding="utf-8"))
+
+
+ELEVATION_REQUESTS = re.compile(r"\brunas\b|-Verb\s+RunAs|ShellExecute|Start-Process\b.*-Verb", re.IGNORECASE)
+
+
+class NoElevationTests(unittest.TestCase):
+    def test_neither_the_etw_gate_and_its_tests_nor_the_recording_step_requests_elevation(self) -> None:
+        sources = ["tests/recording_fixtures.py", "tests/record_etw_fixture.py", "tests/etw_access.ps1", "actions/recording/recording.py",
+                   "actions/recording/action.yml", "actions/recording/etw-consumer/Program.cs"]
+        found = [f"{source}:{number}" for source in sources
+                 for number, line in enumerate((ROOT / source).read_text(encoding="utf-8").splitlines(), 1) if ELEVATION_REQUESTS.search(line)]
+        # This file names the patterns themselves; its own code starts PowerShell and the consumer stand-in alone.
+        own = Path(__file__).read_text(encoding="utf-8").replace(ELEVATION_REQUESTS.pattern, "")
+        found += [f"tests/test_windows_recording.py:{number}" for number, line in enumerate(own.splitlines(), 1) if ELEVATION_REQUESTS.search(line)]
+        self.assertEqual([], found)
+
+
+@unittest.skipUnless(sys.platform == "win32", "the recording step's ETW consumer runs on Windows")
+class EtwStartFailureTests(unittest.TestCase):
+    def test_a_consumer_that_exits_before_its_session_runs_names_the_setup_beside_administrator_rights(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"lib/data.txt": ""}, [suite("a", ["lib/data.txt"], paths=[])])
+        tools = fixture.base / "tools"
+        tools.mkdir()
+        (tools / "dotnet.cmd").write_text("@echo System.UnauthorizedAccessException: Access is denied.\r\n@exit /b 3\r\n", encoding="ascii")
+        system = Path(os.environ["SystemRoot"]) / "System32"
+        started = fixture.run_with_path(os.pathsep.join([str(tools), str(system)]), "start", "--output", str(fixture.output))
+        self.assertEqual(2, started.returncode, started.stdout + started.stderr)
+        self.assertIn("exited with 3 before its session ran", started.stderr)
+        self.assertIn("administrator rights", started.stderr)
+        self.assertIn("tests/etw_access.ps1", started.stderr)
+        self.assertIn("Access is denied.", started.stderr)
+
+
+SCRIPT = ROOT / "tests" / "etw_access.ps1"
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
+
+
+class EtwAccessScriptTests(unittest.TestCase):
+    """The setup, restore and inspect actions change machine security settings and are verified by hand from an elevated
+    PowerShell; these cases check what holds without elevation."""
+
+    def test_the_script_names_no_path_or_account_of_this_machine(self) -> None:
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"(?<![A-Za-z])[A-Za-z]:\\", text), "an absolute path")
+        for variable in ("USERNAME", "USER", "COMPUTERNAME", "USERDOMAIN", "USERPROFILE"):
+            value = os.environ.get(variable)
+            if value and len(value) > 2:
+                self.assertNotIn(value.lower(), text.lower(), variable)
+        self.assertNotIn("S-1-5-21-", text, "the SID of a particular account")
+
+    @unittest.skipIf(POWERSHELL is None, "PowerShell is not on PATH")
+    def test_the_script_parses(self) -> None:
+        command = f"$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('{str(SCRIPT).replace("'", "''")}', [ref]$null, [ref]$errors); $errors | ForEach-Object {{ $_.ToString() }}"
+        parsed = subprocess.run([str(POWERSHELL), "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, text=True, check=False)
+        self.assertEqual((0, ""), (parsed.returncode, parsed.stdout.strip()), parsed.stderr)
+
+    @unittest.skipUnless(sys.platform == "win32" and POWERSHELL is not None, "the script runs in PowerShell on Windows")
+    def test_without_elevation_every_action_refuses_and_requests_no_elevation(self) -> None:
+        import ctypes
+
+        if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]
+            self.skipTest("the process is elevated; the actions would change this machine")
+        for action in ("inspect", "setup", "restore"):
+            with self.subTest(action=action):
+                ran = subprocess.run([str(POWERSHELL), "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), action], capture_output=True,
+                                     text=True, check=False, timeout=120)
+                self.assertNotEqual(0, ran.returncode, ran.stdout + ran.stderr)
+                self.assertIn("elevated PowerShell", ran.stdout + ran.stderr)
 
 
 if __name__ == "__main__":

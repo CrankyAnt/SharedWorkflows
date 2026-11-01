@@ -1,4 +1,5 @@
-"""Record the neutral event files that the recorded-event-file tests read, on Windows with administrator rights.
+"""Record the neutral event files that the recorded-event-file tests read, on Windows where a live ETW session
+runs: with administrator rights or after the setup of tests/etw_access.ps1.
 
     python -m tests.record_etw_fixture <destination> [<run> ...]
 
@@ -16,7 +17,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from tests.recording_fixtures import RECORDING_FILES, entry_command, etw_available
+from tests.recording_fixtures import ETW_UNAVAILABLE, RECORDING_FILES, entry_command
 from tests.test_recording_classification import ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, classification_fixture, linked_worktree_fixture
 from tests.test_recording_etw import NODE_ENTRIES, node_fixture
 
@@ -25,8 +26,8 @@ def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__, file=sys.stderr)
         return 2
-    if not etw_available():
-        print("a live ETW session needs Windows, dotnet and administrator rights", file=sys.stderr)
+    if ETW_UNAVAILABLE is not None:
+        print(ETW_UNAVAILABLE, file=sys.stderr)
         return 2
     destination = Path(argv[0]).resolve()
     cleanups = []

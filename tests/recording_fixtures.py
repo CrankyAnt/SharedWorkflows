@@ -42,15 +42,97 @@ def load_recording():
     return module
 
 
-def etw_available() -> bool:
-    if sys.platform != "win32" or shutil.which("dotnet") is None:
+ETW_CONSUMER = ROOT / "actions" / "recording" / "etw-consumer" / "build" / "EtwConsumer.dll"
+KERNEL_FILE = "{edd08927-9cc4-4e65-b970-c2560fb5c289}"
+KERNEL_PROCESS = "{22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716}"
+# The providers that the ETW consumer enables beside its kernel Process flag, with its keywords, in its order.
+ETW_PROVIDERS = {"Microsoft-Windows-Kernel-Process": (KERNEL_PROCESS, "0x10"), "Microsoft-Windows-Kernel-File": (KERNEL_FILE, "0xF0")}
+SYSTEM_LOGGER = "the system logger session with the kernel Process flag (SystemTraceProvider)"
+PERFORMANCE_LOG_USERS = "S-1-5-32-559"
+ETW_SETUP = ("without elevation, the one-time setup of tests/etw_access.ps1, run from an elevated PowerShell, gives the "
+             "account these rights, as tests/README.md describes")
+ETW_PROBE_SECONDS = 60
+
+
+def system_tool(name: str) -> str:
+    """The Windows tool ``name`` from System32, ahead of any program of that name on ``PATH``."""
+    return str(Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / name)
+
+
+def provider_starts(guid: str, keywords: str) -> bool:
+    """Whether this process may start a real-time session that enables the provider ``guid`` with ``keywords``; the
+    session is stopped again either way."""
+    session = f"shared-ci-etw-probe-{os.getpid()}-{guid[1:9]}"
+    try:
+        started = subprocess.run([system_tool("logman.exe"), "start", session, "-p", guid, keywords, "-rt", "-ets"],
+                                 capture_output=True, text=True, errors="replace", check=False, timeout=ETW_PROBE_SECONDS)
+    except subprocess.TimeoutExpired:
         return False
-    import ctypes
+    finally:
+        stop_session(session)
+    return started.returncode == 0
 
-    return bool(ctypes.windll.shell32.IsUserAnAdmin())  # type: ignore[attr-defined]
+
+def stop_session(session: str) -> None:
+    """Stop the ETW session ``session`` if it runs."""
+    try:
+        subprocess.run([system_tool("logman.exe"), "stop", session, "-ets"], capture_output=True, text=True, errors="replace",
+                       check=False, timeout=ETW_PROBE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
 
 
-requires_etw = unittest.skipUnless(etw_available(), "a live ETW session needs Windows, dotnet and administrator rights")
+def etw_session_denial(dotnet: str) -> str | None:
+    """None when the ETW consumer on ``dotnet`` starts and stops its session, with its kernel Process flag and its
+    providers; otherwise the reason it did not, naming each denied part and the setup."""
+    session = f"shared-ci-etw-probe-{os.getpid()}"
+    with tempfile.TemporaryDirectory(prefix="etw-probe-") as directory:
+        work = Path(directory)
+        # The stop file exists before the consumer starts, so its session stops as soon as it runs.
+        (work / "stop").touch()
+        try:
+            probe = subprocess.run([dotnet, str(ETW_CONSUMER), session, str(work / "events.tsv"), str(work / "ready"), str(work / "stop"),
+                                    "\\Device\\none"], capture_output=True, text=True, errors="replace", check=False, timeout=ETW_PROBE_SECONDS)
+        except subprocess.TimeoutExpired:
+            stop_session(session)
+            return f"the ETW consumer's probe session did not stop within {ETW_PROBE_SECONDS} s"
+    if probe.returncode == 0:
+        return None
+    output = probe.stdout + probe.stderr
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if "UnauthorizedAccessException" not in output and "0x80070005" not in output:
+        return f"a live ETW session did not start: {lines[0] if lines else f'the ETW consumer exited with {probe.returncode}'}; {ETW_SETUP}"
+    groups = subprocess.run([system_tool("whoami.exe"), "/groups", "/fo", "csv", "/nh"], capture_output=True, text=True, errors="replace",
+                            check=False, timeout=ETW_PROBE_SECONDS)
+    if PERFORMANCE_LOG_USERS not in groups.stdout:
+        denied = [f"the session itself: this log-on holds no Performance Log Users ({PERFORMANCE_LOG_USERS}) membership, which "
+                  "takes effect at the next log-on after it is granted"]
+    else:
+        denied = [name for name, (guid, keywords) in ETW_PROVIDERS.items() if not provider_starts(guid, keywords)]
+        if "EnableKernelProvider" in output:
+            denied.insert(0, SYSTEM_LOGGER)
+        elif not denied:
+            denied = [f"enabling {' or '.join(ETW_PROVIDERS)} in the consumer's session, though each starts on its own"]
+    return f"a live ETW session was denied: {'; '.join(denied)}; {ETW_SETUP}"
+
+
+def etw_unavailable_reason() -> str | None:
+    """None when a live ETW session runs in this process's log-on, otherwise why it does not."""
+    if sys.platform != "win32":
+        return "a live ETW session needs Windows"
+    dotnet = shutil.which("dotnet")
+    if dotnet is None:
+        return "a live ETW session needs dotnet with the .NET runtime that the ETW consumer's project names"
+    return etw_session_denial(dotnet)
+
+
+def etw_gate(reason: str | None):
+    """Skip every test of a decorated class with ``reason``, unless it is None."""
+    return unittest.skipIf(reason is not None, reason or "")
+
+
+ETW_UNAVAILABLE = etw_unavailable_reason()
+requires_etw = etw_gate(ETW_UNAVAILABLE)
 
 
 def copy_recording(source: Path, output: Path) -> None:
