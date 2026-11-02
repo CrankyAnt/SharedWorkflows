@@ -84,6 +84,23 @@ The [ruleset template](../../repository-ruleset/ruleset-main-template.json) hold
 
 The ruleset becomes active only once the callers are on the default branch and each required check has reported on a pull request since; until then it is created with `enforcement` set to `disabled`. The ruleset editor lists a check only after it succeeded in the repository within the past 7 days, and an active ruleset that requires a check that never reports blocks every pull request.
 
+## When a repository adopted it earlier
+
+A repository that adopted repository hygiene earlier brings its installed caller onto the current template in one pull request. It compares the installed file with the template it came from, read at `v1`:
+
+| Template | Install target |
+| --- | --- |
+| [repository-hygiene.yml](repository-hygiene.yml) | `.github/workflows/repository-hygiene.yml` |
+
+Every difference that the template makes is taken over, apart from the repository's own values, which carry over:
+
+- the default branch in place of `<default-branch>`;
+- the inputs the caller sets under `with:`, among those that [Inputs and the files it reads](#inputs-and-the-files-it-reads) lists: `gitleaks-config`, `gitleaks-baseline`, `zizmor-persona`, `coverage-exclude` and `link-exclude`, each with its value.
+
+The files that the job reads beside the inputs, such as the repository's own Gitleaks or zizmor configuration, come from no template and stay as they are.
+
+The result works when `hygiene / hygiene` passes on that pull request, where actionlint and zizmor run over the changed caller, and again on the push of the merge to the default branch.
+
 ## When `v1` moves
 
 A move of `v1` changes the later runs of the caller without a change in the repository. A check that the move adds runs on the repository's first change that starts it, as the table above says. When that change fails on what the repository already holds, fix it in the same pull request:

@@ -36,3 +36,19 @@ The user configures these settings; the workflow changes none of them:
 ## When a repository adopts it
 
 A repository adopts it when it has a dependency of its own: a package file that Dependabot updates, or a workflow of its own that uses an action from outside the repository, other than a caller of a shared workflow. A repository without such a dependency has no Dependabot pull request to merge and adopts neither file.
+
+## When a repository adopted it earlier
+
+A repository that adopted Dependabot auto-merge earlier brings its installed files onto the current templates in one pull request. It compares each installed file with the template it came from, read at `v1`:
+
+| Template | Install target |
+| --- | --- |
+| [dependabot-auto-merge.yml](dependabot-auto-merge.yml) | `.github/workflows/dependabot-auto-merge.yml` |
+| [dependabot.yml](dependabot.yml) | `.github/dependabot.yml` |
+
+Every difference that a template makes is taken over, apart from the repository's own values, which carry over:
+
+- in the caller, the `name:` of each workflow that produces a required check, in place of `<required-check-workflows>`;
+- in the Dependabot configuration, the repository's own `updates` entries, one per ecosystem of its package files with its `directory` or `directories`, and each entry the configuration held before the adoption, each with its own settings. The template's `github-actions` entry, with its ignore entry for `CrankyAnt/SharedWorkflows`, comes from the template, as [The Dependabot configuration](#the-dependabot-configuration) states.
+
+The result works when `hygiene / hygiene` passes on that pull request, where actionlint and zizmor run over the changed caller and the Dependabot coverage check over the changed configuration. On that pull request, which is not Dependabot's, `dependabot-auto-merge / auto-merge` and `dependabot-auto-merge / merge` are skipped. The next Dependabot pull request confirms the caller: `dependabot-auto-merge / auto-merge` succeeds, and for an update that merges on its own `dependabot-auto-merge / merge` requests the merge once the required checks have passed.
