@@ -196,9 +196,9 @@ class RecordedJobTests(unittest.TestCase):
 
     def test_the_step_that_runs_the_entry_files_sets_no_variable_for_them(self) -> None:
         # The entry files get the job's environment before its setups; a variable of this step reaches only exec.
-        for job, allowed in (("linux", {"RECORDING"}), ("windows", {"RECORDING", "TEMP", "TMP"})):
+        for job in ("linux", "windows"):
             steps, _, entries, _ = self.recording_steps(job)
-            self.assertLessEqual(set(steps[entries].get("env", {})), allowed, job)
+            self.assertLessEqual(set(steps[entries].get("env", {})), {"RECORDING"}, job)
 
     def test_every_recording_command_runs_on_the_job_s_python(self) -> None:
         for job, interpreter in (("linux", 'python3 "$RECORDING/recording.py"'), ("windows", 'python "$env:RECORDING\\recording.py"')):

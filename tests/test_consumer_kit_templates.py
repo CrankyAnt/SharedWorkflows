@@ -155,6 +155,21 @@ class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
         self.assertIn("one runner label", text)
         self.assertIn("therefore runs every suite", text)
 
+    def test_a_checkout_keeps_the_repository_s_own_options(self) -> None:
+        self.assertIn("keeps the repository's own options beside these two", self.section)
+        self.assertIn("`fetch-depth: 0`", self.section)
+
+    def test_setups_route_a_runner_context_value_past_the_job_s_env(self) -> None:
+        # A job's `env` does not allow the `runner` context, and a variable of the step that runs exec never reaches
+        # the entry files.
+        section = readme_section(self.readme, "## Setups")
+        self.assertNotIn("a variable that an entry file needs and no setup provides belongs in the job's `env`", section)
+        self.assertIn("goes in the job's `env`", section)
+        self.assertIn("`RUNNER_TEMP`", section)
+        self.assertIn("`provide --variable`", section)
+        self.assertIn("A variable of the step that runs the entry files does not reach them", section)
+        self.assertIn("no other value replaces them", section)
+
 
 class EarlierAdoptionSectionTest(unittest.TestCase):
     """Every consumer kit leads a repository that adopted the part earlier onto the kit's current templates."""
@@ -183,6 +198,11 @@ class EarlierAdoptionSectionTest(unittest.TestCase):
         section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
         self.assertIn("`v1-moved`", section)
         self.assertIn("(#when-v1-moves)", section)
+
+    def test_the_earlier_adoption_carries_over_each_job_s_checkout_options_and_env_variables(self) -> None:
+        section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
+        self.assertIn("the checkout options of each job, in the validation workflow and in the full recording", section)
+        self.assertIn("the variables in each job's `env`", section)
 
 
 class V1MovedRunTest(unittest.TestCase):

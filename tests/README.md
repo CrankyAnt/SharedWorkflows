@@ -34,7 +34,7 @@ The entry files of the recording step, `tests/test_recording_*.py` in the `suite
 
 ## Windows suite
 
-The Windows suite is `tests/test_windows_recording.py`, run by the `windows` job of `validate.yml` on `windows-2025` under the ETW recording. It covers the recording step on Windows. The job sets `TEMP` and `TMP` to the runner's long-form temporary directory, because the runner's own `TEMP` is an 8.3 short path.
+The Windows suite is `tests/test_windows_recording.py`, run by the `windows` job of `validate.yml` on `windows-2025` under the ETW recording. It covers the recording step on Windows. Each entry file gets the `TEMP` and `TMP` that the recording's `exec` gives it: a temporary directory of its own under the recording's output directory in `$RUNNER_TEMP`.
 
 ## ETW consumer build suite
 
