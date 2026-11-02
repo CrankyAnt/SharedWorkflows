@@ -3926,10 +3926,13 @@
         ".github/workflows/update-ci-pins.yml",
         ".github/workflows/update-publication-spec.yml",
         ".github/workflows/validate.yml",
+        "actions/dependabot-auto-merge/consumer-kit/README.md",
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
+        "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/recording/recording.py",
+        "actions/repository-hygiene/consumer-kit/README.md",
         "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
         "actions/repository-hygiene/dependabot_coverage.py",
         "actions/repository-hygiene/package-ecosystems.json",
@@ -3944,6 +3947,7 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
+        "catalogue.json",
         "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
         "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
         "docs/adr/0003-a-consumer-s-validation-runs-its-linux-entry-files-in-timed-shards.md",
@@ -4103,6 +4107,9 @@
           "tests/test_setup_ci_publication.py"
         ],
         "tests/test_consumer_kit_templates.py": [
+          "actions/dependabot-auto-merge/consumer-kit/README.md",
+          "actions/python-language-step/consumer-kit/README.md",
+          "actions/repository-hygiene/consumer-kit/README.md",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/README.md",
@@ -4110,6 +4117,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "catalogue.json",
           "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
           "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
           "docs/adr/0003-a-consumer-s-validation-runs-its-linux-entry-files-in-timed-shards.md",
@@ -4200,6 +4208,10 @@
           "actions/suite-selection/consumer-kit"
         ],
         "tests/test_consumer_kit_templates.py": [
+          "actions/dependabot-auto-merge/consumer-kit",
+          "actions/python-language-step/consumer-kit",
+          "actions/repository-hygiene/consumer-kit",
+          "actions/suite-selection/consumer-kit",
           "docs/adr"
         ]
       },
