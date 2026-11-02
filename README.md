@@ -10,6 +10,8 @@ This repository owns the shared implementations and their consumer kits. Each co
 
 Read the [catalogue at `v1`](https://github.com/CrankyAnt/SharedWorkflows/blob/v1/catalogue.json), choose the shared part that fits your repository, and follow its linked consumer kit at the same tag. Copy and configure the caller templates as the kit describes. The repository-hygiene kit also explains the required merge settings and default-branch ruleset.
 
+To update an existing consumer, follow "When a repository adopted it earlier" in the relevant [consumer kit](#shared-parts).
+
 To change the shared parts themselves, start with the [recurring maintenance tasks](docs/maintaining.md#recurring-tasks).
 
 ## Source and publication boundaries
@@ -54,6 +56,6 @@ Read [AGENTS.md](AGENTS.md) and the [delivery rules](docs/agents/delivery.md) be
 
 Original project material is licensed under the [MIT License](LICENSE.md). Keep its copyright and permission notice when copying or redistributing it.
 
-This repository uses per-file license assignments according to the REUSE specification. [REUSE.toml](REUSE.toml) is the authoritative machine-readable record; [LICENSES/](LICENSES/) contains the license texts and retained copyright notices.
+This repository uses per-file license assignments according to the REUSE specification. [REUSE.toml](REUSE.toml) is the authoritative machine-readable record of licenses and copyright holders; [LICENSES/](LICENSES/) contains the license texts.
 
-Third-party material retains its upstream terms. The bundled [Conventional Branch specification](actions/publication-checks/spec.json) is an unmodified snapshot from [Conventional Branch](https://conventionalbranch.org/v1.1.0/spec.json), licensed under [CC-BY-4.0](LICENSES/CC-BY-4.0.txt). The ETW consumer build includes MIT-licensed dependency assemblies from Microsoft and the .NET Foundation, recorded in [packages.lock.json](actions/recording/etw-consumer/packages.lock.json). Their copyright notices remain in the per-file assignments and [MIT license text](LICENSES/MIT.txt).
+Third-party material retains its upstream terms. The bundled [Conventional Branch specification](actions/publication-checks/spec.json) is an unmodified snapshot from [Conventional Branch](https://conventionalbranch.org/v1.1.0/spec.json), licensed under [CC-BY-4.0](LICENSES/CC-BY-4.0.txt). The ETW consumer build includes MIT-licensed dependency assemblies from Microsoft and the .NET Foundation, recorded in [packages.lock.json](actions/recording/etw-consumer/packages.lock.json). Their copyright notices remain in the per-file assignments in [REUSE.toml](REUSE.toml).

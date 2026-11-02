@@ -52,7 +52,7 @@ Every tracked top-level folder whose name does not start with a dot gets one lin
 
 - `actions/`: the shared parts with their shared steps and consumer kits
 - `docs/`: maintenance documentation, ADRs and agent configuration
-- `LICENSES/`: license texts and retained copyright notices
+- `LICENSES/`: license texts
 - `tests/`: the suites of the shared parts and their fixtures
 
 ## Testing instructions
