@@ -22,6 +22,38 @@ It needs:
 - one Linux runner label with `strace`, `jq` and the system `python3` for every Linux suite, and one Windows runner label with administrator rights, `python` and `dotnet` for every Windows suite, as GitHub's hosted runners have them; the recording step installs nothing;
 - for the full recording, a GitHub App that may push a branch and open a pull request in the repository, as [The full recording](#the-full-recording) states.
 
+## When a repository adopted it earlier
+
+A repository that adopted the suite selection earlier brings its installed files onto the current templates in one pull request. It compares each installed file with the template it came from, read at `v1`, by install target:
+
+| Template | Install target |
+| --- | --- |
+| [validation.yml](validation.yml) | `.github/workflows/validation.yml` |
+| [validation-workflow.yml](validation-workflow.yml) | `.github/workflows/<validation-workflow>.yml` |
+| [full-recording.yml](full-recording.yml) | `.github/workflows/full-recording.yml` |
+| [apply-additions.yml](apply-additions.yml) | `.github/workflows/apply-additions.yml` |
+
+Every difference that a template makes is taken over, apart from the repository's own values, which carry over:
+
+- the suite list with its path: `.github/suites.json`, or the repository's own path, which stands in `suites` on `select` and in place of `.github/suites.json` in the validation workflow, the full recording and the additions workflow. The suite list keeps the fields the repository writes, and the stored lists and the duration estimates `entry_durations` that the recording wrote. The update changes none of them;
+- the validation workflow's file name, in the caller's validation job id, its `uses:` and the `needs` of `validation`;
+- the validation workflow's setups: its setup steps in the shard job and the Windows job, and the same setups in `linux` and `windows` of the full recording, as [Setups](#setups) states;
+- the inputs the repository set on each caller and template: the default branch; on `select` the values of `suites`, `language-steps`, `runner-labels` and `setup-versions`; in the validation workflow `<name>`, the runner labels, `<windows-job>` and `<python-version>`, with the jobs and steps the repository dropped; in the full recording the runner labels, `<python-version>`, `<gitleaks-options>` and `<validation-caller>`; in the additions workflow `<gitleaks-options>`.
+
+Each `@<pin>` of a template is filled again from its pin source, as [The validation workflow](#the-validation-workflow) states.
+
+An earlier adoption also takes these steps where they apply:
+
+- A caller copied from an earlier template adds `v1-moved` to the `types` of its `repository_dispatch` trigger, as [When `v1` moves](#when-v1-moves) states.
+- A caller with more than one validation job keeps one: the suites of the other validation workflows move into the one validation workflow, as [The validation workflow](#the-validation-workflow) states. A validation workflow from an earlier kit, with a gate per suite, becomes the template's sharded form, whose checks are `<file name> / shard <number>` and `<file name> / <windows-job>`; none of them is a required check, and a change to the ruleset is a question to the user.
+- A repository without the additions workflow adds it in a pull request of its own first, as [Additions](#additions) states.
+
+The result works when these pass:
+
+- on the pull request, `validation / validation`. A changed step of the validation workflow runs every suite in `<file name> / shard <number>` and `<file name> / <windows-job>`; when `check` reports additions, they are applied through the additions workflow and the run on the applied lists passes. `hygiene / hygiene` passes as well, with actionlint and zizmor over the changed workflows;
+- after the merge, `validation / validation` on the push to the default branch;
+- the full recording, started by hand on the default branch with `gh workflow run full-recording.yml -f verify_token=true`, whose run passes and whose summary reports the App's token as minted.
+
 ## The validation caller
 
 Copy [validation.yml](validation.yml) to `.github/workflows/validation.yml` and replace:
