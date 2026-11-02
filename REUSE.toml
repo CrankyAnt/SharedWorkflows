@@ -1,0 +1,44 @@
+version = 1
+
+# Original project material. Later annotations preserve upstream ownership.
+[[annotations]]
+path = ["**"]
+SPDX-FileCopyrightText = "2026 CrankyAnt"
+SPDX-License-Identifier = "MIT"
+
+# Unmodified upstream snapshot; its source and digest are in spec-metadata.json.
+[[annotations]]
+path = ["actions/publication-checks/spec.json"]
+precedence = "override"
+SPDX-FileCopyrightText = "Conventional Branch contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# These assemblies match the exact NuGet packages in packages.lock.json.
+# TraceEvent 4.0.0 also supplies the two COM interop assemblies.
+[[annotations]]
+path = [
+  "actions/recording/etw-consumer/build/Dia2Lib.dll",
+  "actions/recording/etw-consumer/build/TraceReloggerLib.dll",
+  "actions/recording/etw-consumer/build/Microsoft.Diagnostics.NETCore.Client.dll",
+  "actions/recording/etw-consumer/build/Microsoft.Extensions.DependencyInjection.Abstractions.dll",
+  "actions/recording/etw-consumer/build/Microsoft.Extensions.Logging.Abstractions.dll",
+]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "Microsoft Corporation",
+  ".NET Foundation and Contributors",
+]
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
+  "actions/recording/etw-consumer/build/Microsoft.Diagnostics.FastSerialization.dll",
+  "actions/recording/etw-consumer/build/Microsoft.Diagnostics.Tracing.TraceEvent.dll",
+]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2010 Microsoft",
+  "Microsoft Corporation",
+  ".NET Foundation and Contributors",
+]
+SPDX-License-Identifier = "MIT"
