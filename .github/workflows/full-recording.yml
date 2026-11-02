@@ -232,9 +232,6 @@ jobs:
         shell: pwsh
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
-          # The runner provides an 8.3 short-form TEMP under the profile; the entry files get its long form.
-          TEMP: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
         run: |
           $job = $env:WINDOWS | ConvertFrom-Json
           $failed = @()
