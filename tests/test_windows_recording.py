@@ -1,9 +1,12 @@
 """The recording step on Windows: exec runs each entry file as its own process with an empty bytecode cache, a live ETW
-recording of the classification fixture follows the same classification rules as a stored strace recording, and one
-session attributes the reads of two entry files that run at the same time to the entry file whose process made them."""
+recording of the classification fixture follows the same classification rules as a stored strace recording, one session
+attributes the reads of two entry files that run at the same time to the entry file whose process made them, the gate of
+the live ETW tests names what denies a session, and the ETW consumer, the gate and the ETW access setup name one provider
+set."""
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -12,6 +15,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from typing import NamedTuple
 from unittest import mock
 
 from tests import recording_fixtures
@@ -325,6 +329,187 @@ class EtwGateTests(unittest.TestCase):
 
     def test_the_gate_does_not_ask_whether_the_user_is_an_administrator(self) -> None:
         self.assertNotIn("IsUserAnAdmin", Path(recording_fixtures.__file__).read_text(encoding="utf-8"))
+
+
+PROGRAM = "actions/recording/etw-consumer/Program.cs"
+FIXTURES = "tests/recording_fixtures.py"
+ACCESS = "tests/etw_access.ps1"
+SYSTEM_TRACE_PROVIDER = "9e814aad-3204-11d2-9a82-006008a86939"
+
+
+class ConsumerProviders(NamedTuple):
+    """What the consumer's source enables: the keywords of each provider it enables by GUID, the field that holds each
+    such GUID, and whether it enables the kernel Process flag."""
+
+    keywords: dict[str, int]
+    fields: dict[str, str]
+    kernel_process: bool
+
+
+def provider_sources() -> dict[str, str]:
+    """The text of the consumer's source, the gate's fixtures and the ETW access script, by path."""
+    return {path: (ROOT / path).read_text(encoding="utf-8") for path in (PROGRAM, FIXTURES, ACCESS)}
+
+
+def consumer_providers(program: str) -> ConsumerProviders:
+    """The providers that the consumer's source ``program`` enables."""
+    program = re.sub(r"//.*", "", program)
+    fields = {name: guid.lower() for name, guid in re.findall(r'\bGuid\s+(\w+)\s*=\s*new\s+Guid\("([^"]+)"\)', program)}
+    constants = {name: int(value, 16) for name, value in re.findall(r"\bconst\s+ulong\s+(\w+)\s*=\s*(0x[0-9A-Fa-f]+)", program)}
+    keywords: dict[str, int] = {}
+    for provider, mask in re.findall(r"\.EnableProvider\(\s*([^,]+?)\s*,[^,;]*,\s*([^,)]+?)\s*[,)]", program):
+        literal = re.fullmatch(r'new\s+Guid\("([^"]+)"\)', provider)
+        guid = literal.group(1).lower() if literal else fields[provider]
+        keywords[guid] = constants[mask] if mask in constants else int(mask, 16)
+    process = re.search(r"\.EnableKernelProvider\([^;]*\bKeywords\.Process\b", program) is not None
+    return ConsumerProviders(keywords, {guid: name for name, guid in fields.items()}, process)
+
+
+def gate_providers(fixtures: str) -> dict[str, tuple[str, int]]:
+    """The name and keywords of each provider, by GUID, in ``ETW_PROVIDERS`` of the fixture source ``fixtures``."""
+    assignments = {statement.targets[0].id: statement.value for statement in ast.parse(fixtures).body
+                   if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name)}
+
+    def value(node: ast.expr) -> object:
+        if isinstance(node, ast.Name):
+            return value(assignments[node.id])
+        if isinstance(node, ast.Tuple):
+            return tuple(value(item) for item in node.elts)
+        if isinstance(node, ast.Dict):
+            return {value(key): value(item) for key, item in zip(node.keys, node.values) if key is not None}
+        return ast.literal_eval(node)
+
+    providers = value(assignments["ETW_PROVIDERS"])
+    assert isinstance(providers, dict)
+    return {guid.strip("{}").lower(): (name, int(keywords, 16)) for name, (guid, keywords) in providers.items()}
+
+
+def setup_providers(access: str) -> dict[str, str]:
+    """The name of each provider, by GUID, in ``$Providers`` of the ETW access script ``access``."""
+    block = re.search(r"^\$Providers\s*=\s*\[ordered\]@\{\n(.*?)^\}", access, re.MULTILINE | re.DOTALL)
+    assert block is not None, "$Providers"
+    entries = re.sub(r"#.*", "", block.group(1))
+    return {guid.lower(): name for guid, name in re.findall(r"'([0-9A-Fa-f-]+)'\s*=\s*@\{\s*Name\s*=\s*'([^']+)'", entries)}
+
+
+def provider_set_differences(program: str, fixtures: str, access: str) -> list[str]:
+    """Each difference between the providers that the consumer enables by GUID (``program``), that the gate probes
+    (``fixtures``) and that the ETW access setup grants (``access``), naming the file that differs and the provider; the
+    setup's SystemTraceProvider is compared with the consumer's kernel Process flag instead. The consumer's keywords are
+    the ones the gate probes with."""
+    consumer = consumer_providers(program)
+    probed = gate_providers(fixtures)
+    granted = setup_providers(access)
+    sets = {PROGRAM: set(consumer.keywords), FIXTURES: set(probed), ACCESS: set(granted) - {SYSTEM_TRACE_PROVIDER}}
+    verbs = {PROGRAM: "enables", FIXTURES: "probes", ACCESS: "grants"}
+    differences = []
+    for guid in sorted(set().union(*sets.values())):
+        name = probed[guid][0] if guid in probed else granted.get(guid) or consumer.fields.get(guid, "the provider")
+        present = [path for path, guids in sets.items() if guid in guids]
+        absent = [path for path in sets if path not in present]
+        if not absent:
+            continue
+        if len(absent) == 1:
+            differences.append(f"{absent[0]} lacks {name} {{{guid}}}, which {', '.join(present)} name")
+        else:
+            differences.append(f"{present[0]} alone {verbs[present[0]]} {name} {{{guid}}}, which {', '.join(absent)} lack")
+    if consumer.kernel_process and SYSTEM_TRACE_PROVIDER not in granted:
+        differences.append(f"{ACCESS} lacks SystemTraceProvider {{{SYSTEM_TRACE_PROVIDER}}}, which the kernel Process flag of {PROGRAM} needs")
+    for guid in sorted(set(consumer.keywords) & set(probed)):
+        if consumer.keywords[guid] != probed[guid][1]:
+            differences.append(f"{FIXTURES} probes {probed[guid][0]} {{{guid}}} with keywords 0x{probed[guid][1]:X}, which {PROGRAM} "
+                               f"enables with 0x{consumer.keywords[guid]:X}")
+    return differences
+
+
+EXTRA_PROVIDER = "3d6fa8d1-fe05-11d0-9dda-00c04fd7ba7c"
+SYSTEM_TRACE_ENTRY = f"    '{SYSTEM_TRACE_PROVIDER}' = @{{ Name = 'SystemTraceProvider'; Mask = 0x0FF7 }}\n"
+ENABLE_KERNEL_FILE = "session.EnableProvider(KernelFile, TraceEventLevel.Verbose, FileKeywords);"
+ENABLE_KERNEL_PROCESS = "session.EnableProvider(KernelProcess, TraceEventLevel.Verbose, ProcessKeywords);"
+
+
+def setup_entry(name: str) -> str:
+    """An entry of ``$Providers`` for the extra provider under ``name``, placed before SystemTraceProvider's."""
+    return f"    '{EXTRA_PROVIDER}' = @{{ Name = '{name}'; Mask = 0x0081 }}\n" + SYSTEM_TRACE_ENTRY
+
+
+def gate_entry(name: str) -> str:
+    """The end of ``ETW_PROVIDERS`` with the extra provider under ``name``."""
+    return f'(KERNEL_FILE, "0xF0"), "{name}": ("{{{EXTRA_PROVIDER}}}", "0x10")}}'
+
+
+class EtwProviderSetTests(unittest.TestCase):
+    """The providers that the ETW consumer enables, that the gate probes and that the ETW access setup grants are one
+    set; each failure case changes a copy of a source."""
+
+    def changed(self, texts: dict[str, str], source: str, old: str, new: str) -> dict[str, str]:
+        """``texts`` with the one occurrence of ``old`` in ``source`` replaced by ``new``."""
+        self.assertEqual(1, texts[source].count(old), f"{old!r} in {source}")
+        return {**texts, source: texts[source].replace(old, new)}
+
+    def differences(self, source: str | None = None, old: str = "", new: str = "") -> list[str]:
+        """The differences of the three sources, with ``old`` replaced by ``new`` in ``source`` when given."""
+        texts = provider_sources() if source is None else self.changed(provider_sources(), source, old, new)
+        return provider_set_differences(texts[PROGRAM], texts[FIXTURES], texts[ACCESS])
+
+    def assert_named(self, differences: list[str], source: str, provider: str) -> None:
+        self.assertTrue(differences, "no difference")
+        for difference in differences:
+            self.assertTrue(difference.startswith(source), difference)
+        self.assertTrue(any(provider in difference for difference in differences), differences)
+
+    def test_the_consumer_the_gate_and_the_setup_name_one_provider_set(self) -> None:
+        self.assertEqual([], self.differences())
+        consumer = consumer_providers(provider_sources()[PROGRAM])
+        self.assertEqual({recording_fixtures.KERNEL_FILE.strip("{}"): 0xF0, recording_fixtures.KERNEL_PROCESS.strip("{}"): 0x10}, consumer.keywords)
+        self.assertTrue(consumer.kernel_process)
+
+    def test_a_guid_that_differs_in_one_file_names_the_file_and_the_provider(self) -> None:
+        for provider, (guid, _) in recording_fixtures.ETW_PROVIDERS.items():
+            guid = guid.strip("{}")
+            for source in (PROGRAM, FIXTURES, ACCESS):
+                with self.subTest(provider=provider, source=source):
+                    self.assert_named(self.differences(source, guid, guid[:-1] + "0"), source, provider)
+
+    def test_a_provider_that_the_consumer_enables_and_the_gate_or_the_setup_lacks_fails(self) -> None:
+        texts = self.changed(provider_sources(), PROGRAM, ENABLE_KERNEL_FILE,
+                             f'{ENABLE_KERNEL_FILE}\n                session.EnableProvider(new Guid("{EXTRA_PROVIDER}"), TraceEventLevel.Verbose, '
+                             "0x10, new TraceEventProviderOptions());")
+        self.assertEqual(0x10, consumer_providers(texts[PROGRAM]).keywords[EXTRA_PROVIDER])
+        cases = {(FIXTURES, ACCESS): texts, (FIXTURES,): self.changed(texts, ACCESS, SYSTEM_TRACE_ENTRY, setup_entry("Extra")),
+                 (ACCESS,): self.changed(texts, FIXTURES, '(KERNEL_FILE, "0xF0")}', gate_entry("Extra"))}
+        for lacking, case in cases.items():
+            with self.subTest(lacking=lacking):
+                differences = provider_set_differences(case[PROGRAM], case[FIXTURES], case[ACCESS])
+                self.assertEqual(1, len(differences), differences)
+                self.assertIn(EXTRA_PROVIDER, differences[0])
+                for source in lacking:
+                    self.assertIn(source, differences[0])
+
+    def test_a_kernel_provider_that_the_gate_or_the_setup_names_and_the_consumer_does_not_enable_fails(self) -> None:
+        with self.subTest("the gate"):
+            self.assert_named(self.differences(FIXTURES, '(KERNEL_FILE, "0xF0")}', gate_entry("Microsoft-Windows-Kernel-Extra")),
+                              FIXTURES, "Microsoft-Windows-Kernel-Extra")
+        with self.subTest("the setup"):
+            self.assert_named(self.differences(ACCESS, SYSTEM_TRACE_ENTRY, setup_entry("Microsoft-Windows-Kernel-Extra")),
+                              ACCESS, "Microsoft-Windows-Kernel-Extra")
+        for change, new in (("removed", ""), ("commented out", "// " + ENABLE_KERNEL_PROCESS)):
+            with self.subTest("a provider the consumer stops enabling", change=change):
+                self.assert_named(self.differences(PROGRAM, ENABLE_KERNEL_PROCESS, new), PROGRAM, "Microsoft-Windows-Kernel-Process")
+
+    def test_a_setup_without_the_system_trace_provider_fails_while_the_consumer_enables_the_kernel_process_flag(self) -> None:
+        for change, new in (("removed", ""), ("commented out", "    # " + SYSTEM_TRACE_ENTRY.lstrip())):
+            with self.subTest(change):
+                self.assert_named(self.differences(ACCESS, SYSTEM_TRACE_ENTRY, new), ACCESS, "SystemTraceProvider")
+
+    def test_keywords_that_the_gate_probes_and_the_consumer_does_not_enable_fail(self) -> None:
+        with self.subTest("the gate"):
+            self.assert_named(self.differences(FIXTURES, '(KERNEL_FILE, "0xF0")', '(KERNEL_FILE, "0xF1")'), FIXTURES, "Microsoft-Windows-Kernel-File")
+        with self.subTest("the consumer"):
+            differences = self.differences(PROGRAM, "const ulong ProcessKeywords = 0x10;", "const ulong ProcessKeywords = 0x30;")
+            self.assert_named(differences, FIXTURES, "Microsoft-Windows-Kernel-Process")
+            self.assertIn(PROGRAM, differences[0])
+            self.assertIn("0x30", differences[0])
 
 
 ELEVATION_REQUESTS = re.compile(r"\brunas\b|-Verb\s+RunAs|ShellExecute|Start-Process\b.*-Verb", re.IGNORECASE)
