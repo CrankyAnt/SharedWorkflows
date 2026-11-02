@@ -40,6 +40,22 @@ A job outside the suite selection that already installs Python calls the step wi
 
 The step runs on the job's runner, Linux or Windows, in a job that has Python installed. With the suite selection, that is shard 1 of the validation workflow, where the verdict reports its result. The step adds no check to the default-branch ruleset: its result is part of that job.
 
+## When a repository adopted it earlier
+
+A repository that adopted the Python language step earlier brings its installed step onto the current template in one pull request. It compares the installed step with the template it came from, read at `v1`:
+
+| Template | Install target |
+| --- | --- |
+| [python-language-step.yml](python-language-step.yml) | the step in shard 1 of the shard job of `.github/workflows/<validation-workflow>.yml`, after the step that checks the recording; without the suite selection, the step in the job that installs Python |
+
+Every difference that the template makes is taken over, apart from the repository's own values, which carry over:
+
+- the `with:` of the step, such as `format-check: "true"`;
+- the step's place in its job, and without the suite selection its omitted `if`, as [How a validation workflow calls it](#how-a-validation-workflow-calls-it) states;
+- the repository's ruff and mypy configuration, which come from no template and stay as they are.
+
+The result works when the job that holds the step passes on that pull request: with the suite selection, `<file name> / shard 1` of the validation workflow, which runs the step because a changed step whose condition names it starts it, and the verdict `validation / validation`; without it, the check of the job that holds the step.
+
 ## When `v1` moves
 
 A move of `v1` changes the later runs of the step without a change in the repository. A new ruff version can report a finding that the repository already holds; fix it in the same pull request, or set the rule in the repository's ruff configuration. A failure that the repository cannot fix this way is a fault of the shared part: report it to the user.

@@ -1,7 +1,9 @@
-"""The validation caller template and the other templates of the consumer kit of the suite selection."""
+"""The validation caller template and the other templates of the consumer kit of the suite selection, and the
+section of every consumer kit for a repository that adopted its part earlier."""
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -14,6 +16,14 @@ KIT_TEMPLATES = ("validation.yml", "validation-workflow.yml", "full-recording.ym
 # What only this repository has: its suite list and tests, its own validation workflow, a local-path call of a shared
 # workflow or step, and a resolved action pin in place of `<pin>`.
 THIS_REPOSITORY_ONLY = re.compile(r"tests/|validate\.yml|\$/actions/|\$/\.github/workflows/(?:suite-selection|suite-verdict|repository-hygiene)\.yml|@[0-9a-f]{40}")
+EARLIER_ADOPTION_HEADING = "## When a repository adopted it earlier"
+
+
+def readme_section(readme: str, heading: str) -> str:
+    """The section under ``heading`` up to the next level-two heading, or to the end of the README."""
+    start = readme.index(heading + "\n")
+    end = readme.find("\n## ", start + 1)
+    return readme[start:] if end == -1 else readme[start:end]
 
 
 class SelectionConsumerKitTemplatesTest(unittest.TestCase):
@@ -107,8 +117,7 @@ class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
-        start = self.readme.index("## The validation workflow\n")
-        self.section = self.readme[start:self.readme.index("\n## ", start + 1)]
+        self.section = readme_section(self.readme, "## The validation workflow")
 
     def test_no_template_of_the_kit_gates_on_a_suite_or_reads_the_per_suite_inputs(self) -> None:
         for template in KIT_TEMPLATES:
@@ -145,6 +154,35 @@ class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
         text = records[0].read_text(encoding="utf-8")
         self.assertIn("one runner label", text)
         self.assertIn("therefore runs every suite", text)
+
+
+class EarlierAdoptionSectionTest(unittest.TestCase):
+    """Every consumer kit leads a repository that adopted the part earlier onto the kit's current templates."""
+
+    def setUp(self) -> None:
+        catalogue = json.loads((REPOSITORY_ROOT / "catalogue.json").read_text(encoding="utf-8"))
+        self.kits = [REPOSITORY_ROOT / part["consumer_kit"] for part in catalogue["parts"] if part["consumer_kit"]]
+
+    def test_every_kit_readme_has_the_section_once(self) -> None:
+        self.assertTrue(self.kits)
+        for kit in self.kits:
+            with self.subTest(kit=kit.parent.name):
+                readme = (kit / "README.md").read_text(encoding="utf-8")
+                self.assertEqual(1, readme.count(EARLIER_ADOPTION_HEADING + "\n"))
+
+    def test_the_section_links_every_template_of_its_kit(self) -> None:
+        for kit in self.kits:
+            templates = sorted(path.name for path in kit.glob("*.yml"))
+            self.assertTrue(templates)
+            section = readme_section((kit / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
+            for template in templates:
+                with self.subTest(kit=kit.parent.name, template=template):
+                    self.assertIn(f"]({template})", section)
+
+    def test_the_suite_selection_section_leads_an_earlier_caller_to_the_v1_moved_trigger(self) -> None:
+        section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
+        self.assertIn("`v1-moved`", section)
+        self.assertIn("(#when-v1-moves)", section)
 
 
 class V1MovedRunTest(unittest.TestCase):
