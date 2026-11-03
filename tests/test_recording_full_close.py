@@ -75,9 +75,19 @@ class ClosingRunTests(unittest.TestCase):
         self.b = self.git(seed, "rev-parse", "HEAD")
         self.git(seed, "push", "-q", "origin", "main")
         self.runner_temp = self.base / "temp"
-        (self.runner_temp / "full-recording" / "full-recording-shard-1").mkdir(parents=True)
-        (self.runner_temp / "full-recording" / "full-recording-shard-1" / "full-recording.json").write_text(json.dumps(RESULTS), encoding="utf-8")
+        self.downloaded({"full-recording-shard-1": RESULTS})
         self.summary = self.base / "summary.md"
+
+    def downloaded(self, documents: dict[str, dict]) -> None:
+        """The results as `actions/download-artifact` places them by `pattern`: in a folder named after each artifact when
+        the pattern matches several, and the one artifact's file directly in the download folder."""
+        folder = self.runner_temp / "full-recording"
+        shutil.rmtree(folder, ignore_errors=True)
+        folder.mkdir(parents=True)
+        for artifact, document in documents.items():
+            target = (folder if len(documents) == 1 else folder / artifact) / "full-recording.json"
+            target.parent.mkdir(exist_ok=True)
+            target.write_text(json.dumps(document), encoding="utf-8")
 
     def git(self, cwd: Path, *arguments: str) -> str:
         return subprocess.run(["git", *GIT_IDENTITY, *arguments], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
@@ -92,7 +102,7 @@ class ClosingRunTests(unittest.TestCase):
         self.git(work, "config", "user.email", "fixture@example.invalid")
         return work
 
-    def run_step(self, name: str, work: Path, selection: Path = SELECTION_PART) -> subprocess.CompletedProcess[str]:
+    def start_step(self, name: str, work: Path, selection: Path = SELECTION_PART) -> subprocess.CompletedProcess[str]:
         item = named(self.steps, name)
         values = {"steps.recording.outputs.path": str(RECORDING_PART), "steps.selection.outputs.path": str(selection),
                   "github.sha": self.a, "runner.temp": str(self.runner_temp), "steps.app-token.outputs.token": "app-token"}
@@ -101,7 +111,10 @@ class ClosingRunTests(unittest.TestCase):
                        "RUNNER_TEMP": str(self.runner_temp),
                        **{key: re.sub(r"\$\{\{\s*([\w.-]+)\s*\}\}", lambda found: values[found[1]], str(value))
                           for key, value in item.get("env", {}).items()}}
-        ran = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", item["run"]], cwd=work, env=environment, capture_output=True, text=True)
+        return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", item["run"]], cwd=work, env=environment, capture_output=True, text=True)
+
+    def run_step(self, name: str, work: Path, selection: Path = SELECTION_PART) -> subprocess.CompletedProcess[str]:
+        ran = self.start_step(name, work, selection)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         return ran
 
@@ -153,12 +166,29 @@ class ClosingRunTests(unittest.TestCase):
         self.git(self.base, "clone", "-q", str(self.origin), str(reference))
         self.git(reference, "checkout", "-q", "--detach", self.a)
         applied = subprocess.run([sys.executable, str(RECORDING_PART / "recording.py"), "apply", "--suites", "tests/suites.json",
-                                  str(self.runner_temp / "full-recording" / "full-recording-shard-1" / "full-recording.json")],
+                                  str(self.runner_temp / "full-recording" / "full-recording.json")],
                                  cwd=reference, capture_output=True, text=True, check=True)
         self.assertEqual((reference / "tests/suites.json").read_text(encoding="utf-8"), written)
         self.assertEqual("The full recording of run https://github.example/owner/repository/actions/runs/9.\n\n"
                          + "".join(f"- {line}\n" for line in applied.stdout.splitlines()), report)
         self.assertEqual(self.a, self.git(work, "rev-parse", "HEAD"))
+
+    def test_the_results_of_several_artifacts_are_each_applied(self) -> None:
+        # Two results, each in the folder of its artifact: the shard's holds the suite per-entry, the other's whole.
+        self.downloaded({"full-recording-shard-1": {**RESULTS, "entries": RESULTS["entries"][:2]},
+                         "full-recording-shard-2": {**RESULTS, "entries": RESULTS["entries"][2:]}})
+        work = self.checkout(self.a)
+        self.run_step(APPLY_STEP, work)
+        self.assertEqual({"per-entry": {"tests/one.py": ["data/one.txt", "tests/one.py"], "tests/two.py": ["tests/two.py"]},
+                          "whole": ["tests/w.py"]}, self.stored(work))
+
+    def test_a_download_folder_without_a_result_fails_with_the_cannot_read_error(self) -> None:
+        self.downloaded({})
+        work = self.checkout(self.a)
+        ran = self.start_step(APPLY_STEP, work)
+        self.assertNotEqual(0, ran.returncode)
+        self.assertIn(f"cannot read {self.runner_temp}/full-recording/**/full-recording.json", ran.stderr)
+        self.assertEqual("", self.git(work, "status", "--porcelain"))
 
 
 def named(steps: list[dict], name: str) -> dict:

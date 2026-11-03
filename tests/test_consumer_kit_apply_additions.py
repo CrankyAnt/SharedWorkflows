@@ -102,12 +102,15 @@ class ApplyAdditionsTemplateTest(unittest.TestCase):
                           "actions/create-github-app-token@<pin>", "CrankyAnt/SharedWorkflows/actions/repository-hygiene@v1"], references)
         self.assertEqual([], re.findall(r"@[0-9a-f]{40}", self.text))
 
-    def test_it_checks_out_the_head_branch_and_downloads_every_additions_artifact_of_the_run_into_its_own_directory(self) -> None:
+    def test_it_checks_out_the_head_branch_downloads_every_additions_artifact_and_applies_each_file_at_any_depth(self) -> None:
         self.assertEqual({"ref": "${{ steps.run.outputs.head-branch }}", "fetch-depth": "1", "persist-credentials": "false"},
                          step(self.steps, "checkout")["with"])
         self.assertEqual({"pattern": "recording-additions-*", "path": "${{ runner.temp }}/additions", "run-id": "${{ inputs.run-id }}",
                           "github-token": "${{ github.token }}"}, step(self.steps, "additions")["with"])
-        self.assertIn('"$RUNNER_TEMP"/additions/*/additions.json', step(self.steps, "Apply every additions artifact of the run")["run"])
+        # One matching artifact lands directly in the download folder, several each in a folder named after it.
+        apply = step(self.steps, "Apply every additions artifact of the run")["run"]
+        self.assertIn("shopt -s globstar\n", apply)
+        self.assertIn('"$RUNNER_TEMP"/additions/**/additions.json', apply)
 
     def test_every_step_after_the_change_check_runs_only_when_the_suite_list_changed(self) -> None:
         for key in APP_STEPS + ("Check the changed files",):
@@ -269,11 +272,20 @@ class ApplyAdditionsRunTest(unittest.TestCase):
             subprocess.run(["git", "-C", str(work), "config", key, value], check=True)
         return remote, work
 
-    def downloaded(self, artifact: str, document: dict) -> None:
-        write(self.runner_temp / "additions" / artifact / "additions.json", json.dumps(document))
+    def downloaded(self, documents: dict[str, dict]) -> None:
+        """The run's additions artifacts as `actions/download-artifact` places them by `pattern`: in a folder named after
+        each artifact when the pattern matches several, and the one artifact's file directly in the download folder."""
+        folder = self.runner_temp / "additions"
+        folder.mkdir(exist_ok=True)
+        for artifact, document in documents.items():
+            write((folder if len(documents) == 1 else folder / artifact) / "additions.json", json.dumps(document))
+
+    def run_apply_step(self, work: Path) -> subprocess.CompletedProcess[str]:
+        ran, _ = self.run_step("Apply every additions artifact of the run", work, outputs={"run": {"pull-request": "7", "head-branch": HEAD_BRANCH}})
+        return ran
 
     def apply(self, work: Path) -> dict[str, str]:
-        ran, _ = self.run_step("Apply every additions artifact of the run", work, outputs={"run": {"pull-request": "7", "head-branch": HEAD_BRANCH}})
+        ran = self.run_apply_step(work)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         ran, changes = self.run_step("changes", work)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
@@ -281,9 +293,9 @@ class ApplyAdditionsRunTest(unittest.TestCase):
 
     def test_the_additions_of_every_job_are_applied_and_proposed_onto_the_head_branch_changing_only_the_suite_list(self) -> None:
         remote, work = self.consumer(suite_list())
-        self.downloaded("recording-additions-shard-1", additions("unit", "checks/test_a.py", ["lib/data.txt"]))
-        self.downloaded("recording-additions-shard-2", additions("lint", "checks/lint.py", ["lib/rules.toml"]))
-        self.downloaded("recording-additions-windows", additions("unit", "checks/test_a.py", ["lib/rules.toml"]))
+        self.downloaded({"recording-additions-shard-1": additions("unit", "checks/test_a.py", ["lib/data.txt"]),
+                         "recording-additions-shard-2": additions("lint", "checks/lint.py", ["lib/rules.toml"]),
+                         "recording-additions-windows": additions("unit", "checks/test_a.py", ["lib/rules.toml"])})
         self.assertEqual({"changed": "true"}, self.apply(work))
         ran, _ = self.run_step("Check the changed files", work)
         self.assertEqual(0, ran.returncode, ran.stderr)
@@ -308,6 +320,35 @@ class ApplyAdditionsRunTest(unittest.TestCase):
         self.assertIn(f"https://github.example/{REPOSITORY}/actions/runs/{RUN_ID}", report)
         self.assertIn(f"for the pull request #7 on {HEAD_BRANCH}.", report)
 
+    def test_the_additions_of_a_run_with_one_artifact_are_applied_and_proposed_onto_the_head_branch(self) -> None:
+        remote, work = self.consumer(suite_list())
+        self.downloaded({"recording-additions-shard-1": additions("unit", "checks/test_a.py", ["lib/data.txt"])})
+        self.assertEqual([self.runner_temp / "additions" / "additions.json"], list((self.runner_temp / "additions").iterdir()))
+        self.assertEqual({"changed": "true"}, self.apply(work))
+        for key in ("Check the changed files", "Commit the applied additions", "Push the proposal branch",
+                    "Create or update the proposal pull request"):
+            ran, _ = self.run_step(key, work, outputs={"run": {"head-branch": HEAD_BRANCH, "pull-request": "7"}})
+            self.assertEqual(0, ran.returncode, f"{key}: {ran.stdout}{ran.stderr}")
+        self.assertEqual(1, len([call for call in self.calls() if call.startswith(f"pr create --repo {REPOSITORY} --base {HEAD_BRANCH} --head {PROPOSAL} ")]))
+        proposed = json.loads(subprocess.run(["git", "-C", str(remote), "show", f"{PROPOSAL}:.github/suites.json"],
+                                             capture_output=True, text=True, check=True).stdout)
+        self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt"], "lint": ["checks/lint.py"]},
+                         {item["name"]: item["paths"] for item in proposed["suites"]})
+
+    def test_a_download_folder_without_an_additions_file_fails_with_the_cannot_read_error(self) -> None:
+        _, work = self.consumer(suite_list())
+        for layout in ([], ["recording-additions-shard-1/other.json"]):
+            with self.subTest(layout=layout):
+                shutil.rmtree(self.runner_temp / "additions", ignore_errors=True)
+                (self.runner_temp / "additions").mkdir()
+                for relative in layout:
+                    write(self.runner_temp / "additions" / relative, "{}")
+                ran = self.run_apply_step(work)
+                self.assertNotEqual(0, ran.returncode)
+                self.assertIn(f"cannot read {self.runner_temp}/additions/**/additions.json", ran.stderr)
+                self.assertEqual("", subprocess.run(["git", "-C", str(work), "status", "--porcelain"], capture_output=True, text=True,
+                                                    check=True).stdout)
+
     def test_an_open_proposal_is_updated_instead_of_opening_a_second(self) -> None:
         _, work = self.consumer(suite_list())
         write(self.runner_temp / "apply-additions-report.md", "report\n")
@@ -319,7 +360,7 @@ class ApplyAdditionsRunTest(unittest.TestCase):
 
     def test_additions_that_change_nothing_open_no_pull_request_and_the_summary_says_so(self) -> None:
         _, work = self.consumer(suite_list(["checks/lint.py", "lib/rules.toml"]))
-        self.downloaded("recording-additions-shard-1", additions("lint", "checks/lint.py", ["lib/rules.toml"]))
+        self.downloaded({"recording-additions-shard-1": additions("lint", "checks/lint.py", ["lib/rules.toml"])})
         self.assertEqual({"changed": "false"}, self.apply(work))
         self.assertIn(f"Applying the additions of run {RUN_ID} changes nothing in the suite list; no pull request opens.",
                       self.summary.read_text(encoding="utf-8"))

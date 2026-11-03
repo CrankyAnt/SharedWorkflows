@@ -288,6 +288,7 @@ jobs:
           REPORT: ${{ runner.temp }}/full-recording-report.md
         run: |
           set -euo pipefail
+          shopt -s globstar
           printf 'The full recording of run %s/%s/actions/runs/%s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$REPORT"
           # On the default branch the checkout is its tip; when that moved past the recorded commit, the entry files that
           # the change selects keep their stored reads, and all of them when the change cannot be selected.
@@ -302,7 +303,7 @@ jobs:
               set -- --keep-all-lists
             fi
           fi
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites tests/suites.json "$@" --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/full-recording/*/full-recording.json | sed 's/^/- /' >> "$REPORT"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites tests/suites.json "$@" --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/full-recording/**/full-recording.json | sed 's/^/- /' >> "$REPORT"
       - id: changes
         name: Find whether the stored lists changed
         run: |
