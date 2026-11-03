@@ -221,6 +221,66 @@ class FixtureTests(unittest.TestCase):
         self.write("README.md", "[a](docs/anchors.md#Setup-Notes) [b](docs/anchors.md#setup-notes) [c](docs/anchors.md#other)\n")
         self.assertEqual(["README.md:1: the link target docs/anchors.md#other names no heading of docs/anchors.md"], self.problems("README.md", "docs/anchors.md"))
 
+    def split(self, line: int, target: str) -> str:
+        return f"README.md:{line}: the link to {target} is split between ] and ( and renders as plain text"
+
+    def test_a_link_split_across_a_line_break_fails_naming_the_file_and_the_line_of_the_bracket(self) -> None:
+        # GitHub renders each of these as text: a link text and a parenthesis apart, whether the target exists or not.
+        for source, line in (("See [the guide]\n(missing.md) here.\n", 1), ("See [the guide]\n(docs/guide.md) here.\n", 1),
+                             ("Intro\nSee [the\nguide]\n(docs/guide.md \"Guide\") here.\n", 2),
+                             ("See [the guide]  \n  (docs/guide.md) here.\n", 1), ("See [the guide]\t\n\t(docs/guide.md)\n", 1),
+                             # A lazy continuation line: the parenthesis continues the paragraph of the block quote.
+                             ("> See [the guide]\n(docs/guide.md) here.\n", 1)):
+            with self.subTest(source=source):
+                self.write("README.md", source)
+                target = "missing.md" if "missing" in source else "docs/guide.md"
+                self.assertEqual([self.split(line, target)], self.problems("README.md"))
+
+    def test_a_link_with_spaces_or_tabs_between_the_bracket_and_the_parenthesis_fails_the_same_way(self) -> None:
+        for source in ("See [the guide] (docs/guide.md) here.\n", "See [the guide]\t(docs/guide.md) here.\n",
+                       "See [the guide] \t (docs/guide.md) here.\n"):
+            with self.subTest(source=source):
+                self.write("README.md", "# Overview\n\n" + source)
+                self.assertEqual([self.split(3, "docs/guide.md")], self.problems("README.md"))
+
+    def test_a_split_link_with_a_scheme_and_a_split_image_fail_the_same_way(self) -> None:
+        for source, target in (("[site] (https://example.com/)", "https://example.com/"), ("[site]\n(https://example.com/)", "https://example.com/"),
+                               ("[mail] (mailto:a@example.invalid)", "mailto:a@example.invalid"),
+                               ("![an image] (docs/notes.txt)", "docs/notes.txt"), ("![an image]\n(docs/notes.txt)", "docs/notes.txt")):
+            with self.subTest(source=source):
+                self.write("README.md", f"Text\n{source} here.\n")
+                self.assertEqual([self.split(2, target)], self.problems("README.md"))
+
+    def test_a_split_whose_bracket_text_matches_a_reference_definition_is_a_reference_link_and_passes(self) -> None:
+        # A shortcut, collapsed or full reference link, followed by text in parentheses.
+        self.write("README.md", "[ref]: docs/guide.md\n\nAnd [ref]\n(note) and [Ref] (note). And ![ref] (note).\n"
+                   "And [ref][] (note), [text][ref] (note) and [text][ref]\n(note).\n")
+        self.assertEqual([], self.problems("README.md"))
+        self.write("README.md", "[ref]: docs/guide.md\n\nAnd [text][missing] (note).\n")
+        self.assertEqual([self.split(3, "note")], self.problems("README.md"))
+
+    def test_a_split_in_code_or_an_html_comment_or_behind_an_escaped_bracket_passes(self) -> None:
+        self.write("README.md", "```text\n[fenced] (gone.md)\n[fenced]\n(gone.md)\n```\n\n    [indented] (gone.md)\n\n"
+                   "Inline `[code] (gone.md)` and ``[code]\n(gone.md)`` text.\n\n<!-- [comment] (gone.md) -->\n\n"
+                   "<!--\n[comment]\n(gone.md)\n-->\n\nAn escaped \\[literal] (gone.md) and \\[literal]\n(gone.md).\n")
+        self.assertEqual([], self.problems("README.md"))
+
+    def test_a_blank_line_between_the_bracket_and_the_parenthesis_passes(self) -> None:
+        for source in ("See [the guide]\n\n(missing.md) here.\n", "See [the guide]  \n \t \n(missing.md) here.\n"):
+            with self.subTest(source=source):
+                self.write("README.md", source)
+                self.assertEqual([], self.problems("README.md"))
+
+    def test_a_parenthesis_that_starts_another_block_and_a_task_list_marker_are_no_split_link(self) -> None:
+        # GitHub renders the bracket text and the parenthesis in separate blocks here, and a task list marker as a checkbox.
+        for source in ("See [the guide]\n- (missing.md) item\n", "See [the guide]\n> (missing.md) quote\n",
+                       "# Head [the guide]\n(missing.md) text\n", "- [ ] (optional) task\n- [x] (done) task\n  * [X] (done) task\n"):
+            with self.subTest(source=source):
+                self.write("README.md", source)
+                self.assertEqual([], self.problems("README.md"))
+        self.write("README.md", "Text [ ] (missing.md) and\n- item [x] (missing.md)\n")
+        self.assertEqual([self.split(1, "missing.md"), self.split(2, "missing.md")], self.problems("README.md"))
+
     def test_an_annotation_encodes_the_characters_the_workflow_command_syntax_reserves(self) -> None:
         self.assertEqual("::error file=docs/a%2Cb.md,line=3::the link target x%25y does not exist%0Amore",
                          link_check.annotation("docs/a,b.md", "3", "the link target x%y does not exist\nmore"))
@@ -270,6 +330,31 @@ class CommandLineTests(unittest.TestCase):
         result = self.links("--exclude", "vendor/**")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("2 Markdown files checked, 0 dead links.", result.stdout)
+
+    def test_a_split_link_fails_with_an_annotation_and_counts_in_the_summary_unless_its_file_is_excluded(self) -> None:
+        (self.root / "vendor" / "split.md").write_text("[split]\n(https://example.com/)\n", encoding="utf-8")
+        (self.root / "README.md").write_text("# Start\n\n[guide] (docs/guide.md#use) and [gone](docs/gone.md)\n", encoding="utf-8")
+        subprocess.run(["git", "add", "vendor/split.md"], cwd=self.root, check=True)
+        summary = Path(self.temporary.name) / "summary.md"
+        result = self.links("--summary", str(summary))
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("::error file=README.md,line=3::the link to docs/guide.md#use is split between ] and ( and renders as plain text",
+                      result.stdout)
+        self.assertIn("vendor/split.md:1: the link to https://example.com/ is split between ] and ( and renders as plain text", result.stdout)
+        self.assertIn("4 Markdown files checked, 2 dead links, 2 split links.", result.stdout)
+        text = summary.read_text(encoding="utf-8")
+        self.assertIn("2 dead links, 2 split links:", text)
+        self.assertIn("- `README.md:3: the link to docs/guide.md#use is split between ] and ( and renders as plain text`", text)
+        for readme, counts in (("[guide] (docs/guide.md#use) and [gone](docs/gone.md)", "1 dead link, 1 split link"),
+                               ("[guide] (docs/guide.md#use)", "0 dead links, 1 split link")):
+            with self.subTest(readme=readme):
+                (self.root / "README.md").write_text(f"# Start\n\n{readme}\n", encoding="utf-8")
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = link_check.main(["--root", str(self.root), "--exclude", "vendor/"])
+                self.assertEqual(1, code, "a split link alone fails the check")
+                self.assertNotIn("vendor/", output.getvalue())
+                self.assertIn(f"2 Markdown files checked, {counts}.", output.getvalue())
 
     def test_the_module_runs_in_process_with_the_same_result(self) -> None:
         output = io.StringIO()
