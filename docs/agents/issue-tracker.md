@@ -47,11 +47,11 @@ This label belongs only to research issues opened outside a `map-the-work` map, 
 
 ## Finding vocabulary
 
-This label belongs only to finding issues, which hold independent in-flow work found during delivery as `route-work` defines. Such issues carry it from creation, are not triaged, and never carry a Type, Triage, Ready, Status or Resolution label; triage discovery skips them as another workflow's vocabulary. The skill that publishes a spec, tickets or a map for the work links it from the finding issue, closes the finding issue as completed and then removes `flow:finding`; until then the label stays.
+This label belongs only to finding issues, which hold in-flow work found while a spec runs, as `route-work` defines. Such issues carry it from creation, are not triaged, and never carry a Type, Triage, Ready, Status or Resolution label; triage discovery skips them as another workflow's vocabulary. The skill that publishes a spec, tickets or a map for the work links it from the finding issue, closes the finding issue as completed and then removes `flow:finding`; until then the label stays.
 
 | Default label | Colour | Meaning |
 | --- | --- | --- |
-| `flow:finding` | `d93f0b` | Independent work found during delivery; waits for the skill its body names |
+| `flow:finding` | `d93f0b` | In-flow work found in the development flow while a spec runs, waiting for the skill its body names |
 
 ## Repository vocabularies and intake rules
 

@@ -29,13 +29,8 @@ The workflows live under `.github/workflows/`. Each suite in the tables is a sui
 
 ## Principles
 
-Every change to Shared Workflows holds to these principles; how a change is built is left to the agent.
+Every change to Shared Workflows holds to the CI principles in [`docs/agents/ci.md`](agents/ci.md#principles), and to two of its own:
 
-- Every check has a purpose in the repository as it is now: it has been seen red on the condition it guards and stays green otherwise; an obsolete, flaky or fully covered check goes.
-- A check runs only on changes that can change its result, judged by what it actually reads; it runs on every change only when every change can, as for the secret scan.
-- A change to prose that no code reads starts only light checks; a document that code reads as data starts that code's checks.
-- Each suite has one subject and every test a place in a suite; the entry file is the smallest unit of selection.
-- A job on another platform runs only where its result can differ there.
 - What is meaningful for repositories in general belongs in the shared workflows, and nothing a caller binds to changes unnoticed.
 - Documentation follows what is built; it never decides the design.
 

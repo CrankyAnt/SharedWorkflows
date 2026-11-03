@@ -61,7 +61,7 @@ One line per validation or test command and per CI workflow the repository runs.
 
 - `wsl -d Ubuntu-26.04-CI -u root -- ci-max python3 -m unittest -v <entry file>`: one Linux entry file, with its suite's `command` from the suite list `tests/suites.json`, on the hosted runner's tool versions
 - `python -m unittest -v <entry file>`: one entry file of the Windows suites `windows` and `etw-consumer-build`, on Windows
-- `repository-hygiene-caller` (local path): the convention checks of branch names, commit subjects and pull-request titles, the credential scan, workflow validation, Dependabot coverage, the Markdown link check and REUSE compliance
+- `repository-hygiene-caller` (local path): the convention checks of branch names, commit subjects and pull-request titles, the credential scan, workflow validation, Dependabot coverage and the Markdown link check, and `reuse lint`
 - `dependabot-auto-merge-caller` (local path): auto-merge of qualifying Dependabot pull requests
 - `validate` (local path): the validation caller; selects the units from the stored lists of the suite list, runs them in Linux shards and one Windows job under the recording step and reports the verdict `validation / validation`
 - `full-recording`: records every entry file every two weeks and proposes the changed stored lists and duration estimates as a pull request

@@ -1,6 +1,6 @@
 # Delivery
 
-Every implementation Work Brief, spec, or delivery ticket records:
+Every implementation Work Brief or spec, and no sliced ticket, records:
 
 ```markdown
 ## Delivery strategy
@@ -39,4 +39,4 @@ git fetch --prune <remote>
 gitleaks git --log-opts="<ref> --not --remotes=<remote>" --redact --no-banner --no-color
 ```
 
-Setup records the repository's Gitleaks options here; add them to the command: `--config .gitleaks.toml --baseline-path .gitleaks-baseline.json`. Agents use the locally installed Gitleaks. When Gitleaks is not installed, the push waits and the agent reports it. This gate applies to direct-main and dedicated-branch delivery; local commits may precede it.
+Setup records the repository's Gitleaks options here; add them to the command: `--config .gitleaks.toml --baseline-path .gitleaks-baseline.json`. Agents use the locally installed Gitleaks. When Gitleaks is not installed, the push waits and the agent reports it. This gate applies to every push that sends commits, whatever route produced them, research branches included; local commits may precede it.
