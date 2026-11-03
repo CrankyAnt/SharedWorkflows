@@ -9,9 +9,11 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`GLOSSARY.md`** at the repo root, or
 - **`GLOSSARY-MAP.md`** at the repo root if it exists: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
-- **`SCOPE.md`** at the repo root: the product's edges. Read it when you write or recommend new work. A builder is bounded by its contract, and new work found during delivery is tested against the edges of the contract under delivery instead; triage applies this file to incidental findings.
+- **`SCOPE.md`** at the repo root: the product's edges. Read it when you write or recommend new work. During delivery the contract bounds the builder instead; triage applies this file to incidental findings.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `model-domain` skill (reached via `grill-and-document`) creates them lazily when terms or decisions actually get resolved, and `SCOPE.md` only through `write-spec` or `grill-and-document`.
+
+Outside delivery, commit resolved terms and ADRs to `main` immediately. During `deliver-spec` or `deliver-work`, commit them with the delivered change, for `deliver-spec` on the integration branch; they become valid when it lands.
 
 ## File structure
 

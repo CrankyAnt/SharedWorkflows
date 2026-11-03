@@ -29,13 +29,8 @@ The workflows live under `.github/workflows/`. Each suite in the tables is a sui
 
 ## Principles
 
-Every change to Shared Workflows holds to these principles; how a change is built is left to the agent.
+Every change to Shared Workflows holds to the CI principles in [`docs/agents/ci.md`](agents/ci.md#principles), and to two of its own:
 
-- Every check has a purpose in the repository as it is now: it has been seen red on the condition it guards and stays green otherwise; an obsolete, flaky or fully covered check goes.
-- A check runs only on changes that can change its result, judged by what it actually reads; it runs on every change only when every change can, as for the secret scan.
-- A change to prose that no code reads starts only light checks; a document that code reads as data starts that code's checks.
-- Each suite has one subject and every test a place in a suite; the entry file is the smallest unit of selection.
-- A job on another platform runs only where its result can differ there.
 - What is meaningful for repositories in general belongs in the shared workflows, and nothing a caller binds to changes unnoticed.
 - Documentation follows what is built; it never decides the design.
 
@@ -886,7 +881,7 @@ A check of a job in a shared workflow is named `<caller job> / <shared job>` and
    - `required_checks` in the [catalogue](../catalogue.json);
    - the ruleset template [ruleset-main-template.json](../actions/repository-ruleset/ruleset-main-template.json) and its [README](../actions/repository-ruleset/README.md);
    - the consumer-kit READMEs of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md), [the suite selection](../actions/suite-selection/consumer-kit/README.md) and [Dependabot auto-merge](../actions/dependabot-auto-merge/consumer-kit/README.md);
-   - the documentation: [Shared callers](agents/ci.md#shared-callers) in `docs/agents/ci.md`; in this document [Calling the workflows](#calling-the-workflows), [Job layout](#job-layout), [Publication checks](#publication-checks), [Repository hygiene](#repository-hygiene), [ETW consumer](#etw-consumer), [Validation](#validation), [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline), [Change the ETW consumer](#change-the-etw-consumer), [Change a selection workflow](#change-a-selection-workflow) and this procedure; and the `validate` line under `## Testing instructions` in `AGENTS.md`;
+   - the documentation: [Shared Workflows](agents/ci.md#shared-workflows) in `docs/agents/ci.md`; in this document [Calling the workflows](#calling-the-workflows), [Job layout](#job-layout), [Publication checks](#publication-checks), [Repository hygiene](#repository-hygiene), [ETW consumer](#etw-consumer), [Validation](#validation), [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline), [Change the ETW consumer](#change-the-etw-consumer), [Change a selection workflow](#change-a-selection-workflow) and this procedure; and the `validate` line under `## Testing instructions` in `AGENTS.md`;
    - the tests that pin the names, among them `tests/test_ci_policy_auto_merge_caller.py`, `tests/test_dependabot_auto_merge.py`, `tests/test_suite_selection_reuse.py`, `tests/test_ci_policy_shared_surface.py` and `tests/test_consumer_kit_auto_merge.py`;
    - this repository's ruleset "main checks", which requires `hygiene / hygiene` and `validation / validation` and is not in the tree. It changes in step 4.
 2. Validate as [Validation](#validation) says.
