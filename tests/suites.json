@@ -772,6 +772,10 @@
           "kind": "any"
         },
         {
+          "path": "actions/repository-hygiene/consumer-kit/target",
+          "kind": "any"
+        },
+        {
           "path": "actions/repository-hygiene/pins.json",
           "kind": "any"
         },
@@ -1796,6 +1800,10 @@
           },
           {
             "path": "actions/repository-hygiene/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/consumer-kit/target",
             "kind": "any"
           },
           {
@@ -4016,8 +4024,12 @@
         ],
         "tests/test_consumer_kit_full_recording.py": [
           ".github/workflows/full-recording.yml",
+          "actions/recording/recording.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/full-recording.yml",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
           "tests/test_consumer_kit_full_recording.py",
           "tests/test_setup_ci_full_recording.py"
@@ -5258,6 +5270,74 @@
         ],
         "tests/test_consumer_kit_full_recording.py": [
           {
+            "path": "actions/recording",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
             "path": "tests",
             "kind": "directory"
           },
@@ -6312,6 +6392,8 @@
         ],
         "tests/test_consumer_kit_full_recording.py": [
           ".",
+          "actions/recording",
+          "actions/suite-selection",
           "tests"
         ],
         "tests/test_consumer_kit_hygiene.py": [

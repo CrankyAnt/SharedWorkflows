@@ -85,8 +85,9 @@ jobs:
           REPORT: ${{ runner.temp }}/apply-additions-report.md
         run: |
           set -euo pipefail
+          shopt -s globstar
           printf 'The recorded additions of run %s/%s/actions/runs/%s, for the pull request %son %s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$RUN_ID" "${PULL_REQUEST:+#$PULL_REQUEST }" "$HEAD_BRANCH" > "$REPORT"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites .github/suites.json --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/additions/*/additions.json | sed 's/^/- /' >> "$REPORT"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites .github/suites.json --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/additions/**/additions.json | sed 's/^/- /' >> "$REPORT"
       - id: changes
         name: Find whether the suite list changed
         run: |

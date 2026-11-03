@@ -4,7 +4,12 @@ full-recording mode, with its own setups, shards and closing job, and proposes t
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from tests.ci_policy_support import read_workflow
@@ -15,6 +20,8 @@ OWN_FULL_RECORDING = REPOSITORY_ROOT / ".github" / "workflows" / "full-recording
 RECORDING = "CrankyAnt/SharedWorkflows/actions/recording@v1"
 SELECTION = "CrankyAnt/SharedWorkflows/actions/suite-selection@v1"
 ON_DEFAULT_BRANCH = "github.ref_name == github.event.repository.default_branch"
+APPLY_STEP = "Join the results, apply the removals and write the duration estimates"
+GIT_IDENTITY = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
 # The actions each job of the template references with `@<pin>`, in their order; setup replaces each `@<pin>` at install.
 PIN_PLACEHOLDER_ACTIONS = {
     "plan": ["actions/checkout"],
@@ -110,8 +117,10 @@ class FullRecordingTemplateTest(unittest.TestCase):
     def test_the_closing_job_applies_the_joined_results_to_the_suite_list_only(self) -> None:
         steps = self.jobs["close"]["steps"]
         join = named(steps, "Join the results, apply the removals and write the duration estimates")
+        # One downloaded artifact lands directly in the download folder, several each in a folder named after it.
+        self.assertIn("shopt -s globstar\n", join["run"])
         self.assertIn('recording.py" apply --suites .github/suites.json "$@" --summary "$GITHUB_STEP_SUMMARY" '
-                      '"$RUNNER_TEMP"/full-recording/*/full-recording.json', join["run"])
+                      '"$RUNNER_TEMP"/full-recording/**/full-recording.json', join["run"])
         self.assertIn(".github/suites.json) ;;", named(steps, "Check the changed files")["run"])
         self.assertIn("git add .github/suites.json", named(steps, "Commit the recorded lists")["run"])
         self.assertNotIn("tests/suites.json", self.text)
@@ -153,6 +162,84 @@ class FullRecordingTemplateTest(unittest.TestCase):
             if step.get("id") != "stopped":
                 with self.subTest(step=step.get("name") or step.get("uses")):
                     self.assertIn(ON_DEFAULT_BRANCH, step["if"])
+
+
+def clean(suite: str, entry: str, paths: list[str]) -> dict:
+    return {"suite": suite, "entry": entry, "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.0,
+            "reads": {"paths": paths, "existence_reads": [], "directory_memberships": []}}
+
+
+@unittest.skipUnless(sys.platform != "win32" and shutil.which("bash") and shutil.which("git"), "the close steps run in Bash off Windows")
+class FullRecordingApplyRunTest(unittest.TestCase):
+    """The template's apply step, run in Bash as Actions runs it, on a consumer checkout of the recorded commit, with the
+    downloaded results where `actions/download-artifact` places them by `pattern`: in a folder named after each artifact
+    when the pattern matches several, and the one artifact's file directly in the download folder."""
+
+    def setUp(self) -> None:
+        _, workflow = read_workflow(SELECTION_KIT / "full-recording.yml")
+        self.step = named(workflow["jobs"]["close"]["steps"], APPLY_STEP)
+        self.base = Path(tempfile.mkdtemp(prefix="kit-full-recording-"))
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.work = self.base / "work"
+        suites = {"always": [], "suites": [
+            {"name": "unit", "entries": ["checks/test_a.py"], "command": ["python3"], "paths": ["checks/test_a.py", "lib/old.txt"]},
+            {"name": "lint", "entries": ["checks/lint.py"], "command": ["python3"], "paths": ["checks/lint.py", "lib/old.txt"]}]}
+        for relative, text in {"checks/test_a.py": "", "checks/lint.py": "", "lib/old.txt": "", "lib/data.txt": "",
+                               ".github/suites.json": json.dumps(suites, indent=2) + "\n"}.items():
+            (self.work / relative).parent.mkdir(parents=True, exist_ok=True)
+            (self.work / relative).write_text(text, encoding="utf-8")
+        for arguments in (("init", "-q", "-b", "main"), ("add", "-A"), ("commit", "-q", "-m", "feat: adopt")):
+            subprocess.run(["git", *GIT_IDENTITY, *arguments], cwd=self.work, check=True, capture_output=True)
+        self.recorded = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.work, check=True, capture_output=True, text=True).stdout.strip()
+        self.runner_temp = self.base / "temp"
+        (self.runner_temp / "full-recording").mkdir(parents=True)
+
+    def downloaded(self, documents: dict[str, dict]) -> None:
+        folder = self.runner_temp / "full-recording"
+        for artifact, document in documents.items():
+            target = (folder if len(documents) == 1 else folder / artifact) / "full-recording.json"
+            target.parent.mkdir(exist_ok=True)
+            target.write_text(json.dumps(document), encoding="utf-8")
+
+    def result(self, *entries: dict) -> dict:
+        return {"kind": "full-recording", "suite_list": ".github/suites.json", "entries": list(entries)}
+
+    def run_apply(self) -> subprocess.CompletedProcess[str]:
+        """The step with its `env` resolved; the recorded commit is the checkout, so no selection of a moved branch runs."""
+        values = {"steps.recording.outputs.path": str(REPOSITORY_ROOT / "actions" / "recording"),
+                  "steps.selection.outputs.path": str(REPOSITORY_ROOT / "actions" / "suite-selection"), "github.sha": self.recorded,
+                  "runner.temp": str(self.runner_temp)}
+        environment = {**os.environ, "GITHUB_SERVER_URL": "https://github.example", "GITHUB_REPOSITORY": "owner/consumer",
+                       "GITHUB_RUN_ID": "9", "GITHUB_STEP_SUMMARY": str(self.base / "summary.md"), "RUNNER_TEMP": str(self.runner_temp),
+                       **{key: re.sub(r"\$\{\{\s*([\w.-]+)\s*\}\}", lambda found: values[found[1]], str(value))
+                          for key, value in self.step["env"].items()}}
+        return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", self.step["run"]], cwd=self.work, env=environment,
+                              capture_output=True, text=True)
+
+    def stored(self) -> dict[str, list[str]]:
+        suites = json.loads((self.work / ".github/suites.json").read_text(encoding="utf-8"))
+        return {item["name"]: item["paths"] for item in suites["suites"]}
+
+    def test_the_result_of_one_downloaded_artifact_is_applied_to_the_suite_list(self) -> None:
+        self.downloaded({"full-recording-shard-1": self.result(clean("unit", "checks/test_a.py", ["checks/test_a.py", "lib/data.txt"]),
+                                                                clean("lint", "checks/lint.py", ["checks/lint.py"]))})
+        self.assertEqual([self.runner_temp / "full-recording" / "full-recording.json"], list((self.runner_temp / "full-recording").iterdir()))
+        ran = self.run_apply()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt"], "lint": ["checks/lint.py"]}, self.stored())
+
+    def test_the_results_of_several_downloaded_artifacts_are_each_applied(self) -> None:
+        self.downloaded({"full-recording-shard-1": self.result(clean("unit", "checks/test_a.py", ["checks/test_a.py", "lib/data.txt"])),
+                         "full-recording-windows": self.result(clean("lint", "checks/lint.py", ["checks/lint.py"]))})
+        ran = self.run_apply()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt"], "lint": ["checks/lint.py"]}, self.stored())
+
+    def test_a_download_folder_without_a_result_fails_with_the_cannot_read_error(self) -> None:
+        ran = self.run_apply()
+        self.assertNotEqual(0, ran.returncode)
+        self.assertIn(f"cannot read {self.runner_temp}/full-recording/**/full-recording.json", ran.stderr)
+        self.assertEqual("", subprocess.run(["git", "status", "--porcelain"], cwd=self.work, capture_output=True, text=True, check=True).stdout)
 
 
 if __name__ == "__main__":

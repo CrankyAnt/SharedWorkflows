@@ -3,9 +3,11 @@
     python3 link_check.py [--root DIR] [--exclude PATTERN ...] [--exclude-from FILE|-] [--summary FILE]
 
 Links with a scheme (``https:``, ``mailto:``) and protocol-relative links are not checked. Fenced and indented code
-blocks and inline code spans hold no links. An excluded pattern, a glob relative to the repository root, takes its
-Markdown out of the check as a source; a link into an excluded file is still followed to the file. Each dead link is one line,
-``<file>:<line>: ...``, also written as a GitHub annotation, and the exit code is 1 while any remains.
+blocks and inline code spans hold no links. A split link, a link text followed by spaces, tabs or one line break before
+its parenthesis, renders as plain text and is reported whatever its target. An excluded pattern, a glob relative to the
+repository root, takes its Markdown out of the check as a source; a link into an excluded file is still followed to the
+file. Each dead or split link is one line, ``<file>:<line>: ...``, also written as a GitHub annotation, and the exit code
+is 1 while any remains.
 """
 
 from __future__ import annotations
@@ -32,6 +34,9 @@ LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])[ \t]+")
 REFERENCE_DEFINITION = re.compile(r"^ {0,3}\[([^\]]+)\]:[ \t]*(<[^>]+>|\S+)")
 REFERENCE_START = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*(?:\n[ \t]*)?", re.MULTILINE)
 LINK_START = re.compile(r"!?\[(?:[^\[\]]|\[[^\[\]]*\])*\]\(")
+# A link text, then spaces or tabs, one line break, or both, before an opening parenthesis: no inline link under CommonMark.
+SPLIT_LINK_START = re.compile(r"!?\[((?:[^\[\]]|\[[^\[\]]*\])*)\](?:[ \t]+|[ \t]*\n[ \t]*)\(")
+TASK_MARKERS = (" ", "x", "X")
 LINK_END = re.compile(r'''[ \t\n]*(?:(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))[ \t\n]*)?\)''')
 HTML_CODE = re.compile(r"^ {0,3}<(pre|script|style|textarea)(?:\s|>|$)", re.IGNORECASE)
 REFERENCE_LINK = re.compile(r"!?\[([^\[\]]+)\](?:\[([^\[\]]*)\])?")
@@ -68,8 +73,10 @@ def blank_code_spans(text: str) -> str:
     return "".join(result)
 
 
-def prose_lines(text: str) -> list[tuple[int, str, str]]:
-    """Remove code blocks and container prefixes, preserving source lines and blanking code spans."""
+def prose_lines(text: str, block_starts: set[int] | None = None, list_items: set[int] | None = None) -> list[tuple[int, str, str]]:
+    """Remove code blocks and container prefixes, preserving source lines and blanking code spans. ``block_starts``
+    receives the line number that starts each block, such as a paragraph, and ``list_items`` that of each line that
+    opens a list item."""
     lines: list[tuple[int, str, str]] = []
     pending: list[tuple[int, str]] = []
     fence: str | None = None
@@ -78,8 +85,11 @@ def prose_lines(text: str) -> list[tuple[int, str, str]]:
     list_indents: list[int] = []
     html_closing: str | None = None
     source_lines = text.splitlines()
+    lazy: set[int] = set()
 
     def flush() -> None:
+        if pending and block_starts is not None and pending[0][0] not in lazy:
+            block_starts.add(pending[0][0])
         joined = "\n".join(line for _, line in pending)
         masked = blank_code_spans(joined).split("\n")
         lines.extend((number, raw, masked[index]) for index, (number, raw) in enumerate(pending))
@@ -91,6 +101,9 @@ def prose_lines(text: str) -> list[tuple[int, str, str]]:
             depth += 1
             line = line[quote.end():]
         if depth != quote_depth:
+            if (paragraph and depth < quote_depth and line.strip() and not LIST_ITEM.match(line) and not HEADING.match(line)
+                    and not FENCE.match(line) and not THEMATIC_BREAK.match(line)):
+                lazy.add(number)  # a lazy continuation line, which continues the paragraph of the block quote
             flush()
             list_indents = []
             paragraph = False
@@ -105,6 +118,8 @@ def prose_lines(text: str) -> list[tuple[int, str, str]]:
         line = line[base_indent:]
         if fence is None and (item := LIST_ITEM.match(line)) and not THEMATIC_BREAK.match(line):
             flush()
+            if list_items is not None:
+                list_items.add(number)
             list_indents.append(base_indent + item.end())
             line = line[item.end():]
             paragraph = False
@@ -258,10 +273,28 @@ def destination(text: str, position: int) -> tuple[str, int] | None:
     return (text[start:position], position) if depth == 0 else None
 
 
-def links(text: str) -> list[tuple[int, str]]:
-    """Inline links, images and used references, with the line of each usage."""
-    found: list[tuple[int, str]] = []
-    lines = prose_lines(text)
+def inline_destination(text: str, position: int, start: int) -> tuple[str, int] | None:
+    """The destination of an inline link whose parenthesis ends at ``position``, and the end of its closing parenthesis;
+    ``start`` is where the link begins, and a blank line inside the link makes it none."""
+    while position < len(text) and text[position] in " \t\n":
+        position += 1
+    parsed = destination(text, position)
+    if parsed is None:
+        return None
+    target, end = parsed
+    closing = LINK_END.match(text, end)
+    if closing is None or re.search(r"\n[ \t]*\n", text[start:closing.end()]):
+        return None
+    return target, closing.end()
+
+
+def links(text: str) -> list[tuple[int, str, bool]]:
+    """Inline links, images and used references, with the line of each usage, and split links, with the line of their
+    opening bracket; the flag marks a split link."""
+    found: list[tuple[int, str, bool]] = []
+    block_starts: set[int] = set()
+    list_items: set[int] = set()
+    lines = prose_lines(text, block_starts, list_items)
     definitions: dict[str, str] = {}
     raw_lines = [""] * len(text.splitlines())
     masked_lines = raw_lines.copy()
@@ -315,29 +348,42 @@ def links(text: str) -> list[tuple[int, str]]:
         reach(match.start())
         if escaped(masked_text, match.start()):
             continue
-        start = match.end()
-        while start < len(masked_text) and masked_text[start] in " \t\n":
-            start += 1
-        parsed = destination(masked_text, start)
-        if parsed is None:
+        inline = inline_destination(masked_text, match.end(), match.start())
+        if inline is None:
             continue
-        target, end = parsed
-        closing = LINK_END.match(masked_text, end)
-        if closing is None:
-            continue
-        if re.search(r"\n[ \t]*\n", masked_text[match.start():closing.end()]):
-            continue
-        found.append((match.start(), target))
-        blank(match.start(), closing.end())
+        target, end = inline
+        found.append((match.start(), target, False))
+        blank(match.start(), end)
     rebuild()
+    newlines = [index for index, character in enumerate(masked_text) if character == "\n"]
+
+    def line_of(position: int) -> int:
+        return bisect.bisect_left(newlines, position) + 1
+
+    references: set[int] = set()
     for match in REFERENCE_LINK.finditer(masked_text):
         if escaped(masked_text, match.start()):
             continue
         target = definitions.get(label(match.group(2) or match.group(1)))
         if target is not None:
-            found.append((match.start(), target))
-    newlines = [index for index, character in enumerate(masked_text) if character == "\n"]
-    return [(bisect.bisect_left(newlines, start) + 1, target) for start, target in sorted(found)]
+            found.append((match.start(), target, False))
+            references.add(match.start())
+            if match.group(2) is not None:
+                references.add(match.start(2) - 1)
+    for match in SPLIT_LINK_START.finditer(masked_text):
+        if escaped(masked_text, match.start()) or match.start() in references or label(match.group(1)) in definitions:
+            continue  # an escaped bracket is text; a reference link may be followed by text in parentheses
+        bracket = match.start() + (masked_text[match.start()] == "!")
+        if (match.group(1) in TASK_MARKERS and line_of(bracket) in list_items
+                and (bracket == 0 or masked_text[bracket - 1] == "\n")):
+            continue  # a task list marker
+        opening = match.end() - 1
+        if line_of(opening) != line_of(bracket) and line_of(opening) in block_starts:
+            continue  # the parenthesis starts another block
+        inline = inline_destination(masked_text, match.end(), match.start())
+        if inline is not None:
+            found.append((match.start(), inline[0], True))
+    return [(line_of(start), target, split) for start, target, split in sorted(found)]
 
 
 def excluded(relative: str, patterns: list[str]) -> bool:
@@ -388,8 +434,14 @@ def annotation(file: str, line: str, message: str) -> str:
 
 
 def link_problems(root: Path, files: list[str]) -> list[str]:
-    """Each relative link in ``files`` whose target file or heading does not exist, as ``<file>:<line>: ...``."""
-    problems: list[str] = []
+    """Each relative link in ``files`` whose target file or heading does not exist, and each split link, as
+    ``<file>:<line>: ...``."""
+    return [problem for problem, _ in link_findings(root, files)]
+
+
+def link_findings(root: Path, files: list[str]) -> list[tuple[str, bool]]:
+    """The problems of ``link_problems``, each with a flag that marks a split link."""
+    problems: list[tuple[str, bool]] = []
     anchor_cache: dict[Path, set[str]] = {}
 
     def anchors_of(path: Path) -> set[str]:
@@ -399,8 +451,11 @@ def link_problems(root: Path, files: list[str]) -> list[str]:
 
     for relative in files:
         source = root / relative
-        for number, raw in links(source.read_text(encoding="utf-8")):
+        for number, raw, split in links(source.read_text(encoding="utf-8")):
             target = raw[1:-1] if raw.startswith("<") and raw.endswith(">") else raw
+            if split:
+                problems.append((f"{relative}:{number}: the link to {target} is split between ] and ( and renders as plain text", True))
+                continue
             if SCHEME.match(target) or target.startswith("//"):
                 continue
             location, _, fragment = target.partition("#")
@@ -408,14 +463,14 @@ def link_problems(root: Path, files: list[str]) -> list[str]:
             if location:
                 resolved = Path(os.path.normpath((root / location.lstrip("/")) if location.startswith("/") else (source.parent / location)))
                 if not resolved.exists():
-                    problems.append(f"{relative}:{number}: the link target {target} does not exist")
+                    problems.append((f"{relative}:{number}: the link target {target} does not exist", False))
                     continue
             else:
                 resolved = source
             if fragment and resolved.suffix.lower() == ".md" and resolved.is_file():
                 if unquote(fragment).lower() not in anchors_of(resolved):
                     shown = resolved.relative_to(root).as_posix() if resolved.is_relative_to(root) else str(resolved)
-                    problems.append(f"{relative}:{number}: the link target {target} names no heading of {shown}")
+                    problems.append((f"{relative}:{number}: the link target {target} names no heading of {shown}", False))
     return problems
 
 
@@ -432,7 +487,10 @@ def check(root: Path, exclusions: list[str], summary: Path | None = None) -> int
     """Run the check over the tracked Markdown of ``root`` and report; 0 when every link resolves."""
     files = tracked_markdown(root)
     checked = [relative for relative in files if not excluded(relative, exclusions)]
-    problems = link_problems(root, checked)
+    findings = link_findings(root, checked)
+    problems = [problem for problem, _ in findings]
+    split_count = sum(1 for _, split in findings if split)
+    count_text = plural(len(problems) - split_count, "dead link") + (f", {plural(split_count, 'split link')}" if split_count else "")
     for problem in problems:
         location, _, message = problem.partition(": ")
         file, _, line = location.rpartition(":")
@@ -441,13 +499,13 @@ def check(root: Path, exclusions: list[str], summary: Path | None = None) -> int
     lines = ["## Relative links in tracked Markdown", "",
              f"{plural(len(checked), 'Markdown file')} checked" + (f", {len(files) - len(checked)} excluded" if len(files) != len(checked) else "") + ".", ""]
     if problems:
-        lines += [f"{plural(len(problems), 'dead link')}:", ""] + [f"- `{problem}`" for problem in problems]
+        lines += [f"{count_text}:", ""] + [f"- `{problem}`" for problem in problems]
     else:
         lines.append("Every relative link has an existing target and, when specified, heading.")
     if summary is not None:
         with summary.open("a", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
-    print(f"{plural(len(checked), 'Markdown file')} checked, {plural(len(problems), 'dead link')}.")
+    print(f"{plural(len(checked), 'Markdown file')} checked, {count_text}.")
     return 1 if problems else 0
 
 
