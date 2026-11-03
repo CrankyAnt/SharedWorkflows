@@ -772,6 +772,10 @@
           "kind": "any"
         },
         {
+          "path": "actions/repository-hygiene/consumer-kit/target",
+          "kind": "any"
+        },
+        {
           "path": "actions/repository-hygiene/pins.json",
           "kind": "any"
         },
@@ -1796,6 +1800,10 @@
           },
           {
             "path": "actions/repository-hygiene/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/consumer-kit/target",
             "kind": "any"
           },
           {
