@@ -41,7 +41,7 @@ The checks to require in a ruleset on the default branch are `hygiene / hygiene`
 
 The hygiene caller may set `zizmor-persona` to `pedantic` or `auditor`, for a stricter zizmor persona than the default, and `link-exclude` to the globs, one per line, of Markdown files the repository does not maintain, such as vendored documentation, whose relative links the link check then leaves alone. A caller that sets either records the input with its value and its reason under [Repository choices](#repository-choices). No other input is the repository's own choice.
 
-The other inputs of the hygiene caller follow from the repository: `gitleaks-config` and `gitleaks-baseline` name the files that the Gitleaks command in `docs/agents/delivery.md` passes with `--config` and `--baseline-path`, and `coverage-exclude` lists the path of each package file that is a test fixture, one per line.
+The other inputs of the hygiene caller follow from the repository: `gitleaks-config` names the file that the Gitleaks command in `docs/agents/delivery.md` passes with `--config` and `gitleaks-baseline` names the file that the Gitleaks command in `docs/agents/delivery.md` passes with `--baseline-path`.
 
 ## Dependabot
 
