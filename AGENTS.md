@@ -38,6 +38,10 @@ The top level of `docs/` holds only `adr/`, `agents/`, `guides/`, `development/`
 
 Temporary documents, such as research, notes and plans, stay out of `docs/`.
 
+A place outside this standard, such as another top-level folder in `docs/`, is an exception. It enters `### Exceptions` as one line with its path and its reason, only after the user approves it; a change that ends the exception removes its line.
+
+A rule for the whole repository goes into `AGENTS.md` under the [agents.md](https://agents.md/) heading that fits its subject, such as `## Code style`, `## Security considerations` or `## PR instructions`, or under a heading of its own when none fits. A rule on the subject of a file in `docs/agents/`, such as a delivery rule or a CI choice, goes into that file.
+
 When in doubt about a place, ask the user.
 
 ### Exceptions
@@ -48,16 +52,16 @@ When in doubt about a place, ask the user.
 
 ## Project overview
 
-Every tracked top-level folder whose name does not start with a dot gets one line: the path and at most one short clause. No explanation, rules, status, subfolders, nested lists or file pointers. A new top-level folder adds its line; a removed one removes its line.
+Every tracked top-level folder whose name does not start with a dot gets one line: the path and at most one short clause that names the folder's purpose, not its contents. No explanation, rules, status, subfolders, nested lists or file pointers. A new top-level folder adds its line; a removed one removes its line; a change that makes a clause untrue rewrites it in the same change.
 
-- `actions/`: the shared parts with their shared steps and consumer kits
-- `docs/`: maintenance documentation, ADRs and agent configuration
+- `actions/`: the shared parts
+- `docs/`: the repository's documentation
 - `LICENSES/`: license texts
-- `tests/`: the suites of the shared parts and their fixtures
+- `tests/`: the tests of the shared parts
 
 ## Testing instructions
 
-One line per validation or test command and per CI workflow the repository runs. Whoever adds a workflow or caller adds its line.
+One line per validation or test command and per CI workflow the repository runs. A change that adds, removes or renames a command or workflow, or changes what it validates or tests, adds, removes or rewrites its line in the same change.
 
 - `wsl -d Ubuntu-26.04-CI -u root -- ci-max python3 -m unittest -v <entry file>`: one Linux entry file, with its suite's `command` from the suite list `tests/suites.json`, on the hosted runner's tool versions
 - `python -m unittest -v <entry file>`: one entry file of the Windows suites `windows` and `etw-consumer-build`, on Windows

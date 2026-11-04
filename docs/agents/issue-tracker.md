@@ -2,6 +2,8 @@
 
 Issues, specs, Work Briefs, maps, and tickets live in GitHub Issues. Repository visibility and the publication policy for tracked and shared surfaces are recorded in `docs/agents/publication.md`; delivery path, publish boundary, and validation policy are recorded in `docs/agents/delivery.md`.
 
+A change that adds or removes a label set that the repository's own issue forms, workflows or tools assign, or an intake rule, adds or removes its entry under `## Repository vocabularies and intake rules` in the same change. An issue form assigns only labels that this file or `docs/agents/triage-labels.md` records.
+
 ## Tool routing
 
 Use local Git for status, diff, branches, staging, commits, and pushes. Use the active purpose-built GitHub integration first for issues, comments, labels, sub-issues, dependencies, pull requests, and merges. Use `gh` only when the integration is unavailable or lacks the required operation, and report the fallback. Use the normal credential store; never copy tokens into prompts, environment variables, or plaintext configuration.
