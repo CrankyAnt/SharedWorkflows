@@ -1,7 +1,7 @@
 {
   "$schema": "./pins.schema.json",
   "node": {
-    "version": "24.22.1"
+    "version": "24.22.2"
   },
   "tools": {
     "actionlint": {
