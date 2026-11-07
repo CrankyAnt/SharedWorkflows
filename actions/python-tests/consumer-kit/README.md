@@ -6,7 +6,7 @@ The consumer kit of Python tests, a shared part of the [catalogue](../../../cata
 
 Python tests applies to a repository whose Python tests are short enough that running only the affected suites would not save more than the suite selection costs, such as a suite of pytest tests that runs in seconds. A repository runs its Python tests through either the suite selection or Python tests, never both. A repository that uses the suite selection does not adopt Python tests; its validation workflow runs the Python language step in shard 1 instead.
 
-A repository with its own test job adopts Python tests in place of that job: the caller replaces the job that installs Python and the dependencies and runs ruff, mypy and the tests.
+A repository whose own workflow already runs its tests adopts Python tests in place of that job: the caller replaces the job that installs Python and the dependencies and runs ruff, mypy and the tests.
 
 ## What the job runs
 
@@ -18,7 +18,7 @@ The shared job `tests` runs on one runner label, in this order:
 4. It runs the [Python language step](../../python-language-step/consumer-kit/README.md) from `working-directory`: `ruff check`, `mypy` where that directory configures it, and `ruff format --check` with `format-check: "true"`.
 5. It runs the tests in `working-directory`, also when the language step failed: `python -m pytest` when the project configures pytest, otherwise `python -m unittest discover`.
 
-The project configures pytest with a `[tool.pytest.ini_options]` table in `pyproject.toml`, a `pytest.ini`, a `[pytest]` section in `tox.ini`, a `[tool:pytest]` section in `setup.cfg`, or a `conftest.py` in `working-directory`.
+The project configures pytest with a `[tool.pytest]` or `[tool.pytest.ini_options]` table in `pyproject.toml`, a `pytest.toml`, `.pytest.toml`, `pytest.ini` or `.pytest.ini`, a `[pytest]` section in `tox.ini`, a `[tool:pytest]` section in `setup.cfg`, or a `conftest.py` in `working-directory`.
 
 The job fails when the language step or the tests fail. It also fails with a message that names `working-directory` when the test runner finds no tests, and with a message that pytest is not installed when the project configures pytest but the installed dependencies do not provide it. pytest and its plugins come from the repository's own dependencies: list them in the requirements file or the extra that `install` names.
 
@@ -27,18 +27,18 @@ The job fails when the language step or the tests fail. It also fails with a mes
 Copy [python-tests.yml](python-tests.yml) to `.github/workflows/python-tests.yml` and replace its placeholders:
 
 - `<default-branch>` with the repository's default branch;
-- `<python-version>` with the Python version the repository tests on, such as `3.14`, inside the quotes, so that a version such as `3.10` stays a string;
+- `<python-version>` with the Python version the repository tests on, `3.11` or newer, such as `3.14`, inside the quotes, so that a version such as `3.20` stays a string and does not become `3.2`;
 - `<install>` with the requirements file or the extra that holds the test dependencies, or remove the line when nothing needs installing.
 
 The caller sets `permissions: {}` at the top and `actions: read`, `contents: read` and `pull-requests: read` on its one job, which the push lookup needs. It passes no secrets and runs no step of its own. It runs on pull requests, on pushes to the default branch, and on the `repository_dispatch` event `dependabot-merged`, which Dependabot auto-merge sends after each merge; on that event the job checks out the commit that `client_payload.sha` names, or the default branch's tip without one, and fails without running the tests when `client_payload.sha` is malformed, absent from the checkout, or a commit off the default branch. A newer head of a pull request cancels the run of the older one; a run on the default branch is never cancelled.
 
-The job id `tests` gives the check `tests / tests`, the check that Python tests adds to the checks the default-branch ruleset requires.
+The job id `tests` gives the check `tests / tests`, the check that Python tests adds to the checks the default-branch ruleset requires. With Dependabot auto-merge, the caller of that part names this caller's workflow, `Python tests`, among the workflows that produce a required check.
 
 ## Inputs
 
 | Input | Default | What it sets |
 | --- | --- | --- |
-| `python-version` | required | the Python version that `actions/setup-python` installs |
+| `python-version` | required | the Python version that `actions/setup-python` installs, `3.11` or newer: the language step and the tests run on it |
 | `working-directory` | `.` | the project's directory, relative to the repository root, from which the dependencies install and the language step and the tests run |
 | `install` | empty | a requirements file ending in `.txt`, or an extra of the project; empty installs nothing |
 | `runner-label` | `ubuntu-26.04` | the runner label of the job, such as `windows-2025` for tests that need Windows |

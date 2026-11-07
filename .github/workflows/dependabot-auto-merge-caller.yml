@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_run: # zizmor: ignore[dangerous-triggers] the merge job checks out nothing and runs no pull-request code
-    workflows: [Repository hygiene, Validate]
+    workflows: [Repository hygiene, Validate, Python tests]
     types: [completed]
 
 permissions: {}

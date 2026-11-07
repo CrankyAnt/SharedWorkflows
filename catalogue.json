@@ -47,7 +47,7 @@
       "workflows": [".github/workflows/python-tests.yml"],
       "steps": ["actions/python-tests", "actions/python-language-step"],
       "required_checks": ["tests / tests"],
-      "needs": "A Python project with tests that pytest or unittest discovers, and its test dependencies, pytest included where the project configures it, in a requirements file or an extra of the project.",
+      "needs": "A Python project for Python 3.11 or newer with tests that pytest or unittest discovers, and its test dependencies, pytest included where the project configures it, in a requirements file or an extra of the project.",
       "applies": "A repository with Python tests short enough that the suite selection does not pay, and not a repository that uses the suite selection, which runs its Python tests through that part.",
       "consumer_kit": "actions/python-tests/consumer-kit"
     }

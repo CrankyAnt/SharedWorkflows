@@ -38,7 +38,7 @@ SURFACE = {
 }
 APP = "pins-updater[bot]"
 OWNER = "CrankyAnt"
-PASSED = {"validate.yml": "success", "repository-hygiene-caller.yml": "success"}
+PASSED = {"validate.yml": "success", "repository-hygiene-caller.yml": "success", "python-tests-caller.yml": "success"}
 
 
 def git(repo: Path, *arguments: str) -> str:
@@ -367,6 +367,7 @@ class CiWaitTests(unittest.TestCase):
         # A validation run whose verdict job was skipped for an identical tree concludes success; only the run's conclusion is read.
         self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}, {"id": 4, "status": "completed", "conclusion": "failure"}])
         self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 3, "status": "completed", "conclusion": "failure"}, {"id": 8, "status": "completed", "conclusion": "success"}])
+        self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
         conclusions = self.wait()
         self.assertEqual(PASSED, conclusions)
         self.assertIsNone(promote.ci_stay_reason(conclusions))
@@ -375,7 +376,8 @@ class CiWaitTests(unittest.TestCase):
         for fragment in ["/actions/workflows/{workflow}/runs?", "head_sha={commit}", "event=push", "branch=main"]:
             self.assertIn(fragment, promote.RUNS_URL)
 
-    def test_the_wait_polls_until_both_runs_completed(self) -> None:
+    def test_the_wait_polls_until_every_run_completed(self) -> None:
+        self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
         polls = iter([
             ([], [{"id": 8, "status": "in_progress", "conclusion": None}]),
             ([{"id": 9, "status": "queued", "conclusion": None}], [{"id": 8, "status": "completed", "conclusion": "success"}]),
@@ -399,21 +401,23 @@ class CiWaitTests(unittest.TestCase):
                 self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
                 self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 8, "status": "completed", "conclusion": conclusion}])
                 conclusions = self.wait()
-                self.assertEqual({"validate.yml": None, "repository-hygiene-caller.yml": conclusion}, conclusions)
+                self.assertEqual({"validate.yml": None, "repository-hygiene-caller.yml": conclusion, "python-tests-caller.yml": None}, conclusions)
                 self.assertEqual([], self.sleeps)
                 self.assertEqual(f"the CI of this commit on main did not pass: repository-hygiene-caller.yml concluded {conclusion}.", promote.ci_stay_reason(conclusions))
 
     def test_runs_that_have_not_completed_within_the_bound_stay_unfinished(self) -> None:
         self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
-        conclusions = self.wait(timeout=90, interval=30, request_timeout=5)
-        self.assertEqual({"validate.yml": None, "repository-hygiene-caller.yml": None}, conclusions)
-        self.assertEqual([30, 30, 20], self.sleeps, "the last poll starts when two full request timeouts still end at the bound")
-        self.assertEqual("the CI of this commit on main had not completed when the wait ended: validate.yml, repository-hygiene-caller.yml.", promote.ci_stay_reason(conclusions))
+        conclusions = self.wait(timeout=95, interval=30, request_timeout=5)
+        self.assertEqual({"validate.yml": None, "repository-hygiene-caller.yml": None, "python-tests-caller.yml": None}, conclusions)
+        self.assertEqual([30, 30, 20], self.sleeps, "the last poll starts when three full request timeouts still end at the bound")
+        self.assertEqual("the CI of this commit on main had not completed when the wait ended: validate.yml, repository-hygiene-caller.yml, python-tests-caller.yml.",
+                         promote.ci_stay_reason(conclusions))
 
     def test_a_failed_read_counts_as_not_completed_and_polling_goes_on(self) -> None:
         failures = iter([urllib.error.URLError("temporary failure in name resolution"), TimeoutError("timed out")])
         self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}])
         self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 8, "status": "completed", "conclusion": "success"}])
+        self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
 
         def flaky_fetch(url: str) -> bytes | None:
             failure = next(failures, None)
@@ -432,7 +436,7 @@ class CiWaitTests(unittest.TestCase):
             raise error
 
         with self.assertRaises(promote.CiReadError) as raised:
-            self.wait(failing_fetch, timeout=90, interval=30, request_timeout=5)
+            self.wait(failing_fetch, timeout=95, interval=30, request_timeout=5)
         self.assertEqual("HTTPError: HTTP Error 502: Bad Gateway", str(raised.exception))
         self.assertEqual([30, 30, 20], self.sleeps)
 
@@ -468,7 +472,7 @@ class ToolDocumentTests(unittest.TestCase):
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "promote-v1.yml").read_text(encoding="utf-8")
         job_timeout = re.search(r"(?m)^  decide:\n    runs-on: ubuntu-slim\n    timeout-minutes: (\d+)$", workflow).group(1)
         figures = {
-            r"polls both runs every (\d+) seconds": str(promote.CI_INTERVAL),
+            r"polls the three runs every (\d+) seconds": str(promote.CI_INTERVAL),
             r"Each request times out after (\d+) seconds": str(promote.REQUEST_TIMEOUT),
             r"ends within (\d+) minutes of the start of the wait": str(promote.CI_TIMEOUT // 60),
             r"`timeout-minutes: (\d+)`": job_timeout,

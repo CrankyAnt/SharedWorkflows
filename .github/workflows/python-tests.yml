@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       python-version:
-        description: The Python version that actions/setup-python installs as the job's own Python.
+        description: The Python version, 3.11 or newer, that actions/setup-python installs as the job's own Python, on which the language step and the tests run.
         type: string
         required: true
       working-directory:

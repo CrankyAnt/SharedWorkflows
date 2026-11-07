@@ -61,7 +61,8 @@ class PythonTestsReadmeTest(unittest.TestCase):
     def test_the_readme_states_what_runs_what_it_needs_and_when_it_applies(self) -> None:
         for text in ("CrankyAnt/SharedWorkflows/.github/workflows/python-tests.yml@v1", "actions/setup-python", "without a cache",
                      "pip install -r", 'pip install ".[<extra>]"', "python -m pytest", "python -m unittest discover", "[tool.pytest.ini_options]",
-                     "pytest.ini", "tox.ini", "[tool:pytest]", "conftest.py", "ends in `.md`", "dependabot-merged", "`tests / tests`",
+                     "pytest.ini", "tox.ini", "[tool:pytest]", "conftest.py", "`[tool.pytest]`", "`pytest.toml`", "`.pytest.toml`", "`.pytest.ini`",
+                     "`3.11` or newer", "`Python tests`, among the workflows that produce a required check", "ends in `.md`", "dependabot-merged", "`tests / tests`",
                      "pytest is not installed", "finds no tests", "also when the language step failed", "## When a repository adopts it"):
             with self.subTest(text=text):
                 self.assertIn(text, self.readme)

@@ -293,7 +293,9 @@ class PytestConfigurationTests(unittest.TestCase):
         for name, files in (("pyproject", {"pyproject.toml": "[project]\nname = 'x'\n\n[tool.pytest.ini_options]\naddopts = '-q'\n"}),
                             ("pytest.ini", {"pytest.ini": ""}), ("tox.ini", {"tox.ini": "[tox]\nenvlist = py\n\n[pytest]\naddopts = -q\n"}),
                             ("setup.cfg", {"setup.cfg": "[metadata]\nname = x\n\n[tool:pytest]\naddopts = -q\n"}),
-                            ("conftest.py", {"conftest.py": ""})):
+                            ("conftest.py", {"conftest.py": ""}),
+                            ("native pyproject table", {"pyproject.toml": "[project]\nname = 'x'\n\n[tool.pytest]\ntestpaths = ['tests']\n"}),
+                            ("pytest.toml", {"pytest.toml": "[pytest]\n"}), (".pytest.toml", {".pytest.toml": ""}), (".pytest.ini", {".pytest.ini": ""})):
             with self.subTest(configuration=name):
                 self.assertTrue(self.configures(files))
 

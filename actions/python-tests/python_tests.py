@@ -38,6 +38,8 @@ LOOKUP_CASES = ("identical", "behind", "pull-request", "own")
 EXTRA_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
 # The report line of a unittest run without tests; before Python 3.12 such a run ends with 0.
 NO_TESTS_LINE = re.compile(r"Ran 0 tests in ")
+# The files whose presence at the root configures pytest, whatever they hold.
+PYTEST_FILES = ("pytest.toml", ".pytest.toml", "pytest.ini", ".pytest.ini", "conftest.py")
 PYTEST_NO_TESTS = 5  # pytest's exit code when it collected no tests
 UNITTEST_NO_TESTS = 5  # unittest's exit code, from Python 3.12, when no test ran
 
@@ -98,6 +100,7 @@ def decision(changed: list[str] | None) -> tuple[bool, str]:
 
 def decide(root: Path, base: str | None, head: str | None, compare: str, lookup: Path | None, output: Path | None, summary: Path | None) -> int:
     heading = None
+    changed: list[str] | None = None
     if lookup is None:
         changed = changed_files(root, base, head or "", compare)
         run, reason = decision(changed)
@@ -105,23 +108,22 @@ def decide(root: Path, base: str | None, head: str | None, compare: str, lookup:
         found = read_lookup(lookup)
         heading = f"Push lookup: `{found['case']}`, {found.get('reason', '')}."
         if found["case"] == "identical":
-            changed = []
             run, reason = False, f"the tree already passed `tests / tests` on pull request #{found.get('pull_request')}"
         else:
             changed = changed_files(root, found.get("landing_base") or None, found["head"], "direct")
             run, reason = decision(changed)
-    verdict = "run" if run else "do not run"
-    print(f"run={'true' if run else 'false'}: {reason}")
+    value = "true" if run else "false"
+    print(f"run={value}: {reason}")
     if output is not None:
         with output.open("a", encoding="utf-8") as handle:
-            handle.write(f"run={'true' if run else 'false'}\n")
+            handle.write(f"run={value}\n")
     if summary is not None:
         lines = ["## Python tests for this change", ""]
         if heading is not None:
             lines += [heading, ""]
-        if changed is not None and (lookup is None or found["case"] != "identical"):
+        if changed is not None:
             lines += [f"{len(changed)} changed file{'' if len(changed) == 1 else 's'}.", ""]
-        lines.append(f"The tests {verdict}: {reason}.")
+        lines.append(f"The tests {'run' if run else 'do not run'}: {reason}.")
         with summary.open("a", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
     return 0
@@ -142,8 +144,12 @@ def install_command(value: str, python: Path) -> list[str] | None:
     return [*base, f".[{value}]"]
 
 
-def run_command(command: list[str], root: Path) -> int:
+def show(command: list[str]) -> None:
     print("+ " + " ".join(command), flush=True)
+
+
+def run_command(command: list[str], root: Path) -> int:
+    show(command)
     return subprocess.run(command, cwd=root, check=False).returncode
 
 
@@ -159,18 +165,19 @@ def install(root: Path, value: str) -> int:
 
 
 def pytest_configured(root: Path) -> bool:
-    """Whether the project at ``root`` configures pytest: ``[tool.pytest.ini_options]`` in ``pyproject.toml``, a
-    ``pytest.ini``, a ``[pytest]`` section in ``tox.ini``, a ``[tool:pytest]`` section in ``setup.cfg``, or a
+    """Whether the project at ``root`` configures pytest: a ``[tool.pytest]`` table in ``pyproject.toml``, the native
+    one of pytest 9 or its ``[tool.pytest.ini_options]``; a ``pytest.toml``, ``.pytest.toml``, ``pytest.ini`` or
+    ``.pytest.ini``; a ``[pytest]`` section in ``tox.ini``; a ``[tool:pytest]`` section in ``setup.cfg``; or a
     ``conftest.py`` at the root."""
     pyproject = root / "pyproject.toml"
     if pyproject.is_file():
         try:
-            table = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("tool", {}).get("pytest", {})
+            table = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("tool", {}).get("pytest")
         except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
             raise ProjectError(f"{pyproject} cannot be read: {error}") from error
-        if isinstance(table, dict) and isinstance(table.get("ini_options"), dict):
+        if isinstance(table, dict):
             return True
-    if (root / "pytest.ini").is_file() or (root / "conftest.py").is_file():
+    if any((root / name).is_file() for name in PYTEST_FILES):
         return True
     for name, section in (("tox.ini", "pytest"), ("setup.cfg", "tool:pytest")):
         path = root / name
@@ -189,7 +196,7 @@ def no_tests(runner: str, code: int, reported_none: bool) -> bool:
 
 def run_tests(command: list[str], root: Path) -> tuple[int, bool]:
     """Run the test runner and pass its output on; the exit code and whether unittest reported a run of no tests."""
-    print("+ " + " ".join(command), flush=True)
+    show(command)
     process = subprocess.Popen(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     assert process.stdout is not None
     reported_none = False

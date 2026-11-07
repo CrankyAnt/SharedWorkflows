@@ -37,7 +37,7 @@ This repository calls its own shared workflows and shared steps by local path, `
 
 The hygiene caller, the validation caller and the Python tests caller also run on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event).
 
-The checks to require in a ruleset on the default branch are `hygiene / hygiene` and `validation / validation`; [Change a check name](../maintaining.md#change-a-check-name) changes them.
+The checks to require in a ruleset on the default branch are `hygiene / hygiene`, `validation / validation` and `tests / tests`; [Change a check name](../maintaining.md#change-a-check-name) changes them.
 
 ## Inputs
 
