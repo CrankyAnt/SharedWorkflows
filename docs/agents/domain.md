@@ -11,7 +11,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
 - **`SCOPE.md`** at the repo root: the product's scope, its purpose and non-goals. Read it when you write or recommend new work. During delivery the contract bounds the builder instead; triage applies this file to incidental findings.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `model-domain` skill (reached via `grill-and-document`) creates them lazily when terms or decisions actually get resolved, and `SCOPE.md` only through `write-spec` or `grill-and-document`.
+If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `model-domain` skill (reached via `grill-and-document`) creates them lazily when terms or decisions actually get resolved, and `SCOPE.md` only through `grill-and-document`.
 
 Outside delivery, commit resolved terms and ADRs to `main` immediately. During `deliver-spec` or `deliver-work`, commit them with the delivered change, for `deliver-spec` on the integration branch; they become valid when it lands.
 
