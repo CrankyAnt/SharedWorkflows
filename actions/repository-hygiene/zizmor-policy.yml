@@ -10,6 +10,7 @@ rules:
         CrankyAnt/SharedWorkflows/.github/workflows/dependabot-auto-merge.yml: ref-pin
         CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml: ref-pin
         CrankyAnt/SharedWorkflows/.github/workflows/suite-verdict.yml: ref-pin
+        CrankyAnt/SharedWorkflows/.github/workflows/python-tests.yml: ref-pin
         CrankyAnt/SharedWorkflows/actions/python-language-step: ref-pin
         CrankyAnt/SharedWorkflows/actions/recording: ref-pin
         CrankyAnt/SharedWorkflows/actions/repository-hygiene: ref-pin

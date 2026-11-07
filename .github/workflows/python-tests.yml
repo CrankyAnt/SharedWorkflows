@@ -1,0 +1,116 @@
+name: Python tests
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: The Python version, 3.11 or newer, that actions/setup-python installs as the job's own Python, on which the language step and the tests run.
+        type: string
+        required: true
+      working-directory:
+        description: The project's directory, relative to the repository root, from which the dependencies install and the language step and the tests run.
+        type: string
+        required: false
+        default: "."
+      install:
+        description: A requirements file ending in .txt, installed with pip install -r, or an extra of the project, installed with pip install ".[<extra>]", both from working-directory. Empty installs nothing.
+        type: string
+        required: false
+        default: ""
+      runner-label:
+        description: The runner label of the job.
+        type: string
+        required: false
+        default: ubuntu-26.04
+      format-check:
+        description: Also run ruff format --check in the Python language step.
+        type: string
+        required: false
+        default: "false"
+
+permissions: {}
+
+jobs:
+  tests:
+    runs-on: ${{ inputs.runner-label }}
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Load the script of Python tests from this workflow revision
+        id: resources
+        uses: $/actions/python-tests
+      - name: Load the push lookup from this workflow revision
+        id: selection
+        uses: $/actions/suite-selection
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        id: dispatch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
+      - name: Look up the tested tree of the pushed commit's pull request
+        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Decide whether the tests run
+        id: decide
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
+        run: |
+          case "$EVENT" in
+            push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
+          esac
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" decide --root . "$@" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Set up Python
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install the dependencies
+        id: install
+        if: steps.decide.outputs.run == 'true'
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          INSTALL: ${{ inputs.install }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" install --root "$WORKING_DIRECTORY" --install="$INSTALL"
+      - name: Run the Python language step
+        if: steps.install.outcome == 'success'
+        uses: $/actions/python-language-step
+        with:
+          root: ${{ inputs.working-directory }}
+          format-check: ${{ inputs.format-check }}
+      - name: Run the tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" test --root "$WORKING_DIRECTORY"

@@ -24,7 +24,8 @@ This repository calls its own shared workflows and shared steps by local path, `
 | Repository hygiene | `repository-hygiene-caller.yml` | `hygiene / hygiene` | `gitleaks-config: .gitleaks.toml`, `gitleaks-baseline: .gitleaks-baseline.json` |
 | Dependabot auto-merge | `dependabot-auto-merge-caller.yml` | `auto-merge / auto-merge`, `auto-merge / merge` | none |
 | Suite selection | `validate.yml` | `validation / validation` | on `select`: `suites: tests/suites.json`, `language-steps: python`, `runner-labels: linux=ubuntu-26.04 windows=windows-2025`, `setup-versions: python=3.13` |
-| Python language step | `validate.yml`, shard 1 | none | none |
+| Python language step | `validate.yml`, shard 1; `python-tests.yml` in `python-tests-caller.yml` | none | none |
+| Python tests | `python-tests-caller.yml` | `tests / tests` | `python-version: "3.14"`, `working-directory: tests/fixtures/python_tests`, `install: dev` |
 
 `docs/maintaining.md` describes what each part runs:
 
@@ -32,10 +33,11 @@ This repository calls its own shared workflows and shared steps by local path, `
 - Dependabot auto-merge: [Dependabot auto-merge](../maintaining.md#dependabot-auto-merge).
 - Suite selection: [Job layout](../maintaining.md#job-layout) and [Suite selection](../maintaining.md#suite-selection).
 - Python language step: [Python language step](../maintaining.md#python-language-step).
+- Python tests: [Python tests](../maintaining.md#python-tests), on the fixture project that tests the shared workflow.
 
-The hygiene caller and the validation caller also run on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event).
+The hygiene caller, the validation caller and the Python tests caller also run on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event).
 
-The checks to require in a ruleset on the default branch are `hygiene / hygiene` and `validation / validation`; [Change a check name](../maintaining.md#change-a-check-name) changes them.
+The checks to require in a ruleset on the default branch are `hygiene / hygiene`, `validation / validation` and `tests / tests`; [Change a check name](../maintaining.md#change-a-check-name) changes them.
 
 ## Inputs
 

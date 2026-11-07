@@ -28,6 +28,7 @@ These links describe the current checkout. Use their `v1` versions when adopting
 - [Dependabot auto-merge](actions/dependabot-auto-merge/consumer-kit/README.md)
 - [Suite selection](actions/suite-selection/consumer-kit/README.md)
 - [Python language step](actions/python-language-step/consumer-kit/README.md)
+- [Python tests](actions/python-tests/consumer-kit/README.md)
 
 ## Validation
 

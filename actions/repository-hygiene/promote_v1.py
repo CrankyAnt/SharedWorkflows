@@ -20,8 +20,8 @@ holds no credentials, and writes ``v1`` and ``v1_object`` as outputs, both empty
 ``v1`` moves only when the commit landed from a merged pull request that the App opened from the updater's
 branch, the repository owner merged it, the commit changes only the pins file, and the shared surface between
 the current ``v1`` and the commit differs only in the pins file. When those hold, ``decide`` waits for the push runs
-on ``main`` of ``validate.yml`` and ``repository-hygiene-caller.yml`` for the commit, read through the GitHub API with
-the token in ``GH_TOKEN``, and ``v1`` moves only when both concluded ``success``; "Automatic v1 move" in
+on ``main`` of ``validate.yml``, ``repository-hygiene-caller.yml`` and ``python-tests-caller.yml`` for the commit, read
+through the GitHub API with the token in ``GH_TOKEN``, and ``v1`` moves only when all three concluded ``success``; "Automatic v1 move" in
 ``docs/maintaining.md`` gives the polling interval and the bounds. ``--pull-request`` is the JSON of the merged pull
 request as the GitHub API returns it. ``--v1`` is the commit the tag names and ``--v1-object`` the object the
 remote ref holds (the same for a lightweight tag, the tag object for an annotated one); ``move`` pushes with
@@ -57,7 +57,7 @@ GITLEAKS_OPTIONS = ("--config", ".gitleaks.toml", "--baseline-path", ".gitleaks-
 SCRIPT_COMMAND = "python3 actions/repository-hygiene/promote_v1.py"
 PROMOTION, ROLLBACK, FIRST_CREATION = "promotion", "rollback", "first creation"
 SCAN_REFUSAL = "the Gitleaks scan of the tag push reports a finding or could not run"
-CI_WORKFLOWS = ("validate.yml", "repository-hygiene-caller.yml")
+CI_WORKFLOWS = ("validate.yml", "repository-hygiene-caller.yml", "python-tests-caller.yml")
 MOVED_EVENT = "v1-moved"
 SELECTION_WORKFLOW = ".github/workflows/suite-selection.yml@v1"
 WORKFLOW_SUFFIXES = (".yml", ".yaml")

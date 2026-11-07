@@ -40,3 +40,13 @@ updates:
       minor-and-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+  - package-ecosystem: pip
+    directory: /tests/fixtures/python_tests
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

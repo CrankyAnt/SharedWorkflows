@@ -20,6 +20,7 @@ class OwnDependabotConfigurationTest(unittest.TestCase):
                 ("nuget", "/actions/recording/etw-consumer"),
                 ("dotnet-sdk", "/actions/recording/etw-consumer"),
                 ("npm", "/actions/publication-checks"),
+                ("pip", "/tests/fixtures/python_tests"),
             },
             set(entries),
         )

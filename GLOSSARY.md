@@ -60,6 +60,10 @@ _Avoid_: Consumer documentation, setup template
 The workflow of this repository at `v1` whose action pins a consumer copies into a consumer kit template, one named per template; it holds action pins, where the pins file holds tool pins.
 _Avoid_: Pin file, pin reference
 
+**Python tests**:
+The shared part that runs a consumer's Python test suite with its standard test runner, pytest or unittest, and the language step for Python in one job, for a repository whose tests are too short for the suite selection to pay.
+_Avoid_: Test workflow, Python CI, test job
+
 ### The v1 channel
 
 **v1 channel**:
@@ -119,7 +123,7 @@ A run on the default branch that a `repository_dispatch` event starts and that s
 _Avoid_: Repository dispatch, triggered run
 
 **Push lookup**:
-The step of a push run or a dispatch run that finds the pull-request run that tested the commit it runs on and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection and the hygiene job select.
+The step of a push run or a dispatch run that finds the pull-request run that tested the commit it runs on and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection, the hygiene job and Python tests select.
 _Avoid_: PR lookup, merge lookup
 
 **Landing base**:

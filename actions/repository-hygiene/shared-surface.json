@@ -6,6 +6,7 @@
     ".github/workflows/dependabot-auto-merge.yml",
     ".github/workflows/suite-selection.yml",
     ".github/workflows/suite-verdict.yml",
+    ".github/workflows/python-tests.yml",
     "catalogue.json",
     "actions/publication-checks",
     "actions/repository-hygiene",
@@ -13,6 +14,7 @@
     "actions/suite-selection",
     "actions/recording",
     "actions/python-language-step",
+    "actions/python-tests",
     "actions/repository-ruleset"
   ]
 }
