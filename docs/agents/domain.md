@@ -9,7 +9,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`GLOSSARY.md`** at the repo root, or
 - **`GLOSSARY-MAP.md`** at the repo root if it exists: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
-- **`SCOPE.md`** at the repo root: the product's edges. Read it when you write or recommend new work. During delivery the contract bounds the builder instead; triage applies this file to incidental findings.
+- **`SCOPE.md`** at the repo root: the product's scope, its purpose and non-goals. Read it when you write or recommend new work. During delivery the contract bounds the builder instead; triage applies this file to incidental findings.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `model-domain` skill (reached via `grill-and-document`) creates them lazily when terms or decisions actually get resolved, and `SCOPE.md` only through `write-spec` or `grill-and-document`.
 
@@ -55,6 +55,6 @@ If your output contradicts an existing ADR, surface it explicitly rather than si
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
 
-## Flag scope crossings
+## Flag work outside the scope
 
-If your output would take the product past an edge in `SCOPE.md`, put it to the user as one question: a conscious extension, or not. Never cross an edge silently, and never reject work for it on your own.
+Work belongs to the product only when it serves the purpose in `SCOPE.md` and hits none of its non-goals. If your output would not, put it to the user as one question: a conscious extension, or not. Never go outside the scope silently, and never reject work for it on your own.
