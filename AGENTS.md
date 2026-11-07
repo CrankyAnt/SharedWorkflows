@@ -67,12 +67,14 @@ One line per validation or test command and per CI workflow the repository runs.
 - `python -m unittest -v <entry file>`: one entry file of the Windows suites `windows` and `etw-consumer-build`, on Windows
 - `repository-hygiene-caller` (local path): the convention checks of branch names, commit subjects and pull-request titles, the credential scan, workflow validation, Dependabot coverage and the Markdown link check, and `reuse lint`
 - `dependabot-auto-merge-caller` (local path): auto-merge of qualifying Dependabot pull requests
+- `python-tests-caller` (local path): Python tests on the fixture project `tests/fixtures/python_tests`: its installation, the Python language step and its pytest test
 - `validate` (local path): the validation caller; selects the units from the stored lists of the suite list, runs them in Linux shards and one Windows job under the recording step and reports the verdict `validation / validation`
 - `full-recording`: records every entry file every two weeks and proposes the changed stored lists and duration estimates as a pull request
 - `repository-hygiene`: the shared workflow of repository hygiene, called by `repository-hygiene-caller` and by consumers at `v1`
 - `dependabot-auto-merge`: the shared workflow of Dependabot auto-merge, called by `dependabot-auto-merge-caller` and by consumers at `v1`
 - `suite-selection`: the shared workflow of the suite selection, called by `validate` and by consumers at `v1`
 - `suite-verdict`: the shared workflow of the verdict, called by `validate` and by consumers at `v1`
+- `python-tests`: the shared workflow of Python tests, called by `python-tests-caller` and by consumers at `v1`
 - `promote-v1`: moves `v1` after a pins-only commit on `main` whose CI passed
 - `rebuild-etw-consumer`: rebuilds the committed ETW consumer for a Dependabot pull request after `Validate` and commits it to its branch
 - `update-ci-pins`: proposes newer tool pins as a pull request, weekly

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-tests-fixture"
+version = "0.0.0"
+description = "The fixture project on which python-tests-caller.yml runs the shared workflow of Python tests."
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0"]
+
+[tool.setuptools]
+py-modules = ["greeting"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["E", "F"]

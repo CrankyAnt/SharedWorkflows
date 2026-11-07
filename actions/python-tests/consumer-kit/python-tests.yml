@@ -1,0 +1,21 @@
+name: Python tests
+on:
+  pull_request:
+  push:
+    branches: [<default-branch>]
+  repository_dispatch:
+    types: [dependabot-merged]
+permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  tests:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/python-tests.yml@v1
+    with:
+      python-version: "<python-version>"
+      install: <install>

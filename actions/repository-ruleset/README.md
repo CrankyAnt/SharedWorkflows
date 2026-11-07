@@ -7,7 +7,7 @@ The ruleset template for the default branch of a consumer of Shared Workflows. I
 `ruleset-main-template.json` holds:
 
 - `deletion` and `non_fast_forward` on the default branch;
-- the required checks `hygiene / hygiene` and `validation / validation`, with GitHub Actions (integration `15368`) as their source: the check of the hygiene caller that every consumer installs, and the verdict's check of the validation caller that a consumer installs with the suite selection;
+- the required checks `hygiene / hygiene`, `validation / validation` and `tests / tests`, with GitHub Actions (integration `15368`) as their source: the check of the hygiene caller that every consumer installs, the verdict's check of the validation caller that a consumer installs with the suite selection, and the check of the Python tests caller that a consumer installs with Python tests;
 - a bypass for the repository admin role in mode `always`.
 
 The bypass lets the owner, and every agent that acts with the owner's token, push to the default branch. A bypass actor can also merge a pull request whose required checks have not passed.
@@ -16,7 +16,7 @@ Dependabot and outside contributors have no bypass. The Dependabot auto-merge wo
 
 ## Fill the template for a repository
 
-1. Read the callers of shared workflows under `.github/workflows/` on the default branch. The hygiene caller gives the required check `hygiene / hygiene`. The validation caller gives several checks, of which only the verdict's check `validation / validation` is required. The auto-merge caller gives no required check. A required check is named `<caller job> / <reusable workflow job>`. Drop a template check whose caller is not installed.
+1. Read the callers of shared workflows under `.github/workflows/` on the default branch. The hygiene caller gives the required check `hygiene / hygiene`. The validation caller gives several checks, of which only the verdict's check `validation / validation` is required. The Python tests caller gives `tests / tests`, and one check more for each further caller job of a repository with several test roots, such as `tests-parser / tests`. The auto-merge caller gives no required check. A required check is named `<caller job> / <reusable workflow job>`. Drop a template check whose caller is not installed.
 2. A check of the repository's own workflows is required only when the user asks for it and the workflow runs on every pull request to the default branch. A workflow whose `paths` or `branches` filter can leave a pull request without that check never becomes required: the missing check would block that pull request.
 3. Read every ruleset of the repository, disabled ones included: `gh api repos/<owner>/<repo>/rulesets` and then each ruleset by its id. `gh api repos/<owner>/<repo>/rules/branches/<branch>` shows active rules only.
 4. Show the user the filled ruleset and, for an existing ruleset, each field that changes with its old and new value. Any other difference from the template is a deviation: name it with its reason in the preview, and after approval record it with its reason under `## Repository choices` in the repository's `docs/agents/ci.md`.

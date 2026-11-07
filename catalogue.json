@@ -40,6 +40,16 @@
       "needs": "A job that installs Python; with the suite selection, shard 1 of the validation workflow, where the verdict reports its result.",
       "applies": "A repository with Python files.",
       "consumer_kit": "actions/python-language-step/consumer-kit"
+    },
+    {
+      "name": "Python tests",
+      "purpose": "One job that installs Python and a repository's dependencies, runs the Python language step and runs the repository's Python tests with pytest or unittest.",
+      "workflows": [".github/workflows/python-tests.yml"],
+      "steps": ["actions/python-tests", "actions/python-language-step"],
+      "required_checks": ["tests / tests"],
+      "needs": "A Python project with tests that pytest or unittest discovers, and its test dependencies, pytest included where the project configures it, in a requirements file or an extra of the project.",
+      "applies": "A repository with Python tests short enough that the suite selection does not pay, and not a repository that uses the suite selection, which runs its Python tests through that part.",
+      "consumer_kit": "actions/python-tests/consumer-kit"
     }
   ]
 }

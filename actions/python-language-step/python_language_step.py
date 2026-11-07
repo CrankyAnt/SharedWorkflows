@@ -3,8 +3,9 @@
 
     python3 python_language_step.py [--root DIR] [--tools DIR [--install PINS]] [--format-check]
 
-``ruff check`` runs with the consumer's ruff configuration, or ruff's default rules without one. ``mypy`` runs only when
-the consumer configures it at the root: a ``mypy.ini`` or ``.mypy.ini``, a ``[tool.mypy]`` table in ``pyproject.toml`` or
+Every check runs from ``--root``, the repository root by default or the directory of a project below it. ``ruff
+check`` runs with the consumer's ruff configuration, or ruff's default rules without one. ``mypy`` runs only when the
+consumer configures it at the root: a ``mypy.ini`` or ``.mypy.ini``, a ``[tool.mypy]`` table in ``pyproject.toml`` or
 a ``[mypy]`` section in ``setup.cfg``; it checks the configured ``files``, or the root without them. ``--format-check``
 adds ``ruff format --check``. ``--tools`` names the directory that holds the pinned tools; without it the tools come
 from PATH. ``--install`` first installs the tools the step needs there from the pins file, with the interpreter that runs
@@ -73,7 +74,7 @@ def run(command: list[str], root: Path) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the shared Python language step.")
-    parser.add_argument("--root", type=Path, default=Path("."), help="the consumer's repository root")
+    parser.add_argument("--root", type=Path, default=Path("."), help="the directory the checks run from: the repository root, or a project's directory below it")
     parser.add_argument("--tools", type=Path, help="the directory with the pinned tools; PATH without it")
     parser.add_argument("--install", type=Path, metavar="PINS", help="install the pinned tools the step needs into --tools from this pins file first")
     parser.add_argument("--format-check", action="store_true", help="also run ruff format --check")

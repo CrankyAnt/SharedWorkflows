@@ -102,6 +102,24 @@ class MypyTests(FixtureProject):
         result = step(self.project("files-clean", {"mypy.ini": "[mypy]\nfiles = src\n", "src/app.py": CLEAN, "elsewhere.py": TYPE_ERROR}))
         self.assertEqual(0, result.returncode, "a configured files list sets what mypy checks: " + result.stdout + result.stderr)
 
+    def test_a_root_below_the_repository_runs_ruff_and_mypy_from_there_with_its_own_mypy_configuration(self) -> None:
+        repository = self.project("repository", {"outside.py": UNUSED_IMPORT, "backend/mypy.ini": "[mypy]\n", "backend/app.py": TYPE_ERROR})
+        directory = tools_directory()
+        options = ["--tools", str(directory)] if directory is not None else []
+
+        def from_repository(*arguments: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run([sys.executable, str(STEP), *arguments, *options], cwd=repository, capture_output=True, text=True, check=False)
+
+        default = from_repository()
+        self.assertEqual(1, default.returncode, default.stdout + default.stderr)
+        self.assertIn("F401", default.stdout, "without --root the step checks the repository root")
+        self.assertNotRegex(default.stdout, r"(?m)^\+ .*mypy", "the repository root configures no mypy")
+        backend = from_repository("--root", "backend")
+        self.assertEqual(1, backend.returncode, backend.stdout + backend.stderr)
+        self.assertNotIn("F401", backend.stdout, "ruff checks only the root's directory")
+        self.assertRegex(backend.stdout, r"(?m)^\+ .*mypy")
+        self.assertIn("Incompatible types in assignment", backend.stdout)
+
     def test_every_check_runs_when_one_fails(self) -> None:
         result = step(self.project("both", {"mypy.ini": "[mypy]\n", "app.py": UNUSED_IMPORT + TYPE_ERROR}))
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)

@@ -78,7 +78,7 @@ The [ruleset template](../../repository-ruleset/ruleset-main-template.json) hold
 
 - the target `~DEFAULT_BRANCH`;
 - the rules `deletion` and `non_fast_forward`;
-- the rule `required_status_checks` with the required checks of the shared parts the repository uses, each with GitHub Actions as its source (`integration_id` `15368`): `hygiene / hygiene` of repository hygiene in every consumer, and `validation / validation`, the verdict's check, when the repository uses the suite selection. The catalogue lists each part's checks under `required_checks`; Dependabot auto-merge and the Python language step add none;
+- the rule `required_status_checks` with the required checks of the shared parts the repository uses, each with GitHub Actions as its source (`integration_id` `15368`): `hygiene / hygiene` of repository hygiene in every consumer, `validation / validation`, the verdict's check, when the repository uses the suite selection, and `tests / tests` when it uses Python tests. The catalogue lists each part's checks under `required_checks`; Dependabot auto-merge and the Python language step add none;
 - a bypass for the repository admin role: `actor_id` `5`, `actor_type` `RepositoryRole`, `bypass_mode` `always`;
 - `enforcement` `active`.
 

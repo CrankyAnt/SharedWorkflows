@@ -23,7 +23,8 @@
         "tests/test_ci_policy_etw_consumer.py",
         "tests/test_ci_policy_full_recording.py",
         "tests/test_ci_policy_python_language_step.py",
-        "tests/test_ci_policy_reuse.py"
+        "tests/test_ci_policy_reuse.py",
+        "tests/test_ci_policy_python_tests_caller.py"
       ],
       "command": [
         "python3",
@@ -408,6 +409,9 @@
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_reuse.py"
+        ],
+        "tests/test_ci_policy_python_tests_caller.py": [
+          "tests/test_ci_policy_python_tests_caller.py"
         ]
       },
       "directory_memberships": [
@@ -3894,7 +3898,8 @@
         "tests/test_consumer_kit_own_dependabot.py",
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_templates.py",
-        "tests/test_consumer_kit_validation_workflow.py"
+        "tests/test_consumer_kit_validation_workflow.py",
+        "tests/test_consumer_kit_python_tests.py"
       ],
       "command": [
         "python3",
@@ -4155,6 +4160,9 @@
           "tests/ci_policy_support.py",
           "tests/test_consumer_kit_validation_workflow.py",
           "tests/test_setup_ci_validation_workflow.py"
+        ],
+        "tests/test_consumer_kit_python_tests.py": [
+          "tests/test_consumer_kit_python_tests.py"
         ]
       },
       "directory_memberships": [
@@ -14533,6 +14541,23 @@
         "actions/repository-hygiene",
         "tests"
       ]
+    },
+    {
+      "name": "python-tests",
+      "entries": [
+        "tests/test_python_tests.py",
+        "tests/test_python_tests_workflow.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ],
+      "entry_selection": true
     },
     {
       "name": "python-floor",
