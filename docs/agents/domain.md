@@ -13,7 +13,7 @@ How the engineering skills should consume this repo's domain documentation when 
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `model-domain` skill (reached via `grill-and-document`) creates them lazily when terms or decisions actually get resolved, and `SCOPE.md` only through `grill-and-document`.
 
-Outside delivery, commit resolved terms and ADRs to `main` immediately. During `deliver-spec` or `deliver-work`, commit them with the delivered change, for `deliver-spec` on the integration branch; they become valid when it lands.
+Resolved terms, ADRs and `SCOPE.md` changes take one of two routes, by whether they arise inside a delivery as `docs/agents/delivery.md` defines it. Inside a delivery, commit them with the delivered change, for `deliver-spec` on the integration branch; they become valid when it lands. Outside a delivery, publish them to the default branch in a pull request of their own, merged as soon as its checks pass and before the next session starts, so that every later session starts from them.
 
 ## File structure
 
