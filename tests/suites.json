@@ -38,7 +38,7 @@
       "entry_durations": {
         "tests/test_ci_policy_action_pins.py": 0.23,
         "tests/test_ci_policy_auto_merge_caller.py": 0.23,
-        "tests/test_ci_policy_shared_surface.py": 0.26,
+        "tests/test_ci_policy_shared_surface.py": 0.48,
         "tests/test_ci_policy_hygiene_caller.py": 0.22,
         "tests/test_ci_policy_hygiene_core.py": 0.23,
         "tests/test_ci_policy_hygiene_promotion.py": 0.24,
@@ -55,7 +55,8 @@
         "tests/test_ci_policy_etw_consumer.py": 0.27,
         "tests/test_ci_policy_full_recording.py": 0.26,
         "tests/test_ci_policy_python_language_step.py": 0.27,
-        "tests/test_ci_policy_reuse.py": 0.24
+        "tests/test_ci_policy_reuse.py": 0.24,
+        "tests/test_ci_policy_python_tests_caller.py": 0.23
       },
       "entry_selection": true,
       "paths": [
@@ -452,6 +453,7 @@
         ".github/workflows",
         ".github/workflows/**",
         ".github/workflows/dependabot-auto-merge.yml/**",
+        ".github/workflows/python-tests.yml/**",
         ".github/workflows/repository-hygiene.yml/**",
         ".github/workflows/suite-selection.yml/**",
         ".github/workflows/suite-verdict.yml/**",
@@ -565,19 +567,6 @@
         "tests/test_recording_lookups.py/**",
         "tests/test_recording_pathspecs.py/**",
         "tests/test_repository_hygiene.py/**",
-        "tests/test_setup_ci_apply_additions.py/**",
-        "tests/test_setup_ci_auto_merge.py/**",
-        "tests/test_setup_ci_dependabot.py/**",
-        "tests/test_setup_ci_full_recording.py/**",
-        "tests/test_setup_ci_hygiene.py/**",
-        "tests/test_setup_ci_install_by_need.py/**",
-        "tests/test_setup_ci_installed_permissions.py/**",
-        "tests/test_setup_ci_installed_targets.py/**",
-        "tests/test_setup_ci_installed_validation.py/**",
-        "tests/test_setup_ci_own_dependabot.py/**",
-        "tests/test_setup_ci_publication.py/**",
-        "tests/test_setup_ci_templates.py/**",
-        "tests/test_setup_ci_validation_workflow.py/**",
         "tests/test_suite_selection.py/**",
         "tests/test_suite_selection_caller_entries.py/**",
         "tests/test_suite_selection_code_boundary.py/**",
@@ -596,6 +585,7 @@
         "tests/test_ci_policy_shared_surface.py": [
           ".github/workflows/**",
           ".github/workflows/dependabot-auto-merge.yml/**",
+          ".github/workflows/python-tests.yml/**",
           ".github/workflows/repository-hygiene.yml/**",
           ".github/workflows/suite-selection.yml/**",
           ".github/workflows/suite-verdict.yml/**",
@@ -697,19 +687,6 @@
           "tests/test_recording_lookups.py/**",
           "tests/test_recording_pathspecs.py/**",
           "tests/test_repository_hygiene.py/**",
-          "tests/test_setup_ci_apply_additions.py/**",
-          "tests/test_setup_ci_auto_merge.py/**",
-          "tests/test_setup_ci_dependabot.py/**",
-          "tests/test_setup_ci_full_recording.py/**",
-          "tests/test_setup_ci_hygiene.py/**",
-          "tests/test_setup_ci_install_by_need.py/**",
-          "tests/test_setup_ci_installed_permissions.py/**",
-          "tests/test_setup_ci_installed_targets.py/**",
-          "tests/test_setup_ci_installed_validation.py/**",
-          "tests/test_setup_ci_own_dependabot.py/**",
-          "tests/test_setup_ci_publication.py/**",
-          "tests/test_setup_ci_templates.py/**",
-          "tests/test_setup_ci_validation_workflow.py/**",
           "tests/test_suite_selection.py/**",
           "tests/test_suite_selection_caller_entries.py/**",
           "tests/test_suite_selection_code_boundary.py/**",
@@ -1653,58 +1630,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_setup_ci_apply_additions.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_dependabot.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_full_recording.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_hygiene.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_install_by_need.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_permissions.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_targets.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_validation.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_publication.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_templates.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_validation_workflow.py",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_suite_selection.py",
           "kind": "any"
         },
@@ -1878,6 +1803,10 @@
           {
             "path": ".github/workflows/suite-verdict.yml",
             "kind": "any"
+          },
+          {
+            "path": "actions",
+            "kind": "directory"
           },
           {
             "path": "actions/dependabot-auto-merge",
@@ -3010,58 +2939,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_setup_ci_apply_additions.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_auto_merge.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_dependabot.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_full_recording.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_hygiene.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_install_by_need.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_permissions.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_targets.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_validation.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_publication.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_templates.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_validation_workflow.py",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_suite_selection.py",
             "kind": "any"
           },
@@ -3440,6 +3317,10 @@
         ],
         "tests/test_ci_policy_python_tests_caller.py": [
           {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
             "path": "tests/__init__.abi3.so",
             "kind": "any"
           },
@@ -3601,7 +3482,7 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_dependabot_auto_merge.py": 0.36,
+        "tests/test_dependabot_auto_merge.py": 0.46,
         "tests/test_dependabot_auto_merge_action.py": 0.2,
         "tests/test_dependabot_auto_merge_caller.py": 0.2,
         "tests/test_dependabot_auto_merge_workflow.py": 0.23,
@@ -4094,9 +3975,10 @@
         "python"
       ],
       "entry_durations": {
+        "tests/test_consumer_kit_apply_additions.py": 3.09,
         "tests/test_consumer_kit_auto_merge.py": 0.22,
         "tests/test_consumer_kit_dependabot.py": 0.22,
-        "tests/test_consumer_kit_full_recording.py": 0.25,
+        "tests/test_consumer_kit_full_recording.py": 1.27,
         "tests/test_consumer_kit_hygiene.py": 0.23,
         "tests/test_consumer_kit_install_by_need.py": 0.23,
         "tests/test_consumer_kit_installed_permissions.py": 0.23,
@@ -4105,7 +3987,8 @@
         "tests/test_consumer_kit_own_dependabot.py": 0.23,
         "tests/test_consumer_kit_publication.py": 0.19,
         "tests/test_consumer_kit_templates.py": 0.22,
-        "tests/test_consumer_kit_validation_workflow.py": 0.37
+        "tests/test_consumer_kit_validation_workflow.py": 1.25,
+        "tests/test_consumer_kit_python_tests.py": 0.19
       },
       "entry_selection": true,
       "paths": [
@@ -4156,7 +4039,6 @@
         "tests/ci_policy_support.py",
         "tests/consumer_kit_support.py",
         "tests/recording_fixtures.py",
-        "tests/setup_ci_support.py",
         "tests/strace_stand_in.py",
         "tests/test_consumer_kit_apply_additions.py",
         "tests/test_consumer_kit_auto_merge.py",
@@ -4171,20 +4053,7 @@
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_python_tests.py",
         "tests/test_consumer_kit_templates.py",
-        "tests/test_consumer_kit_validation_workflow.py",
-        "tests/test_setup_ci_apply_additions.py",
-        "tests/test_setup_ci_auto_merge.py",
-        "tests/test_setup_ci_dependabot.py",
-        "tests/test_setup_ci_full_recording.py",
-        "tests/test_setup_ci_hygiene.py",
-        "tests/test_setup_ci_install_by_need.py",
-        "tests/test_setup_ci_installed_permissions.py",
-        "tests/test_setup_ci_installed_targets.py",
-        "tests/test_setup_ci_installed_validation.py",
-        "tests/test_setup_ci_own_dependabot.py",
-        "tests/test_setup_ci_publication.py",
-        "tests/test_setup_ci_templates.py",
-        "tests/test_setup_ci_validation_workflow.py"
+        "tests/test_consumer_kit_validation_workflow.py"
       ],
       "entry_paths": {
         "tests/test_consumer_kit_apply_additions.py": [
@@ -4198,24 +4067,19 @@
           "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
-          "tests/test_consumer_kit_apply_additions.py",
-          "tests/test_setup_ci_apply_additions.py"
+          "tests/test_consumer_kit_apply_additions.py"
         ],
         "tests/test_consumer_kit_auto_merge.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_auto_merge.py",
-          "tests/test_setup_ci_auto_merge.py"
+          "tests/test_consumer_kit_auto_merge.py"
         ],
         "tests/test_consumer_kit_dependabot.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_dependabot.py",
-          "tests/test_setup_ci_dependabot.py"
+          "tests/test_consumer_kit_dependabot.py"
         ],
         "tests/test_consumer_kit_full_recording.py": [
           ".github/workflows/full-recording.yml",
@@ -4226,16 +4090,13 @@
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
-          "tests/test_consumer_kit_full_recording.py",
-          "tests/test_setup_ci_full_recording.py"
+          "tests/test_consumer_kit_full_recording.py"
         ],
         "tests/test_consumer_kit_hygiene.py": [
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_hygiene.py",
-          "tests/test_setup_ci_hygiene.py"
+          "tests/test_consumer_kit_hygiene.py"
         ],
         "tests/test_consumer_kit_install_by_need.py": [
           ".github/dependabot.yml",
@@ -4259,9 +4120,7 @@
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_install_by_need.py",
-          "tests/test_setup_ci_install_by_need.py"
+          "tests/test_consumer_kit_install_by_need.py"
         ],
         "tests/test_consumer_kit_installed_permissions.py": [
           ".github/workflows/dependabot-auto-merge-caller.yml",
@@ -4270,9 +4129,7 @@
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_installed_permissions.py",
-          "tests/test_setup_ci_installed_permissions.py"
+          "tests/test_consumer_kit_installed_permissions.py"
         ],
         "tests/test_consumer_kit_installed_targets.py": [
           ".github/workflows/dependabot-auto-merge.yml",
@@ -4281,9 +4138,7 @@
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_installed_targets.py",
-          "tests/test_setup_ci_installed_targets.py"
+          "tests/test_consumer_kit_installed_targets.py"
         ],
         "tests/test_consumer_kit_installed_validation.py": [
           ".github/workflows/suite-selection.yml",
@@ -4291,17 +4146,13 @@
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/suite-selection/consumer-kit/validation.yml",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_installed_validation.py",
-          "tests/test_setup_ci_installed_validation.py"
+          "tests/test_consumer_kit_installed_validation.py"
         ],
         "tests/test_consumer_kit_own_dependabot.py": [
           ".github/dependabot.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_own_dependabot.py",
-          "tests/test_setup_ci_own_dependabot.py"
+          "tests/test_consumer_kit_own_dependabot.py"
         ],
         "tests/test_consumer_kit_publication.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
@@ -4313,8 +4164,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
-          "tests/test_consumer_kit_publication.py",
-          "tests/test_setup_ci_publication.py"
+          "tests/test_consumer_kit_publication.py"
         ],
         "tests/test_consumer_kit_templates.py": [
           "actions/dependabot-auto-merge/consumer-kit/README.md",
@@ -4336,9 +4186,7 @@
           "docs/adr/0005-a-repository-runs-its-python-tests-through-either-the-suite-selection-or-python-tests.md",
           "tests/ci_policy_support.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_templates.py",
-          "tests/test_setup_ci_templates.py"
+          "tests/test_consumer_kit_templates.py"
         ],
         "tests/test_consumer_kit_validation_workflow.py": [
           ".github/workflows/full-recording.yml",
@@ -4352,8 +4200,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
-          "tests/test_consumer_kit_validation_workflow.py",
-          "tests/test_setup_ci_validation_workflow.py"
+          "tests/test_consumer_kit_validation_workflow.py"
         ],
         "tests/test_consumer_kit_python_tests.py": [
           "actions/python-tests/consumer-kit/README.md",
@@ -4672,22 +4519,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/setup_ci_support",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/setup_ci_support.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/setup_ci_support.so",
-          "kind": "any"
-        },
-        {
           "path": "tests/strace_stand_in",
           "kind": "directory"
         },
@@ -4926,214 +4757,6 @@
         {
           "path": "tests/test_consumer_kit_validation_workflow.so",
           "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_dependabot",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_dependabot.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_dependabot.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_dependabot.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_full_recording",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_full_recording.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_full_recording.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_full_recording.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_hygiene",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_hygiene.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_hygiene.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_hygiene.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_install_by_need",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_install_by_need.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_install_by_need.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_install_by_need.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_permissions",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_permissions.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_permissions.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_permissions.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_targets",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_targets.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_targets.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_targets.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_validation",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_validation.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_validation.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_validation.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_publication",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_publication.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_publication.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_publication.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_templates",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_templates.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_templates.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_templates.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_validation_workflow",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_validation_workflow.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_validation_workflow.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_validation_workflow.so",
-          "kind": "any"
         }
       ],
       "entry_existence_reads": {
@@ -5297,22 +4920,6 @@
           {
             "path": "tests/test_consumer_kit_apply_additions.so",
             "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions.so",
-            "kind": "any"
           }
         ],
         "tests/test_consumer_kit_auto_merge.py": [
@@ -5361,22 +4968,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_auto_merge",
             "kind": "directory"
           },
@@ -5390,22 +4981,6 @@
           },
           {
             "path": "tests/test_consumer_kit_auto_merge.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_auto_merge",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_auto_merge.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_auto_merge.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_auto_merge.so",
             "kind": "any"
           }
         ],
@@ -5455,22 +5030,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_dependabot",
             "kind": "directory"
           },
@@ -5485,27 +5044,19 @@
           {
             "path": "tests/test_consumer_kit_dependabot.so",
             "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_dependabot",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_dependabot.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_dependabot.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_dependabot.so",
-            "kind": "any"
           }
         ],
         "tests/test_consumer_kit_full_recording.py": [
           {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
             "path": "actions/recording",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
             "kind": "directory"
           },
           {
@@ -5623,22 +5174,6 @@
           {
             "path": "tests/test_consumer_kit_full_recording.so",
             "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_full_recording",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_full_recording.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_full_recording.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_full_recording.so",
-            "kind": "any"
           }
         ],
         "tests/test_consumer_kit_hygiene.py": [
@@ -5687,22 +5222,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_hygiene",
             "kind": "directory"
           },
@@ -5716,22 +5235,6 @@
           },
           {
             "path": "tests/test_consumer_kit_hygiene.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_hygiene",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_hygiene.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_hygiene.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_hygiene.so",
             "kind": "any"
           }
         ],
@@ -5801,22 +5304,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_install_by_need",
             "kind": "directory"
           },
@@ -5830,22 +5317,6 @@
           },
           {
             "path": "tests/test_consumer_kit_install_by_need.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_install_by_need",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_install_by_need.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_install_by_need.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_install_by_need.so",
             "kind": "any"
           }
         ],
@@ -5895,22 +5366,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_installed_permissions",
             "kind": "directory"
           },
@@ -5924,22 +5379,6 @@
           },
           {
             "path": "tests/test_consumer_kit_installed_permissions.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_permissions",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_permissions.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_permissions.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_permissions.so",
             "kind": "any"
           }
         ],
@@ -5989,22 +5428,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_installed_targets",
             "kind": "directory"
           },
@@ -6018,22 +5441,6 @@
           },
           {
             "path": "tests/test_consumer_kit_installed_targets.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_targets",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_targets.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_targets.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_targets.so",
             "kind": "any"
           }
         ],
@@ -6083,22 +5490,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_installed_validation",
             "kind": "directory"
           },
@@ -6112,22 +5503,6 @@
           },
           {
             "path": "tests/test_consumer_kit_installed_validation.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_validation",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_validation.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_validation.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_validation.so",
             "kind": "any"
           }
         ],
@@ -6177,22 +5552,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_own_dependabot",
             "kind": "directory"
           },
@@ -6206,22 +5565,6 @@
           },
           {
             "path": "tests/test_consumer_kit_own_dependabot.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.so",
             "kind": "any"
           }
         ],
@@ -6305,22 +5648,6 @@
           {
             "path": "tests/test_consumer_kit_publication.so",
             "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_publication",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_publication.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_publication.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_publication.so",
-            "kind": "any"
           }
         ],
         "tests/test_consumer_kit_templates.py": [
@@ -6385,22 +5712,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_templates",
             "kind": "directory"
           },
@@ -6414,22 +5725,6 @@
           },
           {
             "path": "tests/test_consumer_kit_templates.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_templates",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_templates.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_templates.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_templates.so",
             "kind": "any"
           }
         ],
@@ -6589,22 +5884,6 @@
           {
             "path": "tests/test_consumer_kit_validation_workflow.so",
             "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_validation_workflow",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_validation_workflow.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_validation_workflow.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_validation_workflow.so",
-            "kind": "any"
           }
         ],
         "tests/test_consumer_kit_python_tests.py": [
@@ -6614,6 +5893,10 @@
           },
           {
             "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "tests",
             "kind": "directory"
           },
           {
@@ -6769,7 +6052,7 @@
       "entry_durations": {
         "tests/test_ci_step_precision.py": 0.48,
         "tests/test_suite_selection.py": 39.79,
-        "tests/test_suite_selection_caller_entries.py": 3.91,
+        "tests/test_suite_selection_caller_entries.py": 5.53,
         "tests/test_suite_selection_code_boundary.py": 0.19,
         "tests/test_suite_selection_part_boundary.py": 0.21,
         "tests/test_suite_selection_verdict_workflow.py": 0.21,
@@ -6778,11 +6061,12 @@
         "tests/test_recording_check.py": 9.96,
         "tests/test_recording_classification.py": 4.64,
         "tests/test_recording_full.py": 23.0,
-        "tests/test_recording_apply.py": 2.4,
+        "tests/test_recording_full_close.py": 3.56,
+        "tests/test_recording_apply.py": 6.7,
         "tests/test_recording_lookups.py": 0.66,
         "tests/test_recording_etw.py": 5.07,
         "tests/test_recording_pathspecs.py": 5.37,
-        "tests/test_suite_selection_reuse.py": 15.32
+        "tests/test_suite_selection_reuse.py": 22.93
       },
       "entry_selection": true,
       "paths": [
@@ -7923,19 +7207,6 @@
         "tests/test_recording_lookups.py/**",
         "tests/test_recording_pathspecs.py/**",
         "tests/test_repository_hygiene.py/**",
-        "tests/test_setup_ci_apply_additions.py/**",
-        "tests/test_setup_ci_auto_merge.py/**",
-        "tests/test_setup_ci_dependabot.py/**",
-        "tests/test_setup_ci_full_recording.py/**",
-        "tests/test_setup_ci_hygiene.py/**",
-        "tests/test_setup_ci_install_by_need.py/**",
-        "tests/test_setup_ci_installed_permissions.py/**",
-        "tests/test_setup_ci_installed_targets.py/**",
-        "tests/test_setup_ci_installed_validation.py/**",
-        "tests/test_setup_ci_own_dependabot.py/**",
-        "tests/test_setup_ci_publication.py/**",
-        "tests/test_setup_ci_templates.py/**",
-        "tests/test_setup_ci_validation_workflow.py/**",
         "tests/test_suite_selection.py/**",
         "tests/test_suite_selection_caller_entries.py/**",
         "tests/test_suite_selection_code_boundary.py/**",
@@ -8045,19 +7316,6 @@
           "tests/test_recording_lookups.py/**",
           "tests/test_recording_pathspecs.py/**",
           "tests/test_repository_hygiene.py/**",
-          "tests/test_setup_ci_apply_additions.py/**",
-          "tests/test_setup_ci_auto_merge.py/**",
-          "tests/test_setup_ci_dependabot.py/**",
-          "tests/test_setup_ci_full_recording.py/**",
-          "tests/test_setup_ci_hygiene.py/**",
-          "tests/test_setup_ci_install_by_need.py/**",
-          "tests/test_setup_ci_installed_permissions.py/**",
-          "tests/test_setup_ci_installed_targets.py/**",
-          "tests/test_setup_ci_installed_validation.py/**",
-          "tests/test_setup_ci_own_dependabot.py/**",
-          "tests/test_setup_ci_publication.py/**",
-          "tests/test_setup_ci_templates.py/**",
-          "tests/test_setup_ci_validation_workflow.py/**",
           "tests/test_suite_selection.py/**",
           "tests/test_suite_selection_caller_entries.py/**",
           "tests/test_suite_selection_code_boundary.py/**",
@@ -8349,6 +7607,10 @@
         },
         {
           "path": "actions/recording/shutil.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/recording/statistics.py",
           "kind": "any"
         },
         {
@@ -9104,58 +8366,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_setup_ci_apply_additions.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_dependabot.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_full_recording.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_hygiene.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_install_by_need.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_permissions.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_targets.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_installed_validation.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_publication.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_templates.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_validation_workflow.py",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_suite_selection",
           "kind": "directory"
         },
@@ -9558,6 +8768,10 @@
           },
           {
             "path": "actions/recording/shutil.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/recording/statistics.py",
             "kind": "any"
           },
           {
@@ -10583,58 +9797,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_setup_ci_apply_additions.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_auto_merge.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_dependabot.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_full_recording.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_hygiene.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_install_by_need.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_permissions.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_targets.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_installed_validation.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_publication.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_templates.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_validation_workflow.py",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_suite_selection.py",
             "kind": "any"
           },
@@ -11307,6 +10469,10 @@
           {
             "path": "actions/suite-selection/unrecorded.so",
             "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
           },
           {
             "path": "tests/__init__.abi3.so",
@@ -12305,11 +11471,11 @@
         "tests/test_hygiene_workflow.py": 0.37,
         "tests/test_hygiene_zizmor.py": 0.77,
         "tests/test_hygiene_zizmor_configuration.py": 0.74,
-        "tests/test_hygiene_zizmor_surface.py": 1.03,
+        "tests/test_hygiene_zizmor_surface.py": 1.4,
         "tests/test_link_check.py": 2.47,
         "tests/test_pin_updater.py": 0.79,
         "tests/test_repository_hygiene.py": 0.21,
-        "tests/test_v1_promotion.py": 5.79
+        "tests/test_v1_promotion.py": 20.45
       },
       "entry_selection": true,
       "paths": [
@@ -14702,7 +13868,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_language_step.py": 5.54
+        "tests/test_python_language_step.py": 7.38
       },
       "paths": [
         "actions/python-language-step/python_language_step.py",
@@ -14888,6 +14054,10 @@
       "setups": [
         "python"
       ],
+      "entry_durations": {
+        "tests/test_python_tests.py": 3.65,
+        "tests/test_python_tests_workflow.py": 0.23
+      },
       "entry_selection": true,
       "paths": [
         ".github/workflows/python-tests.yml",
