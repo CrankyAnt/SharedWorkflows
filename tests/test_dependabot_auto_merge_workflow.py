@@ -13,8 +13,11 @@ WORKFLOW = REPOSITORY_ROOT / ".github/workflows/dependabot-auto-merge.yml"
 class WorkflowTests(unittest.TestCase):
     def test_the_reusable_workflow_holds_the_contract(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("on:\n  workflow_call:\n\npermissions: {}\n", workflow)
-        self.assertNotIn("inputs:", workflow)
+        self.assertIn("on:\n  workflow_call:\n    inputs:\n      suites:\n"
+                      "        description: The suite list's path, which a commit of the updater App may change\n"
+                      "        required: false\n        type: string\n        default: \"\"\n\npermissions: {}\n", workflow)
+        self.assertEqual(1, workflow.count("inputs:"), "the suite list's path is the one input")
+        self.assertEqual(2, workflow.count("SUITES: ${{ inputs.suites }}"), "both jobs pass the suite list's path through env")
         self.assertNotIn("secrets", workflow)
         self.assertNotIn("pull_request_target", workflow)
         self.assertNotIn("github.actor", workflow)
@@ -33,7 +36,7 @@ class WorkflowTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertRegex(workflow, r"(?m)^  auto-merge:\n    if: github\.event_name == 'pull_request' && github\.event\.pull_request\.user\.login == 'dependabot\[bot\]'\n    runs-on: ubuntu-slim\n    permissions:\n      contents: write\n      pull-requests: write\n")
         self.assertIn("PR_NUMBER: ${{ github.event.pull_request.number }}", workflow)
-        self.assertIn('auto_merge.py" --repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" pull-request --number "$PR_NUMBER"', workflow)
+        self.assertIn('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" pull-request --number "$PR_NUMBER"', workflow)
 
     def test_the_merge_job_runs_only_after_a_pull_request_run_by_dependabot_or_by_the_updater_app_on_a_dependabot_branch(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -43,7 +46,7 @@ class WorkflowTests(unittest.TestCase):
                                    r"    runs-on: ubuntu-slim\n    permissions:\n      contents: write\n      pull-requests: read\n    steps:\n")
         self.assertIn(f"'{auto_merge.UPDATER_APP}'", workflow, "the workflow and the decision name the same updater App")
         self.assertIn("HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}", workflow)
-        self.assertIn('auto_merge.py" --repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH"', workflow)
+        self.assertIn('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH"', workflow)
 
 
 if __name__ == "__main__":

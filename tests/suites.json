@@ -4091,7 +4091,9 @@
         "-v"
       ],
       "setups": [
-        "python"
+        "python",
+        "actionlint",
+        "zizmor"
       ],
       "entry_durations": {
         "tests/test_consumer_kit_auto_merge.py": 0.22,

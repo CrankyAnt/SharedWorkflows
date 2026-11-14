@@ -254,6 +254,35 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(["tests/w.py"], fixture.suite("windows")["paths"])
         self.assertEqual({"tests/w.py": 16.5}, fixture.suite("windows")["entry_durations"])
 
+    def test_an_additions_document_of_the_wrong_shape_fails_naming_the_file_and_changes_nothing(self) -> None:
+        valid = {"suite": "whole", "create": False, "recorded_entries": ["tests/a.py"], "reads": reads(["x.txt"])}
+        for shape, document in (
+                ("no suites", {"kind": "additions", "suite_list": "suites.json"}),
+                ("suites no list", {"kind": "additions", "suite_list": "suites.json", "suites": {"whole": valid}}),
+                ("a change no object", additions("whole")),
+                ("no suite name", additions({**valid, "suite": 3})),
+                ("create no boolean", additions({**valid, "create": "yes"})),
+                ("no recorded entries", additions({key: value for key, value in valid.items() if key != "recorded_entries"})),
+                ("a recorded entry no string", additions({**valid, "recorded_entries": [["tests/a.py"]]})),
+                ("reads no object", additions({**valid, "reads": ["x.txt"]})),
+                ("an unknown read field", additions({**valid, "reads": {"paths": [], "commands": ["rm -rf /"]}})),
+                ("a path no string", additions({**valid, "reads": {"paths": [{"path": "x.txt"}]}})),
+                ("an existence read without kind", additions({**valid, "reads": {"existence_reads": [{"path": "x"}]}})),
+                ("module lookups no object", additions({**valid, "reads": {"module_lookups": ["x"]}})),
+                ("a module name no string", additions({**valid, "reads": {"module_lookups": {".": [1]}}})),
+                ("entries no object", additions({**valid, "entries": [reads(["x.txt"])]})),
+                ("an entry's reads no object", additions({**valid, "entries": {"tests/a.py": "x.txt"}})),
+                ("an unknown change field", additions({**valid, "command": "echo"}))):
+            with self.subTest(shape=shape):
+                fixture = self.fixture()
+                before = (fixture.root / "suites.json").read_text(encoding="utf-8")
+                path = self.write(fixture, "additions.json", document)
+                refused = fixture.apply(path)
+                self.assertEqual(2, refused.returncode, refused.stderr)
+                self.assertIn(f"{path} is no valid additions document:", refused.stderr)
+                self.assertNotIn("Traceback", refused.stderr)
+                self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+
 
 SELECTS = "the change since the recorded commit selects it"
 UNSELECTED = "the change since the recorded commit could not be selected"

@@ -7,7 +7,7 @@ The consumer kit of the suite selection with its recording step, a shared part o
 | [validation.yml](validation.yml), the validation caller | `.github/workflows/validation.yml` | `select`, the validation workflow's job, `validation` | `actions: read`, `contents: read`, `pull-requests: read` on `select`; `contents: read` on the others |
 | [validation-workflow.yml](validation-workflow.yml), the validation workflow | `.github/workflows/<validation-workflow>.yml` | `linux`, `<windows-job>` | `contents: read` |
 | [full-recording.yml](full-recording.yml), the full recording | `.github/workflows/full-recording.yml` | `plan`, `linux`, `windows`, `close` | `contents: read` |
-| [apply-additions.yml](apply-additions.yml), the additions workflow | `.github/workflows/apply-additions.yml` | `apply` | `actions: read`, `contents: read` |
+| [apply-additions.yml](apply-additions.yml), the additions workflow | `.github/workflows/apply-additions.yml` | `apply`, `comment` | `actions: read`, `contents: read`, `pull-requests: read` on `apply`; `pull-requests: write` on `comment` |
 
 With them comes the suite list `.github/suites.json`, which the repository writes itself as [The suite list](#the-suite-list) states.
 
@@ -20,7 +20,7 @@ It needs:
 - a validation workflow: a workflow of the repository with a job that runs a suite on `pull_request` or `push`, which the kit's validation workflow replaces;
 - suites whose entry files run one at a time with one command each, such as a test module with `python3 -m unittest`;
 - one Linux runner label with `strace`, `jq` and the system `python3` for every Linux suite, and one Windows runner label with administrator rights, `python` and `dotnet` for every Windows suite, as GitHub's hosted runners have them; the recording step installs nothing;
-- for the full recording, a GitHub App that may push a branch and open a pull request in the repository, as [The full recording](#the-full-recording) states.
+- for the full recording and the additions workflow, a GitHub App that may push a branch and open a pull request in the repository, as [The full recording](#the-full-recording) states.
 
 ## When a repository adopted it earlier
 
@@ -49,11 +49,12 @@ An earlier adoption also takes these steps where they apply:
 - A caller copied from an earlier template adds `v1-moved` to the `types` of its `repository_dispatch` trigger, as [When `v1` moves](#when-v1-moves) states.
 - A caller with more than one validation job keeps one: the suites of the other validation workflows move into the one validation workflow, as [The validation workflow](#the-validation-workflow) states. A validation workflow from an earlier kit, with a gate per suite, becomes the template's sharded form, whose checks are `<file name> / shard <number>` and `<file name> / <windows-job>`; none of them is a required check, and a change to the ruleset is a question to the user.
 - A repository without the additions workflow adds it in a pull request of its own first, as [Additions](#additions) states.
+- An additions workflow from an earlier template, which starts only by hand, takes over the template's `workflow_run` trigger, the rights and the concurrency group of `apply`, its steps of [the automatic route](#the-automatic-route) and the job `comment`, in a pull request of its own, since the automatic route runs only from the default branch. The caller of [Dependabot auto-merge](../../dependabot-auto-merge/consumer-kit/README.md#the-caller) then passes the suite list's path in `suites`, so that a Dependabot pull request with the App's commit still merges on its own. Once `v1` carries the automatic route, the job summary of a failed check names it; until the earlier additions workflow is updated, no commit and no comment follow, and the manual route works as before.
 - An additions workflow or full recording whose apply step reads `additions/*/additions.json` or `full-recording/*/full-recording.json` takes over the template's `shopt -s globstar` and its reader `**/additions.json` or `**/full-recording.json`. The earlier reader finds no file after a run that uploaded a single artifact, which the download extracts directly into the download folder, and fails with `cannot read`.
 
 The result works when these pass:
 
-- on the pull request, `validation / validation`. A changed step of the validation workflow runs every suite in `<file name> / shard <number>` and `<file name> / <windows-job>`; when `check` reports additions, they are applied through the additions workflow and the run on the applied lists passes. `hygiene / hygiene` passes as well, with actionlint and zizmor over the changed workflows;
+- on the pull request, `validation / validation`. A changed step of the validation workflow runs every suite in `<file name> / shard <number>` and `<file name> / <windows-job>`; when `check` reports additions, the additions workflow commits them onto the pull request's branch and the run on the applied lists passes. `hygiene / hygiene` passes as well, with actionlint and zizmor over the changed workflows;
 - after the merge, `validation / validation` on the push to the default branch;
 - the full recording, started by hand on the default branch with `gh workflow run full-recording.yml -f verify_token=true`, whose run passes and whose summary reports the App's token as minted.
 
@@ -210,14 +211,37 @@ Each read outside the stored lists is an addition: `check` lists the additions i
 
 ## Additions
 
-The additions workflow applies the additions of a validation run to the suite list and proposes the change as a pull request onto the branch of the pull request that reported them. Copy [apply-additions.yml](apply-additions.yml) to `.github/workflows/apply-additions.yml` in every repository with the validation caller, and replace:
+The additions workflow applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change onto the pull request's branch; started by hand with a run id, it proposes the change as a pull request onto that branch. Copy [apply-additions.yml](apply-additions.yml) to `.github/workflows/apply-additions.yml` in every repository with the validation caller, and replace:
 
 - `<gitleaks-options>` as in [The full recording](#the-full-recording);
-- each `@<pin>` as [The validation workflow](#the-validation-workflow) states.
+- each `@<pin>` as [The validation workflow](#the-validation-workflow) states;
+- `.github/suites.json` with the repository's own path of the suite list, where it has one.
 
-GitHub starts a workflow by hand only when its file is on the default branch, so the additions workflow reaches the default branch in a pull request of its own before the pull request that adopts the suite selection, whose suites report additions on their first run.
+GitHub starts a workflow by hand or on `workflow_run` only when its file is on the default branch, so the additions workflow reaches the default branch in a pull request of its own before the pull request that adopts the suite selection, whose suites report additions on their first run.
 
-When the check of a pull request's run reports additions, `validation / validation` fails and the job summary of each failed suite job names this route:
+When the check of a pull request's run reports additions, `validation / validation` fails and the job summary of each failed suite job names both routes below.
+
+### The automatic route
+
+The workflow runs on `workflow_run` when a run of the validation caller `Validation` completes. Its job `apply` acts only when all of these hold:
+
+- the run's event is `pull_request`, the run failed, and its head branch lies in the repository itself; a pull request from a fork gets no automatic route;
+- the run uploaded at least one unexpired `recording-additions-*` artifact;
+- an open pull request has the run's head branch as its head and the run's head commit as its head SHA.
+
+It checks out the run's head commit, downloads every `recording-additions-*` artifact of the run and applies every `additions.json` of the download in one `recording.py apply` of the recording step at `v1`, before the App's token exists and with no token in that step's environment. An `additions.json` that is no valid additions document fails the job there, and a change to any file other than the suite list fails the job before the token. When the suite list changed, the job commits it as the GitHub App onto the pull request's branch with the subject `chore: apply the recorded additions of run <run id>` and `[dependabot skip]` in the body, scans the commit with the pinned Gitleaks and pushes it with a lease on the run's head commit. It opens no pull request. `[dependabot skip]` keeps Dependabot rebasing its pull request over the commit.
+
+The App's push starts the validation caller on the new head. Reuse within the pull request runs again only the entry files with additions, and every recorded entry file of a pooled suite with additions. The failed run stays red; the required check `validation / validation` on the new head decides the merge.
+
+Each push by a person or agent gets at most one automatic round: when the failed run's head commit carries the subject of applied additions, the workflow applies nothing. The subject decides, not the author, since the same App also makes other commits.
+
+The job `comment` posts one comment on the pull request with the reason and the manual route, `gh workflow run apply-additions.yml -f run-id=<run id>`, in three cases: at the bound, when applying leaves the suite list unchanged, and when the token, the push or another step after the apply fails. It posts no comment otherwise. A head that moved since the run, or a pull request that closed, ends the workflow without a commit and without a comment. Runs for one head branch share one concurrency group without cancel, so a later run waits for the earlier one and then finds the head moved. GitHub keeps one waiting run per group and cancels an older waiting one when another arrives; a cancelled run commits and comments nothing.
+
+The route covers every pull request whose head branch lies in the repository, Dependabot's included, without a label. When Dependabot rebuilds its pull request over the App's commit, the next failed run applies the additions again. [Dependabot auto-merge](../../dependabot-auto-merge/consumer-kit/README.md#the-caller) accepts the App's commit when its caller passes the suite list's path in `suites`. A suite list that the base branch changed in the meantime can conflict with the applied additions; the pull request resolves that conflict like any other.
+
+### The manual route
+
+Started by hand, the workflow proposes the additions of a run as a pull request. It serves a run that the comment names and a run that the automatic route does not cover:
 
 1. Take the run id from the address of the validation run, `.../actions/runs/<run id>`.
 2. Start the workflow `Apply recorded additions` on the default branch with that run id: `gh workflow run apply-additions.yml -f run-id=<run id>`.
@@ -226,7 +250,9 @@ When the check of a pull request's run reports additions, `validation / validati
 
 The workflow reads the run and its pull request, checks out that pull request's head branch, downloads every `recording-additions-*` artifact of the run and applies every `additions.json` of the download in one `recording.py apply` of the recording step at `v1`, at any depth of the download folder: `actions/download-artifact` extracts a single artifact directly into it and each of several into a folder named after the artifact. When the suite list does not change, it opens no pull request and its summary says so. It fails with the reason and opens nothing when the run has no `recording-additions-*` artifact, ran on an event other than `pull_request`, or comes from a pull request whose head branch lies in a fork, since the App proposes only onto a branch of the repository itself. A later start with the same run id updates the open pull request of that run.
 
-Its workflow token only reads the run, its artifacts and the checkout. The pull request is made by the GitHub App of [The full recording](#the-full-recording), with the same repository variable and secret; without them the workflow fails with the App setting it needs.
+### Tokens
+
+The workflow token of `apply` only reads the run, its artifacts, the open pull requests and the checkout; `comment` writes the comment with a workflow token that may write pull requests and checks out nothing. The commit and the pull request are made by the GitHub App of [The full recording](#the-full-recording), with the same repository variable and secret; without them the workflow fails with the App setting it needs and, on the automatic route, comments with the manual route.
 
 ## The full recording
 

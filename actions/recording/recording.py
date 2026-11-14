@@ -1867,8 +1867,10 @@ def additions_route(file_name: str, tracked: Collection[str], run_id: str | None
         return (f"This {event} run belongs to no pull request, so the additions workflow cannot propose them; the run of a "
                 f"pull request that makes the same reads reports them again, and that pull request applies them {kit}.")
     run = f"`{run_id}`" if run_id else "of the pull request's validation run"
-    return (f"Start the workflow `Apply recorded additions` with the run id {run} and merge the pull request it opens into "
-            f"this pull request's branch, {kit}.")
+    return ("For a pull request from a branch of this repository, the additions workflow commits them onto its branch as the "
+            "GitHub App, and the validation of the new head decides. When it comments that it cannot, start the workflow "
+            f"`Apply recorded additions` with the run id {run} and merge the pull request it opens into this pull request's "
+            f"branch, {kit}.")
 
 
 def check_summary(lines: list[tuple[str, str]], count: int, route: str) -> str:
@@ -2033,6 +2035,60 @@ def raw_entries(suite: suite_selection.Suite, entry: str) -> str:
     return entry
 
 
+def is_string_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def reads_problem(reads: object, where: str) -> str | None:
+    """Why ``reads`` is no reads object as ``Reads.document`` writes it, or None."""
+    if not isinstance(reads, dict):
+        return f"{where} is no object"
+    unknown = sorted(set(reads) - {read_field.key for read_field in READ_FIELDS} - {"module_lookups"})
+    if unknown:
+        return f"{where} holds the unknown field {unknown[0]}"
+    for key in ("paths", "directory_memberships", "lookup_directories"):
+        if not is_string_list(reads.get(key, [])):
+            return f"{where}: {key} is no list of strings"
+    existence = reads.get("existence_reads", [])
+    if not isinstance(existence, list) or not all(isinstance(read, dict) and set(read) == {"path", "kind"} and isinstance(read["path"], str)
+                                                  and isinstance(read["kind"], str) for read in existence):
+        return f"{where}: existence_reads is no list of objects with a path and a kind"
+    lookups = reads.get("module_lookups", {})
+    if not isinstance(lookups, dict) or not all(is_string_list(names) for names in lookups.values()):
+        return f"{where}: module_lookups is no object of lists of strings"
+    return None
+
+
+def additions_problem(document: dict) -> str | None:
+    """Why an additions document is not in the form that ``additions_document`` writes, or None; apply reads nothing
+    else from it."""
+    if not isinstance(document.get("suite_list"), str):
+        return "suite_list is no string"
+    if not isinstance(document.get("suites"), list):
+        return "suites is no list"
+    for index, change in enumerate(document["suites"]):
+        if not isinstance(change, dict):
+            return f"suites[{index}] is no object"
+        unknown = sorted(set(change) - {"suite", "create", "recorded_entries", "reads", "entries"})
+        if unknown:
+            return f"suites[{index}] holds the unknown field {unknown[0]}"
+        if not isinstance(change.get("suite"), str):
+            return f"suites[{index}].suite is no string"
+        if not isinstance(change.get("create"), bool):
+            return f"suites[{index}].create is no boolean"
+        if not is_string_list(change.get("recorded_entries")):
+            return f"suites[{index}].recorded_entries is no list of strings"
+        if "reads" in change and (problem := reads_problem(change["reads"], f"suites[{index}].reads")):
+            return problem
+        entries = change.get("entries", {})
+        if not isinstance(entries, dict):
+            return f"suites[{index}].entries is no object"
+        for entry, reads in entries.items():
+            if problem := reads_problem(reads, f"suites[{index}].entries[{entry}]"):
+                return problem
+    return None
+
+
 def load_documents(paths: list[Path]) -> list[dict]:
     documents = []
     for path in paths:
@@ -2042,6 +2098,10 @@ def load_documents(paths: list[Path]) -> list[dict]:
             raise RecordingError(f"cannot read {path}: {error}") from error
         if not isinstance(document, dict) or document.get("kind") not in ("additions", "full-recording"):
             raise RecordingError(f"{path} holds neither additions nor the result of a full recording")
+        if document["kind"] == "additions":
+            problem = additions_problem(document)
+            if problem:
+                raise RecordingError(f"{path} is no valid additions document: {problem}")
         documents.append(document)
     if len({document["kind"] for document in documents}) != 1:
         raise RecordingError("apply takes either additions or full-recording results, not both")
