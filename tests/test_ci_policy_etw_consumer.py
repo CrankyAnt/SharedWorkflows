@@ -1,6 +1,7 @@
 """The ETW consumer's committed build is checked once, by the Windows suite `etw-consumer-build` of the validation
 workflow; its source is a framework-dependent program on TraceEvent, whatever versions its project names; and the
-rebuild workflow commits a rebuilt consumer to a Dependabot pull request that changes its source."""
+rebuild workflow commits a rebuilt consumer to a Dependabot pull request that changes its source, or comments with the
+manual route when its build or push fails."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import re
 import unittest
 import xml.etree.ElementTree as ElementTree
 
-from tests.ci_policy_support import REPOSITORY_ROOT, read_workflow
+from tests.ci_policy_support import REPOSITORY_ROOT, expression_value, read_workflow
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 REBUILD = WORKFLOWS / "rebuild-etw-consumer.yml"
@@ -113,29 +114,65 @@ class RebuildWorkflowTests(unittest.TestCase):
     def test_the_plan_acts_only_for_dependabot_s_open_pull_request_at_the_run_s_head_that_changes_the_consumer_s_source(self) -> None:
         (step,) = self.jobs["plan"]["steps"]
         self.assertEqual({"GH_TOKEN": "${{ github.token }}", "HEAD_BRANCH": "${{ github.event.workflow_run.head_branch }}",
-                          "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "HEAD_MESSAGE": "${{ github.event.workflow_run.head_commit.message }}",
-                          "OWNER": "${{ github.repository_owner }}"}, step["env"])
-        self.assertIn('select(.user.login == \\"dependabot[bot]\\" and .head.sha == \\"$HEAD_SHA\\")', step["run"])
-        self.assertIn("pulls/$number/files", step["run"])
+                          "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "HEAD_MESSAGE": "${{ github.event.workflow_run.head_commit.message }}"},
+                         step["env"])
+        self.assertIn('head_branch="$HEAD_BRANCH" head_sha="$HEAD_SHA" subject="${HEAD_MESSAGE%%$\'\\n\'*}"', step["run"])
+        self.assertIn('-f "head=$GITHUB_REPOSITORY_OWNER:$head_branch"', step["run"])
+        self.assertIn('select(.user.login == \\"dependabot[bot]\\" and .head.sha == \\"$head_sha\\")', step["run"])
+        self.assertIn("pulls/$rebuild_pull_request/files", step["run"])
         self.assertIn(r"/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//", step["run"])
         self.assertEqual(1, step["run"].count("rebuild=true"))
-        self.assertEqual({"rebuild": "${{ steps.pull-request.outputs.rebuild }}"}, self.jobs["plan"]["outputs"])
+        self.assertEqual({"rebuild": "${{ steps.pull-request.outputs.rebuild }}", "pull-request": "${{ steps.pull-request.outputs.pull-request }}"},
+                         self.jobs["plan"]["outputs"])
+        self.assertTrue(step["run"].endswith("""printf 'rebuild=%s\\npull-request=%s\\n' "$rebuild" "$rebuild_pull_request" >> "$GITHUB_OUTPUT\""""))
 
     def test_the_plan_rebuilds_nothing_for_a_run_on_the_workflow_s_own_rebuild_commit_before_any_api_call(self) -> None:
         (step,) = self.jobs["plan"]["steps"]
         commit_run = next(item for item in self.jobs["push"]["steps"] if item.get("name") == "Commit the rebuild as the GitHub App")["run"]
         self.assertIn('commit -m "chore: rebuild the ETW consumer"', commit_run)
-        bound = step["run"].index('if [ "$subject" = "chore: rebuild the ETW consumer" ]; then')
-        self.assertIn('subject="${HEAD_MESSAGE%%$\'\\n\'*}"', step["run"])
-        self.assertLess(bound, step["run"].index("gh api"))
-        self.assertRegex(step["run"][bound:], r"^[^\n]+\n[^\n]+\n\s+printf 'rebuild=false\\n' >> \"\$GITHUB_OUTPUT\"\n\s+exit 0\n")
+        run = step["run"]
+        bound = run.index('elif [ "$subject" = "chore: rebuild the ETW consumer" ]; then')
+        self.assertLess(run.index("rebuild=false\n"), bound)
+        self.assertLess(bound, run.index("gh api"))
+        self.assertNotIn("rebuild=true", run[bound:run.index("\nelse\n", bound)])
 
     def test_jobs_runners_and_rights(self) -> None:
-        self.assertEqual(["plan", "build", "push"], list(self.jobs))
-        self.assertEqual({"plan": "ubuntu-slim", "build": "windows-2025", "push": "ubuntu-slim"}, {name: job["runs-on"] for name, job in self.jobs.items()})
+        self.assertEqual(["plan", "build", "push", "comment"], list(self.jobs))
+        self.assertEqual({"plan": "ubuntu-slim", "build": "windows-2025", "push": "ubuntu-slim", "comment": "ubuntu-slim"},
+                         {name: job["runs-on"] for name, job in self.jobs.items()})
         self.assertEqual({"contents": "read", "pull-requests": "read"}, self.jobs["plan"]["permissions"])
         self.assertEqual({"contents": "read"}, self.jobs["build"]["permissions"])
         self.assertEqual({"actions": "read", "contents": "read"}, self.jobs["push"]["permissions"])
+        self.assertEqual({"pull-requests": "write"}, self.jobs["comment"]["permissions"])
+
+    def test_the_comment_job_runs_when_the_plan_acted_and_the_build_or_the_push_failed(self) -> None:
+        comment = self.jobs["comment"]
+        self.assertEqual("[plan, build, push]", comment["needs"])
+        self.assertTrue(comment["if"].startswith("always() && "), "it runs after a failed job")
+        condition = comment["if"].removeprefix("always() && ")
+        for rebuild, build, push, expected in (("true", "failure", "skipped", True), ("true", "success", "failure", True),
+                                               ("true", "success", "success", False), ("true", "cancelled", "skipped", False),
+                                               ("true", "success", "cancelled", False), ("false", "skipped", "skipped", False),
+                                               ("", "failure", "skipped", False)):
+            with self.subTest(rebuild=rebuild, build=build, push=push):
+                context = {"needs": {"plan": {"outputs": {"rebuild": rebuild}}, "build": {"result": build}, "push": {"result": push}}}
+                self.assertEqual(expected, bool(expression_value(condition, context)))
+
+    def test_the_comment_job_comments_with_the_workflow_token_and_runs_no_code_of_the_pull_request(self) -> None:
+        job = self.job_text("comment")
+        for absent in ("secrets.", "create-github-app-token", "app-token", "uses:", "checkout"):
+            with self.subTest(absent=absent):
+                self.assertNotIn(absent, job)
+        (step,) = self.jobs["comment"]["steps"]
+        self.assertEqual({"GH_TOKEN": "${{ github.token }}", "PULL_REQUEST": "${{ needs.plan.outputs.pull-request }}",
+                          "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "RUN_ID": "${{ github.event.workflow_run.id }}",
+                          "RUN_URL": "${{ github.event.workflow_run.html_url }}",
+                          "WORKFLOW_RUN_URL": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}, step["env"])
+        for check in ('[[ "$PULL_REQUEST" =~ ^[0-9]+$ ]]', '[[ "$RUN_ID" =~ ^[0-9]+$ ]]', "gh workflow run apply-additions.yml -f run-id=%s"):
+            with self.subTest(check=check):
+                self.assertIn(check, step["run"])
+        self.assertEqual(1, step["run"].count("gh pr comment "))
+        self.assertLess(step["run"].index('if [ "$head" != "$HEAD_SHA" ]; then'), step["run"].index("gh pr comment "))
 
     def test_the_build_job_builds_the_pull_request_s_head_with_a_read_only_token_and_no_app_token(self) -> None:
         build = self.job_text("build")

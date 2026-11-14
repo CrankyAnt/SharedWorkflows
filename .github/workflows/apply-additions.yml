@@ -81,6 +81,36 @@ jobs:
               exit 0
             fi
             echo "pull-request=$pull_request" >> "$GITHUB_OUTPUT"
+            # Begin: the condition under which the rebuild workflow acts on the run, equal in rebuild-etw-consumer.yml and apply-additions.yml.
+            rebuild=false
+            rebuild_pull_request=""
+            if [[ "$head_branch" != dependabot/* ]]; then
+              rebuild_reason="the branch $head_branch is no Dependabot branch"
+            elif [ "$subject" = "chore: rebuild the ETW consumer" ]; then
+              # At most one rebuild per push: a failed run on the rebuild workflow's own commit gets no rebuild.
+              rebuild_reason="the head commit $head_sha carries the subject \"$subject\" of the rebuild workflow's own commit, and each push gets at most one rebuild"
+            else
+              rebuild_pull_request="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$GITHUB_REPOSITORY_OWNER:$head_branch" \
+                --jq "[.[] | select(.user.login == \"dependabot[bot]\" and .head.sha == \"$head_sha\")][0].number // empty")"
+              if [ -z "$rebuild_pull_request" ]; then
+                rebuild_reason="no open pull request by dependabot[bot] has the head $head_sha of $head_branch"
+              else
+                files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$rebuild_pull_request/files" --jq '.[].filename')"
+                source="$(awk '/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//' <<<"$files")"
+                if [ -n "$source" ]; then
+                  rebuild=true
+                  rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes the source of the ETW consumer: ${source//$'\n'/, }"
+                else
+                  rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes no source of the ETW consumer"
+                fi
+              fi
+            fi
+            # End: the condition under which the rebuild workflow acts on the run.
+            if [ "$rebuild" = true ]; then
+              echo "The rebuild workflow acts on run $RUN_ID, since $rebuild_reason; its rebuild commit carries the run's additions, so this workflow commits nothing and does not comment on #$pull_request." >> "$GITHUB_STEP_SUMMARY"
+              echo "apply=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             # At most one automatic round per push: a failed run on the App's own additions commit applies nothing.
             bound='^(chore: apply the recorded additions of run [0-9]+|chore: rebuild the ETW consumer)$'
             if [[ "$subject" =~ $bound ]]; then
