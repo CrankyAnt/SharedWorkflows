@@ -1,7 +1,7 @@
 {
   "$schema": "./pins.schema.json",
   "node": {
-    "version": "24.22.1"
+    "version": "24.22.2"
   },
   "tools": {
     "actionlint": {
@@ -57,18 +57,18 @@
     },
     "zizmor": {
       "repository": "zizmorcore/zizmor",
-      "version": "1.31.1",
+      "version": "1.32.0",
       "checksums": null,
       "platforms": {
         "linux-x64": {
           "asset": "zizmor-x86_64-unknown-linux-gnu.tar.gz",
           "binary": "zizmor",
-          "sha256": "d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99"
+          "sha256": "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b"
         },
         "windows-x64": {
           "asset": "zizmor-x86_64-pc-windows-msvc.zip",
           "binary": "zizmor.exe",
-          "sha256": "4de30371c8a3b483aecbcf0dec1fd6a2b6aae65051ca226b4f6527baac6a8c7a"
+          "sha256": "d284a16e09d9df4ce2c000357e7b59bd531be093bea5718a1ce225b449b59d49"
         }
       }
     }
@@ -300,25 +300,25 @@
     },
     "ruff": {
       "requirement": "ruff",
-      "version": "0.17.1",
+      "version": "0.17.3",
       "build": [
         "maturin"
       ],
       "packages": {
         "maturin": {
-          "version": "1.15.0",
+          "version": "1.16.0",
           "sha256": [
-            "552c2be4afd43fe8d5c9f3ec8d4c4756d973b8dcbe94c14084390301f50243e1",
-            "653020a63525bb224e5ab0adf02e17a2e08bc86dbea7fc1399c9a56d7529b99e",
-            "94b26cc8e8aba61a5f2099715fe640e18c5f678e9a500408b38761263954228a"
+            "13e69ca12542999d8c5467131de72a49bb76e4c284b9a45c5783df7c0fcb3a8a",
+            "837db2f4d93d4899c3ac393fb3cc9eebf35b6002336e5d574f4a4fb6c49fe283",
+            "9d43a2adf51a2794e907a8f7dbad06eb114d5edb0909c73c1fa9040f15e584e9"
           ]
         },
         "ruff": {
-          "version": "0.17.1",
+          "version": "0.17.3",
           "sha256": [
-            "5bb796c5112e9fb9527f2ef2faa0a130d6312d19de92bcfaddd70dbb2d41020f",
-            "5df76f16580fab58d0f6c98a3ac254a4abceb7b2489b8b678335869cff77b3d7",
-            "a6ef98e51de8ef38082f90653ceeb84944bd7673783eea13e1647c5b9b064189"
+            "56b8ffb3f3b3cbccb8b76b71b38261b7ed982ef5d20f5b447b1b61a7f4949b24",
+            "7fa4b0f931cdbcb8a52044f370a3eb429fb42eb88807b0e800fcaa98dd42b24e",
+            "a57049c8addb3662073859bb55a7ad35aa54f8a7c9ed268911d1333c5aadaaa9"
           ]
         }
       }
