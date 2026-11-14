@@ -13,13 +13,14 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from typing import NamedTuple
 from unittest import mock
 
 from tests import recording_fixtures
-from tests.recording_fixtures import ROOT, RecordingFixture, entry_command, requires_etw, suite
+from tests.recording_fixtures import ROOT, RecordingFixture, entry_command, load_recording, requires_etw, suite
 from tests.test_recording_classification import (ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, ClassificationRules, classification_fixture,
                                                  classified_lists, linked_worktree_fixture)
 
@@ -193,6 +194,51 @@ class ConcurrentEtwAttributionTests(unittest.TestCase):
             paths = fixture.reads_of(f"tests/{name}.py")["paths"]
             self.assertLessEqual({f"tests/{name}.py", f"data/{name}.txt", f"data/{name}-child.txt", f"data/{name}-after.txt"}, set(paths))
             self.assertEqual([], [path for path in paths if path.startswith(f"data/{other}") or path == f"tests/{other}.py"], paths)
+
+
+def recording_sessions() -> set[str]:
+    """The names of the running ETW sessions of the recording step."""
+    listed = subprocess.run([recording_fixtures.system_tool("logman.exe"), "query", "-ets"], capture_output=True, text=True,
+                            errors="replace", check=False, timeout=recording_fixtures.ETW_PROBE_SECONDS).stdout
+    return set(re.findall(r"(?m)^(shared-ci-recording-\d+)\s", listed))
+
+
+def stop_trace(session: str) -> None:
+    """Stop the ETW session ``session`` through the ETW API, which an account with the ETW access of tests/etw_access.ps1
+    may call without elevation where ``logman stop`` asks for it."""
+    import ctypes
+
+    size = 120 + 2 * 2048  # EVENT_TRACE_PROPERTIES and room for the session's name and log file name
+    properties = ctypes.create_string_buffer(size)
+    ctypes.c_ulong.from_buffer(properties, 0).value = size  # Wnode.BufferSize
+    ctypes.c_ulong.from_buffer(properties, 112).value = 120 + 2048  # LogFileNameOffset
+    ctypes.c_ulong.from_buffer(properties, 116).value = 120  # LoggerNameOffset
+    ctypes.windll.advapi32.ControlTraceW(ctypes.c_uint64(0), ctypes.c_wchar_p(session), properties, 1)  # type: ignore[attr-defined]  # EVENT_TRACE_CONTROL_STOP
+
+
+@requires_etw
+class EndedConsumerTests(unittest.TestCase):
+    """A live ETW consumer that another process ends while the recording runs."""
+
+    def test_a_consumer_ended_by_another_process_fails_the_check_at_once_and_is_named(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/a.py": ""}, [suite("a", ["tests/a.py"], paths=[])])
+        before = recording_sessions()
+        started = fixture.start()
+        self.assertEqual(0, started.returncode, started.stdout + started.stderr)
+        # An ended consumer leaves its session running.
+        for session in recording_sessions() - before:
+            self.addCleanup(stop_trace, session)
+        settings = json.loads((fixture.output / "recording.json").read_text(encoding="utf-8"))
+        pid = settings["consumer"]
+        self.assertEqual(load_recording().process_started(pid), settings["consumer_started"])
+        # As a process that took the consumer for its own child would end it.
+        ended = subprocess.run([recording_fixtures.system_tool("taskkill.exe"), "/F", "/PID", str(pid)], capture_output=True, text=True, check=False)
+        self.assertEqual(0, ended.returncode, ended.stdout + ended.stderr)
+        began = time.monotonic()
+        checked = fixture.check()
+        self.assertLess(time.monotonic() - began, 5)
+        self.assertEqual(2, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn(f"the ETW consumer (process {pid}) ended before the stop; its log ", checked.stderr)
 
 
 PERFORMANCE_LOG_USERS_ROW = '"BUILTIN\\Performance Log Users","Alias","S-1-5-32-559","Mandatory group, Enabled by default, Enabled group"\n'
