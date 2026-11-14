@@ -1,0 +1,59 @@
+name: Probe the Dependabot App token
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] the job checks out nothing and runs no pull-request code: it mints the App token and reads only the repository's refs with it
+    workflows: [Validate]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  probe:
+    if: github.event.workflow_run.actor.login == 'dependabot[bot]' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-slim
+    permissions: {}
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Read the repository's head through Git with the App token
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RUN_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          # The repository is public, so Git reads it anonymously unless it sends credentials before the server asks;
+          # http.proactiveAuth makes it fetch them from the helper first, and the marker shows that the helper ran.
+          export PROBE_MARKER="$RUNNER_TEMP/credential-helper-ran"
+          rm -f "$PROBE_MARKER"
+          # shellcheck disable=SC2016 # Git's shell expands the helper's variables, not this one.
+          head="$(git -c credential.helper= -c 'credential.helper=!f() { touch "$PROBE_MARKER"; gh auth git-credential "$@"; }; f' \
+            -c http.proactiveAuth=basic ls-remote "https://github.com/$GITHUB_REPOSITORY.git" HEAD | cut -f1)"
+          if [ ! -f "$PROBE_MARKER" ]; then
+            echo "::error::Git read the repository without asking the credential helper; the read proves no authentication with the App token."
+            exit 1
+          fi
+          if ! [[ "$head" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::git ls-remote returned no head commit."
+            exit 1
+          fi
+          echo "Head of $GITHUB_REPOSITORY: $head"
+          {
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| \`github.actor\` | \`$ACTOR\` |"
+            echo "| \`github.triggering_actor\` | \`$TRIGGERING_ACTOR\` |"
+            echo "| \`github.event.workflow_run.actor.login\` | \`$RUN_ACTOR\` |"
+            echo "| \`github.event.workflow_run.id\` | $RUN_ID |"
+            echo "| Head branch | \`$HEAD_BRANCH\` |"
+            echo "| \`git ls-remote\` with the App token through \`gh auth git-credential\` | $head |"
+          } >> "$GITHUB_STEP_SUMMARY"
