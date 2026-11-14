@@ -447,7 +447,8 @@
           "tests/fixtures/python_tests/pyproject.toml",
           "tests/fixtures/python_tests/tests/test_greeting.py",
           "tests/test_ci_policy_python_tests_caller.py"
-        ]
+        ],
+        "tests/test_ci_policy_apply_additions.py": []
       },
       "directory_memberships": [
         ".github/workflows",
