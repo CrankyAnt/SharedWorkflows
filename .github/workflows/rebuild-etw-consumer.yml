@@ -1,7 +1,7 @@
 name: Rebuild the ETW consumer
 
 on:
-  workflow_run: # zizmor: ignore[dangerous-triggers] the job that builds the pull request's code holds a read-only token; the pushing job runs no pull-request code
+  workflow_run: # zizmor: ignore[dangerous-triggers] the job that builds the pull request's code holds a read-only token; the pushing and commenting jobs run no pull-request code
     workflows: [Validate]
     types: [completed]
 
@@ -28,31 +28,39 @@ jobs:
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAD_MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
-          OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The run's head $HEAD_SHA is no commit id."; exit 1; }
-          # At most one rebuild per push: a failed run on the workflow's own rebuild commit commits nothing.
-          subject="${HEAD_MESSAGE%%$'\n'*}"
-          if [ "$subject" = "chore: rebuild the ETW consumer" ]; then
-            echo "The head commit $HEAD_SHA of the run carries the subject \"$subject\" of the workflow's own rebuild; the workflow rebuilds once per push." >> "$GITHUB_STEP_SUMMARY"
-            printf 'rebuild=false\n' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          number="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$OWNER:$HEAD_BRANCH" \
-            --jq "[.[] | select(.user.login == \"dependabot[bot]\" and .head.sha == \"$HEAD_SHA\")][0].number // empty")"
+          head_branch="$HEAD_BRANCH" head_sha="$HEAD_SHA" subject="${HEAD_MESSAGE%%$'\n'*}"
+          # Begin: the condition under which the rebuild workflow acts on the run, equal in rebuild-etw-consumer.yml and apply-additions.yml.
           rebuild=false
-          if [ -z "$number" ]; then
-            echo "No open pull request by dependabot[bot] has the head $HEAD_SHA of $HEAD_BRANCH." >> "$GITHUB_STEP_SUMMARY"
+          rebuild_pull_request=""
+          if [[ "$head_branch" != dependabot/* ]]; then
+            rebuild_reason="the branch $head_branch is no Dependabot branch"
+          elif [ "$subject" = "chore: rebuild the ETW consumer" ]; then
+            # At most one rebuild per push: a failed run on the rebuild workflow's own commit gets no rebuild.
+            rebuild_reason="the head commit $head_sha carries the subject \"$subject\" of the rebuild workflow's own commit, and each push gets at most one rebuild"
           else
-            files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$number/files" --jq '.[].filename')"
-            source="$(awk '/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//' <<<"$files")"
-            if [ -n "$source" ]; then
-              rebuild=true
-              printf 'Pull request #%s changes the source of the ETW consumer:\n\n%s\n' "$number" "- ${source//$'\n'/$'\n'- }" >> "$GITHUB_STEP_SUMMARY"
+            rebuild_pull_request="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$GITHUB_REPOSITORY_OWNER:$head_branch" \
+              --jq "[.[] | select(.user.login == \"dependabot[bot]\" and .head.sha == \"$head_sha\")][0].number // empty")"
+            if [ -z "$rebuild_pull_request" ]; then
+              rebuild_reason="no open pull request by dependabot[bot] has the head $head_sha of $head_branch"
             else
-              echo "Pull request #$number changes no source of the ETW consumer." >> "$GITHUB_STEP_SUMMARY"
+              files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$rebuild_pull_request/files" --jq '.[].filename')"
+              source="$(awk '/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//' <<<"$files")"
+              if [ -n "$source" ]; then
+                rebuild=true
+                rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes the source of the ETW consumer: ${source//$'\n'/, }"
+              else
+                rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes no source of the ETW consumer"
+              fi
             fi
+          fi
+          # End: the condition under which the rebuild workflow acts on the run.
+          if [ "$rebuild" = true ]; then
+            echo "The workflow rebuilds the ETW consumer: $rebuild_reason." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The workflow rebuilds nothing: $rebuild_reason." >> "$GITHUB_STEP_SUMMARY"
           fi
           printf 'rebuild=%s\n' "$rebuild" >> "$GITHUB_OUTPUT"
 
@@ -162,7 +170,8 @@ jobs:
           app_id="$(gh api "users/$APP_LOGIN" --jq .id)"
           git -C pull-request config user.name "$APP_LOGIN"
           git -C pull-request config user.email "$app_id+$APP_LOGIN@users.noreply.github.com"
-          git -C pull-request commit -m "chore: rebuild the ETW consumer" -m "Rebuilt from the source of $HEAD_SHA, with the recording additions of $RUN_URL."
+          # Dependabot keeps rebasing its pull request over a commit whose message holds [dependabot skip].
+          git -C pull-request commit -m "chore: rebuild the ETW consumer" -m "Rebuilt from the source of $HEAD_SHA, with the recording additions of $RUN_URL." -m "[dependabot skip]"
       - name: Install the pinned Gitleaks
         if: steps.changes.outputs.changed == 'true'
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/install_tools.py --pins actions/repository-hygiene/pins.json --platform linux-x64 --tool gitleaks --destination "$RUNNER_TEMP/hygiene-tools"
@@ -200,3 +209,65 @@ jobs:
             fi
             exit 1
           fi
+
+  comment:
+    needs: [plan, build, push]
+    if: always() && (needs.plan.result == 'failure' || needs.plan.result == 'cancelled' || needs.build.result == 'failure' || needs.build.result == 'cancelled' || needs.push.result == 'failure' || needs.push.result == 'cancelled')
+    runs-on: ubuntu-slim
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment on the pull request with the failed run and the manual route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The run's head $HEAD_SHA is no commit id."; exit 1; }
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::The run id $RUN_ID is no number."; exit 1; }
+          # The plan job's condition, evaluated again: also after a failed plan job, and false once the branch moved since the run.
+          head_branch="$HEAD_BRANCH" head_sha="$HEAD_SHA" subject="${HEAD_MESSAGE%%$'\n'*}"
+          # Begin: the condition under which the rebuild workflow acts on the run, equal in rebuild-etw-consumer.yml and apply-additions.yml.
+          rebuild=false
+          rebuild_pull_request=""
+          if [[ "$head_branch" != dependabot/* ]]; then
+            rebuild_reason="the branch $head_branch is no Dependabot branch"
+          elif [ "$subject" = "chore: rebuild the ETW consumer" ]; then
+            # At most one rebuild per push: a failed run on the rebuild workflow's own commit gets no rebuild.
+            rebuild_reason="the head commit $head_sha carries the subject \"$subject\" of the rebuild workflow's own commit, and each push gets at most one rebuild"
+          else
+            rebuild_pull_request="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$GITHUB_REPOSITORY_OWNER:$head_branch" \
+              --jq "[.[] | select(.user.login == \"dependabot[bot]\" and .head.sha == \"$head_sha\")][0].number // empty")"
+            if [ -z "$rebuild_pull_request" ]; then
+              rebuild_reason="no open pull request by dependabot[bot] has the head $head_sha of $head_branch"
+            else
+              files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$rebuild_pull_request/files" --jq '.[].filename')"
+              source="$(awk '/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//' <<<"$files")"
+              if [ -n "$source" ]; then
+                rebuild=true
+                rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes the source of the ETW consumer: ${source//$'\n'/, }"
+              else
+                rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes no source of the ETW consumer"
+              fi
+            fi
+          fi
+          # End: the condition under which the rebuild workflow acts on the run.
+          if [ "$rebuild" != true ]; then
+            echo "The workflow committed nothing, and no comment follows: $rebuild_reason." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          body="$RUNNER_TEMP/rebuild-etw-consumer-comment.md"
+          fence="$(printf '\140\140\140')"
+          {
+            printf 'The rebuild workflow did not commit a rebuilt ETW consumer onto this branch: [its workflow run](%s) failed or was cancelled.\n\n' "$WORKFLOW_RUN_URL"
+            printf 'The additions workflow leaves the recorded additions of [run %s](%s) to the rebuild, so they are not applied either. ' "$RUN_ID" "$RUN_URL"
+            printf 'When the run reported additions, apply them by hand from the default branch:\n\n%ssh\ngh workflow run apply-additions.yml -f run-id=%s\n%s\n\n' "$fence" "$RUN_ID" "$fence"
+            printf 'The additions workflow then opens a pull request onto this branch whose only change is the suite list; merge it once its checks pass. '
+            printf 'Rebuild the consumer as [Change the ETW consumer](%s/%s/blob/HEAD/docs/maintaining.md#change-the-etw-consumer) says.\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY"
+          } > "$body"
+          gh pr comment "$rebuild_pull_request" --repo "$GITHUB_REPOSITORY" --body-file "$body"

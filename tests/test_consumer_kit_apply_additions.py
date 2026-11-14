@@ -9,8 +9,9 @@ local remote and a stand-in `gh` that answers the GitHub API from fixture docume
 `gh api --jq` does. A test that runs actionlint and zizmor over the installed template needs the pinned tools.
 
 The last run tests run the same steps of Shared Workflows' own additions workflow, which `ci-policy` keeps equal to the
-template, beside the rebuild workflow of its ETW consumer: the bound of each recognises the App's commits, and when both
-act on the same failed run at most one of them pushes."""
+template apart from the stated substitutions, beside the rebuild workflow of its ETW consumer: on a run that the rebuild
+workflow acts on, the additions workflow commits nothing and does not comment, and the rebuild commit carries the run's
+additions; the bound of each recognises the App's commits; and on a branch that moved since the run neither pushes."""
 
 from __future__ import annotations
 
@@ -51,6 +52,9 @@ OWN_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "apply-additions.yml"
 REBUILD = REPOSITORY_ROOT / ".github" / "workflows" / "rebuild-etw-consumer.yml"
 ADDITIONS_SUBJECT = "chore: apply the recorded additions of run 4100"
 REBUILD_SUBJECT = "chore: rebuild the ETW consumer"
+DEPENDABOT_BRANCH = "dependabot/nuget/actions/recording/etw-consumer/trace-event"
+SOURCE_CHANGE = ("actions/recording/etw-consumer/EtwConsumer.csproj", "actions/recording/etw-consumer/packages.lock.json")
+CONSUMER_BUILD = "actions/recording/etw-consumer/build/EtwConsumer.dll"
 
 requires_bash_and_jq = unittest.skipUnless(sys.platform != "win32" and shutil.which("bash") and shutil.which("jq"),
                                            "the run tests run the template's Bash steps with jq off Windows")
@@ -711,159 +715,379 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
 
 
 @requires_bash_and_jq
-class ApplyAdditionsBoundRunTest(ApplyAdditionsSteps):
-    """The bound of this repository's additions workflow, run with Bash."""
-
-    WORKFLOW = OWN_WORKFLOW
-
-    def test_at_either_app_subject_it_applies_nothing_and_comments_with_the_reason_and_the_manual_route(self) -> None:
-        for message in (f"{ADDITIONS_SUBJECT}\n\n[dependabot skip]", f"{REBUILD_SUBJECT}\n\nRebuilt from the source of {'0' * 40}."):
-            with self.subTest(message=message.splitlines()[0]):
-                for comment in self.fixtures.glob("comment-*.md"):
-                    comment.unlink()
-                self.given_run(message=message)
-                self.given_open_pull_requests(self.head_sha)
-                ran, outputs = self.run_find_step(event="workflow_run")
-                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-                self.assertEqual({"pull-request": "7", "apply": "false", "bound": "true"}, outputs)
-                self.assertEqual("bound", self.reason(BOUND="true"))
-                ran = self.comment("bound")
-                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-                (body,) = self.comments()
-                self.assertIn(f"[run {RUN_ID}](https://github.example/{REPOSITORY}/actions/runs/{RUN_ID})", body)
-                self.assertIn(MANUAL_ROUTE, body)
-        self.assertIn(f'carries the subject "{REBUILD_SUBJECT}"', self.summary.read_text(encoding="utf-8"))
-
-    def test_a_subject_that_only_resembles_one_of_the_app_s_applies_as_usual(self) -> None:
-        for message in (f"{REBUILD_SUBJECT} (#12)", "fix: rebuild the ETW consumer", f"chore: {REBUILD_SUBJECT}"):
-            with self.subTest(message=message):
-                self.given_run(message=message)
-                self.given_open_pull_requests(self.head_sha)
-                _, outputs = self.run_find_step(event="workflow_run")
-                self.assertEqual("true", outputs.get("apply"))
-
-
-@requires_bash_and_jq
-class RebuildBoundRunTest(ApplyAdditionsSteps):
-    """The plan step of the rebuild workflow, run with Bash, commits nothing for a run on its own rebuild commit."""
-
-    WORKFLOW = OWN_WORKFLOW
-
-    def run_plan(self, message: str) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
-        _, rebuild = read_workflow(REBUILD)
-        context = {"github": {"token": "workflow-token", "repository": REPOSITORY, "repository_owner": REPOSITORY.split("/")[0], "event": {
-            "workflow_run": {"head_branch": "dependabot/nuget/trace-event", "head_sha": self.head_sha, "head_commit": {"message": message}}}}}
-        return self.run_step("pull-request", self.base, event="workflow_run", steps=rebuild["jobs"]["plan"]["steps"], extra=context)
-
-    def given_dependabot_pull_request(self, files: list[str]) -> None:
-        self.api(f"repos/{REPOSITORY}/pulls", [{"number": 9, "user": {"login": "dependabot[bot]"}, "head": {"sha": self.head_sha}}])
-        self.api(f"repos/{REPOSITORY}/pulls/9/files", [{"filename": name} for name in files])
-
-    def test_a_run_on_the_rebuild_commit_rebuilds_nothing_and_reads_no_pull_request(self) -> None:
-        self.given_dependabot_pull_request(["actions/recording/etw-consumer/packages.lock.json"])
-        ran, outputs = self.run_plan(f"{REBUILD_SUBJECT}\n\nRebuilt from the source of {'1' * 40}, with the recording additions of x.")
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        self.assertEqual({"rebuild": "false"}, outputs)
-        self.assertEqual([], self.calls(), "no API call")
-        self.assertIn(f'carries the subject "{REBUILD_SUBJECT}" of the workflow\'s own rebuild', self.summary.read_text(encoding="utf-8"))
-
-    def test_a_run_on_any_other_head_commit_rebuilds_when_the_pull_request_changes_the_source(self) -> None:
-        self.given_dependabot_pull_request(["actions/recording/etw-consumer/packages.lock.json"])
-        for message in (f"{ADDITIONS_SUBJECT}\n\n[dependabot skip]", "build(deps): bump TraceEvent", f"{REBUILD_SUBJECT} (#12)"):
-            with self.subTest(message=message.splitlines()[0]):
-                ran, outputs = self.run_plan(message)
-                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-                self.assertEqual({"rebuild": "true"}, outputs)
-
-
-@requires_bash_and_jq
-class BothRoutesOnOneFailedRunTest(ApplyAdditionsSteps):
-    """The additions workflow and the rebuild workflow both act on the same failed run of a Dependabot pull request and
-    both find the branch at the run's head before either pushes: the first push lands, and the other pushes nothing."""
+class AutomaticRoutesSteps(ApplyAdditionsSteps):
+    """The steps of this repository's additions workflow and of the rebuild workflow of its ETW consumer, against a
+    fixture repository whose pull request is on `self.branch`."""
 
     WORKFLOW = OWN_WORKFLOW
 
     def setUp(self) -> None:
         super().setUp()
+        _, rebuild = read_workflow(REBUILD)
+        self.rebuild_jobs = rebuild["jobs"]
+        self.branch = DEPENDABOT_BRANCH
         self.remote = self.base / "remote.git"
+
+    # --- the GitHub side ------------------------------------------------------------------------------------------
+
+    def given_failed_run(self, message: str = "build(deps): bump TraceEvent") -> None:
+        """A failed run of `Validate` at the head of `self.branch` that uploaded one additions artifact."""
+        self.api(f"repos/{REPOSITORY}/actions/runs/{RUN_ID}", {
+            "id": int(RUN_ID), "event": "pull_request", "head_branch": self.branch, "head_sha": self.head_sha, "head_commit": {"message": message},
+            "head_repository": {"full_name": REPOSITORY}, "pull_requests": [{"number": 9}]})
+        self.api(f"repos/{REPOSITORY}/actions/runs/{RUN_ID}/artifacts",
+                 {"total_count": 1, "artifacts": [{"name": "recording-additions-shard-1", "expired": False}]})
+        self.message = message
+
+    def given_pull_request(self, *, author: str = "dependabot[bot]", files: tuple[str, ...] = SOURCE_CHANGE, head: str | None = None,
+                           state: str = "open") -> None:
+        """The pull request #9 of `self.branch`, as the pulls list, its files and itself answer."""
+        head = head or self.head_sha
+        listed = [{"number": 9, "user": {"login": author}, "head": {"ref": self.branch, "sha": head}}] if state == "open" else []
+        self.api(f"repos/{REPOSITORY}/pulls", listed)
+        self.api(f"repos/{REPOSITORY}/pulls/9/files", [{"filename": name} for name in files])
+        self.api(f"repos/{REPOSITORY}/pulls/9", {"number": 9, "state": state, "head": {"sha": head}})
+
+    def run_context(self) -> dict:
+        """The expression context of a step that `workflow_run` starts after the failed run."""
+        return {"github": {"token": "workflow-token", "repository": REPOSITORY, "repository_owner": REPOSITORY.split("/")[0],
+                           "server_url": "https://github.example", "run_id": "9", "event": {"workflow_run": {
+                               "id": RUN_ID, "head_branch": self.branch, "head_sha": self.head_sha, "head_commit": {"message": self.message},
+                               "html_url": f"https://github.example/{REPOSITORY}/actions/runs/{RUN_ID}"}}}}
+
+    # --- the steps ------------------------------------------------------------------------------------------------
+
+    def find(self, event: str = "workflow_run") -> dict[str, str]:
+        ran, outputs = self.run_find_step(event=event)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        return outputs
+
+    def plan(self) -> dict[str, str]:
+        ran, outputs = self.run_step("pull-request", self.base, event="workflow_run", steps=self.rebuild_jobs["plan"]["steps"], extra=self.run_context())
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        return outputs
+
+    def rebuild_comment(self) -> subprocess.CompletedProcess[str]:
+        """The comment job's step, which runs after a failed or cancelled plan, build or push job."""
+        ran, _ = self.run_step("Comment on the pull request with the failed run and the manual route", self.base, event="workflow_run",
+                               steps=self.rebuild_jobs["comment"]["steps"], extra=self.run_context())
+        return ran
+
+    def rebuild_step(self, key: str, cwd: Path) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+        return self.run_step(key, cwd, event="workflow_run", steps=self.rebuild_jobs["push"]["steps"], extra=self.run_context())
+
+    # --- the repository -------------------------------------------------------------------------------------------
+
+    def given_repository(self) -> None:
+        """The remote with `self.branch`: the suite list, the files its additions name and the committed build."""
         subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
         seed = self.base / "seed"
-        write(seed / "tests" / "suites.json", json.dumps({"always": [], "suites": []}, indent=2) + "\n")
-        write(seed / "actions" / "recording" / "etw-consumer" / "build" / "EtwConsumer.dll", "old build\n")
-        for arguments in (("init", "-q", "-b", HEAD_BRANCH), ("add", "-A"), ("commit", "-q", "-m", "build(deps): bump TraceEvent"),
-                          ("push", "-q", str(self.remote), HEAD_BRANCH)):
+        write(seed / "tests" / "suites.json", json.dumps(suite_list(), indent=2) + "\n")
+        for relative in ("checks/test_a.py", "checks/lint.py", "lib/data.txt", "lib/rules.toml"):
+            write(seed / relative, "")
+        write(seed / CONSUMER_BUILD, "old build\n")
+        for arguments in (("init", "-q", "-b", self.branch), ("add", "-A"), ("commit", "-q", "-m", "build(deps): bump TraceEvent"),
+                          ("push", "-q", str(self.remote), self.branch)):
             git(seed, *arguments)
         self.head_sha = git(seed, "rev-parse", "HEAD").strip()
-        self.given_open_pull_requests(self.head_sha)
-        _, rebuild = read_workflow(REBUILD)
-        self.rebuild_steps = rebuild["jobs"]["push"]["steps"]
+
+    def move_branch(self) -> str:
+        """A later push onto the branch, while the workflows run; the API may still answer with the run's head."""
+        seed = self.base / "seed"
+        write(seed / "lib" / "data.txt", "moved\n")
+        git(seed, "commit", "-q", "-am", "build(deps): bump TraceEvent further")
+        git(seed, "push", "-q", str(self.remote), self.branch)
+        return self.tip()
 
     def clone(self, path: Path) -> Path:
-        subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", HEAD_BRANCH, f"file://{self.remote}", str(path)], check=True, cwd=self.base)
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", self.branch, f"file://{self.remote}", str(path)], check=True, cwd=self.base)
         for key, value in (("user.name", "updater[bot]"), ("user.email", "1+updater[bot]@users.noreply.github.com"), ("commit.gpgsign", "false")):
             git(path, "config", key, value)
         return path
 
-    def additions_commit(self) -> Path:
-        """The additions workflow's checkout with its committed suite list, before its push."""
+    def tip(self) -> str:
+        return git(self.remote, "rev-parse", self.branch).strip()
+
+    def commits_since_the_run(self) -> list[str]:
+        return git(self.remote, "log", "--format=%s", f"{self.head_sha}..{self.branch}").splitlines()
+
+    def additions_commit(self, outputs: dict[str, str], event: str = "workflow_run") -> Path:
+        """The additions workflow's checkout with the run's additions applied and committed, before its push."""
         work = self.clone(self.base / "additions")
-        write(work / "tests" / "suites.json", json.dumps({"always": [], "suites": [], "module_lookups": {}}, indent=2) + "\n")
-        ran, _ = self.run_step("Commit the applied additions", work, event="workflow_run", outputs=self.run_outputs())
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        # One matching artifact: `actions/download-artifact` places its file directly in the download folder.
+        write(self.runner_temp / "additions" / "additions.json", json.dumps(additions("unit", "checks/test_a.py", ["lib/data.txt"])))
+        for key in ("apply", "changes", "Check the changed files", "Commit the applied additions"):
+            ran, _ = self.run_step(key, work, event=event, outputs={"run": outputs})
+            self.assertEqual(0, ran.returncode, f"{key}: {ran.stdout}{ran.stderr}")
         return work
 
+    def push_additions(self, work: Path, outputs: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        ran, _ = self.run_step("push-branch", work, event="workflow_run", outputs={"run": outputs})
+        return ran
+
     def rebuild_commit(self) -> Path:
-        """The rebuild workflow's push job with its committed rebuild and the branch fetched by its scan step."""
+        """The rebuild workflow's push job up to its push: the workflow's own revision beside a checkout of the run's head,
+        the run's additions applied, the rebuild in place of the build, committed as the App, and the branch fetched as
+        its scan step fetches it."""
         root = self.base / "rebuild"
+        root.mkdir()
+        (root / "actions").symlink_to(REPOSITORY_ROOT / "actions", target_is_directory=True)
         work = self.clone(root / "pull-request")
-        write(work / "actions" / "recording" / "etw-consumer" / "build" / "EtwConsumer.dll", "rebuild\n")
-        git(work, "commit", "-q", "-am", REBUILD_SUBJECT)
-        git(work, "fetch", "-q", "--depth=1", "origin", f"refs/heads/{HEAD_BRANCH}:refs/remotes/origin/{HEAD_BRANCH}")
+        write(self.runner_temp / "additions" / "recording-additions-shard-1" / "additions.json",
+              json.dumps(additions("unit", "checks/test_a.py", ["lib/data.txt"])))
+        write(self.runner_temp / "etw-consumer-build" / "EtwConsumer.dll", "rebuild\n")
+        self.api("users/updater[bot]", {"id": 1})
+        ran, _ = self.rebuild_step("Apply the additions to the suite list and replace the consumer's build with the rebuild", root)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        ran, changes = self.rebuild_step("changes", root)
+        self.assertEqual((0, {"changed": "true"}), (ran.returncode, changes), ran.stdout + ran.stderr)
+        ran, _ = self.rebuild_step("Commit the rebuild as the GitHub App", root)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        git(work, "fetch", "-q", "--depth=1", "origin", f"refs/heads/{self.branch}:refs/remotes/origin/{self.branch}")
         return root
 
-    def run_outputs(self) -> dict[str, dict[str, str]]:
-        return {"run": {"head-branch": HEAD_BRANCH, "head-sha": self.head_sha, "pull-request": "7"}}
-
-    def push_additions(self, work: Path) -> subprocess.CompletedProcess[str]:
-        ran, _ = self.run_step("push-branch", work, event="workflow_run", outputs=self.run_outputs())
-        return ran
-
     def push_rebuild(self, root: Path) -> subprocess.CompletedProcess[str]:
-        context = {"github": {"event": {"workflow_run": {"head_branch": HEAD_BRANCH, "head_sha": self.head_sha}}}}
-        ran, _ = self.run_step("Push the rebuild to the pull request's branch", root, event="workflow_run", steps=self.rebuild_steps, extra=context)
+        ran, _ = self.rebuild_step("Push the rebuild to the pull request's branch", root)
         return ran
 
-    def tip(self) -> str:
-        return git(self.remote, "rev-parse", HEAD_BRANCH).strip()
 
-    def test_when_the_additions_push_lands_first_the_rebuild_pushes_nothing(self) -> None:
-        additions, rebuild = self.additions_commit(), self.rebuild_commit()
-        ran = self.push_additions(additions)
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        landed = self.tip()
-        self.assertEqual(git(additions, "rev-parse", "HEAD").strip(), landed)
-        ran = self.push_rebuild(rebuild)
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        self.assertEqual(landed, self.tip(), "the rebuild pushes nothing")
-        self.assertIn(f"The branch {HEAD_BRANCH} moved from {self.head_sha} to {landed}; nothing is pushed", self.summary.read_text(encoding="utf-8"))
+@requires_bash_and_jq
+class ApplyAdditionsBoundRunTest(AutomaticRoutesSteps):
+    """Which run this repository's additions workflow acts on, beside the rebuild workflow, at its bound and at the
+    rebuild's: its find step and the plan step of the rebuild workflow on the same fixtures, and its start by hand."""
 
-    def test_when_the_rebuild_push_lands_first_the_additions_workflow_pushes_nothing(self) -> None:
-        additions, rebuild = self.additions_commit(), self.rebuild_commit()
-        ran = self.push_rebuild(rebuild)
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        landed = self.tip()
-        self.assertEqual(git(rebuild / "pull-request", "rev-parse", "HEAD").strip(), landed)
-        ran = self.push_additions(additions)
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        self.assertEqual(landed, self.tip(), "the additions workflow pushes nothing")
-        self.assertIn(f"The branch {HEAD_BRANCH} moved from {self.head_sha} to {landed}; nothing is pushed", self.summary.read_text(encoding="utf-8"))
+    def test_on_a_run_that_the_rebuild_acts_on_it_commits_nothing_does_not_comment_and_names_the_reason(self) -> None:
+        self.given_failed_run()
+        self.given_pull_request()
+        self.assertEqual({"rebuild": "true"}, self.plan())
+        self.assertEqual({"pull-request": "9", "apply": "false"}, self.find())
+        self.assertEqual("", self.reason(), "no comment")
+        summary = self.summary.read_text(encoding="utf-8")
+        self.assertIn(f"The rebuild workflow acts on run {RUN_ID}, since the pull request #9 by dependabot[bot] changes the source of the ETW consumer: "
+                      f"{', '.join(SOURCE_CHANGE)}; its rebuild commit carries the run's additions, so this workflow commits nothing and does not comment on #9.",
+                      summary)
+        self.assertEqual([], [call for call in self.calls() if call.startswith("pr ")])
 
-    def test_a_rebuild_push_that_fails_on_an_unmoved_branch_fails_the_step(self) -> None:
-        rebuild = self.rebuild_commit()
-        git(rebuild / "pull-request", "remote", "set-url", "--push", "origin", str(self.base / "missing.git"))
-        ran = self.push_rebuild(rebuild)
-        self.assertNotEqual(0, ran.returncode)
+    def test_on_such_a_run_at_the_additions_subject_it_commits_nothing_and_does_not_comment(self) -> None:
+        self.given_failed_run(f"{ADDITIONS_SUBJECT}\n\n[dependabot skip]")
+        self.given_pull_request()
+        self.assertEqual("true", self.plan()["rebuild"])
+        self.assertEqual({"pull-request": "9", "apply": "false"}, self.find(), "no bound, so no comment")
+        self.assertEqual("", self.reason())
+        self.assertNotIn("of applied additions", self.summary.read_text(encoding="utf-8"))
+
+    def test_at_the_rebuild_commit_it_comments_with_the_manual_route_and_the_rebuild_commits_nothing(self) -> None:
+        self.given_failed_run(f"{REBUILD_SUBJECT}\n\nRebuilt from the source of {'1' * 40}, with the recording additions of x.")
+        self.given_pull_request()
+        self.assertEqual({"rebuild": "false"}, self.plan(), "the build and the push job do not run")
+        self.assertIn(f'carries the subject "{REBUILD_SUBJECT}" of the rebuild workflow\'s own commit', self.summary.read_text(encoding="utf-8"))
+        self.assertEqual({"pull-request": "9", "apply": "false", "bound": "true"}, self.find())
+        self.assertEqual("bound", self.reason(BOUND="true"))
+        ran = self.comment("bound")
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        (body,) = self.comments()
+        self.assertIn(MANUAL_ROUTE, body)
+        self.assertIn(f"[run {RUN_ID}](https://github.example/{REPOSITORY}/actions/runs/{RUN_ID})", body)
+
+    def test_on_a_dependabot_run_that_changes_no_source_it_applies_as_usual(self) -> None:
+        for files in ((), ("actions/recording/etw-consumer/build/EtwConsumer.dll", "tests/suites.json"), (".github/workflows/validate.yml",)):
+            with self.subTest(files=files):
+                self.given_failed_run()
+                self.given_pull_request(files=files)
+                self.assertEqual("false", self.plan()["rebuild"])
+                self.assertEqual("true", self.find().get("apply"))
+
+    def test_on_a_pull_request_that_is_not_dependabot_s_it_applies_as_usual_also_when_it_changes_the_source(self) -> None:
+        for branch, author in (("feat/consumer-source", "CrankyAnt"), (DEPENDABOT_BRANCH, "CrankyAnt"), (DEPENDABOT_BRANCH, "renovate[bot]")):
+            with self.subTest(branch=branch, author=author):
+                self.branch = branch
+                self.given_failed_run()
+                self.given_pull_request(author=author)
+                self.assertEqual("true", self.find().get("apply"))
+                if branch.startswith("dependabot/"):
+                    self.assertEqual("false", self.plan()["rebuild"])
+
+    def test_a_subject_that_only_resembles_the_rebuild_s_applies_as_usual(self) -> None:
+        for message in (f"{REBUILD_SUBJECT} (#12)", "fix: rebuild the ETW consumer", f"chore: {REBUILD_SUBJECT}"):
+            with self.subTest(message=message):
+                self.branch = "feat/consumer-source"
+                self.given_failed_run(message)
+                self.given_pull_request(author="CrankyAnt")
+                self.assertEqual("true", self.find().get("apply"))
+
+    def test_the_rebuild_reads_no_pull_request_on_its_own_commit_or_on_a_branch_that_is_not_dependabot_s(self) -> None:
+        for branch, message in ((DEPENDABOT_BRANCH, f"{REBUILD_SUBJECT}\n\nRebuilt."), ("feat/consumer-source", "feat: change")):
+            with self.subTest(branch=branch):
+                self.branch = branch
+                self.given_failed_run(message)
+                self.given_pull_request()
+                (self.fixtures / "calls.log").unlink(missing_ok=True)
+                self.assertEqual({"rebuild": "false"}, self.plan())
+                self.assertEqual([], self.calls(), "no API call")
+
+    def test_a_start_by_hand_with_the_id_of_a_run_the_rebuild_acts_on_proposes_its_additions_onto_its_branch(self) -> None:
+        self.given_repository()
+        self.given_failed_run()
+        self.given_pull_request()
+        self.assertEqual("true", self.plan()["rebuild"])
+        outputs = self.find(event="workflow_dispatch")
+        self.assertEqual({"apply": "true", "ref": self.branch, "head-branch": self.branch, "head-sha": self.head_sha, "pull-request": "9"}, outputs)
+        work = self.additions_commit(outputs, event="workflow_dispatch")
+        for key in ("Push the proposal branch", "Create or update the proposal pull request"):
+            ran, _ = self.run_step(key, work, outputs={"run": outputs})
+            self.assertEqual(0, ran.returncode, f"{key}: {ran.stdout}{ran.stderr}")
+        self.assertEqual("tests/suites.json\n", git(self.remote, "diff", "--name-only", self.branch, PROPOSAL))
+        self.assertEqual([f"pr create --repo {REPOSITORY} --base {self.branch} --head {PROPOSAL} --title {SUBJECT} "
+                          f"--body-file {self.runner_temp}/apply-additions-report.md"], [call for call in self.calls() if call.startswith("pr create")])
+        self.assertEqual(self.head_sha, self.tip(), "the pull request's branch itself is not pushed to")
+
+
+@requires_bash_and_jq
+class RebuildBoundRunTest(AutomaticRoutesSteps):
+    """The push and the comment of the rebuild workflow on a run it acts on, after its bound let it act."""
+
+    def test_on_a_run_it_acts_on_it_pushes_one_rebuild_commit_with_the_build_and_the_run_s_additions(self) -> None:
+        self.given_repository()
+        self.given_failed_run()
+        self.given_pull_request()
+        self.assertEqual("true", self.plan()["rebuild"])
+        ran = self.push_rebuild(self.rebuild_commit())
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual([REBUILD_SUBJECT], self.commits_since_the_run(), "one commit onto the run's head")
+        self.assertEqual("[dependabot skip]", git(self.remote, "log", "-1", "--format=%B", self.branch).strip().splitlines()[-1],
+                         "Dependabot keeps rebasing its pull request over the commit, as over the additions commit")
+        self.assertEqual(f"{CONSUMER_BUILD}\ntests/suites.json\n", git(self.remote, "diff", "--name-only", self.head_sha, self.branch))
+        self.assertEqual("rebuild\n", git(self.remote, "show", f"{self.branch}:{CONSUMER_BUILD}"))
+        stored = json.loads(git(self.remote, "show", f"{self.branch}:tests/suites.json"))
+        self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt"], "lint": ["checks/lint.py"]}, {item["name"]: item["paths"] for item in stored["suites"]})
+
+    def assert_one_rebuild_comment(self) -> None:
+        """One comment on #9 that links the failed workflow run and the failed run of `Validate` and gives the manual route."""
+        (body,) = self.comments()
+        self.assertIn(f"[its workflow run](https://github.example/{REPOSITORY}/actions/runs/9) failed or was cancelled", body)
+        self.assertIn(f"[run {RUN_ID}](https://github.example/{REPOSITORY}/actions/runs/{RUN_ID})", body)
+        self.assertIn(MANUAL_ROUTE, body)
+        self.assertIn(f"https://github.example/{REPOSITORY}/blob/HEAD/docs/maintaining.md#change-the-etw-consumer", body)
+        self.assertEqual([f"pr comment 9 --repo {REPOSITORY} --body-file {self.runner_temp}/rebuild-etw-consumer-comment.md"],
+                         [call for call in self.calls() if call.startswith("pr ")])
+
+    def test_after_a_failed_or_cancelled_plan_or_build_job_on_a_run_it_acts_on_it_comments_once(self) -> None:
+        # The comment step finds the pull request by evaluating the condition itself, so a failed plan job, whose output
+        # is lost with it, gets the same comment as a failed or cancelled build job.
+        self.given_failed_run()
+        self.given_pull_request()
+        ran = self.rebuild_comment()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assert_one_rebuild_comment()
+
+    def test_when_the_push_fails_on_an_unmoved_branch_the_step_fails_and_it_comments_once(self) -> None:
+        self.given_repository()
+        self.given_failed_run()
+        self.given_pull_request()
+        root = self.rebuild_commit()
+        git(root / "pull-request", "remote", "set-url", "--push", "origin", str(self.base / "missing.git"))
+        ran = self.push_rebuild(root)
+        self.assertNotEqual(0, ran.returncode, "the push job fails")
         self.assertEqual(self.head_sha, self.tip())
+        ran = self.rebuild_comment()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assert_one_rebuild_comment()
+
+    def test_on_a_run_the_rebuild_would_not_act_on_a_failed_or_cancelled_job_gets_no_comment(self) -> None:
+        for name, message, files in (("no source change", "build(deps): bump TraceEvent", (".github/workflows/validate.yml",)),
+                                     ("the rebuild commit", f"{REBUILD_SUBJECT}\n\nRebuilt.", SOURCE_CHANGE)):
+            with self.subTest(case=name):
+                self.given_failed_run(message)
+                self.given_pull_request(files=files)
+                ran = self.rebuild_comment()
+                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+                self.assertEqual([], self.comments())
+        self.assertIn("The workflow committed nothing, and no comment follows: ", self.summary.read_text(encoding="utf-8"))
+
+    def test_the_comment_refuses_a_head_that_is_no_commit_id_before_any_api_call(self) -> None:
+        self.head_sha = "1; x"
+        self.given_failed_run()
+        ran = self.rebuild_comment()
+        self.assertEqual(1, ran.returncode)
+        self.assertIn("is no commit id", ran.stdout)
+        self.assertEqual([], self.calls())
+
+
+@requires_bash_and_jq
+class BothRoutesOnOneFailedRunTest(AutomaticRoutesSteps):
+    """A branch that moved since a failed run of a Dependabot pull request: neither workflow pushes and neither comments."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.given_repository()
+        self.given_failed_run()
+
+    def test_on_a_moved_branch_neither_workflow_acts_or_comments(self) -> None:
+        self.given_pull_request(head="1" * 40)
+        self.assertEqual({"rebuild": "false"}, self.plan(), "the rebuild workflow builds nothing")
+        self.assertEqual({"apply": "false"}, self.find(), "the additions workflow applies nothing")
+        self.assertEqual("", self.reason(), "and does not comment")
+        ran = self.rebuild_comment()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual([], self.comments())
+        self.assertIn(f"no comment follows: no open pull request by dependabot[bot] has the head {self.head_sha}", self.summary.read_text(encoding="utf-8"))
+
+    def test_a_closed_pull_request_gets_no_rebuild_comment(self) -> None:
+        self.given_pull_request(state="closed")
+        ran = self.rebuild_comment()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual([], self.comments())
+
+    def test_a_rebuild_push_onto_a_branch_that_moved_while_it_ran_pushes_nothing_and_ends_without_an_error(self) -> None:
+        self.given_pull_request()
+        root = self.rebuild_commit()
+        moved = self.move_branch()
+        ran = self.push_rebuild(root)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual(moved, self.tip(), "the rebuild pushes nothing")
+        self.assertIn(f"The branch {self.branch} moved from {self.head_sha} to {moved}; nothing is pushed", self.summary.read_text(encoding="utf-8"))
+        self.given_pull_request(head=moved)
+        ran = self.rebuild_comment()
+        self.assertEqual((0, []), (ran.returncode, self.comments()), "a comment job after any failure stays silent")
+
+    def test_an_additions_push_onto_a_branch_that_moved_while_it_ran_pushes_nothing_under_its_lease(self) -> None:
+        self.given_pull_request(files=("tests/suites.json",))
+        outputs = self.find()
+        self.assertEqual("true", outputs["apply"])
+        work = self.additions_commit(outputs)
+        moved = self.move_branch()
+        ran = self.push_additions(work, outputs)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual(moved, self.tip())
+        self.assertEqual("", self.reason(APPLIED="success", CHANGED="true"))
+        self.assertIn(f"The branch {self.branch} moved from {self.head_sha} to {moved}; nothing is pushed", self.summary.read_text(encoding="utf-8"))
+
+
+@requires_bash_and_jq
+class OwnAdditionsCommitTest(AutomaticRoutesSteps):
+    """The additions workflow commits a run's additions onto a pull request that the rebuild workflow does not act on."""
+
+    def commits_the_additions(self, author: str, files: tuple[str, ...]) -> None:
+        self.given_repository()
+        self.given_failed_run()
+        self.given_pull_request(author=author, files=files)
+        outputs = self.find()
+        self.assertEqual({"apply": "true", "ref": self.head_sha, "head-branch": self.branch, "head-sha": self.head_sha, "pull-request": "9"}, outputs)
+        ran = self.push_additions(self.additions_commit(outputs), outputs)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertEqual([f"chore: apply the recorded additions of run {RUN_ID}"], self.commits_since_the_run())
+        self.assertEqual("tests/suites.json\n", git(self.remote, "diff", "--name-only", self.head_sha, self.branch))
+        self.assertEqual("", self.reason(APPLIED="success", CHANGED="true"), "no comment")
+
+    def test_a_dependabot_pull_request_that_changes_no_source_of_the_consumer(self) -> None:
+        self.commits_the_additions("dependabot[bot]", ("actions/recording/etw-consumer/build/EtwConsumer.dll", ".github/workflows/validate.yml"))
+
+    def test_a_pull_request_that_is_not_dependabot_s_and_changes_the_consumer_s_source(self) -> None:
+        self.branch = "feat/consumer-source"
+        self.commits_the_additions("CrankyAnt", SOURCE_CHANGE)
+
+    def test_a_pull_request_on_a_dependabot_branch_by_another_author_that_changes_the_consumer_s_source(self) -> None:
+        self.commits_the_additions("CrankyAnt", SOURCE_CHANGE)
 
 
 if __name__ == "__main__":
