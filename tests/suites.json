@@ -24,7 +24,8 @@
         "tests/test_ci_policy_full_recording.py",
         "tests/test_ci_policy_python_language_step.py",
         "tests/test_ci_policy_reuse.py",
-        "tests/test_ci_policy_python_tests_caller.py"
+        "tests/test_ci_policy_python_tests_caller.py",
+        "tests/test_ci_policy_apply_additions.py"
       ],
       "command": [
         "python3",

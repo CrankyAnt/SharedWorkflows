@@ -51,7 +51,7 @@ A new package file that Dependabot supports gets an `updates` entry in `.github/
 
 ## Suite selection
 
-`validate.yml` is the validation caller, which calls the selection and verdict workflows by local path on `tests/suites.json` and runs its suites under the recording step, and `full-recording.yml` is its [full recording](../maintaining.md#full-recording); `tests/README.md` describes the suites and how they run, and `docs/maintaining.md` the shared parts themselves.
+`validate.yml` is the validation caller, which calls the selection and verdict workflows by local path on `tests/suites.json` and runs its suites under the recording step, `full-recording.yml` is its [full recording](../maintaining.md#full-recording) and `apply-additions.yml` its [additions workflow](../maintaining.md#apply-recorded-additions); `tests/README.md` describes the suites and how they run, and `docs/maintaining.md` the shared parts themselves.
 
 ## Repository choices
 

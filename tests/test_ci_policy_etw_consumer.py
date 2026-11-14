@@ -113,12 +113,22 @@ class RebuildWorkflowTests(unittest.TestCase):
     def test_the_plan_acts_only_for_dependabot_s_open_pull_request_at_the_run_s_head_that_changes_the_consumer_s_source(self) -> None:
         (step,) = self.jobs["plan"]["steps"]
         self.assertEqual({"GH_TOKEN": "${{ github.token }}", "HEAD_BRANCH": "${{ github.event.workflow_run.head_branch }}",
-                          "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "OWNER": "${{ github.repository_owner }}"}, step["env"])
+                          "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "HEAD_MESSAGE": "${{ github.event.workflow_run.head_commit.message }}",
+                          "OWNER": "${{ github.repository_owner }}"}, step["env"])
         self.assertIn('select(.user.login == \\"dependabot[bot]\\" and .head.sha == \\"$HEAD_SHA\\")', step["run"])
         self.assertIn("pulls/$number/files", step["run"])
         self.assertIn(r"/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//", step["run"])
         self.assertEqual(1, step["run"].count("rebuild=true"))
         self.assertEqual({"rebuild": "${{ steps.pull-request.outputs.rebuild }}"}, self.jobs["plan"]["outputs"])
+
+    def test_the_plan_rebuilds_nothing_for_a_run_on_the_workflow_s_own_rebuild_commit_before_any_api_call(self) -> None:
+        (step,) = self.jobs["plan"]["steps"]
+        commit_run = next(item for item in self.jobs["push"]["steps"] if item.get("name") == "Commit the rebuild as the GitHub App")["run"]
+        self.assertIn('commit -m "chore: rebuild the ETW consumer"', commit_run)
+        bound = step["run"].index('if [ "$subject" = "chore: rebuild the ETW consumer" ]; then')
+        self.assertIn('subject="${HEAD_MESSAGE%%$\'\\n\'*}"', step["run"])
+        self.assertLess(bound, step["run"].index("gh api"))
+        self.assertRegex(step["run"][bound:], r"^[^\n]+\n[^\n]+\n\s+printf 'rebuild=false\\n' >> \"\$GITHUB_OUTPUT\"\n\s+exit 0\n")
 
     def test_jobs_runners_and_rights(self) -> None:
         self.assertEqual(["plan", "build", "push"], list(self.jobs))
@@ -199,6 +209,9 @@ class RebuildWorkflowTests(unittest.TestCase):
         self.assertEqual(APP_TOKEN, push["env"]["GH_TOKEN"])
         self.assertIn("-c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin \"HEAD:refs/heads/$HEAD_BRANCH\"", push["run"])
         self.assertIn('if [ "$remote" != "$HEAD_SHA" ]; then', push["run"])
+        # A refused push onto a branch that moved since the run, such as after the additions workflow's push, pushes nothing.
+        self.assertIn("if ! git -C pull-request -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin", push["run"])
+        self.assertIn('ls-remote origin "refs/heads/$HEAD_BRANCH" | cut -f1)"', push["run"])
         self.assertNotIn("--force", self.text)
         self.assertEqual(1, self.text.count(" push origin "))
 
