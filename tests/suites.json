@@ -4091,7 +4091,9 @@
         "-v"
       ],
       "setups": [
-        "python"
+        "python",
+        "actionlint",
+        "zizmor"
       ],
       "entry_durations": {
         "tests/test_consumer_kit_auto_merge.py": 0.22,
@@ -4135,7 +4137,13 @@
         "actions/repository-hygiene/consumer-kit/README.md",
         "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
         "actions/repository-hygiene/dependabot_coverage.py",
+        "actions/repository-hygiene/hygiene.py",
+        "actions/repository-hygiene/install_tools.py",
+        "actions/repository-hygiene/link_check.py",
         "actions/repository-hygiene/package-ecosystems.json",
+        "actions/repository-hygiene/pins.json",
+        "actions/repository-hygiene/pins.py",
+        "actions/repository-hygiene/zizmor-policy.yml",
         "actions/suite-selection/ci_definition.py",
         "actions/suite-selection/consumer-kit/README.md",
         "actions/suite-selection/consumer-kit/apply-additions.yml",
@@ -4155,6 +4163,8 @@
         "docs/adr/0005-a-repository-runs-its-python-tests-through-either-the-suite-selection-or-python-tests.md",
         "tests/ci_policy_support.py",
         "tests/consumer_kit_support.py",
+        "tests/hygiene_fixtures.py",
+        "tests/hygiene_process.py",
         "tests/recording_fixtures.py",
         "tests/setup_ci_support.py",
         "tests/strace_stand_in.py",
@@ -4188,22 +4198,39 @@
       ],
       "entry_paths": {
         "tests/test_consumer_kit_apply_additions.py": [
+          ".github/workflows/full-recording.yml",
           "actions/recording/recording.py",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/hygiene.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/link_check.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
+          "actions/repository-hygiene/zizmor-policy.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
+          "actions/suite-selection/consumer-kit/validation.yml",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
+          "tests/hygiene_fixtures.py",
+          "tests/hygiene_process.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/test_consumer_kit_apply_additions.py",
           "tests/test_setup_ci_apply_additions.py"
         ],
         "tests/test_consumer_kit_auto_merge.py": [
+          ".github/workflows/dependabot-auto-merge.yml",
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
           "tests/test_consumer_kit_auto_merge.py",
@@ -4212,6 +4239,9 @@
         "tests/test_consumer_kit_dependabot.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
           "tests/test_consumer_kit_dependabot.py",
@@ -4220,6 +4250,9 @@
         "tests/test_consumer_kit_full_recording.py": [
           ".github/workflows/full-recording.yml",
           "actions/recording/recording.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/recording_modules.py",
@@ -4232,6 +4265,9 @@
         "tests/test_consumer_kit_hygiene.py": [
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
           "tests/test_consumer_kit_hygiene.py",
@@ -4255,7 +4291,10 @@
           ".github/workflows/validate.yml",
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
           "actions/repository-hygiene/package-ecosystems.json",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/consumer_kit_support.py",
@@ -4269,6 +4308,9 @@
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
           "tests/test_consumer_kit_installed_permissions.py",
@@ -4280,6 +4322,9 @@
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
           "tests/test_consumer_kit_installed_targets.py",
@@ -4289,6 +4334,9 @@
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "actions/suite-selection/consumer-kit/validation.yml",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
@@ -4298,6 +4346,9 @@
         "tests/test_consumer_kit_own_dependabot.py": [
           ".github/dependabot.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "tests/consumer_kit_support.py",
           "tests/setup_ci_support.py",
           "tests/test_consumer_kit_own_dependabot.py",
@@ -4309,6 +4360,9 @@
           "actions/python-language-step/consumer-kit/python-language-step.yml",
           "actions/python-tests/consumer-kit/python-tests.yml",
           "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "actions/suite-selection/consumer-kit/apply-additions.yml",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
@@ -4322,6 +4376,9 @@
           "actions/python-tests/consumer-kit/README.md",
           "actions/repository-hygiene/consumer-kit/README.md",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/README.md",
           "actions/suite-selection/consumer-kit/apply-additions.yml",
@@ -4343,6 +4400,9 @@
         "tests/test_consumer_kit_validation_workflow.py": [
           ".github/workflows/full-recording.yml",
           ".github/workflows/validate.yml",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
@@ -4359,6 +4419,9 @@
           "actions/python-tests/consumer-kit/README.md",
           "actions/python-tests/consumer-kit/python-tests.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "catalogue.json",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_python_tests.py"
@@ -4392,11 +4455,27 @@
         "actions/dependabot-auto-merge/consumer-kit",
         "actions/python-language-step/consumer-kit",
         "actions/python-tests/consumer-kit",
+        "actions/repository-hygiene",
         "actions/repository-hygiene/consumer-kit",
         "actions/suite-selection/consumer-kit",
         "docs/adr"
       ],
       "entry_directory_memberships": {
+        "tests/test_consumer_kit_apply_additions.py": [
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_auto_merge.py": [
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_dependabot.py": [
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_full_recording.py": [
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_hygiene.py": [
+          "actions/repository-hygiene"
+        ],
         "tests/test_consumer_kit_install_by_need.py": [
           "**/*.csproj",
           "**/*.csproj/**",
@@ -4420,13 +4499,27 @@
           "**/pyproject.toml/**",
           "**/requirements*.txt",
           "**/requirements*.txt/**",
-          ".github/workflows/**"
+          ".github/workflows/**",
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_installed_permissions.py": [
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_installed_targets.py": [
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_installed_validation.py": [
+          "actions/repository-hygiene"
+        ],
+        "tests/test_consumer_kit_own_dependabot.py": [
+          "actions/repository-hygiene"
         ],
         "tests/test_consumer_kit_publication.py": [
           "actions",
           "actions/dependabot-auto-merge/consumer-kit",
           "actions/python-language-step/consumer-kit",
           "actions/python-tests/consumer-kit",
+          "actions/repository-hygiene",
           "actions/repository-hygiene/consumer-kit",
           "actions/suite-selection/consumer-kit"
         ],
@@ -4434,12 +4527,17 @@
           "actions/dependabot-auto-merge/consumer-kit",
           "actions/python-language-step/consumer-kit",
           "actions/python-tests/consumer-kit",
+          "actions/repository-hygiene",
           "actions/repository-hygiene/consumer-kit",
           "actions/suite-selection/consumer-kit",
           "docs/adr"
         ],
+        "tests/test_consumer_kit_validation_workflow.py": [
+          "actions/repository-hygiene"
+        ],
         "tests/test_consumer_kit_python_tests.py": [
-          "actions/python-tests/consumer-kit"
+          "actions/python-tests/consumer-kit",
+          "actions/repository-hygiene"
         ]
       },
       "existence_reads": [
@@ -4489,6 +4587,38 @@
         },
         {
           "path": "actions/repository-hygiene/consumer-kit/publication-checks.yml",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/link_check",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/repository-hygiene/link_check.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/link_check.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/link_check.so",
           "kind": "any"
         },
         {
@@ -4653,6 +4783,38 @@
         },
         {
           "path": "tests/consumer_kit_support.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_fixtures",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/hygiene_fixtures.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_fixtures.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_process",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/hygiene_process.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_process.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_process.so",
           "kind": "any"
         },
         {
@@ -5147,6 +5309,42 @@
             "kind": "directory"
           },
           {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection",
             "kind": "directory"
           },
@@ -5251,6 +5449,38 @@
             "kind": "any"
           },
           {
+            "path": "tests/hygiene_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/hygiene_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_process",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/hygiene_process.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_process.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_process.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/recording_fixtures",
             "kind": "directory"
           },
@@ -5342,6 +5572,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
             "kind": "any"
           },
           {
@@ -6669,6 +6915,7 @@
       "lookup_directories": [
         ".",
         "actions/recording",
+        "actions/repository-hygiene",
         "actions/suite-selection",
         "tests"
       ],
@@ -6676,6 +6923,7 @@
         "tests/test_consumer_kit_apply_additions.py": [
           ".",
           "actions/recording",
+          "actions/repository-hygiene",
           "actions/suite-selection",
           "tests"
         ],
@@ -15566,6 +15814,9 @@
         "actions/publication-checks/update_spec.py",
         "actions/publication-checks/verify-spec.cjs",
         "actions/repository-hygiene/pins.json",
+        "actions/suite-selection/ci_definition.py",
+        "actions/suite-selection/consumer-kit/apply-additions.yml",
+        "tests/ci_policy_support.py",
         "tests/fixtures/publication_checks/specification-cases.json",
         "tests/publication_branch_check.py",
         "tests/publication_commitlint.py",
@@ -15619,6 +15870,9 @@
           "actions/publication-checks/package-lock.json",
           "actions/publication-checks/package.json",
           "actions/repository-hygiene/pins.json",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
+          "tests/ci_policy_support.py",
           "tests/publication_commitlint.py",
           "tests/publication_fixtures.py",
           "tests/test_publication_commits.py"
@@ -15749,6 +16003,22 @@
         },
         {
           "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/ci_policy_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/ci_policy_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/ci_policy_support.so",
           "kind": "any"
         },
         {
@@ -16181,6 +16451,34 @@
         ],
         "tests/test_publication_commits.py": [
           {
+            "path": ".config/config.cjs",
+            "kind": "any"
+          },
+          {
+            "path": ".config/config.js",
+            "kind": "any"
+          },
+          {
+            "path": ".config/config.json",
+            "kind": "any"
+          },
+          {
+            "path": ".config/config.mjs",
+            "kind": "any"
+          },
+          {
+            "path": ".config/config.ts",
+            "kind": "any"
+          },
+          {
+            "path": ".config/config.yaml",
+            "kind": "any"
+          },
+          {
+            "path": ".config/config.yml",
+            "kind": "any"
+          },
+          {
             "path": "tests",
             "kind": "directory"
           },
@@ -16198,6 +16496,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
             "kind": "any"
           },
           {

@@ -4,7 +4,7 @@ The consumer kit of Dependabot auto-merge, a shared part of the [catalogue](../.
 
 ## The caller
 
-Copy [dependabot-auto-merge.yml](dependabot-auto-merge.yml) to `.github/workflows/dependabot-auto-merge.yml` and replace `<required-check-workflows>` with the `name:` of every workflow that produces a check the default-branch ruleset requires, comma-separated, such as `Repository hygiene, Validation`. The caller sets `permissions: {}` at the top and `contents: write` and `pull-requests: write` on its one job, passes no inputs and no secrets and runs no step of its own. It runs on `pull_request` events of the types `opened`, `synchronize` and `reopened`, and on `workflow_run` events of the type `completed` of each workflow it names. zizmor reports `workflow_run` as a dangerous trigger; the inline ignore on it states why the finding does not apply, because the shared workflow checks out nothing and runs no code from the pull request.
+Copy [dependabot-auto-merge.yml](dependabot-auto-merge.yml) to `.github/workflows/dependabot-auto-merge.yml` and replace `<required-check-workflows>` with the `name:` of every workflow that produces a check the default-branch ruleset requires, comma-separated, such as `Repository hygiene, Validation`, and `<suite-list>` with the path of the suite list of the [suite selection](../../suite-selection/consumer-kit/README.md#the-suite-list), `.github/suites.json` by default. A repository without the suite selection drops `with:` and its `suites`. The caller sets `permissions: {}` at the top and `contents: write` and `pull-requests: write` on its one job, passes no input but `suites` and no secrets, and runs no step of its own. It runs on `pull_request` events of the types `opened`, `synchronize` and `reopened`, and on `workflow_run` events of the type `completed` of each workflow it names. zizmor reports `workflow_run` as a dangerous trigger; the inline ignore on it states why the finding does not apply, because the shared workflow checks out nothing and runs no code from the pull request.
 
 The job id `dependabot-auto-merge` gives the checks `dependabot-auto-merge / auto-merge` and `dependabot-auto-merge / merge`. Neither is a required check: GitHub counts a skipped job as a success for required checks, and both jobs are skipped for every pull request that is not Dependabot's.
 
@@ -12,7 +12,7 @@ The job id `dependabot-auto-merge` gives the checks `dependabot-auto-merge / aut
 
 The shared workflow merges a pull request on its own when all of these hold:
 
-- Dependabot opened it and every commit on it is Dependabot's, and the first commit's signature is verified.
+- Dependabot opened it, the first commit's signature is verified, and every commit on it is Dependabot's or a commit of the updater App that changes only the suite list the caller passes in `suites`, as the [additions workflow](../../suite-selection/consumer-kit/README.md#additions) of the suite selection makes it.
 - Every updated dependency is a patch or a minor update. A major update stays manual.
 - For GitHub Actions, every updated action comes from `actions/*`. An action from any other owner stays manual.
 - An active ruleset rule on the default branch requires at least one status check.
@@ -48,7 +48,7 @@ A repository that adopted Dependabot auto-merge earlier brings its installed fil
 
 Every difference that a template makes is taken over, apart from the repository's own values, which carry over:
 
-- in the caller, the `name:` of each workflow that produces a required check, in place of `<required-check-workflows>`;
+- in the caller, the `name:` of each workflow that produces a required check, in place of `<required-check-workflows>`, and the suite list's path in place of `<suite-list>`, or no `with:` without the suite selection;
 - in the Dependabot configuration, the repository's own `updates` entries, one per ecosystem of its package files with its `directory` or `directories`, and each entry the configuration held before the adoption, each with its own settings. The template's `github-actions` entry, with its ignore entry for `CrankyAnt/SharedWorkflows`, comes from the template, as [The Dependabot configuration](#the-dependabot-configuration) states.
 
 The result works when `hygiene / hygiene` passes on that pull request, where actionlint and zizmor run over the changed caller and the Dependabot coverage check over the changed configuration. On that pull request, which is not Dependabot's, `dependabot-auto-merge / auto-merge` and `dependabot-auto-merge / merge` are skipped. The next Dependabot pull request confirms the caller: `dependabot-auto-merge / auto-merge` succeeds, and for an update that merges on its own `dependabot-auto-merge / merge` requests the merge once the required checks have passed.

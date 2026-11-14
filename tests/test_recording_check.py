@@ -379,7 +379,8 @@ class CheckSummaryRouteTests(unittest.TestCase):
 
     def test_a_consumer_pull_request_run_is_sent_to_the_kit_s_workflow_with_its_run_id_and_no_path_into_the_shared_tree(self) -> None:
         summary = self.summary(self.CONSUMER, "123456789", "pull_request")
-        self.assertIn("Start the workflow `Apply recorded additions` with the run id `123456789`", summary)
+        self.assertIn("the additions workflow commits them onto its branch as the GitHub App", summary)
+        self.assertIn("When it comments that it cannot, start the workflow `Apply recorded additions` with the run id `123456789`", summary)
         self.assertIn('section "Additions" of the suite-selection consumer kit', summary)
         self.assertIn("| `a` | path `lib/other.txt` |", summary)
         for text in ("actions/", "docs/maintaining.md", "CrankyAnt/SharedWorkflows", "recording.py"):
