@@ -1,7 +1,7 @@
 """The ETW consumer's committed build is checked once, by the Windows suite `etw-consumer-build` of the validation
 workflow; its source is a framework-dependent program on TraceEvent, whatever versions its project names; and the
 rebuild workflow commits a rebuilt consumer to a Dependabot pull request that changes its source, or comments with the
-manual route when its build or push fails."""
+manual route when a failed or cancelled job leaves a run it acts on without that commit."""
 
 from __future__ import annotations
 
@@ -122,9 +122,8 @@ class RebuildWorkflowTests(unittest.TestCase):
         self.assertIn("pulls/$rebuild_pull_request/files", step["run"])
         self.assertIn(r"/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//", step["run"])
         self.assertEqual(1, step["run"].count("rebuild=true"))
-        self.assertEqual({"rebuild": "${{ steps.pull-request.outputs.rebuild }}", "pull-request": "${{ steps.pull-request.outputs.pull-request }}"},
-                         self.jobs["plan"]["outputs"])
-        self.assertTrue(step["run"].endswith("""printf 'rebuild=%s\\npull-request=%s\\n' "$rebuild" "$rebuild_pull_request" >> "$GITHUB_OUTPUT\""""))
+        self.assertEqual({"rebuild": "${{ steps.pull-request.outputs.rebuild }}"}, self.jobs["plan"]["outputs"])
+        self.assertTrue(step["run"].endswith("""printf 'rebuild=%s\\n' "$rebuild" >> "$GITHUB_OUTPUT\""""))
 
     def test_the_plan_rebuilds_nothing_for_a_run_on_the_workflow_s_own_rebuild_commit_before_any_api_call(self) -> None:
         (step,) = self.jobs["plan"]["steps"]
@@ -145,34 +144,39 @@ class RebuildWorkflowTests(unittest.TestCase):
         self.assertEqual({"actions": "read", "contents": "read"}, self.jobs["push"]["permissions"])
         self.assertEqual({"pull-requests": "write"}, self.jobs["comment"]["permissions"])
 
-    def test_the_comment_job_runs_when_the_plan_acted_and_the_build_or_the_push_failed(self) -> None:
+    def test_the_comment_job_runs_when_the_plan_the_build_or_the_push_failed_was_cancelled_or_timed_out(self) -> None:
+        # A job that exceeds its time limit ends as a failure or as cancelled; both run the comment job.
         comment = self.jobs["comment"]
         self.assertEqual("[plan, build, push]", comment["needs"])
-        self.assertTrue(comment["if"].startswith("always() && "), "it runs after a failed job")
+        self.assertTrue(comment["if"].startswith("always() && "), "it runs after a failed or cancelled job")
         condition = comment["if"].removeprefix("always() && ")
-        for rebuild, build, push, expected in (("true", "failure", "skipped", True), ("true", "success", "failure", True),
-                                               ("true", "success", "success", False), ("true", "cancelled", "skipped", False),
-                                               ("true", "success", "cancelled", False), ("false", "skipped", "skipped", False),
-                                               ("", "failure", "skipped", False)):
-            with self.subTest(rebuild=rebuild, build=build, push=push):
-                context = {"needs": {"plan": {"outputs": {"rebuild": rebuild}}, "build": {"result": build}, "push": {"result": push}}}
+        for plan, build, push, expected in (("failure", "skipped", "skipped", True), ("cancelled", "skipped", "skipped", True),
+                                            ("success", "failure", "skipped", True), ("success", "cancelled", "skipped", True),
+                                            ("success", "success", "failure", True), ("success", "success", "cancelled", True),
+                                            ("success", "success", "success", False), ("success", "skipped", "skipped", False),
+                                            ("skipped", "skipped", "skipped", False)):
+            with self.subTest(plan=plan, build=build, push=push):
+                context = {"needs": {"plan": {"result": plan}, "build": {"result": build}, "push": {"result": push}}}
                 self.assertEqual(expected, bool(expression_value(condition, context)))
 
     def test_the_comment_job_comments_with_the_workflow_token_and_runs_no_code_of_the_pull_request(self) -> None:
         job = self.job_text("comment")
-        for absent in ("secrets.", "create-github-app-token", "app-token", "uses:", "checkout"):
+        for absent in ("secrets.", "create-github-app-token", "app-token", "uses:", "checkout", "needs.plan.outputs"):
             with self.subTest(absent=absent):
                 self.assertNotIn(absent, job)
         (step,) = self.jobs["comment"]["steps"]
-        self.assertEqual({"GH_TOKEN": "${{ github.token }}", "PULL_REQUEST": "${{ needs.plan.outputs.pull-request }}",
-                          "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "RUN_ID": "${{ github.event.workflow_run.id }}",
-                          "RUN_URL": "${{ github.event.workflow_run.html_url }}",
+        self.assertEqual({"GH_TOKEN": "${{ github.token }}", "HEAD_BRANCH": "${{ github.event.workflow_run.head_branch }}",
+                          "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "HEAD_MESSAGE": "${{ github.event.workflow_run.head_commit.message }}",
+                          "RUN_ID": "${{ github.event.workflow_run.id }}", "RUN_URL": "${{ github.event.workflow_run.html_url }}",
                           "WORKFLOW_RUN_URL": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}, step["env"])
-        for check in ('[[ "$PULL_REQUEST" =~ ^[0-9]+$ ]]', '[[ "$RUN_ID" =~ ^[0-9]+$ ]]', "gh workflow run apply-additions.yml -f run-id=%s"):
+        for check in ('[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]', '[[ "$RUN_ID" =~ ^[0-9]+$ ]]', "gh workflow run apply-additions.yml -f run-id=%s"):
             with self.subTest(check=check):
                 self.assertIn(check, step["run"])
+        # It comments only when the condition, evaluated again, finds that the rebuild acts on the run.
         self.assertEqual(1, step["run"].count("gh pr comment "))
-        self.assertLess(step["run"].index('if [ "$head" != "$HEAD_SHA" ]; then'), step["run"].index("gh pr comment "))
+        self.assertIn('gh pr comment "$rebuild_pull_request" ', step["run"])
+        self.assertLess(step["run"].index("# End: the condition"), step["run"].index('if [ "$rebuild" != true ]; then'))
+        self.assertLess(step["run"].index('if [ "$rebuild" != true ]; then'), step["run"].index("gh pr comment "))
 
     def test_the_build_job_builds_the_pull_request_s_head_with_a_read_only_token_and_no_app_token(self) -> None:
         build = self.job_text("build")
@@ -238,6 +242,7 @@ class RebuildWorkflowTests(unittest.TestCase):
         commit = next(step for step in steps if step.get("name") == "Commit the rebuild as the GitHub App")
         self.assertEqual("${{ steps.app-token.outputs.app-slug }}[bot]", commit["env"]["APP_LOGIN"])
         self.assertIn('git -C pull-request commit -m "chore: rebuild the ETW consumer"', commit["run"])
+        self.assertTrue(commit["run"].endswith(' -m "[dependabot skip]"'), "Dependabot keeps rebasing its pull request over the commit")
         scan = next(step for step in steps if step.get("name") == "Scan the commit before pushing")
         self.assertIn('--log-opts="HEAD --not --remotes=origin"', scan["run"])
         self.assertLess(scan["run"].index('= "$HEAD_SHA" ] || exit 0'), scan["run"].index("gitleaks"), "a moved branch is neither scanned nor pushed to")

@@ -1,8 +1,9 @@
 """This repository's additions workflow: the additions template of the suite-selection consumer kit, run here over
 `Validate` and `tests/suites.json`, kept equal to the template apart from the stated substitutions. It holds the
 condition under which the rebuild workflow of the ETW consumer acts, equal to the rebuild workflow's, and leaves such a
-run to the rebuild; its bound also recognises the rebuild workflow's commit, so that the two automatic routes make at
-most one round per push. The run tests of both routes are in `tests/test_consumer_kit_apply_additions.py`."""
+run to the rebuild; the rebuild workflow's comment job, which evaluates the condition again, holds it equal too. Its
+bound also recognises the rebuild workflow's commit, so that the two automatic routes make at most one round per push.
+The run tests of both routes are in `tests/test_consumer_kit_apply_additions.py`."""
 
 from __future__ import annotations
 
@@ -46,6 +47,8 @@ if [ "$rebuild" = true ]; then
   exit 0
 fi
 """
+# The clause that ends the plan job's `if`, a check that the condition makes again.
+DEPENDABOT_CLAUSE = " && startsWith(github.event.workflow_run.head_branch, 'dependabot/')"
 PIN = re.compile(r"^([\w.-]+/[\w./-]+)@[0-9a-f]{40}$")
 
 
@@ -66,21 +69,25 @@ def rebuild_condition(rebuild_text: str) -> str:
     return condition(step(rebuild["jobs"]["plan"]["steps"], "pull-request")["run"])
 
 
-PLAN_PREFIX = " && startsWith(github.event.workflow_run.head_branch, 'dependabot/')"
+def comment_condition(rebuild_text: str) -> str:
+    """The condition in the comment job of the rebuild workflow, which evaluates it again before it comments."""
+    rebuild = ci_definition().read_yaml(rebuild_text, str(REBUILD))
+    (comment,) = rebuild["jobs"]["comment"]["steps"]
+    return condition(comment["run"])
 
 
 def automatic_filter(own_text: str) -> str:
     """The job filter of the additions workflow's automatic route: its `if` without the start by hand."""
-    condition = ci_definition().read_yaml(own_text, str(OWN_WORKFLOW))["jobs"]["apply"]["if"]
-    found = re.fullmatch(r"github\.event_name == 'workflow_dispatch' \|\| \((.+)\)", condition)
-    assert found, condition
+    expression = ci_definition().read_yaml(own_text, str(OWN_WORKFLOW))["jobs"]["apply"]["if"]
+    found = re.fullmatch(r"github\.event_name == 'workflow_dispatch' \|\| \((.+)\)", expression)
+    assert found, expression
     return found[1]
 
 
 def plan_filter(rebuild_text: str) -> str:
-    """The `if` of the rebuild workflow's plan job, without the Dependabot prefix that the condition checks again."""
-    condition = ci_definition().read_yaml(rebuild_text, str(REBUILD))["jobs"]["plan"]["if"]
-    return condition.removesuffix(PLAN_PREFIX) if condition.endswith(PLAN_PREFIX) else condition
+    """The `if` of the rebuild workflow's plan job, without its Dependabot clause, which the condition checks again."""
+    expression = ci_definition().read_yaml(rebuild_text, str(REBUILD))["jobs"]["plan"]["if"]
+    return expression.removesuffix(DEPENDABOT_CLAUSE)
 
 
 def substitutions(rebuild_text: str) -> tuple[tuple[str, str], ...]:
@@ -200,6 +207,14 @@ class ApplyAdditionsWorkflowTest(unittest.TestCase):
             with self.subTest(change=name):
                 self.assertNotEqual(self.rebuild_text, changed, "the mutation applies")
                 self.assertNotEqual(plan_filter(changed), automatic_filter(self.text))
+
+    def test_the_rebuild_workflow_s_comment_job_holds_the_same_condition(self) -> None:
+        self.assertEqual(rebuild_condition(self.rebuild_text), comment_condition(self.rebuild_text))
+        # Another branch prefix in the plan job only.
+        plan_part, comment_part = self.rebuild_text.split("  comment:\n")
+        mutated = plan_part.replace('[[ "$head_branch" != dependabot/* ]]', '[[ "$head_branch" != dependabot/nuget/* ]]') + "  comment:\n" + comment_part
+        self.assertNotEqual(self.rebuild_text, mutated, "the mutation applies")
+        self.assertNotEqual(rebuild_condition(mutated), comment_condition(mutated), "a plan job that differs from the comment job fails")
 
     def test_a_condition_that_differs_from_the_rebuild_workflow_s_fails(self) -> None:
         for name, ours, theirs in (

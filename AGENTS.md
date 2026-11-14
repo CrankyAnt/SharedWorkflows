@@ -77,7 +77,7 @@ One line per validation or test command and per CI workflow the repository runs.
 - `python-tests`: the shared workflow of Python tests, called by `python-tests-caller` and by consumers at `v1`
 - `promote-v1`: moves `v1` after a pins-only commit on `main` whose CI passed
 - `apply-additions`: commits the recorded additions of a failed `Validate` run onto its pull request's branch, once per push, or comments with the manual route, and leaves a run that `rebuild-etw-consumer` acts on to it; the kit template, kept equal by `ci-policy`
-- `rebuild-etw-consumer`: rebuilds the committed ETW consumer for a Dependabot pull request after a failed `Validate` and commits it with the run's recorded additions to its branch, once per push, or comments with the manual route when its build or push fails
+- `rebuild-etw-consumer`: rebuilds the committed ETW consumer for a Dependabot pull request after a failed `Validate` and commits it with the run's recorded additions to its branch, once per push, or comments with the manual route when a failed or cancelled job leaves a run it acts on without that commit
 - `update-ci-pins`: proposes newer tool pins as a pull request, weekly
 - `update-publication-spec`: proposes a newer Conventional Branch specification as a pull request, weekly
 

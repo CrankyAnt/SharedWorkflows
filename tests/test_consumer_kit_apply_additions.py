@@ -748,7 +748,8 @@ class AutomaticRoutesSteps(ApplyAdditionsSteps):
         self.api(f"repos/{REPOSITORY}/pulls/9/files", [{"filename": name} for name in files])
         self.api(f"repos/{REPOSITORY}/pulls/9", {"number": 9, "state": state, "head": {"sha": head}})
 
-    def workflow_run(self) -> dict:
+    def run_context(self) -> dict:
+        """The expression context of a step that `workflow_run` starts after the failed run."""
         return {"github": {"token": "workflow-token", "repository": REPOSITORY, "repository_owner": REPOSITORY.split("/")[0],
                            "server_url": "https://github.example", "run_id": "9", "event": {"workflow_run": {
                                "id": RUN_ID, "head_branch": self.branch, "head_sha": self.head_sha, "head_commit": {"message": self.message},
@@ -762,22 +763,22 @@ class AutomaticRoutesSteps(ApplyAdditionsSteps):
         return outputs
 
     def plan(self) -> dict[str, str]:
-        ran, outputs = self.run_step("pull-request", self.base, event="workflow_run", steps=self.rebuild_jobs["plan"]["steps"], extra=self.workflow_run())
+        ran, outputs = self.run_step("pull-request", self.base, event="workflow_run", steps=self.rebuild_jobs["plan"]["steps"], extra=self.run_context())
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         return outputs
 
-    def rebuild_comment(self, pull_request: str = "9") -> subprocess.CompletedProcess[str]:
+    def rebuild_comment(self) -> subprocess.CompletedProcess[str]:
+        """The comment job's step, which runs after a failed or cancelled plan, build or push job."""
         ran, _ = self.run_step("Comment on the pull request with the failed run and the manual route", self.base, event="workflow_run",
-                               steps=self.rebuild_jobs["comment"]["steps"],
-                               extra={**self.workflow_run(), "needs": {"plan": {"outputs": {"rebuild": "true", "pull-request": pull_request}}}})
+                               steps=self.rebuild_jobs["comment"]["steps"], extra=self.run_context())
         return ran
 
     def rebuild_step(self, key: str, cwd: Path) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
-        return self.run_step(key, cwd, event="workflow_run", steps=self.rebuild_jobs["push"]["steps"], extra=self.workflow_run())
+        return self.run_step(key, cwd, event="workflow_run", steps=self.rebuild_jobs["push"]["steps"], extra=self.run_context())
 
     # --- the repository -------------------------------------------------------------------------------------------
 
-    def repository(self) -> None:
+    def given_repository(self) -> None:
         """The remote with `self.branch`: the suite list, the files its additions name and the committed build."""
         subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
         seed = self.base / "seed"
@@ -858,7 +859,7 @@ class ApplyAdditionsBoundRunTest(AutomaticRoutesSteps):
     def test_on_a_run_that_the_rebuild_acts_on_it_commits_nothing_does_not_comment_and_names_the_reason(self) -> None:
         self.given_failed_run()
         self.given_pull_request()
-        self.assertEqual({"rebuild": "true", "pull-request": "9"}, self.plan())
+        self.assertEqual({"rebuild": "true"}, self.plan())
         self.assertEqual({"pull-request": "9", "apply": "false"}, self.find())
         self.assertEqual("", self.reason(), "no comment")
         summary = self.summary.read_text(encoding="utf-8")
@@ -878,7 +879,7 @@ class ApplyAdditionsBoundRunTest(AutomaticRoutesSteps):
     def test_at_the_rebuild_commit_it_comments_with_the_manual_route_and_the_rebuild_commits_nothing(self) -> None:
         self.given_failed_run(f"{REBUILD_SUBJECT}\n\nRebuilt from the source of {'1' * 40}, with the recording additions of x.")
         self.given_pull_request()
-        self.assertEqual({"rebuild": "false", "pull-request": ""}, self.plan(), "the build and the push job do not run")
+        self.assertEqual({"rebuild": "false"}, self.plan(), "the build and the push job do not run")
         self.assertIn(f'carries the subject "{REBUILD_SUBJECT}" of the rebuild workflow\'s own commit', self.summary.read_text(encoding="utf-8"))
         self.assertEqual({"pull-request": "9", "apply": "false", "bound": "true"}, self.find())
         self.assertEqual("bound", self.reason(BOUND="true"))
@@ -921,12 +922,11 @@ class ApplyAdditionsBoundRunTest(AutomaticRoutesSteps):
                 self.given_failed_run(message)
                 self.given_pull_request()
                 (self.fixtures / "calls.log").unlink(missing_ok=True)
-                self.assertEqual({"rebuild": "false", "pull-request": ""}, self.plan())
+                self.assertEqual({"rebuild": "false"}, self.plan())
                 self.assertEqual([], self.calls(), "no API call")
 
-
     def test_a_start_by_hand_with_the_id_of_a_run_the_rebuild_acts_on_proposes_its_additions_onto_its_branch(self) -> None:
-        self.repository()
+        self.given_repository()
         self.given_failed_run()
         self.given_pull_request()
         self.assertEqual("true", self.plan()["rebuild"])
@@ -947,33 +947,41 @@ class RebuildBoundRunTest(AutomaticRoutesSteps):
     """The push and the comment of the rebuild workflow on a run it acts on, after its bound let it act."""
 
     def test_on_a_run_it_acts_on_it_pushes_one_rebuild_commit_with_the_build_and_the_run_s_additions(self) -> None:
-        self.repository()
+        self.given_repository()
         self.given_failed_run()
         self.given_pull_request()
         self.assertEqual("true", self.plan()["rebuild"])
         ran = self.push_rebuild(self.rebuild_commit())
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         self.assertEqual([REBUILD_SUBJECT], self.commits_since_the_run(), "one commit onto the run's head")
+        self.assertEqual("[dependabot skip]", git(self.remote, "log", "-1", "--format=%B", self.branch).strip().splitlines()[-1],
+                         "Dependabot keeps rebasing its pull request over the commit, as over the additions commit")
         self.assertEqual(f"{CONSUMER_BUILD}\ntests/suites.json\n", git(self.remote, "diff", "--name-only", self.head_sha, self.branch))
         self.assertEqual("rebuild\n", git(self.remote, "show", f"{self.branch}:{CONSUMER_BUILD}"))
         stored = json.loads(git(self.remote, "show", f"{self.branch}:tests/suites.json"))
         self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt"], "lint": ["checks/lint.py"]}, {item["name"]: item["paths"] for item in stored["suites"]})
 
-    def test_when_the_build_fails_it_comments_once_with_the_failed_run_and_the_manual_route(self) -> None:
-        self.given_failed_run()
-        self.given_pull_request()
-        ran = self.rebuild_comment()
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+    def assert_one_rebuild_comment(self) -> None:
+        """One comment on #9 that links the failed workflow run and the failed run of `Validate` and gives the manual route."""
         (body,) = self.comments()
-        self.assertIn(f"[its workflow run](https://github.example/{REPOSITORY}/actions/runs/9) failed", body)
+        self.assertIn(f"[its workflow run](https://github.example/{REPOSITORY}/actions/runs/9) failed or was cancelled", body)
         self.assertIn(f"[run {RUN_ID}](https://github.example/{REPOSITORY}/actions/runs/{RUN_ID})", body)
         self.assertIn(MANUAL_ROUTE, body)
         self.assertIn(f"https://github.example/{REPOSITORY}/blob/HEAD/docs/maintaining.md#change-the-etw-consumer", body)
         self.assertEqual([f"pr comment 9 --repo {REPOSITORY} --body-file {self.runner_temp}/rebuild-etw-consumer-comment.md"],
                          [call for call in self.calls() if call.startswith("pr ")])
 
+    def test_after_a_failed_or_cancelled_plan_or_build_job_on_a_run_it_acts_on_it_comments_once(self) -> None:
+        # The comment step finds the pull request by evaluating the condition itself, so a failed plan job, whose output
+        # is lost with it, gets the same comment as a failed or cancelled build job.
+        self.given_failed_run()
+        self.given_pull_request()
+        ran = self.rebuild_comment()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assert_one_rebuild_comment()
+
     def test_when_the_push_fails_on_an_unmoved_branch_the_step_fails_and_it_comments_once(self) -> None:
-        self.repository()
+        self.given_repository()
         self.given_failed_run()
         self.given_pull_request()
         root = self.rebuild_commit()
@@ -983,16 +991,26 @@ class RebuildBoundRunTest(AutomaticRoutesSteps):
         self.assertEqual(self.head_sha, self.tip())
         ran = self.rebuild_comment()
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        (body,) = self.comments()
-        self.assertIn(f"[its workflow run](https://github.example/{REPOSITORY}/actions/runs/9) failed", body)
-        self.assertIn(MANUAL_ROUTE, body)
+        self.assert_one_rebuild_comment()
 
-    def test_the_comment_refuses_a_pull_request_number_that_is_no_number(self) -> None:
+    def test_on_a_run_the_rebuild_would_not_act_on_a_failed_or_cancelled_job_gets_no_comment(self) -> None:
+        for name, message, files in (("no source change", "build(deps): bump TraceEvent", (".github/workflows/validate.yml",)),
+                                     ("the rebuild commit", f"{REBUILD_SUBJECT}\n\nRebuilt.", SOURCE_CHANGE)):
+            with self.subTest(case=name):
+                self.given_failed_run(message)
+                self.given_pull_request(files=files)
+                ran = self.rebuild_comment()
+                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+                self.assertEqual([], self.comments())
+        self.assertIn("The workflow committed nothing, and no comment follows: ", self.summary.read_text(encoding="utf-8"))
+
+    def test_the_comment_refuses_a_head_that_is_no_commit_id_before_any_api_call(self) -> None:
+        self.head_sha = "1; x"
         self.given_failed_run()
-        self.given_pull_request()
-        ran = self.rebuild_comment("9; x")
+        ran = self.rebuild_comment()
         self.assertEqual(1, ran.returncode)
-        self.assertEqual([], self.comments())
+        self.assertIn("is no commit id", ran.stdout)
+        self.assertEqual([], self.calls())
 
 
 @requires_bash_and_jq
@@ -1001,18 +1019,18 @@ class BothRoutesOnOneFailedRunTest(AutomaticRoutesSteps):
 
     def setUp(self) -> None:
         super().setUp()
-        self.repository()
+        self.given_repository()
         self.given_failed_run()
 
     def test_on_a_moved_branch_neither_workflow_acts_or_comments(self) -> None:
         self.given_pull_request(head="1" * 40)
-        self.assertEqual({"rebuild": "false", "pull-request": ""}, self.plan(), "the rebuild workflow builds nothing")
+        self.assertEqual({"rebuild": "false"}, self.plan(), "the rebuild workflow builds nothing")
         self.assertEqual({"apply": "false"}, self.find(), "the additions workflow applies nothing")
         self.assertEqual("", self.reason(), "and does not comment")
         ran = self.rebuild_comment()
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         self.assertEqual([], self.comments())
-        self.assertIn("is closed or no longer has the head", self.summary.read_text(encoding="utf-8"))
+        self.assertIn(f"no comment follows: no open pull request by dependabot[bot] has the head {self.head_sha}", self.summary.read_text(encoding="utf-8"))
 
     def test_a_closed_pull_request_gets_no_rebuild_comment(self) -> None:
         self.given_pull_request(state="closed")
@@ -1050,7 +1068,7 @@ class OwnAdditionsCommitTest(AutomaticRoutesSteps):
     """The additions workflow commits a run's additions onto a pull request that the rebuild workflow does not act on."""
 
     def commits_the_additions(self, author: str, files: tuple[str, ...]) -> None:
-        self.repository()
+        self.given_repository()
         self.given_failed_run()
         self.given_pull_request(author=author, files=files)
         outputs = self.find()
