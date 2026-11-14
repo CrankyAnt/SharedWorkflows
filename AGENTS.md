@@ -78,7 +78,6 @@ One line per validation or test command and per CI workflow the repository runs.
 - `promote-v1`: moves `v1` after a pins-only commit on `main` whose CI passed
 - `apply-additions`: commits the recorded additions of a failed `Validate` run onto its pull request's branch, once per push, or comments with the manual route, and leaves a run that `rebuild-etw-consumer` acts on to it; the kit template, kept equal by `ci-policy`
 - `rebuild-etw-consumer`: rebuilds the committed ETW consumer for a Dependabot pull request after a failed `Validate` and commits it with the run's recorded additions to its branch, once per push, or comments with the manual route when a failed or cancelled job leaves a run it acts on without that commit
-- `probe-dependabot-app-token`: after a `Validate` run by `dependabot[bot]` on a pull request from this repository, mints the updater App's token and reads the repository's head through Git with it; a temporary probe
 - `update-ci-pins`: proposes newer tool pins as a pull request, weekly
 - `update-publication-spec`: proposes a newer Conventional Branch specification as a pull request, weekly
 
