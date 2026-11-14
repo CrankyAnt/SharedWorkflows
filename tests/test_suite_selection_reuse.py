@@ -592,10 +592,8 @@ class SharedDigestTests(unittest.TestCase):
         self.assertIn(f"has the digest {digest}, but select took {'0' * 64}: v1 moved during the run", moved.stderr)
 
 
-class SharedLookupTests(FixtureRepository):
-    """In a consumer, a run whose shared digest differs from that of the last passed run on its base branch runs every
-    suite, and the reuse key holds the digest. The lookup walks the base branch's first-parent history and asks for the
-    passed runs of each commit."""
+class SharedLookupFixture(FixtureRepository):
+    """A fixture repository with a recorded API for the shared lookup, and the commands that run it and select over it."""
 
     DIGEST = "a" * 64
     MOVED = "b" * 64
@@ -654,18 +652,19 @@ class SharedLookupTests(FixtureRepository):
         self.fetched(commits[0])
         return commits
 
-    def shared_lookup(self, digest: str, pushed: str = "") -> Path:
+    def shared_lookup(self, digest: str, pushed: str = "", branch: str = "main", default: str | None = "main") -> Path:
         self.printed = io.StringIO()
         output = self.root.parent / "shared.json"
         environment = {"GITHUB_API_URL": self.api.url, "GITHUB_REPOSITORY": "owner/repository", "GITHUB_TOKEN": "token-for-the-test"}
         with mock.patch.dict(os.environ, environment), redirect_stdout(self.printed):
-            code = suite_selection.main(["shared-lookup", "--root", str(self.root), "--digest", digest, "--branch", "main", "--pushed", pushed,
-                                         "--workflow", "owner/repository/.github/workflows/validation.yml@refs/pull/7/merge", "--output", str(output)])
+            code = suite_selection.main(["shared-lookup", "--root", str(self.root), "--digest", digest, "--branch", branch,
+                                         *(["--default-branch", default] if default is not None else []), "--pushed", pushed, "--workflow", "owner/repository/.github/workflows/validation.yml@refs/pull/7/merge",
+                                         "--output", str(output)])
         self.assertEqual(code, 0)
         return output
 
-    def looked_up(self, digest: str = DIGEST, pushed: str = "") -> dict:
-        return json.loads(self.shared_lookup(digest, pushed).read_text(encoding="utf-8"))
+    def looked_up(self, digest: str = DIGEST, pushed: str = "", branch: str = "main", default: str | None = "main") -> dict:
+        return json.loads(self.shared_lookup(digest, pushed, branch, default).read_text(encoding="utf-8"))
 
     def requested(self) -> list[str]:
         return [path.removeprefix("/repos/owner/repository/") for path, _ in self.api.requests]
@@ -678,6 +677,12 @@ class SharedLookupTests(FixtureRepository):
         outputs, printed, _ = self.select("--base", base, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.root.parent / "shared.json"))
         self.assertEqual(self.runs(outputs), self.ALL)
         return printed
+
+
+class SharedLookupTests(SharedLookupFixture):
+    """In a consumer, a run whose shared digest differs from that of the last passed run on its base branch runs every
+    suite, and the reuse key holds the digest. The lookup walks the base branch's first-parent history and asks for the
+    passed runs of each commit."""
 
     def test_the_digest_of_the_last_passed_run_on_the_base_branch_decides_whether_every_suite_runs(self) -> None:
         self.record_branch()
@@ -894,6 +899,227 @@ class SharedLookupTests(FixtureRepository):
         outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.MOVED)))
         self.assertEqual((json.loads(outputs["reused"]), self.runs(outputs)), ({}, ["both", "per-entry", "pr-only", "windows"]),
                          "the same reads under another shared recording step reuse no pass")
+
+
+class OffDefaultBaseLookupTests(SharedLookupFixture):
+    """A pull request whose base is not the default branch compares with the passed pull-request run that produced the
+    base's tip, or else with the passed push or dispatch runs of the default branch where the base meets its first-parent
+    line."""
+
+    NUMBER = 7
+    TESTED = 4100  # the passed pull-request run of the base's tip
+
+    def setUp(self) -> None:
+        super().setUp()
+        # `integration` branches off main at the base. Pull request #7 onto it changes src/feature.py; its run tested the
+        # merge of its head into the integration branch's first commit, and its squash landing is the branch's tip.
+        git(self.root, "checkout", "-q", "-b", "integration")
+        self.start = self.commit("integration starts", {"src/other.py": "integration\n"})
+        git(self.root, "checkout", "-q", "-b", "topic")
+        self.pr_head = self.commit("feature", {"src/feature.py": "feature v2\n"})
+        git(self.root, "checkout", "-q", "integration")
+        git(self.root, "merge", "-q", "--no-ff", "-m", f"Merge {self.pr_head} into {self.start}", "topic")
+        self.merge = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "reset", "-q", "--hard", self.start)
+        self.tip = self.commit("feat: the feature (#7)", {"src/feature.py": "feature v2\n"})
+        git(self.root, "update-ref", "refs/remotes/origin/integration", self.tip)
+
+    def pull_request_runs(self) -> str:
+        return f"actions/workflows/validation.yml/runs?head_sha={self.pr_head}&event=pull_request&status=success&per_page=1"
+
+    def record_pull_request(self, digest: str | None = SharedLookupFixture.DIGEST) -> None:
+        """The pull request of the base's tip and its passed run, whose select job took ``digest``."""
+        self.api.json(f"commits/{self.tip}/pulls", [{"number": self.NUMBER, "state": "closed", "merge_commit_sha": self.tip,
+                                                    "head": {"sha": self.pr_head, "ref": "topic"}}], "REQ-pulls")
+        self.api.json(self.pull_request_runs(), {"total_count": 1, "workflow_runs": [
+            {"id": self.TESTED, "head_sha": self.pr_head, "head_branch": "topic", "event": "pull_request", "conclusion": "success"}]}, "REQ-tested")
+        steps = [{"name": "Set up job"}, {"name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"}]
+        if digest is not None:
+            steps.append({"name": "Take the digest of the shared recording step"})
+        job = self.TESTED + 100
+        self.api.json(f"actions/runs/{self.TESTED}/jobs?per_page=100", {"total_count": 1, "jobs": [{"id": job, "name": "select / select", "steps": steps}]},
+                      f"REQ-jobs-{self.TESTED}")
+        log = CHECKOUT_LOG.format(merge=self.merge, number=self.NUMBER, short=self.merge[:7], head=self.pr_head, base=self.start)
+        self.api.log(job, log + (f"2026-10-29T10:00:00.0000000Z shared CI digest {digest}\n" if digest is not None else ""))
+        tree = git(self.root, "rev-parse", f"{self.merge}^{{tree}}")
+        self.api.json(f"git/commits/{self.merge}", {"sha": self.merge, "tree": {"sha": tree}, "parents": [{"sha": self.start}, {"sha": self.pr_head}]},
+                      "REQ-merge")
+
+    def head_onto_integration(self) -> str:
+        git(self.root, "checkout", "-q", "-b", "next", self.tip)
+        return self.commit("head", {"README.md": "a change no suite reads\n"})
+
+    def select_onto_integration(self, head: str) -> tuple[dict[str, str], str, str]:
+        return self.select("--base", self.tip, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.root.parent / "shared.json"))
+
+    def test_the_passed_pull_request_run_of_the_base_s_tip_under_the_same_digest_leaves_the_selection_as_usual(self) -> None:
+        self.record_pull_request()
+        found = self.looked_up(branch="integration")
+        self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.TESTED), found)
+        self.assertIn(f"step 1 decided: the shared recording step equals that of run {self.TESTED} of pull request #{self.NUMBER}", found["reason"])
+        outputs, _, summary = self.select_onto_integration(self.head_onto_integration())
+        self.assertEqual(self.runs(outputs), [])
+        self.assertIn(f"## Shared recording step\n\nThe selection runs as usual: step 1 decided: the shared recording step equals that of run {self.TESTED} "
+                      f"of pull request #{self.NUMBER}, which produced {self.tip}, the tip of `integration`", summary)
+        self.assertNotIn(self.runs_of(self.tip), self.requested(), "the branch's own commits are not walked")
+
+    def test_the_passed_pull_request_run_of_the_base_s_tip_under_another_digest_runs_every_suite_and_names_that_run(self) -> None:
+        self.record_pull_request(self.MOVED)
+        found = self.looked_up(branch="integration")
+        self.assertEqual((found["previous"], found["run"]), (self.MOVED, self.TESTED), found)
+        outputs, printed, summary = self.select_onto_integration(self.head_onto_integration())
+        self.assertEqual(self.runs(outputs), self.ALL)
+        self.assertIn(f"pr-only: run (every suite runs: step 1 decided: the shared recording step differs from that of run {self.TESTED} "
+                      f"of pull request #{self.NUMBER}, which produced {self.tip}, the tip of `integration`)", printed)
+        self.assertIn("## Shared recording step\n\nEvery suite runs: step 1 decided: ", summary)
+
+    def default_branch_moves_on(self) -> list[str]:
+        """Main moves on after `integration` branched off: an earlier change of `integration` lands as a squash, then a
+        later commit follows. Newest first."""
+        git(self.root, "checkout", "-q", "main")
+        squash = self.commit("feat: integration starts (#5)", {"src/other.py": "integration\n"})
+        later = self.commit("a later commit on main", {"src/moved.py": "moved v2\n"})
+        self.fetched(later)
+        return [later, squash]
+
+    def test_without_a_pull_request_run_of_the_base_s_tip_the_lookup_walks_the_default_branch_from_where_the_base_meets_it(self) -> None:
+        moved = self.default_branch_moves_on()
+        for commit in moved:
+            self.record_commit(commit, [self.passed(self.RUN + 9, commit)])
+        self.record_run(self.RUN + 9, self.MOVED)
+        self.record_branch()
+        for case in ("no pull request", "no digest"):
+            with self.subTest(case=case):
+                self.api.requests.clear()
+                if case == "no pull request":
+                    self.api.json(f"commits/{self.tip}/pulls", [])
+                    why = f"{self.tip} belongs to no pull request"
+                else:
+                    self.record_pull_request(digest=None)
+                    why = f"no digest of the shared recording step can be read from run {self.TESTED} of pull request #{self.NUMBER}"
+                found = self.looked_up(branch="integration")
+                self.assertIn(f"since step 1 found no digest ({why})", found["reason"])
+                self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.RUN), found)
+                self.assertIn("step 2 decided, since step 1 found no digest (", found["reason"])
+                self.assertIn(f"the shared recording step equals that of run {self.RUN}, the last passed run on `main` from {self.base}, "
+                              "where `integration` meets its first-parent line", found["reason"])
+                walked = [path for path in self.requested() if path.startswith("actions/workflows/validation.yml/runs?head_sha=") and "event=" not in path]
+                self.assertEqual(walked, [self.runs_of(self.base)], "the walk starts where `integration` meets main's first-parent line")
+                self.assertIn(f"The walk starts at {self.base}, the newest commit of the first-parent line of `origin/main` that `origin/integration` "
+                              "contains, and reads at most 20 first-parent commits.\n", self.printed.getvalue())
+        outputs, _, summary = self.select_onto_integration(self.head_onto_integration())
+        self.assertEqual(self.runs(outputs), [])
+        self.assertIn("The selection runs as usual: step 2 decided, ", summary)
+
+    def test_after_a_merge_commit_landing_step_2_starts_on_the_default_branch_s_first_parent_line(self) -> None:
+        # `integration` lands on main with a merge commit and continues; the merge base of the two tips is the landed tip
+        # of `integration`, which is no commit of main's first-parent line.
+        git(self.root, "checkout", "-q", "main")
+        other = self.commit("a commit on main", {"src/moved.py": "moved v2\n"})
+        git(self.root, "merge", "-q", "--no-ff", "-m", "Merge integration", "integration")
+        landing = git(self.root, "rev-parse", "HEAD")
+        self.fetched(landing)
+        git(self.root, "checkout", "-q", "integration")
+        continued = self.commit("integration continues", {"README.md": "continued\n"})
+        git(self.root, "update-ref", "refs/remotes/origin/integration", continued)
+        self.assertEqual(git(self.root, "merge-base", landing, continued), self.tip)
+        self.api.json(f"commits/{continued}/pulls", [])
+        for commit in (landing, other, self.tip, self.start):
+            self.record_commit(commit, [self.passed(self.RUN + 9, commit, branch="main" if commit in (landing, other) else "integration")])
+        self.record_run(self.RUN + 9, self.MOVED)
+        self.record_branch()
+        found = self.looked_up(branch="integration")
+        self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.RUN), found)
+        walked = [path for path in self.requested() if path.startswith("actions/workflows/validation.yml/runs?head_sha=") and "event=" not in path]
+        self.assertEqual(walked, [self.runs_of(self.base)])
+        self.assertIn(f"The walk starts at {self.base}, the newest commit of the first-parent line of `origin/main`", self.printed.getvalue())
+
+    def test_step_2_finds_the_default_branch_s_run_behind_more_own_commits_of_the_base_than_the_walk_bound(self) -> None:
+        own = [self.commit(f"integration {number}") for number in range(reuse.WALK_COMMITS + 5)]
+        git(self.root, "update-ref", "refs/remotes/origin/integration", own[-1])
+        self.api.json(f"commits/{own[-1]}/pulls", [])
+        self.record_branch()
+        found = self.looked_up(branch="integration")
+        self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.RUN), found)
+        self.assertNotIn(self.runs_of(own[-1]), self.requested())
+
+    def test_a_run_of_step_2_on_another_branch_is_not_taken_and_the_log_says_why(self) -> None:
+        self.api.json(f"commits/{self.tip}/pulls", [])
+        self.record_branch(runs=[self.passed(6002, self.base, branch="integration", created="2026-10-29T12:00:00Z"), self.passed(self.RUN, self.base)])
+        found = self.looked_up(branch="integration")
+        self.assertEqual(found["run"], self.RUN, found)
+        self.assertIn(f"  run 6002: head_sha {self.base}, head_branch integration, event push: not taken, its head_branch is not main\n", self.printed.getvalue())
+        self.api.responses.clear()
+        self.api.json(f"commits/{self.tip}/pulls", [])
+        self.record_commit(self.base, [self.passed(6002, self.base, branch="integration")])
+        self.record_run(6002)
+        found = self.looked_up(branch="integration")
+        self.assertEqual((found["previous"], found["run"]), (None, None), found)
+        self.assertIn(f"  run 6002: head_sha {self.base}, head_branch integration, event push: not taken, its head_branch is not main\n", self.printed.getvalue())
+
+    def test_when_neither_step_yields_a_digest_every_suite_runs_and_the_reason_names_why_each_step_found_none(self) -> None:
+        self.api.json(f"commits/{self.tip}/pulls", [])
+        self.record_commit(self.base, [])
+        found = self.looked_up(branch="integration")
+        self.assertEqual((found["previous"], found["run"]), (None, None), found)
+        self.assertEqual(f"step 1 found no digest: {self.tip} belongs to no pull request; step 2 found no digest: the walk reached the first commit "
+                         f"of `main` after 1 first-parent commit from {self.base} without a passed push or dispatch run of `validation.yml` on `main`",
+                         found["reason"])
+        printed = self.every_suite_runs(self.tip)
+        self.assertIn(f"pr-only: run (every suite runs: {found['reason']})", printed)
+        git(self.root, "update-ref", "-d", "refs/remotes/origin/main")
+        found = self.looked_up(branch="integration")
+        self.assertIn("step 2 found no digest: `origin/main` is not in this job's checkout", found["reason"])
+        git(self.root, "update-ref", "-d", "refs/remotes/origin/integration")
+        found = self.looked_up(branch="integration")
+        self.assertEqual("step 1 found no digest: `origin/integration` is not in this job's checkout; step 2 found no digest: "
+                         "`origin/main` is not in this job's checkout, so its first-parent line cannot be read", found["reason"])
+
+    def test_the_log_names_every_request_every_returned_run_with_its_verdict_and_the_step_that_decided(self) -> None:
+        self.record_pull_request()
+        self.looked_up(branch="integration")
+        lines = self.printed.getvalue().splitlines()
+        runs = f"GET {self.pull_request_runs()}: x-github-request-id REQ-tested, total_count 1"
+        self.assertEqual(lines[:2], ["`integration` is not the default branch `main`: step 1 looks for the passed pull-request run that produced the tip of "
+                                     "`integration`, step 2 for the last passed push or dispatch run on `main` from where `integration` meets its first-parent line.",
+                                     f"Step 1 starts at {self.tip}, the tip of `origin/integration` fetched in this job."])
+        self.assertIn(f"GET commits/{self.tip}/pulls: x-github-request-id REQ-pulls", lines)
+        self.assertEqual(lines[lines.index(runs) + 1], f"  run {self.TESTED}: head_sha {self.pr_head}, head_branch topic, event pull_request: accepted, "
+                                                     f"its tested tree equals the tree of {self.tip} and it took a digest of the shared recording step")
+        self.assertIn(f"GET actions/runs/{self.TESTED}/jobs?per_page=100: x-github-request-id REQ-jobs-{self.TESTED}, total_count 1", lines)
+        self.assertIn(f"GET actions/jobs/{self.TESTED + 100}/logs: x-github-request-id none", lines)
+        self.assertIn(f"GET git/commits/{self.merge}: x-github-request-id REQ-merge", lines)
+        self.assertIn(f"Step 1 decided: it took the digest of run {self.TESTED} of pull request #{self.NUMBER}, which produced {self.tip}, the tip of `integration`.", lines)
+        self.assertEqual(lines[-1], f"unchanged: step 1 decided: the shared recording step equals that of run {self.TESTED} of pull request #{self.NUMBER}, "
+                                    f"which produced {self.tip}, the tip of `integration`")
+
+        self.api.responses.clear()
+        self.record_pull_request(digest=None)
+        self.record_branch()
+        self.looked_up(branch="integration")
+        lines = self.printed.getvalue().splitlines()
+        self.assertEqual(lines[lines.index(runs) + 1], f"  run {self.TESTED}: head_sha {self.pr_head}, head_branch topic, event pull_request: not taken, "
+                                                     f"no digest of the shared recording step can be read from run {self.TESTED} of pull request #{self.NUMBER}")
+        self.assertIn(f"Step 1 found no digest: no digest of the shared recording step can be read from run {self.TESTED} of pull request #{self.NUMBER}.", lines)
+        self.assertIn(f"GET {self.runs_of(self.base)}: x-github-request-id REQ-{self.base[:7]}, total_count 1", lines)
+        self.assertIn(f"  run {self.RUN}: head_sha {self.base}, head_branch main, event push: accepted", lines)
+        self.assertIn(f"Step 2 decided: it took the digest of run {self.RUN} on `main`.", lines)
+
+    def test_a_push_and_a_pull_request_onto_the_default_branch_look_up_as_without_the_default_branch(self) -> None:
+        git(self.root, "checkout", "-q", "main")
+        commits = self.history(2)
+        self.record_commit(commits[0], [self.passed(self.RUN + 9, commits[0])])
+        self.record_run(self.RUN + 9, self.MOVED)
+        self.record_commit(commits[1], [self.passed(self.RUN, commits[1])])
+        self.record_run(self.RUN)
+        for pushed, branch in (("", "main"), (commits[0], "main"), (commits[0], "integration")):
+            documents = []
+            for default in (None, "main"):
+                self.api.requests.clear()
+                documents.append((self.looked_up(pushed=pushed, branch=branch, default=default), self.requested(), self.printed.getvalue()))
+            with self.subTest(pushed=pushed, branch=branch):
+                self.assertEqual(documents[0], documents[1])
+                self.assertNotIn("Step 1", documents[1][2])
 
 
 class DispatchCommitTests(FixtureRepository):

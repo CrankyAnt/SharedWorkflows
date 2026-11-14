@@ -87,7 +87,7 @@ The GitHub App whose installation token the workflows that propose or push chang
 _Avoid_: Bot account, publication-checks App
 
 **Shared digest**:
-The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
+The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. For a pull request whose base is not the default branch, that run is the passed pull-request run that produced the base's tip, or else the last passed run on the default branch from the newest commit of its first-parent line that the base contains. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
 _Avoid_: Shared CI digest, recording hash
 
 ### Checks
