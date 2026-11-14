@@ -510,6 +510,38 @@ class ReuseTests(FixtureRepository):
         self.assertEqual([9007, 9007], sorted(json.loads(later["reused"]).values()))
         self.assertEqual([["tests/test_one.py"], ["tests/test_pr.py"]], sorted(unit["entries"] for unit in json.loads(later["units"]).values()))
 
+    def test_a_later_head_whose_app_commit_applies_the_additions_to_the_suite_list_runs_them_and_the_readers_of_the_list(self) -> None:
+        # `both` also reads the suite list, as the entry files of this repository that read tests/suites.json do.
+        suites = json.loads(json.dumps(SUITES))
+        suites["suites"][1]["paths"].append("suites.json")
+        git(self.root, "checkout", "-q", self.base)
+        self.base = self.commit("a suite that reads the suite list", {"suites.json": json.dumps(suites, indent=2) + "\n"})
+        first = self.head({"src/feature.py": "feature v2\n"})
+        outputs = self.select_head(first)
+        passed, additions = self.root.parent / "passed.json", self.root.parent / "additions.json"
+        passed.write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in self.ALL]), encoding="utf-8")
+        reads = {"paths": ["README.md"], "existence_reads": [], "directory_memberships": [], "lookup_directories": [], "module_lookups": {}}
+        additions.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": [
+            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}},
+            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}]}), encoding="utf-8")
+        recording = str(SHARED_FOLDER / "recording" / "recording.py")
+        completed = subprocess.run([sys.executable, recording, "keep", "--additions", str(additions), str(passed)], capture_output=True, text=True)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertTrue(self.store(outputs, [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8"))], 9008))
+        # The App commit: the additions applied to the suite list, and no other file.
+        completed = subprocess.run([sys.executable, recording, "apply", "--root", str(self.root), "--suites", str(self.root / "suites.json"), str(additions)],
+                                   capture_output=True, text=True)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        app = self.commit("chore: apply the recorded additions of run 9008")
+        self.assertEqual("suites.json", git(self.root, "diff", "--name-only", first, app))
+        later = self.select_head(app)
+        self.assertEqual(["both", "per-entry", "pr-only"], sorted(name for name, result in json.loads(later["suites"]).items() if result == "run"))
+        self.assertEqual([["tests/test_both.py"], ["tests/test_one.py"], ["tests/test_pr.py"]],
+                         sorted(unit["entries"] for unit in json.loads(later["units"]).values()), "the entry files with additions and the reader of the list")
+        self.assertEqual([9008], list(json.loads(later["reused"]).values()), "every other unit that passed in the failed run reuses its result")
+        _, printed, _ = self.select("--base", self.base, "--head", app, "--compare", "merge-base", "--results", str(self.record), *self.LABELS)
+        self.assertIn("windows: skip (reuses the passed result of run 9008)", printed)
+
     def test_a_suite_split_over_jobs_is_stored_only_when_every_entry_file_passed(self) -> None:
         both = json.loads(json.dumps(SUITES))
         both["suites"][0]["entries"] = ["tests/test_pr.py", "tests/test_main.py"]
