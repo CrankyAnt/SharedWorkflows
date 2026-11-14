@@ -4,6 +4,7 @@ standard-library name or a syntax that 3.12 lacks. Type errors that both version
 
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +14,7 @@ from tests.hygiene_fixtures import REPOSITORY_ROOT, tools_available, tools_direc
 
 FLOOR = "3.12"
 SHARED_CODE = REPOSITORY_ROOT / "actions"
+MAINTAINING = REPOSITORY_ROOT / "docs" / "maintaining.md"
 
 
 def mypy() -> str:
@@ -53,6 +55,13 @@ class PythonFloorTests(unittest.TestCase):
         self.assertEqual(1, len(problems), problems)
         self.assertIn("newer.py:3:", problems[0])
         self.assertIn('"PurePosixPath" has no attribute "full_match"', problems[0])
+
+
+class PythonFloorGuideTests(unittest.TestCase):
+    def test_the_maintenance_guide_states_the_floor_that_the_check_uses(self) -> None:
+        guide = MAINTAINING.read_text(encoding="utf-8")
+        self.assertEqual([FLOOR], re.findall(r"shared jobs and steps run on, Python (\d+\.\d+) today", guide))
+        self.assertEqual([FLOOR], re.findall(r"`python-floor` suite checks the code under `actions/` with the pinned mypy against (\d+\.\d+)", guide))
 
 
 if __name__ == "__main__":
