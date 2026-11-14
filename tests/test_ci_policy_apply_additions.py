@@ -14,6 +14,7 @@ TEMPLATE = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit" / "a
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 OWN_WORKFLOW = WORKFLOWS / "apply-additions.yml"
 REBUILD = WORKFLOWS / "rebuild-etw-consumer.yml"
+MAINTAINING = REPOSITORY_ROOT / "docs" / "maintaining.md"
 ADDITIONS_SUBJECT = "chore: apply the recorded additions of run 4100"
 REBUILD_SUBJECT = "chore: rebuild the ETW consumer"
 TEMPLATE_BOUND = "bound='^chore: apply the recorded additions of run [0-9]+$'"
@@ -119,6 +120,13 @@ class ApplyAdditionsWorkflowTest(unittest.TestCase):
             self.assertRegex(subject, bound)
         for subject in (f"{REBUILD_SUBJECT} (#12)", "fix: rebuild the ETW consumer", f"{ADDITIONS_SUBJECT} (#12)"):
             self.assertNotRegex(subject, bound)
+
+    def test_the_maintenance_guide_gives_the_manual_route_that_the_comment_names(self) -> None:
+        (comment,) = self.workflow["jobs"]["comment"]["steps"]
+        command = re.search(r"\\n(gh workflow run (\S+) -f run-id=)%s\\n", comment["run"])
+        self.assertEqual(OWN_WORKFLOW.name, command[2])
+        section = re.search(r"(?ms)^#### Apply recorded additions\n(.*?)(?=^#{2,4} )", MAINTAINING.read_text(encoding="utf-8"))[1]
+        self.assertIn(f"{command[1]}<run-id>", section)
 
 
 if __name__ == "__main__":

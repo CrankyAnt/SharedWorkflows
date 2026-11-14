@@ -462,6 +462,7 @@
           ".github/workflows/validate.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/apply-additions.yml",
+          "docs/maintaining.md",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_apply_additions.py"
         ]
