@@ -273,7 +273,8 @@ def start_session(output: Path, root: Path, dotnet: str, environment: dict[str, 
         if time.monotonic() > deadline:
             raise RecordingError(f"the ETW session did not start within {ETW_WAIT_SECONDS} s")
         time.sleep(0.05)
-    return {"roots": roots, "git_directories": outside, "devices": devices, "events": ETW_EVENTS, "consumer": process.pid}
+    return {"roots": roots, "git_directories": outside, "devices": devices, "events": ETW_EVENTS, "consumer": process.pid,
+            "consumer_started": process_started(process.pid)}
 
 
 # --- exec ---------------------------------------------------------------------------------------------------
@@ -1707,22 +1708,82 @@ def unreported_node_memberships(unit: UnitRecording) -> set[str]:
     return {directory or "." for directory in directories - ignored_paths(unit.project, directories, directories)}
 
 
-def stop_session(output: Path) -> tuple[float, re.Match]:
-    """Stop the ETW consumer unless it has stopped, and return the seconds the stop took and its summary line."""
+def process_started(pid: int) -> int | None:
+    """The start time of the running process ``pid``, in the system's own unit, or None when no process runs under it. A
+    process id comes back after its process ends; the start time tells the processes that held it apart."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel.GetProcessTimes.argtypes = (wintypes.HANDLE, *(ctypes.POINTER(wintypes.FILETIME),) * 4)
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            code, times = wintypes.DWORD(), [wintypes.FILETIME() for _ in range(4)]
+            # An ended process whose handle another process still holds can be opened; its exit code is no longer 259.
+            if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+                return None
+            if not kernel.GetProcessTimes(handle, *(ctypes.byref(time) for time in times)):
+                return None
+            return times[0].dwHighDateTime << 32 | times[0].dwLowDateTime
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    fields = stat[stat.rindex(")") + 2:].split()  # the command name in parentheses may hold spaces
+    return None if fields[0] in ("Z", "X") else int(fields[19])
+
+
+def consumer_runs(settings: dict) -> bool:
+    """Whether the ETW consumer that start stored still runs: a process under its id with its start time."""
+    pid, started = settings.get("consumer"), settings.get("consumer_started")
+    return isinstance(pid, int) and started is not None and process_started(pid) == started
+
+
+def read_log(log: Path) -> tuple[re.Match | None, str]:
+    """The consumer's summary line in its log, None before it wrote one, and the log's text."""
+    text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+    return ETW_SUMMARY.search(text), text
+
+
+def quoted_log(log: Path, text: str) -> str:
+    return f"its log {log} reads: {text.strip()}" if text.strip() else f"its log {log} is empty"
+
+
+def stop_session(output: Path, settings: dict) -> tuple[float, re.Match]:
+    """Stop the ETW consumer unless it has stopped, and return the seconds the stop took and its summary line. A consumer
+    whose process is gone without a summary line fails at once; one that still runs fails after the wait."""
     log, stop = output / "logs" / "etw.log", output / "logs" / "etw.stop"
+    consumer = f"the ETW consumer (process {settings.get('consumer')})"
     started = time.perf_counter()
-    deadline = time.monotonic() + ETW_WAIT_SECONDS
-    while (found := ETW_SUMMARY.search(text := log.read_text(encoding="utf-8", errors="replace") if log.is_file() else "")) is None:
-        if not stop.exists():
+    deadline = None  # set when check writes the stop file
+    while True:
+        found, text = read_log(log)
+        if found is None and not consumer_runs(settings):
+            found, text = read_log(log)  # the summary line may have come just before the consumer ended
+            if found is None:
+                when = "before the stop" if deadline is None else "after the stop without writing its summary line"
+                raise RecordingError(f"{consumer} ended {when}; {quoted_log(log, text)}")
+        if found is not None:
+            return time.perf_counter() - started, found
+        if deadline is None:
             stop.write_text("stop\n", encoding="utf-8")
-        if time.monotonic() > deadline:
-            raise RecordingError(f"the ETW consumer did not stop within {ETW_WAIT_SECONDS} s; its log {log} reads: {text.strip()}")
+            deadline = time.monotonic() + ETW_WAIT_SECONDS
+        elif time.monotonic() > deadline:
+            raise RecordingError(f"{consumer} still runs {ETW_WAIT_SECONDS} s after the stop; {quoted_log(log, text)}")
         time.sleep(0.05)
-    return time.perf_counter() - started, found
 
 
 def classify_etw_units(output: Path, project: Checkout, records: list[dict], settings: dict) -> list[Unit]:
-    seconds, summary = stop_session(output)
+    seconds, summary = stop_session(output, settings)
     drained, events, lines, lost = (int(value) for value in summary.groups())
     if lost:
         raise RecordingError(f"the ETW session lost {lost} events; the recording is incomplete")
@@ -2413,7 +2474,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     checking.add_argument("--suites", type=Path, required=True, help="the suite list")
     checking.add_argument("--additions", type=Path, help="where to write the additions or the full-recording result")
     checking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
-    checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file")
+    checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file, and error= on a recording error")
     keeping = commands.add_parser("keep", help="leave the entry files that check's additions name out of a passed list")
     keeping.add_argument("--additions", type=Path, required=True, help="the additions document that check wrote")
     keeping.add_argument("passed", type=Path, help="the passed list of the job, a JSON list of suites and entry files, rewritten in place")
@@ -2447,6 +2508,11 @@ def main(argv: list[str] | None = None) -> int:
         return handlers[options.command](options)
     except (RecordingError, suite_selection.SuiteListError, OSError) as error:
         print(str(error), file=sys.stderr)
+        if options.command == "check" and options.github_output is not None:
+            # The recording step's error annotation quotes the message; a random delimiter lets it span lines.
+            delimiter = f"ERROR_{os.urandom(8).hex()}"
+            with options.github_output.open("a", encoding="utf-8") as handle:
+                handle.write(f"error<<{delimiter}\n{error}\n{delimiter}\n")
         return 2
 
 

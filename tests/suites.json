@@ -7594,6 +7594,7 @@
           "tests/test_suite_selection_workflow_reader.py"
         ],
         "tests/test_recording_check.py": [
+          "actions/recording/action.yml",
           "actions/recording/recording.py",
           "actions/recording/stdlib_module_names.json",
           "actions/recording/toolchain_probes.json",

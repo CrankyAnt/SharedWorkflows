@@ -67,8 +67,18 @@ runs:
       shell: bash
       env:
         STATUS: ${{ steps.check.outputs.status }}
+        ADDITIONS: ${{ steps.check.outputs.file }}
+        ERROR: ${{ steps.check.outputs.error }}
       run: |
-        echo "::error::The recording check failed with exit code $STATUS; the job summary lists the additions."
+        if [ "$STATUS" = 1 ] && [ -n "$ADDITIONS" ]; then
+          echo "::error::The recording check failed with exit code $STATUS; the job summary lists the additions."
+        else
+          message=${ERROR:-the log of the check step holds its error.}
+          message=${message//'%'/'%25'}
+          message=${message//$'\r'/'%0D'}
+          message=${message//$'\n'/'%0A'}
+          echo "::error::The recording check failed with exit code $STATUS: $message"
+        fi
         exit "$STATUS"
     - if: inputs.check != 'true' && runner.os != 'Windows'
       shell: bash
