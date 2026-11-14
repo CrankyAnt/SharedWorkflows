@@ -84,4 +84,5 @@ One line per validation or test command and per CI workflow the repository runs.
 ## Dev environment tips
 
 - Linux entry files run in the WSL distribution `Ubuntu-26.04-CI` through `ci-max`, from a fresh clone of the Windows checkout made at the start of a session, checked with `git rev-parse HEAD` and removed afterwards, as the distribution's guide says (`wsl -d Ubuntu-26.04-CI -u root -- cat ~runner/CI-PROFILE.md`). Uncommitted changes run from the Windows tree instead.
+- After a pins update lands on `main`, the local tools follow it before the next local run, as the distribution's guide says (`wsl -d Ubuntu-26.04-CI -u root -- cat ~runner/CI-PROFILE.md`).
 - Recordings from that distribution are never stored: stored lists and duration estimates come only from hosted runs.
