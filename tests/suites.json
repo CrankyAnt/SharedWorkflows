@@ -24,7 +24,8 @@
         "tests/test_ci_policy_full_recording.py",
         "tests/test_ci_policy_python_language_step.py",
         "tests/test_ci_policy_reuse.py",
-        "tests/test_ci_policy_python_tests_caller.py"
+        "tests/test_ci_policy_python_tests_caller.py",
+        "tests/test_ci_policy_apply_additions.py"
       ],
       "command": [
         "python3",
@@ -60,6 +61,7 @@
       "entry_selection": true,
       "paths": [
         ".github/dependabot.yml",
+        ".github/workflows/apply-additions.yml",
         ".github/workflows/dependabot-auto-merge-caller.yml",
         ".github/workflows/dependabot-auto-merge.yml",
         ".github/workflows/full-recording.yml",
@@ -133,6 +135,7 @@
         "tests/fixtures/python_tests/tests/test_greeting.py",
         "tests/suites.json",
         "tests/test_ci_policy_action_pins.py",
+        "tests/test_ci_policy_apply_additions.py",
         "tests/test_ci_policy_auto_merge_caller.py",
         "tests/test_ci_policy_etw_consumer.py",
         "tests/test_ci_policy_full_recording.py",
@@ -156,6 +159,7 @@
       ],
       "entry_paths": {
         "tests/test_ci_policy_action_pins.py": [
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/full-recording.yml",
@@ -184,6 +188,7 @@
           "tests/test_ci_policy_auto_merge_caller.py"
         ],
         "tests/test_ci_policy_shared_surface.py": [
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/full-recording.yml",
@@ -282,6 +287,7 @@
           "tests/test_ci_policy_publication_document.py"
         ],
         "tests/test_ci_policy_tool_pins.py": [
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/full-recording.yml",
@@ -301,6 +307,7 @@
           "tests/test_ci_policy_tool_pins.py"
         ],
         "tests/test_ci_policy_validate.py": [
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/full-recording.yml",
@@ -350,6 +357,7 @@
           "tests/test_ci_policy_recording_action.py"
         ],
         "tests/test_ci_policy_etw_consumer.py": [
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/full-recording.yml",
@@ -422,6 +430,7 @@
           "tests/test_ci_policy_python_language_step.py"
         ],
         "tests/test_ci_policy_reuse.py": [
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/full-recording.yml",
@@ -446,6 +455,15 @@
           "tests/fixtures/python_tests/pyproject.toml",
           "tests/fixtures/python_tests/tests/test_greeting.py",
           "tests/test_ci_policy_python_tests_caller.py"
+        ],
+        "tests/test_ci_policy_apply_additions.py": [
+          ".github/workflows/apply-additions.yml",
+          ".github/workflows/rebuild-etw-consumer.yml",
+          ".github/workflows/validate.yml",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/consumer-kit/apply-additions.yml",
+          "tests/ci_policy_support.py",
+          "tests/test_ci_policy_apply_additions.py"
         ]
       },
       "directory_memberships": [
@@ -489,6 +507,7 @@
         "tests/fixtures/python_tests",
         "tests/fixtures/python_tests/tests",
         "tests/test_ci_policy_action_pins.py/**",
+        "tests/test_ci_policy_apply_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
         "tests/test_ci_policy_etw_consumer.py/**",
         "tests/test_ci_policy_full_recording.py/**",
@@ -621,6 +640,7 @@
         "tests/test_ci_policy_validate.py": [
           ".github/workflows",
           "tests/test_ci_policy_action_pins.py/**",
+          "tests/test_ci_policy_apply_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
           "tests/test_ci_policy_etw_consumer.py/**",
           "tests/test_ci_policy_full_recording.py/**",
@@ -1026,6 +1046,26 @@
         },
         {
           "path": "tests/test_ci_policy_action_pins.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_apply_additions",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_apply_additions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_apply_additions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_apply_additions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_apply_additions.so",
           "kind": "any"
         },
         {
@@ -2690,6 +2730,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_ci_policy_apply_additions.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_auto_merge_caller.py",
             "kind": "any"
           },
@@ -3487,6 +3531,60 @@
             "path": "tests/test_ci_policy_python_tests_caller.so",
             "kind": "any"
           }
+        ],
+        "tests/test_ci_policy_apply_additions.py": [
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_apply_additions",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_apply_additions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_apply_additions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_apply_additions.so",
+            "kind": "any"
+          }
         ]
       },
       "lookup_directories": [
@@ -3577,6 +3675,10 @@
           "tests"
         ],
         "tests/test_ci_policy_python_tests_caller.py": [
+          ".",
+          "tests"
+        ],
+        "tests/test_ci_policy_apply_additions.py": [
           ".",
           "tests"
         ]
@@ -4112,6 +4214,7 @@
       "entry_selection": true,
       "paths": [
         ".github/dependabot.yml",
+        ".github/workflows/apply-additions.yml",
         ".github/workflows/dependabot-auto-merge-caller.yml",
         ".github/workflows/dependabot-auto-merge.yml",
         ".github/workflows/full-recording.yml",
@@ -4198,7 +4301,9 @@
       ],
       "entry_paths": {
         "tests/test_consumer_kit_apply_additions.py": [
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/full-recording.yml",
+          ".github/workflows/rebuild-etw-consumer.yml",
           "actions/recording/recording.py",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/hygiene.py",
@@ -4275,6 +4380,7 @@
         ],
         "tests/test_consumer_kit_install_by_need.py": [
           ".github/dependabot.yml",
+          ".github/workflows/apply-additions.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/full-recording.yml",
@@ -8095,6 +8201,7 @@
         "tests/fixtures/recording_strace/linked/units",
         "tests/suites.json/**",
         "tests/test_ci_policy_action_pins.py/**",
+        "tests/test_ci_policy_apply_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
         "tests/test_ci_policy_etw_consumer.py/**",
         "tests/test_ci_policy_full_recording.py/**",
@@ -8217,6 +8324,7 @@
           "actions/suite-selection/action.yml/**",
           "tests/suites.json/**",
           "tests/test_ci_policy_action_pins.py/**",
+          "tests/test_ci_policy_apply_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
           "tests/test_ci_policy_etw_consumer.py/**",
           "tests/test_ci_policy_full_recording.py/**",
@@ -8901,6 +9009,10 @@
         },
         {
           "path": "tests/test_ci_policy_action_pins.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_apply_additions.py",
           "kind": "any"
         },
         {
@@ -10524,6 +10636,10 @@
           },
           {
             "path": "tests/test_ci_policy_action_pins.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_apply_additions.py",
             "kind": "any"
           },
           {

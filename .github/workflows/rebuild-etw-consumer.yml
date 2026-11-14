@@ -27,10 +27,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
           OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The run's head $HEAD_SHA is no commit id."; exit 1; }
+          # At most one rebuild per push: a failed run on the workflow's own rebuild commit commits nothing.
+          subject="${HEAD_MESSAGE%%$'\n'*}"
+          if [ "$subject" = "chore: rebuild the ETW consumer" ]; then
+            echo "The head commit $HEAD_SHA of the run carries the subject \"$subject\" of the workflow's own rebuild; the workflow rebuilds once per push." >> "$GITHUB_STEP_SUMMARY"
+            printf 'rebuild=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           number="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$OWNER:$HEAD_BRANCH" \
             --jq "[.[] | select(.user.login == \"dependabot[bot]\" and .head.sha == \"$HEAD_SHA\")][0].number // empty")"
           rebuild=false
@@ -183,4 +191,12 @@ jobs:
             echo "The branch $HEAD_BRANCH moved from $HEAD_SHA to $remote; its own run decides on the new head." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          git -C pull-request -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin "HEAD:refs/heads/$HEAD_BRANCH"
+          # The additions workflow can push onto the same run's head first; the push is then no fast-forward and is refused.
+          if ! git -C pull-request -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin "HEAD:refs/heads/$HEAD_BRANCH"; then
+            remote="$(git -C pull-request -c credential.helper= -c 'credential.helper=!gh auth git-credential' ls-remote origin "refs/heads/$HEAD_BRANCH" | cut -f1)"
+            if [ "$remote" != "$HEAD_SHA" ]; then
+              echo "The branch $HEAD_BRANCH moved from $HEAD_SHA to ${remote:-nothing}; nothing is pushed, and its own run decides." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            exit 1
+          fi

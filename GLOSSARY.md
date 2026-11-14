@@ -229,7 +229,7 @@ A read in a recording that the stored lists do not hold; the recording step repo
 _Avoid_: New read, missing path
 
 **Additions workflow**:
-The workflow of a consumer, from the consumer kit of the suite selection, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the GitHub App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch.
+The workflow of a consumer, and of Shared Workflows itself, from the consumer kit of the suite selection, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the GitHub App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch.
 _Avoid_: Apply workflow, apply-additions.yml
 
 **Setup read**:
