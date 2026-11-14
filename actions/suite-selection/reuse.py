@@ -5,7 +5,9 @@ from the ``actions/checkout`` log of that pull request's last successful run of 
 from its parents. It decides the case of the push: its tree equals the passed tested tree, its pull request was behind,
 the selection runs over the pull request's files, or over the push's own changed files. The shared lookup reads the
 digest of the shared recording step that the last passed run on the base branch took, found by walking the base
-branch's first-parent history and asking for the passed runs of each commit; for an identical tree the push
+branch's first-parent history and asking for the passed runs of each commit; for a pull request whose base is not the
+default branch, the passed pull-request run of the base's tip decides, or else the default branch where the base meets
+its first-parent line. For an identical tree the push
 lookup also reads the digest that the passed pull-request run took, which decides in its place. The reuse key of a unit
 holds the content of its reads in the tested tree, its command, the versions its setups pin, the runner label of its
 job, the content of every unrecorded input that selects it (``unrecorded.py``) and the digest of the shared recording
@@ -159,7 +161,7 @@ def landing_base(root: Path, sha: str, before: str | None) -> str | None:
     return commit_id(root, f"{sha}^1")
 
 
-def lookup(root: Path, api: Api, workflow: str, sha: str, before: str | None = None, run_attempt: int = 1) -> Lookup:
+def lookup(root: Path, api: Api | LoggedApi, workflow: str, sha: str, before: str | None = None, run_attempt: int = 1) -> Lookup:
     """The case of a pushed commit. ``workflow`` is the file name of the calling workflow, whose last successful
     pull-request run names the tested merge commit. A failed request never skips: it falls back to a selection."""
     landing = landing_base(root, sha, before)
@@ -215,7 +217,7 @@ def lookup(root: Path, api: Api, workflow: str, sha: str, before: str | None = N
     return fallback(f"the tree of {sha} differs from the tested tree of {full}, and its tested base {base} is no earlier commit of the landing base", **found)
 
 
-def run_digest(api: Api, jobs, read_job: int, read_log: str) -> str | None:
+def run_digest(api: Api | LoggedApi, jobs, read_job: int, read_log: str) -> str | None:
     """The digest of the shared recording step that a run took, from the log of its job with the digest step; the log
     of ``read_job`` is ``read_log``. A run without that step, or a log that cannot be read or names none, gives None."""
     job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
@@ -262,9 +264,50 @@ def read_shared_lookup(path: Path) -> SharedLookup:
                          raw.get("run") if isinstance(raw.get("run"), int) else None)
 
 
+class LoggedApi:
+    """The requests of an ``Api``, each logged with the response's x-github-request-id and, where the answer has one,
+    its total_count; ``runs`` holds, for every answer with a list of workflow runs, the position in the log after its
+    request line and the runs it returned."""
+
+    def __init__(self, api: Api, log: list[str]) -> None:
+        self.api = api
+        self.log = log
+        self.runs: list[tuple[int, list]] = []
+
+    @property
+    def request_id(self) -> str | None:
+        return self.api.request_id
+
+    def _logged(self, path: str, read: Callable[[str], object]):
+        try:
+            answer = read(path)
+        except ApiError as error:
+            self.log.append(f"GET {path}: x-github-request-id {self.api.request_id or 'none'}, failed: {error}")
+            raise
+        count = f", total_count {answer['total_count']}" if isinstance(answer, dict) and "total_count" in answer else ""
+        self.log.append(f"GET {path}: x-github-request-id {self.api.request_id or 'none'}{count}")
+        if isinstance(answer, dict) and isinstance(answer.get("workflow_runs"), list):
+            self.runs.append((len(self.log), answer["workflow_runs"]))
+        return answer
+
+    def json(self, path: str):
+        return self._logged(path, self.api.json)
+
+    def text(self, path: str) -> str:
+        return self._logged(path, self.api.text)
+
+
+def run_line(run: object, verdict: str) -> str:
+    """The log line of a returned run with its verdict."""
+    if not isinstance(run, dict):
+        return f"  {json.dumps(run)}: not taken, it is no run object"
+    return f"  run {run.get('id')}: head_sha {run.get('head_sha')}, head_branch {run.get('head_branch')}, event {run.get('event')}: {verdict}"
+
+
 def run_mismatch(run: dict, commit: str, branch: str) -> str | None:
     """Why the shared lookup does not take a returned run of ``commit``, or None when it is a passed push or dispatch
-    run of that commit on the base branch."""
+    run of that commit on ``branch``: the base branch, or the default branch in the second step of a base that is not
+    the default branch."""
     if not isinstance(run.get("id"), int) or isinstance(run.get("id"), bool):
         return "it has no numeric id"
     if run.get("head_sha") != commit:
@@ -276,55 +319,82 @@ def run_mismatch(run: dict, commit: str, branch: str) -> str | None:
     return None
 
 
-def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digest: str, pushed: str | None) -> SharedLookup:
-    """The digest that the last passed push or dispatch run of the calling workflow on the base branch took. The walk
-    reads the base branch's first-parent history, newest first, from the fetched tip ``origin/<branch>`` or, on a push,
-    from the first parent of the pushed commit, and asks for each commit's successful runs; the newest accepted run of
-    the first commit that has one decides, and its digest is read from the log of its job with the digest step. A walk
-    that reaches its bound, a failed request, or a step or a log line that cannot be found leaves ``previous`` empty, so
-    that every suite runs. ``log`` names every request, every returned run with its verdict, the start and the outcome."""
+def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digest: str, pushed: str | None,
+                  default_branch: str | None = None) -> SharedLookup:
+    """The digest of the shared recording step that the run to compare with took.
+
+    On a push, a dispatch run, and a pull request onto the default branch, that run is the last passed push or dispatch
+    run of the calling workflow on the base branch, found by ``walk`` from the fetched tip ``origin/<branch>`` or, on a
+    push, from the first parent of the pushed commit. On a pull request whose base is not ``default_branch``, step 1
+    takes the passed pull-request run that produced the base's tip, found as ``lookup`` finds the tested tree of an
+    identical push; when that run or its digest cannot be found, step 2 walks from the newest commit of the default
+    branch's first-parent line that the base's tip contains and takes only runs of the default branch. A lookup that
+    finds no digest leaves ``previous`` empty, so that every suite runs. ``log`` names every request, every returned run
+    with its verdict, each start, the step that decided and why."""
     log: list[str] = []
+    logged = LoggedApi(api, log)
 
     def result(previous: str | None, reason: str, run: int | None = None) -> SharedLookup:
         if previous is None:
             log.append(f"No digest to compare with: {reason}.")
         return SharedLookup(digest, previous, reason, run, tuple(log))
 
-    def get(path: str, read: Callable[[str], object]):
-        try:
-            answer = read(path)
-        except ApiError as error:
-            log.append(f"GET {path}: x-github-request-id {api.request_id or 'none'}, failed: {error}")
-            raise
-        count = f", total_count {answer['total_count']}" if isinstance(answer, dict) and "total_count" in answer else ""
-        log.append(f"GET {path}: x-github-request-id {api.request_id or 'none'}{count}")
-        return answer
+    def compared(previous: str) -> str:
+        return "equals" if previous == digest else "differs from"
 
-    if pushed:
-        start, origin = commit_id(root, f"{pushed}^1"), f"the first parent of the pushed commit {pushed}"
-        if start is None:
-            return result(None, f"the pushed commit {pushed} has no first parent in this job's checkout")
-    else:
-        start, origin = commit_id(root, f"refs/remotes/origin/{branch}"), f"the tip of `origin/{branch}` fetched in this job"
-        if start is None:
-            return result(None, f"`origin/{branch}` is not in this job's checkout, so its first-parent history cannot be walked")
+    if pushed or not default_branch or default_branch == branch:
+        if pushed:
+            start, origin = commit_id(root, f"{pushed}^1"), f"the first parent of the pushed commit {pushed}"
+            if start is None:
+                return result(None, f"the pushed commit {pushed} has no first parent in this job's checkout")
+        else:
+            start, origin = commit_id(root, f"refs/remotes/origin/{branch}"), f"the tip of `origin/{branch}` fetched in this job"
+            if start is None:
+                return result(None, f"`origin/{branch}` is not in this job's checkout, so its first-parent history cannot be walked")
+        previous, why, run = walk(root, logged, workflow, branch, start, origin)
+        if previous is None:
+            return result(None, why, run)
+        return result(previous, f"the shared recording step {compared(previous)} that of run {run}, the last passed run on `{branch}`", run)
+
+    log.append(f"`{branch}` is not the default branch `{default_branch}`: step 1 looks for the passed pull-request run that produced the tip of "
+               f"`{branch}`, step 2 for the last passed push or dispatch run on `{default_branch}` from where `{branch}` meets its first-parent line.")
+    previous, step_1, run = tip_run(root, logged, workflow, branch)
+    if previous is not None:
+        log.append(f"Step 1 decided: it took the digest of {step_1}.")
+        return result(previous, f"step 1 decided: the shared recording step {compared(previous)} that of {step_1}", run)
+    log.append(f"Step 1 found no digest: {step_1}.")
+    anchor, step_2 = meeting_point(root, branch, default_branch)
+    run = None
+    if anchor is not None:
+        origin = f"the newest commit of the first-parent line of `origin/{default_branch}` that `origin/{branch}` contains"
+        previous, step_2, run = walk(root, logged, workflow, default_branch, anchor, origin)
+    if previous is None:
+        return result(None, f"step 1 found no digest: {step_1}; step 2 found no digest: {step_2}", run)
+    log.append(f"Step 2 decided: it took the digest of run {run} on `{default_branch}`.")
+    return result(previous, f"step 2 decided, since step 1 found no digest ({step_1}): the shared recording step {compared(previous)} that of run {run}, "
+                            f"the last passed run on `{default_branch}` from {anchor}, where `{branch}` meets its first-parent line", run)
+
+
+def walk(root: Path, api: LoggedApi, workflow: str, branch: str, start: str, origin: str) -> tuple[str | None, str, int | None]:
+    """The digest of the last passed push or dispatch run of the calling workflow on ``branch``, with why none was found
+    and the run it took. The walk reads the first-parent history from ``start``, newest first, for at most
+    ``WALK_COMMITS`` commits, and asks for each commit's successful runs; the newest accepted run of the first commit
+    that has one decides, and its digest is read from the log of its job with the digest step. A walk that reaches its
+    bound, a failed request, or a step or a log line that cannot be found gives no digest."""
+    log = api.log
     listing = git(root, "rev-list", "--first-parent", f"--max-count={WALK_COMMITS + 1}", start)
     if listing.returncode != 0:
-        return result(None, f"the first-parent history of {start} cannot be read: {listing.stderr.strip()}")
+        return None, f"the first-parent history of {start} cannot be read: {listing.stderr.strip()}", None
     commits = listing.stdout.split()
     log.append(f"The walk starts at {start}, {origin}, and reads at most {WALK_COMMITS} first-parent commits.")
     run = None
     try:
         for number, commit in enumerate(commits[:WALK_COMMITS], 1):
-            answer = get(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?head_sha={commit}&status=success&per_page=100", api.json)
+            answer = api.json(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?head_sha={commit}&status=success&per_page=100")
             accepted = []
             for item in answer.get("workflow_runs") or [] if isinstance(answer, dict) else []:
-                if not isinstance(item, dict):
-                    log.append(f"  {json.dumps(item)}: not taken, it is no run object")
-                    continue
-                mismatch = run_mismatch(item, commit, branch)
-                log.append(f"  run {item.get('id')}: head_sha {item.get('head_sha')}, head_branch {item.get('head_branch')}, event {item.get('event')}: "
-                           + (f"not taken, {mismatch}" if mismatch else "accepted"))
+                mismatch = run_mismatch(item, commit, branch) if isinstance(item, dict) else "it is no run object"
+                log.append(run_line(item, f"not taken, {mismatch}" if mismatch else "accepted"))
                 if mismatch is None:
                     accepted.append(item)
             if accepted:
@@ -335,22 +405,68 @@ def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digest: str,
         if run is None:
             end = (f"the walk reached its bound of {WALK_COMMITS} first-parent commits" if len(commits) > WALK_COMMITS
                    else f"the walk reached the first commit of `{branch}` after {len(commits)} first-parent commit{'' if len(commits) == 1 else 's'}")
-            return result(None, f"{end} from {start} without a passed push or dispatch run of `{workflow}` on `{branch}`")
-        jobs = get(f"actions/runs/{run['id']}/jobs?per_page=100", api.json)
+            return None, f"{end} from {start} without a passed push or dispatch run of `{workflow}` on `{branch}`", None
+        jobs = api.json(f"actions/runs/{run['id']}/jobs?per_page=100")
         job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
                     and any(step.get("name") == DIGEST_STEP for step in item.get("steps") or [] if isinstance(step, dict))), None)
         if job is None:
-            return result(None, f"run {run['id']} on `{branch}` took no digest of the shared recording step", run["id"])
-        match = DIGEST_LINE.search(get(f"actions/jobs/{job['id']}/logs", api.text))
+            return None, f"run {run['id']} on `{branch}` took no digest of the shared recording step", run["id"]
+        match = DIGEST_LINE.search(api.text(f"actions/jobs/{job['id']}/logs"))
     except ApiError as error:
         if run is None:
-            return result(None, f"a request of the walk over `{branch}` failed: {error}")
-        return result(None, f"run {run['id']} on `{branch}` could not be read: {error}", run["id"])
+            return None, f"a request of the walk over `{branch}` failed: {error}", None
+        return None, f"run {run['id']} on `{branch}` could not be read: {error}", run["id"]
     if match is None:
-        return result(None, f"the log of run {run['id']} on `{branch}` names no digest of the shared recording step", run["id"])
-    previous = match.group(1)
-    comparison = "equals" if previous == digest else "differs from"
-    return result(previous, f"the shared recording step {comparison} that of run {run['id']}, the last passed run on `{branch}`", run["id"])
+        return None, f"the log of run {run['id']} on `{branch}` names no digest of the shared recording step", run["id"]
+    return match.group(1), "", run["id"]
+
+
+def tip_run(root: Path, api: LoggedApi, workflow: str, branch: str) -> tuple[str | None, str, int | None]:
+    """Step 1 of a base that is not the default branch: the digest of the passed pull-request run that produced the
+    base's tip ``origin/<branch>``, with the run it names, or why it gives none. The run is the last successful
+    pull-request run of the tip's pull request whose tested tree equals the tip's tree, as ``lookup`` finds it for an
+    identical push. Under that runs request the log names the returned run with its verdict."""
+    tip = commit_id(root, f"refs/remotes/origin/{branch}")
+    if tip is None:
+        return None, f"`origin/{branch}` is not in this job's checkout", None
+    api.log.append(f"Step 1 starts at {tip}, the tip of `origin/{branch}` fetched in this job.")
+    answered = len(api.runs)
+    found = lookup(root, api, workflow, tip)
+    taken = found.case == "identical" and found.tested_digest is not None
+    if found.case == "identical":
+        why = f"no digest of the shared recording step can be read from run {found.tested_run} of pull request #{found.pull_request}"
+    elif found.case == "behind":
+        why = f"the tree of {tip} differs from the tested tree {found.tested_merge} of pull request #{found.pull_request}"
+    else:
+        why = found.reason
+    for position, runs in reversed(api.runs[answered:]):  # the runs request of ``lookup``; the last insertion first keeps the positions
+        accepted = f"accepted, its tested tree equals the tree of {tip} and it took a digest of the shared recording step"
+        api.log[position:position] = [run_line(item, "not taken, only the last successful run counts" if index else accepted if taken else f"not taken, {why}")
+                                      for index, item in enumerate(runs)]
+    if not taken:
+        return None, why, None
+    return found.tested_digest, f"run {found.tested_run} of pull request #{found.pull_request}, which produced {tip}, the tip of `{branch}`", found.tested_run
+
+
+def meeting_point(root: Path, branch: str, default_branch: str) -> tuple[str | None, str]:
+    """The newest commit of the first-parent line of ``origin/<default_branch>`` that ``origin/<branch>`` contains, found
+    from the fetched refs without a bound, or None with why it cannot be found."""
+    default_tip = commit_id(root, f"refs/remotes/origin/{default_branch}")
+    if default_tip is None:
+        return None, f"`origin/{default_branch}` is not in this job's checkout, so its first-parent line cannot be read"
+    tip = commit_id(root, f"refs/remotes/origin/{branch}")
+    if tip is None:
+        return None, f"`origin/{branch}` is not in this job's checkout"
+    line = git(root, "rev-list", "--first-parent", default_tip)
+    contained = git(root, "rev-list", tip)
+    for listing in (line, contained):
+        if listing.returncode != 0:
+            return None, f"the histories of `origin/{default_branch}` and `origin/{branch}` cannot be read: {listing.stderr.strip()}"
+    ancestors = set(contained.stdout.split())
+    anchor = next((commit for commit in line.stdout.split() if commit in ancestors), None)
+    if anchor is None:
+        return None, f"`origin/{branch}` contains no commit of the first-parent line of `origin/{default_branch}`"
+    return anchor, ""
 
 
 def tested_digest(found: Lookup | None) -> str | None:
