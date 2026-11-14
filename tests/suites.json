@@ -15608,6 +15608,7 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
+        "docs/maintaining.md",
         "tests/hygiene_fixtures.py",
         "tests/test_python_floor.py"
       ],
