@@ -62,6 +62,13 @@ class RecordingActionTests(unittest.TestCase):
         self.assertIn('exit "$STATUS"', fail)
         self.assertEqual(7, len(self.steps))
 
+    def test_the_failure_annotation_takes_check_s_status_additions_document_and_error_message(self) -> None:
+        # tests/test_recording_check.py runs the step's script on each combination.
+        fail = self.steps[4]
+        self.assertIn("STATUS: ${{ steps.check.outputs.status }}", fail)
+        self.assertIn("ADDITIONS: ${{ steps.check.outputs.file }}", fail)
+        self.assertIn("ERROR: ${{ steps.check.outputs.error }}", fail)
+
     def test_the_first_call_writes_the_job_s_environment_before_any_setup_with_the_job_s_own_interpreter(self) -> None:
         linux, windows = self.steps[5], self.steps[6]
         self.assertIn("if: inputs.check != 'true' && runner.os != 'Windows'", linux)
