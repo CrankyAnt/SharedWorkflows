@@ -54,7 +54,7 @@ The `-v` output of a `python -m unittest` entry file lists every skipped case wi
 
 ### Tools the suites need
 
-The suites need Python, and selected publication entry files need Node.js and npm. Selected hygiene and publication entry files also need tools that a checkout does not contain:
+The suites need Python, and selected publication entry files need Node.js and npm. Selected hygiene, consumer-kit and publication entry files also need tools that a checkout does not contain:
 
 - Hygiene (`hygiene`). Only the actionlint, zizmor, Gitleaks and REUSE entry files need installed executables; the actionlint entry file also needs ShellCheck. Other hygiene entry files use repository files, Git or fixture archives. Those entry files take tools from `HYGIENE_TOOLS` when set, otherwise from `PATH`, and skip when a required executable is missing. Install the pinned versions for the platform, `windows-x64` or `linux-x64`, into an empty directory outside the repository, and set `HYGIENE_TOOLS` to it:
 
@@ -62,6 +62,7 @@ The suites need Python, and selected publication entry files need Node.js and np
   python actions/repository-hygiene/install_tools.py --pins actions/repository-hygiene/pins.json --platform <platform> --destination <directory>
   ```
 
+- Consumer kit templates (`consumer-kit-templates`). The suite states the setups `actionlint` and `zizmor` for the case of `tests/test_consumer_kit_apply_additions.py` that runs actionlint, with ShellCheck, and zizmor over the installed additions workflow. It takes the tools from `HYGIENE_TOOLS` or `PATH`, as the hygiene entry files do, and skips without them. The run cases of the same entry file need Bash and `jq` and skip on Windows. They also run this repository's own additions workflow, which `ci-policy` keeps equal to the template apart from the stated substitutions, beside the plan, push and comment steps of `rebuild-etw-consumer.yml`: which of the two automatic routes acts on a failed run, their bounds, their pushes onto a branch that moved, and the rebuild workflow's comment.
 - Publication checks (`publication-checks`). The two commitlint cases skip unless `PUBLICATION_CHECKS_TOOLS` names a directory where `npm ci` installed the locked toolchain; they do not look on `PATH`. Copy `package.json` and `package-lock.json` from `actions/publication-checks` into an empty directory outside the repository, install the toolchain there with the command of the `commitlint` setup, and set `PUBLICATION_CHECKS_TOOLS` to that directory. `--userconfig /dev/null` keeps the user's npm configuration out of the install; on Windows, `NUL` takes the place of `/dev/null`. A local run needs a Node.js version within `engines.node` of the part's `package.json`; CI runs the version that `node.version` in the pins file pins:
 
   ```text

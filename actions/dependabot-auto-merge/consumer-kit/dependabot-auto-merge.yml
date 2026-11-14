@@ -12,3 +12,5 @@ jobs:
       contents: write
       pull-requests: write
     uses: CrankyAnt/SharedWorkflows/.github/workflows/dependabot-auto-merge.yml@v1
+    with:
+      suites: <suite-list>

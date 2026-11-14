@@ -3,14 +3,19 @@ additions of a pull-request run, and the report of the stop and parse time."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from tests.recording_fixtures import ETW_RECORDINGS, ROOT, RecordingFixture, copy_recording, suite
+from tests.recording_fixtures import ETW_RECORDINGS, ROOT, RecordingFixture, copy_recording, load_recording, suite
 from tests.test_recording_classification import ENTRIES, WINDOWS_FILES, classification_fixture
 
 RECORDED = ETW_RECORDINGS / "classification" / "first"
@@ -176,6 +181,121 @@ class RecordedEventFileTests(unittest.TestCase):
         checked = fixture.check()
         self.assertEqual(2, checked.returncode)
         self.assertIn("lost 3 events", checked.stderr)
+
+
+def exited_pid() -> int:
+    """The process id of a process that has exited."""
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
+
+
+def consumer_recording(cleanup, log: str, pid: int, started: object) -> RecordingFixture:
+    """The recorded fixture with ``log`` as the consumer's log and ``pid`` and ``started`` as the consumer that start
+    stored."""
+    fixture = recorded_fixture(cleanup)
+    (fixture.output / "logs" / "etw.log").write_text(log, encoding="utf-8")
+    settings = json.loads((fixture.output / "recording.json").read_text(encoding="utf-8"))
+    (fixture.output / "recording.json").write_text(json.dumps(dict(settings, consumer=pid, consumer_started=started)), encoding="utf-8")
+    return fixture
+
+
+CRASH = "Unhandled exception. System.InvalidOperationException: the session ended"
+
+
+class ConsumerStopTests(unittest.TestCase):
+    """How check stops the ETW consumer that start left running, and what it says when the consumer does not stop."""
+
+    def test_a_consumer_that_ended_without_its_summary_line_fails_the_check_at_once_and_names_its_pid_and_log(self) -> None:
+        pid = exited_pid()
+        fixture = consumer_recording(self.addCleanup, CRASH + "\n", pid, 1)
+        began = time.monotonic()
+        checked = fixture.check()
+        self.assertLess(time.monotonic() - began, 5)
+        self.assertEqual(2, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn(f"the ETW consumer (process {pid}) ended before the stop", checked.stderr)
+        self.assertIn(CRASH, checked.stderr)
+
+    def test_a_recording_error_reaches_the_step_s_outputs_as_its_message(self) -> None:
+        pid = exited_pid()
+        fixture = consumer_recording(self.addCleanup, CRASH + "\nat EtwConsumer.Main()\n", pid, 1)
+        outputs = fixture.base / "outputs.txt"
+        checked = fixture.run("check", "--output", str(fixture.output), "--suites", "suites.json", "--github-output", str(outputs))
+        self.assertEqual(2, checked.returncode, checked.stdout + checked.stderr)
+        lines = outputs.read_text(encoding="utf-8").split("\n")
+        self.assertRegex(lines[0], r"^error<<ERROR_[0-9a-f]{16}$")
+        delimiter = lines[0].split("<<", 1)[1]
+        end = lines.index(delimiter)
+        self.assertEqual(checked.stderr.rstrip("\n"), "\n".join(lines[1:end]))
+        self.assertEqual([""], lines[end + 1:], "the delimiter ends the file's last line")
+
+    def test_a_consumer_that_ended_after_its_summary_line_passes_the_check(self) -> None:
+        log = (RECORDED / "logs" / "etw.log").read_text(encoding="utf-8")
+        fixture = consumer_recording(self.addCleanup, log, exited_pid(), 1)
+        checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn("Stopped the ETW session in ", checked.stdout)
+        self.assertEqual(entries(self.recorded()), entries(fixture))
+
+    def recorded(self) -> RecordingFixture:
+        fixture = recorded_fixture(self.addCleanup)
+        checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        return fixture
+
+    def test_another_process_under_the_consumer_s_pid_counts_as_the_ended_consumer(self) -> None:
+        # The test's own process runs under the stored id, with a start time other than the stored one.
+        pid = os.getpid()
+        fixture = consumer_recording(self.addCleanup, "", pid, 1)
+        began = time.monotonic()
+        checked = fixture.check()
+        self.assertLess(time.monotonic() - began, 5)
+        self.assertEqual(2, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn(f"the ETW consumer (process {pid}) ended before the stop; its log ", checked.stderr)
+        self.assertIn("etw.log is empty", checked.stderr)
+
+    def in_process_check(self, fixture: RecordingFixture, wait: float, runs=None) -> tuple[int, str]:
+        """Run check in this process with ``wait`` seconds in place of the consumer's 60 s, and ``runs`` in place of
+        the look at its process when given; return its exit status and standard error."""
+        recording = load_recording()
+        error = io.StringIO()
+        with mock.patch.object(recording, "ETW_WAIT_SECONDS", wait), contextlib.redirect_stderr(error), contextlib.ExitStack() as stack:
+            if runs is not None:
+                stack.enter_context(mock.patch.object(recording, "consumer_runs", side_effect=runs))
+            status = recording.main(["check", "--root", str(fixture.root), "--output", str(fixture.output),
+                                     "--suites", str(fixture.root / "suites.json")])
+        return status, error.getvalue()
+
+    def test_a_consumer_that_still_runs_after_the_wait_fails_the_check_and_names_its_pid_and_log(self) -> None:
+        self.assertEqual(60, load_recording().ETW_WAIT_SECONDS)
+        # The test's own process stands in for a consumer that ignores the stop file.
+        pid = os.getpid()
+        fixture = consumer_recording(self.addCleanup, "Session started\n", pid, load_recording().process_started(pid))
+        began = time.monotonic()
+        status, error = self.in_process_check(fixture, 0.5)
+        self.assertGreaterEqual(time.monotonic() - began, 0.5)
+        self.assertEqual(2, status, error)
+        self.assertTrue((fixture.output / "logs" / "etw.stop").is_file())
+        self.assertIn(f"the ETW consumer (process {pid}) still runs 0.5 s after the stop; its log ", error)
+        self.assertIn("Session started", error)
+
+    def test_a_consumer_that_ends_after_the_stop_without_its_summary_line_fails_the_check_at_once(self) -> None:
+        pid = os.getpid()
+        fixture = consumer_recording(self.addCleanup, CRASH + "\n", pid, 1)
+        status, error = self.in_process_check(fixture, 60, runs=[True, False])
+        self.assertEqual(2, status, error)
+        self.assertTrue((fixture.output / "logs" / "etw.stop").is_file())
+        self.assertIn(f"the ETW consumer (process {pid}) ended after the stop without writing its summary line; its log ", error)
+        self.assertIn(CRASH, error)
+
+    def test_a_process_is_the_consumer_only_under_its_pid_with_its_start_time(self) -> None:
+        recording = load_recording()
+        started = recording.process_started(os.getpid())
+        self.assertIsNotNone(started)
+        self.assertEqual(started, recording.process_started(os.getpid()))
+        self.assertIsNone(recording.process_started(exited_pid()))
+        self.assertTrue(recording.consumer_runs({"consumer": os.getpid(), "consumer_started": started}))
+        self.assertFalse(recording.consumer_runs({"consumer": os.getpid(), "consumer_started": started + 1}))
 
 
 class AttributionTests(unittest.TestCase):

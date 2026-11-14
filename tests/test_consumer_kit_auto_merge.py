@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tests.ci_policy_support import read_workflow
 from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -27,9 +28,13 @@ class AutoMergeCallerTemplateTest(unittest.TestCase):
                           "workflow_run": {"workflows": ["<required-check-workflows>"], "types": ["completed"]}}, self.caller["on"])
         self.assertRegex(self.text, r"(?m)^  workflow_run: # zizmor: ignore\[dangerous-triggers\] \S")
 
-    def test_passes_no_inputs_no_secrets_and_runs_no_step(self) -> None:
-        self.assertNotIn("with", self.caller["jobs"]["dependabot-auto-merge"])
+    def test_passes_only_the_suite_list_s_path_no_secrets_and_runs_no_step(self) -> None:
+        self.assertEqual({"suites": "<suite-list>"}, self.caller["jobs"]["dependabot-auto-merge"]["with"])
         assert_caller_passes_no_secrets_and_runs_no_step(self, self.text)
+
+    def test_the_caller_passes_exactly_the_inputs_that_the_shared_workflow_declares(self) -> None:
+        _, shared = read_workflow(REPOSITORY_ROOT / ".github" / "workflows" / "dependabot-auto-merge.yml")
+        self.assertEqual(set(shared["on"]["workflow_call"]["inputs"]), set(self.caller["jobs"]["dependabot-auto-merge"]["with"]))
 
 
 if __name__ == "__main__":

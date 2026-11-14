@@ -4,10 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.ci_policy_support import read_workflow
 from tests.publication_commitlint import CommitlintMixin
 from tests.publication_fixtures import PublicationFixture, REPOSITORY_ROOT
 
 RESOURCE_DIRECTORY = REPOSITORY_ROOT / "actions" / "publication-checks"
+APPLY_ADDITIONS = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit" / "apply-additions.yml"
 
 
 class PublicationCommitlintTests(CommitlintMixin, PublicationFixture):
@@ -23,6 +25,18 @@ class PublicationCommitlintTests(CommitlintMixin, PublicationFixture):
             self._assert_genuine_merge_commit_passes(temporary_path / "merge", configuration, checker)
             self._assert_invalid_side_commit_fails(temporary_path / "invalid-side", configuration, checker)
             self._assert_single_parent_merge_message_fails(temporary_path / "spoof", configuration, checker)
+
+    def test_the_app_commit_of_the_additions_workflow_is_a_conventional_commit(self) -> None:
+        self._prepare_toolchain()
+        _, template = read_workflow(APPLY_ADDITIONS)
+        subject = template["jobs"]["apply"]["env"]["SUBJECT"].replace("${{ inputs.run-id || github.event.workflow_run.id }}", "18234567890")
+        self.assertEqual("chore: apply the recorded additions of run 18234567890", subject)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory) / "repository"
+            self._initialize_repository(repository)
+            configuration = self.tool_directory / "commitlint.config.cjs"
+            configuration.write_bytes((RESOURCE_DIRECTORY / "commitlint.config.cjs").read_bytes())
+            self._run_commitlint(f"{subject}\n\n[dependabot skip]\n", configuration, repository, 0, False)
 
 
 if __name__ == "__main__":

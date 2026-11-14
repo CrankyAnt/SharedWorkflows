@@ -273,7 +273,8 @@ def start_session(output: Path, root: Path, dotnet: str, environment: dict[str, 
         if time.monotonic() > deadline:
             raise RecordingError(f"the ETW session did not start within {ETW_WAIT_SECONDS} s")
         time.sleep(0.05)
-    return {"roots": roots, "git_directories": outside, "devices": devices, "events": ETW_EVENTS, "consumer": process.pid}
+    return {"roots": roots, "git_directories": outside, "devices": devices, "events": ETW_EVENTS, "consumer": process.pid,
+            "consumer_started": process_started(process.pid)}
 
 
 # --- exec ---------------------------------------------------------------------------------------------------
@@ -1707,22 +1708,82 @@ def unreported_node_memberships(unit: UnitRecording) -> set[str]:
     return {directory or "." for directory in directories - ignored_paths(unit.project, directories, directories)}
 
 
-def stop_session(output: Path) -> tuple[float, re.Match]:
-    """Stop the ETW consumer unless it has stopped, and return the seconds the stop took and its summary line."""
+def process_started(pid: int) -> int | None:
+    """The start time of the running process ``pid``, in the system's own unit, or None when no process runs under it. A
+    process id comes back after its process ends; the start time tells the processes that held it apart."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel.GetProcessTimes.argtypes = (wintypes.HANDLE, *(ctypes.POINTER(wintypes.FILETIME),) * 4)
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            code, times = wintypes.DWORD(), [wintypes.FILETIME() for _ in range(4)]
+            # An ended process whose handle another process still holds can be opened; its exit code is no longer 259.
+            if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+                return None
+            if not kernel.GetProcessTimes(handle, *(ctypes.byref(time) for time in times)):
+                return None
+            return times[0].dwHighDateTime << 32 | times[0].dwLowDateTime
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    fields = stat[stat.rindex(")") + 2:].split()  # the command name in parentheses may hold spaces
+    return None if fields[0] in ("Z", "X") else int(fields[19])
+
+
+def consumer_runs(settings: dict) -> bool:
+    """Whether the ETW consumer that start stored still runs: a process under its id with its start time."""
+    pid, started = settings.get("consumer"), settings.get("consumer_started")
+    return isinstance(pid, int) and started is not None and process_started(pid) == started
+
+
+def read_log(log: Path) -> tuple[re.Match | None, str]:
+    """The consumer's summary line in its log, None before it wrote one, and the log's text."""
+    text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+    return ETW_SUMMARY.search(text), text
+
+
+def quoted_log(log: Path, text: str) -> str:
+    return f"its log {log} reads: {text.strip()}" if text.strip() else f"its log {log} is empty"
+
+
+def stop_session(output: Path, settings: dict) -> tuple[float, re.Match]:
+    """Stop the ETW consumer unless it has stopped, and return the seconds the stop took and its summary line. A consumer
+    whose process is gone without a summary line fails at once; one that still runs fails after the wait."""
     log, stop = output / "logs" / "etw.log", output / "logs" / "etw.stop"
+    consumer = f"the ETW consumer (process {settings.get('consumer')})"
     started = time.perf_counter()
-    deadline = time.monotonic() + ETW_WAIT_SECONDS
-    while (found := ETW_SUMMARY.search(text := log.read_text(encoding="utf-8", errors="replace") if log.is_file() else "")) is None:
-        if not stop.exists():
+    deadline = None  # set when check writes the stop file
+    while True:
+        found, text = read_log(log)
+        if found is None and not consumer_runs(settings):
+            found, text = read_log(log)  # the summary line may have come just before the consumer ended
+            if found is None:
+                when = "before the stop" if deadline is None else "after the stop without writing its summary line"
+                raise RecordingError(f"{consumer} ended {when}; {quoted_log(log, text)}")
+        if found is not None:
+            return time.perf_counter() - started, found
+        if deadline is None:
             stop.write_text("stop\n", encoding="utf-8")
-        if time.monotonic() > deadline:
-            raise RecordingError(f"the ETW consumer did not stop within {ETW_WAIT_SECONDS} s; its log {log} reads: {text.strip()}")
+            deadline = time.monotonic() + ETW_WAIT_SECONDS
+        elif time.monotonic() > deadline:
+            raise RecordingError(f"{consumer} still runs {ETW_WAIT_SECONDS} s after the stop; {quoted_log(log, text)}")
         time.sleep(0.05)
-    return time.perf_counter() - started, found
 
 
 def classify_etw_units(output: Path, project: Checkout, records: list[dict], settings: dict) -> list[Unit]:
-    seconds, summary = stop_session(output)
+    seconds, summary = stop_session(output, settings)
     drained, events, lines, lost = (int(value) for value in summary.groups())
     if lost:
         raise RecordingError(f"the ETW session lost {lost} events; the recording is incomplete")
@@ -1867,8 +1928,10 @@ def additions_route(file_name: str, tracked: Collection[str], run_id: str | None
         return (f"This {event} run belongs to no pull request, so the additions workflow cannot propose them; the run of a "
                 f"pull request that makes the same reads reports them again, and that pull request applies them {kit}.")
     run = f"`{run_id}`" if run_id else "of the pull request's validation run"
-    return (f"Start the workflow `Apply recorded additions` with the run id {run} and merge the pull request it opens into "
-            f"this pull request's branch, {kit}.")
+    return ("For a pull request from a branch of this repository, the additions workflow commits them onto its branch as the "
+            "GitHub App, and the validation of the new head decides. When it comments that it cannot, start the workflow "
+            f"`Apply recorded additions` with the run id {run} and merge the pull request it opens into this pull request's "
+            f"branch, {kit}.")
 
 
 def check_summary(lines: list[tuple[str, str]], count: int, route: str) -> str:
@@ -2033,6 +2096,60 @@ def raw_entries(suite: suite_selection.Suite, entry: str) -> str:
     return entry
 
 
+def is_string_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def reads_problem(reads: object, where: str) -> str | None:
+    """Why ``reads`` is no reads object as ``Reads.document`` writes it, or None."""
+    if not isinstance(reads, dict):
+        return f"{where} is no object"
+    unknown = sorted(set(reads) - {read_field.key for read_field in READ_FIELDS} - {"module_lookups"})
+    if unknown:
+        return f"{where} holds the unknown field {unknown[0]}"
+    for key in ("paths", "directory_memberships", "lookup_directories"):
+        if not is_string_list(reads.get(key, [])):
+            return f"{where}: {key} is no list of strings"
+    existence = reads.get("existence_reads", [])
+    if not isinstance(existence, list) or not all(isinstance(read, dict) and set(read) == {"path", "kind"} and isinstance(read["path"], str)
+                                                  and isinstance(read["kind"], str) for read in existence):
+        return f"{where}: existence_reads is no list of objects with a path and a kind"
+    lookups = reads.get("module_lookups", {})
+    if not isinstance(lookups, dict) or not all(is_string_list(names) for names in lookups.values()):
+        return f"{where}: module_lookups is no object of lists of strings"
+    return None
+
+
+def additions_problem(document: dict) -> str | None:
+    """Why an additions document is not in the form that ``additions_document`` writes, or None; apply reads nothing
+    else from it."""
+    if not isinstance(document.get("suite_list"), str):
+        return "suite_list is no string"
+    if not isinstance(document.get("suites"), list):
+        return "suites is no list"
+    for index, change in enumerate(document["suites"]):
+        if not isinstance(change, dict):
+            return f"suites[{index}] is no object"
+        unknown = sorted(set(change) - {"suite", "create", "recorded_entries", "reads", "entries"})
+        if unknown:
+            return f"suites[{index}] holds the unknown field {unknown[0]}"
+        if not isinstance(change.get("suite"), str):
+            return f"suites[{index}].suite is no string"
+        if not isinstance(change.get("create"), bool):
+            return f"suites[{index}].create is no boolean"
+        if not is_string_list(change.get("recorded_entries")):
+            return f"suites[{index}].recorded_entries is no list of strings"
+        if "reads" in change and (problem := reads_problem(change["reads"], f"suites[{index}].reads")):
+            return problem
+        entries = change.get("entries", {})
+        if not isinstance(entries, dict):
+            return f"suites[{index}].entries is no object"
+        for entry, reads in entries.items():
+            if problem := reads_problem(reads, f"suites[{index}].entries[{entry}]"):
+                return problem
+    return None
+
+
 def load_documents(paths: list[Path]) -> list[dict]:
     documents = []
     for path in paths:
@@ -2042,6 +2159,10 @@ def load_documents(paths: list[Path]) -> list[dict]:
             raise RecordingError(f"cannot read {path}: {error}") from error
         if not isinstance(document, dict) or document.get("kind") not in ("additions", "full-recording"):
             raise RecordingError(f"{path} holds neither additions nor the result of a full recording")
+        if document["kind"] == "additions":
+            problem = additions_problem(document)
+            if problem:
+                raise RecordingError(f"{path} is no valid additions document: {problem}")
         documents.append(document)
     if len({document["kind"] for document in documents}) != 1:
         raise RecordingError("apply takes either additions or full-recording results, not both")
@@ -2353,7 +2474,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     checking.add_argument("--suites", type=Path, required=True, help="the suite list")
     checking.add_argument("--additions", type=Path, help="where to write the additions or the full-recording result")
     checking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
-    checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file")
+    checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file, and error= on a recording error")
     keeping = commands.add_parser("keep", help="leave the entry files that check's additions name out of a passed list")
     keeping.add_argument("--additions", type=Path, required=True, help="the additions document that check wrote")
     keeping.add_argument("passed", type=Path, help="the passed list of the job, a JSON list of suites and entry files, rewritten in place")
@@ -2387,6 +2508,11 @@ def main(argv: list[str] | None = None) -> int:
         return handlers[options.command](options)
     except (RecordingError, suite_selection.SuiteListError, OSError) as error:
         print(str(error), file=sys.stderr)
+        if options.command == "check" and options.github_output is not None:
+            # The recording step's error annotation quotes the message; a random delimiter lets it span lines.
+            delimiter = f"ERROR_{os.urandom(8).hex()}"
+            with options.github_output.open("a", encoding="utf-8") as handle:
+                handle.write(f"error<<{delimiter}\n{error}\n{delimiter}\n")
         return 2
 
 

@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -379,7 +382,8 @@ class CheckSummaryRouteTests(unittest.TestCase):
 
     def test_a_consumer_pull_request_run_is_sent_to_the_kit_s_workflow_with_its_run_id_and_no_path_into_the_shared_tree(self) -> None:
         summary = self.summary(self.CONSUMER, "123456789", "pull_request")
-        self.assertIn("Start the workflow `Apply recorded additions` with the run id `123456789`", summary)
+        self.assertIn("the additions workflow commits them onto its branch as the GitHub App", summary)
+        self.assertIn("When it comments that it cannot, start the workflow `Apply recorded additions` with the run id `123456789`", summary)
         self.assertIn('section "Additions" of the suite-selection consumer kit', summary)
         self.assertIn("| `a` | path `lib/other.txt` |", summary)
         for text in ("actions/", "docs/maintaining.md", "CrankyAnt/SharedWorkflows", "recording.py"):
@@ -408,6 +412,57 @@ class CheckSummaryRouteTests(unittest.TestCase):
     def test_every_read_inside_the_lists_names_no_route(self) -> None:
         summary = load_recording().check_summary([], 2, "any route")
         self.assertEqual("## Recording check\n\nEvery recorded read of 2 entry files lies inside the stored lists.\n", summary)
+
+
+ACTION = Path(__file__).resolve().parents[1] / "actions" / "recording" / "action.yml"
+BASH = shutil.which("bash")
+
+
+def failure_step_script() -> str:
+    """The script of the recording step's failure step: the block under ``run: |`` of the step that fails the job."""
+    text = ACTION.read_text(encoding="utf-8")
+    step = next(chunk for chunk in text.split("\n    - ") if 'exit "$STATUS"' in chunk)
+    block = step.split("      run: |\n", 1)[1]
+    return textwrap.dedent("".join(line + "\n" for line in block.split("\n") if line.startswith("        ") or not line.strip()))
+
+
+@unittest.skipIf(BASH is None, "the step's script runs in Bash")
+class RecordingStepFailureTests(unittest.TestCase):
+    """The error annotation of the recording step's failure step, from the status, additions document and error message
+    of check."""
+
+    def run_step(self, status: str, additions: str = "", error: str = "") -> tuple[int, str]:
+        environment = dict(os.environ, STATUS=status, ADDITIONS=additions, ERROR=error)
+        ran = subprocess.run([str(BASH), "-c", failure_step_script()], capture_output=True, text=True, encoding="utf-8",
+                             env=environment, check=False)
+        return ran.returncode, ran.stdout
+
+    def test_additions_name_the_additions_and_the_job_summary(self) -> None:
+        status, output = self.run_step("1", additions="/runner/temp/recording/additions.json")
+        self.assertEqual(1, status)
+        self.assertEqual("::error::The recording check failed with exit code 1; the job summary lists the additions.\n", output)
+
+    def test_a_recording_error_names_check_s_message_and_no_additions(self) -> None:
+        message = "the ETW consumer (process 4242) ended before the stop; its log D:\\a\\_temp\\recording\\logs\\etw.log is empty"
+        status, output = self.run_step("2", error=message)
+        self.assertEqual(2, status)
+        self.assertEqual(f"::error::The recording check failed with exit code 2: {message}\n", output)
+        self.assertNotIn("addition", output)
+
+    def test_a_message_of_several_lines_stays_one_annotation(self) -> None:
+        status, output = self.run_step("2", error="the ETW consumer still runs; its log reads: 100% of\r\nline two")
+        self.assertEqual(2, status)
+        self.assertEqual("::error::The recording check failed with exit code 2: the ETW consumer still runs; its log reads: "
+                         "100%25 of%0D%0Aline two\n", output)
+
+    def test_a_failure_without_a_message_or_additions_points_to_the_step_s_log(self) -> None:
+        # An uncaught exception in check exits with 1 and writes neither an additions document nor an error message.
+        for code in ("1", "3"):
+            with self.subTest(status=code):
+                status, output = self.run_step(code)
+                self.assertEqual(int(code), status)
+                self.assertEqual(f"::error::The recording check failed with exit code {code}: the log of the check step holds "
+                                 "its error.\n", output)
 
 
 # A suite selected per entry file, a pooled suite with additions and a pooled suite without, each entry file with its own

@@ -35,6 +35,9 @@ FIRST = "d" * 40
 REBUILD = "chore: rebuild the ETW consumer"
 CONSUMER_BUILD = "actions/recording/etw-consumer/build/"
 REBUILT = [f"{CONSUMER_BUILD}EtwConsumer.dll", f"{CONSUMER_BUILD}EtwConsumer.deps.json", "tests/suites.json"]
+OWN_SCOPE = auto_merge.updater_scope(THIS_REPOSITORY, None)
+CONSUMER_SUITES = ".github/suites.json"
+APPLIED = "chore: apply the recorded additions of run 4242\n\n[dependabot skip]"
 
 # The first commit's message, the head branch and the title of three Dependabot pull requests.
 PR_SETUP_NODE = ("chore(deps): bump actions/setup-node from 6.5.0 to 7.1.0\n\nBumps [actions/setup-node](https://github.com/actions/setup-node) from 6.5.0 to 7.1.0.\n"
@@ -209,7 +212,7 @@ class DecisionTests(unittest.TestCase):
         commits = [commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)]
         for files in (REBUILT, ["tests/suites.json"], [f"{CONSUMER_BUILD}EtwConsumer.dll"]):
             with self.subTest(files=files):
-                decision = auto_merge.decide((dependency("lodash", MINOR),), commits, REQUIRED_CHECKS, {HEAD: files})
+                decision = auto_merge.decide((dependency("lodash", MINOR),), commits, REQUIRED_CHECKS, {HEAD: files}, OWN_SCOPE)
                 self.assertEqual("automatic", decision.outcome, decision.reason)
 
     def test_an_updater_app_commit_that_changes_any_other_file_is_manual_and_names_the_file(self) -> None:
@@ -217,10 +220,10 @@ class DecisionTests(unittest.TestCase):
         for outside in ("actions/recording/etw-consumer/EtwConsumer.csproj", ".github/workflows/validate.yml", "tests/suites.json.bak",
                         "actions/recording/etw-consumer/buildx/EtwConsumer.dll"):
             with self.subTest(outside=outside):
-                decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: [*REBUILT, outside]})
+                decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: [*REBUILT, outside]}, OWN_SCOPE)
                 self.assertEqual("manual", decision.outcome)
                 self.assertIn(f"commit `aaaaaaa` by `{UPDATER}` changes `{outside}`, outside the ETW consumer's build and the suite list", decision.reason)
-        decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {})
+        decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {}, OWN_SCOPE)
         self.assertEqual("manual", decision.outcome)
         self.assertIn(f"the changed files of commit `aaaaaaa` by `{UPDATER}` were not read", decision.reason)
 
@@ -230,15 +233,43 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual("manual", decision.outcome)
         self.assertIn(f"commit `aaaaaaa` is authored by `{UPDATER}`, not by `dependabot[bot]`", decision.reason)
 
+    def test_in_a_consumer_that_passes_its_suite_list_an_updater_app_commit_of_only_that_file_is_automatic(self) -> None:
+        commits = [commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)]
+        for suite_list in (CONSUMER_SUITES, "ci/suites.json"):
+            with self.subTest(suite_list=suite_list):
+                scope = auto_merge.updater_scope(REPOSITORY, suite_list)
+                decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: [suite_list]}, scope)
+                self.assertEqual("automatic", decision.outcome, decision.reason)
+                self.assertIn(f"or by `{UPDATER}` within the suite list `{suite_list}`", decision.reason)
+
+    def test_in_a_consumer_an_updater_app_commit_that_changes_any_other_file_is_manual_and_names_the_file(self) -> None:
+        commits = [commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)]
+        scope = auto_merge.updater_scope(REPOSITORY, CONSUMER_SUITES)
+        for outside in ("tests/suites.json", f"{CONSUMER_BUILD}EtwConsumer.dll", ".github/workflows/validation.yml", ".github/suites.json.bak"):
+            with self.subTest(outside=outside):
+                decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: [CONSUMER_SUITES, outside]}, scope)
+                self.assertEqual("manual", decision.outcome)
+                self.assertIn(f"commit `aaaaaaa` by `{UPDATER}` changes `{outside}`, outside the suite list `{CONSUMER_SUITES}`", decision.reason)
+
+    def test_this_repository_keeps_its_exceptions_when_it_passes_a_suite_list(self) -> None:
+        commits = [commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)]
+        scope = auto_merge.updater_scope(THIS_REPOSITORY, CONSUMER_SUITES)
+        for files in (REBUILT, [CONSUMER_SUITES]):
+            with self.subTest(files=files):
+                decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: files}, scope)
+                self.assertEqual("automatic", decision.outcome, decision.reason)
+        self.assertIsNone(auto_merge.updater_scope(REPOSITORY, None))
+        self.assertIsNone(auto_merge.updater_scope(REPOSITORY, ""))
+
     def test_another_app_s_commit_with_the_rebuild_s_files_is_manual(self) -> None:
         commits = [commit(sha=FIRST), commit("other-app[bot]", REBUILD, sha=HEAD)]
-        decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: REBUILT})
+        decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: REBUILT}, OWN_SCOPE)
         self.assertEqual("manual", decision.outcome)
         self.assertIn("commit `aaaaaaa` is authored by `other-app[bot]`, not by `dependabot[bot]`", decision.reason)
 
     def test_a_rebuild_does_not_lift_the_update_rules(self) -> None:
         commits = [commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)]
-        decision = auto_merge.decide((dependency("Microsoft.Diagnostics.Tracing.TraceEvent", MAJOR, "nuget"),), commits, REQUIRED_CHECKS, {HEAD: REBUILT})
+        decision = auto_merge.decide((dependency("Microsoft.Diagnostics.Tracing.TraceEvent", MAJOR, "nuget"),), commits, REQUIRED_CHECKS, {HEAD: REBUILT}, OWN_SCOPE)
         self.assertEqual("manual", decision.outcome)
         self.assertIn("has `version-update:semver-major`, not a patch or minor update", decision.reason)
 
@@ -445,6 +476,17 @@ class PullRequestRunTests(unittest.TestCase):
                 self.assertEqual([("disable_auto_merge", URL)], mutations(github))
 
 
+    def test_in_a_consumer_that_passes_its_suite_list_a_head_with_the_app_s_applied_additions_is_decided_automatic(self) -> None:
+        for suite_list, outcome in ((CONSUMER_SUITES, "automatic"), (None, "manual")):
+            with self.subTest(suite_list=suite_list):
+                github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)], files={HEAD: [CONSUMER_SUITES]},
+                                    pull_request=pull(auto_merge_state={"merge_method": "squash"}))
+                result = auto_merge.run_pull_request(github, REPOSITORY, 7, suite_list)
+                self.assertEqual((outcome, 0), (result.decision.outcome, result.exit_code), result.summary)
+                self.assertEqual([("disable_auto_merge", URL)], mutations(github), "the pull request event enables nothing")
+                self.assertEqual(suite_list is not None, any(call[0] == "commit_files" for call in github.calls))
+
+
 class WorkflowRunTests(unittest.TestCase):
     def test_the_last_required_check_merges_with_squash_bound_to_the_head_read_and_dispatches_the_merged_commit_once(self) -> None:
         github = FakeGitHub()
@@ -544,6 +586,23 @@ class WorkflowRunTests(unittest.TestCase):
         github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)], files={HEAD: REBUILT})
         result = rebuilt_run(github, REPOSITORY)
         self.assertEqual("manual", result.decision.outcome, "another repository accepts no App commit")
+        self.assertEqual([], [call for call in github.calls if call[0] in ("commit_files", "merge", "dispatch")])
+
+    def test_a_head_that_the_updater_app_applied_additions_to_in_a_consumer_that_passes_its_suite_list_merges(self) -> None:
+        def applied_run(github: FakeGitHub, suite_list: str | None) -> auto_merge.Result:
+            (result,) = auto_merge.run_workflow_run(github, REPOSITORY, BRANCH, suite_list)
+            return result
+
+        github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)], files={HEAD: [CONSUMER_SUITES]})
+        result = applied_run(github, CONSUMER_SUITES)
+        self.assertEqual(0, result.exit_code, result.summary)
+        self.assertEqual([("merge", REPOSITORY, 7, HEAD, "squash"), ("dispatch", REPOSITORY, "dependabot-merged", MERGED)], mutations(github))
+        self.assertEqual([("commit_files", REPOSITORY, HEAD)], [call for call in github.calls if call[0] == "commit_files"])
+        github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)], files={HEAD: [CONSUMER_SUITES, "README.md"]})
+        self.assertEqual("manual", applied_run(github, CONSUMER_SUITES).decision.outcome)
+        self.assertEqual([], mutations(github))
+        github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)], files={HEAD: [CONSUMER_SUITES]})
+        self.assertEqual("manual", applied_run(github, None).decision.outcome, "a consumer that passes no suite list accepts no App commit")
         self.assertEqual([], [call for call in github.calls if call[0] in ("commit_files", "merge", "dispatch")])
 
     def test_only_open_dependabot_pull_requests_of_the_branch_are_considered(self) -> None:
@@ -649,6 +708,15 @@ class CommandLineTests(unittest.TestCase):
             github = FakeGitHub(rules=[])
             with mock.patch.object(auto_merge, "GitHub", lambda: github), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(1, auto_merge.main(["--repository", REPOSITORY, "workflow-run", "--head-branch", BRANCH]))
+
+    def test_the_command_line_passes_the_suite_list_and_takes_an_empty_one_as_none(self) -> None:
+        for arguments, expected in ((["--suites", CONSUMER_SUITES], CONSUMER_SUITES), (["--suites", ""], None), ([], None)):
+            with self.subTest(arguments=arguments):
+                github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)], files={HEAD: [CONSUMER_SUITES]})
+                with mock.patch.object(auto_merge, "GitHub", lambda: github), contextlib.redirect_stdout(io.StringIO()):
+                    auto_merge.main(["--repository", REPOSITORY, *arguments, "workflow-run", "--head-branch", BRANCH])
+                merged = [call for call in mutations(github) if call[0] == "merge"]
+                self.assertEqual(expected is not None, bool(merged))
 
     def test_the_command_line_takes_no_metadata_outcome(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

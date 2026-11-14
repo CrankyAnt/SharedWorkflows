@@ -87,7 +87,7 @@ The GitHub App whose installation token the workflows that propose or push chang
 _Avoid_: Bot account, publication-checks App
 
 **Shared digest**:
-The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
+The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. For a pull request whose base is not the default branch, that run is the passed pull-request run that produced the base's tip, or else the last passed run on the default branch from the newest commit of its first-parent line that the base contains. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
 _Avoid_: Shared CI digest, recording hash
 
 ### Checks
@@ -229,8 +229,12 @@ A read in a recording that the stored lists do not hold; the recording step repo
 _Avoid_: New read, missing path
 
 **Additions workflow**:
-The workflow of a consumer, from the consumer kit of the suite selection, that applies the additions of a validation run to the suite list and proposes the change as a pull request onto the branch that reported them.
+The workflow of a consumer, and of Shared Workflows itself, from the consumer kit of the suite selection, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the Updater App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch. In Shared Workflows it leaves a run that the rebuild workflow of the ETW consumer acts on to that workflow, whose commit carries the run's additions.
 _Avoid_: Apply workflow, apply-additions.yml
+
+**Rebuild workflow**:
+The workflow of Shared Workflows that rebuilds the ETW consumer for a Dependabot pull request that changes the consumer's source. After a failed pull-request run it commits the rebuilt consumer and that run's additions as the Updater App onto the pull request's branch, once per push; when it acts and commits nothing, it comments with the additions workflow's manual route.
+_Avoid_: ETW rebuild, rebuild-etw-consumer.yml
 
 **Setup read**:
 A read that a step before the suites of a job makes, such as installing dependencies or building, and that belongs to the path list of every suite and entry file that needs the step.

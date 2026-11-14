@@ -2,6 +2,12 @@ name: Dependabot auto-merge
 
 on:
   workflow_call:
+    inputs:
+      suites:
+        description: The suite list's path, which a commit of the updater App may change
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -21,7 +27,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" pull-request --number "$PR_NUMBER"
+          SUITES: ${{ inputs.suites }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" pull-request --number "$PR_NUMBER"
 
   merge:
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.actor.login == 'dependabot[bot]' || (github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && startsWith(github.event.workflow_run.head_branch, 'dependabot/')))
@@ -38,4 +45,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH"
+          SUITES: ${{ inputs.suites }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH"

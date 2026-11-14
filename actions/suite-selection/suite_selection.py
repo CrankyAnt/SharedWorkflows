@@ -17,8 +17,8 @@ the file format, the rules and the commands.
     python suite_selection.py select --root <repository> --suites <suite list> --changed-file <path>
     python suite_selection.py verdict --needs <needs context as JSON> --summary "$GITHUB_STEP_SUMMARY"
     python suite_selection.py lookup --root <repository> --sha <commit> --before <commit> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
-    python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> [--pushed <commit>] \\
-        --workflow "$GITHUB_WORKFLOW_REF" --output <file>
+    python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> \\
+        [--default-branch <default branch>] [--pushed <commit>] --workflow "$GITHUB_WORKFLOW_REF" --output <file>
     python suite_selection.py store --needs <needs context as JSON> --passed <directory> --run-id <id> --output <record file>
     python suite_selection.py check-dispatch --root <repository> --sha <client_payload.sha> --branch <default branch>
 
@@ -1388,6 +1388,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     shared_parser.add_argument("--digest", required=True, help="the digest of the shared recording step that this run took")
     shared_parser.add_argument("--root", type=Path, required=True, help="the checkout whose first-parent history of the base branch the lookup walks")
     shared_parser.add_argument("--branch", required=True, help="the base branch: the pull request's base, or the pushed branch")
+    shared_parser.add_argument("--default-branch", default="", help="the default branch; on a pull request whose base differs from it, the "
+                               "lookup compares with the passed pull-request run of the base's tip, or else with the default branch")
     shared_parser.add_argument("--pushed", default="", help="the pushed commit of a push or dispatch run, whose first parent starts the walk; "
                                "empty to start at the fetched tip origin/<branch>")
     shared_parser.add_argument("--workflow", required=True, help="the calling workflow: its repository path, or github.workflow_ref")
@@ -1683,7 +1685,7 @@ def run_shared_lookup(options: argparse.Namespace) -> int:
     import reuse
 
     found = reuse.shared_lookup(options.root.resolve(), reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.branch,
-                                options.digest, options.pushed or None)
+                                options.digest, options.pushed or None, options.default_branch or None)
     options.output.write_text(json.dumps(found.document(), indent=2) + "\n", encoding="utf-8")
     for line in found.log:
         print(line)

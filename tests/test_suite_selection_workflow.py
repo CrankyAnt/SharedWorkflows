@@ -136,9 +136,11 @@ class SharedWorkflowTests(unittest.TestCase):
                           "WORKFLOW": "${{ github.workflow_ref }}", "RESOURCE_PATH": "${{ steps.resources.outputs.path }}",
                           "BRANCH": "${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' "
                                     "&& github.event.repository.default_branch || github.ref_name }}",
+                          "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
                           "PUSHED": "${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') "
                                     "&& (github.event.client_payload.sha || github.sha) || '' }}"}, lookup["env"])
-        self.assertIn('suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" '
+        self.assertIn('suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" '
+                      '--pushed "$PUSHED" --workflow "$WORKFLOW" '
                       '--output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"', lookup["run"])
         names = [step.get("id") for step in steps]
         self.assertLess(names.index("digest"), steps.index(lookup))
