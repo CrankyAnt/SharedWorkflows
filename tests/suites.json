@@ -687,6 +687,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "actions/sync/action.yml",
+          "actions/sync/caller.yml",
           "actions/sync/sync.py",
           "catalogue.json",
           "tests/ci_policy_support.py",
@@ -1835,6 +1836,14 @@
         },
         {
           "path": "actions/sync",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/caller.yml",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/consumer-kit",
           "kind": "any"
         },
         {
@@ -3198,6 +3207,10 @@
           },
           {
             "path": "actions/sync",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/caller.yml",
             "kind": "any"
           },
           {
@@ -4728,6 +4741,10 @@
           },
           {
             "path": "actions/repository-ruleset/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/consumer-kit",
             "kind": "any"
           },
           {
@@ -6296,8 +6313,6 @@
         "actions/pipeline/consumer-kit/ci.yml",
         "actions/pipeline/consumer-kit/docs/agents/ci.md",
         "actions/pipeline/consumer-kit/release.yml",
-        "actions/pipeline/consumer_checks.py",
-        "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/ci-config.schema.json",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
@@ -6326,7 +6341,6 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
-        "actions/sync/sync.py",
         "catalogue.json",
         "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
         "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
@@ -6788,38 +6802,6 @@
           "kind": "any"
         },
         {
-          "path": "actions/pipeline/consumer_checks",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/pipeline/consumer_checks.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/consumer_checks.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/plan",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/pipeline/plan.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/plan.so",
-          "kind": "any"
-        },
-        {
           "path": "actions/publication-checks/consumer-kit",
           "kind": "any"
         },
@@ -7000,19 +6982,11 @@
           "kind": "any"
         },
         {
-          "path": "actions/sync/sync",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/sync/sync.abi3.so",
+          "path": "actions/sync/consumer-kit",
           "kind": "any"
         },
         {
-          "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/sync/sync.so",
+          "path": "actions/sync/consumer-kit/publication-checks.yml",
           "kind": "any"
         },
         {
@@ -8769,6 +8743,14 @@
             "kind": "any"
           },
           {
+            "path": "actions/sync/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/consumer-kit/publication-checks.yml",
+            "kind": "any"
+          },
+          {
             "path": "tests",
             "kind": "directory"
           },
@@ -9216,11 +9198,9 @@
       },
       "lookup_directories": [
         ".",
-        "actions/pipeline",
         "actions/recording",
         "actions/repository-hygiene",
         "actions/suite-selection",
-        "actions/sync",
         "tests"
       ],
       "entry_lookup_directories": {
@@ -16123,6 +16103,7 @@
         ]
       },
       "directory_memberships": [
+        "**",
         ".",
         "actions/repository-hygiene"
       ],
@@ -16148,6 +16129,9 @@
         ],
         "tests/test_hygiene_zizmor_surface.py": [
           "actions/repository-hygiene"
+        ],
+        "tests/test_v1_promotion.py": [
+          "**"
         ]
       },
       "existence_reads": [
