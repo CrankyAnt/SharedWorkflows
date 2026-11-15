@@ -1,4 +1,5 @@
 version: 1
+unknown-setting: true
 parts:
   custom:
     setups: [python-3.14]
