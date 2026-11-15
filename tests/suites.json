@@ -15879,6 +15879,7 @@
         "tests/test_publication_branch.py",
         "tests/test_publication_checks.py",
         "tests/test_publication_commits.py",
+        "tests/test_publication_references.py",
         "tests/test_publication_spec_fixture.py",
         "tests/test_publication_spec_update.py",
         "tests/test_publication_spec_workflow.py",
@@ -15906,6 +15907,9 @@
         "tests/test_publication_commits.py": [
           "node",
           "commitlint"
+        ],
+        "tests/test_publication_references.py": [
+          "node"
         ],
         "tests/test_publication_spec_fixture.py": [
           "node"
@@ -15954,6 +15958,7 @@
         "tests/test_publication_branch.py",
         "tests/test_publication_checks.py",
         "tests/test_publication_commits.py",
+        "tests/test_publication_references.py",
         "tests/test_publication_spec_fixture.py",
         "tests/test_publication_spec_update.py",
         "tests/test_publication_spec_workflow.py",
@@ -16004,6 +16009,9 @@
           "tests/publication_commitlint.py",
           "tests/publication_fixtures.py",
           "tests/test_publication_commits.py"
+        ],
+        "tests/test_publication_references.py": [
+          "tests/test_publication_references.py"
         ],
         "tests/test_publication_spec_fixture.py": [
           "actions/publication-checks/spec-metadata.json",

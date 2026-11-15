@@ -121,6 +121,7 @@ class HygieneCoreTests(unittest.TestCase):
             ("Install the locked commitlint toolchain", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Check every pull request commit", "${{ !cancelled() && steps.commitlint.outcome == 'success' }}"),
             ("Check the pull request title", "${{ !cancelled() && steps.commitlint.outcome == 'success' }}"),
+            ("Check the references to repositories of the owner", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Install the pinned tools and verify their checksums", "${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}"),
             ("Gitleaks over all reachable history", "${{ !cancelled() && steps.install.outcome == 'success' }}"),
         ):
@@ -149,6 +150,17 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertIn("      - name: Check the pull request branch\n        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}\n", workflow)
         for step_name in ("Check every pull request commit", "Check the pull request title"):
             self.assertIn(f"      - name: {step_name}\n        if: ${{{{ !cancelled() && steps.commitlint.outcome == 'success' }}}}\n", workflow)
+
+    def test_the_reference_check_reads_the_pull_request_from_the_event_file_and_holds_no_token(self) -> None:
+        _, document = read_workflow(WORKFLOW)
+        step = next(step for step in document["jobs"]["hygiene"]["steps"] if step.get("name") == "Check the references to repositories of the owner")
+        self.assertEqual('node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"', step["run"])
+        # The log of a step shows its environment, so the title and the body reach the script through the event file only.
+        self.assertEqual({
+            "CONVENTIONS_PATH": "${{ steps.conventions.outputs.path }}",
+            "BASE_SHA": "${{ github.event.pull_request.base.sha }}",
+            "HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
+        }, step["env"])
 
     def test_the_hygiene_workflow_runs_each_check_only_when_the_change_can_affect_it(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
