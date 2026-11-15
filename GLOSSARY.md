@@ -84,6 +84,10 @@ _Avoid_: Test workflow, Python CI, test job
 The shared workflow that the reading fixed caller calls: it reads the configuration file, runs the shared parts that apply and gives the verdict.
 _Avoid_: CI workflow, main workflow
 
+**Automation workflow**:
+The shared workflow that the writing fixed caller calls: it runs the shared parts that write, such as Dependabot auto-merge, issue-title normalisation, the additions workflow and the full recording, each on its own event.
+_Avoid_: Write pipeline, bot workflow
+
 **Plan**:
 The first job of the pipeline, which checks the configuration file against its schema and decides, from the file and the change, which shared parts run and with which values.
 _Avoid_: Planner, setup job
@@ -303,7 +307,7 @@ A read in a recording that the stored lists do not hold; the recording step repo
 _Avoid_: New read, missing path
 
 **Additions workflow**:
-The workflow of a consumer, and of Shared Workflows itself, from the consumer kit of the suite selection, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the Updater App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch. In Shared Workflows it leaves a run that the rebuild workflow of the ETW consumer acts on to that workflow, whose commit carries the run's additions.
+The shared part of the automation workflow, switched on in a consumer's configuration file and in Shared Workflows itself, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the Updater App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch. In Shared Workflows it leaves a run that the rebuild workflow of the ETW consumer acts on to that workflow, whose commit carries the run's additions.
 _Avoid_: Apply workflow, apply-additions.yml
 
 **Rebuild workflow**:
