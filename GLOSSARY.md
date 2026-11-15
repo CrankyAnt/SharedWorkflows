@@ -51,12 +51,16 @@ The hygiene check that fails a consumer's pull request once the shared part, or 
 _Avoid_: Adoption check, migration check
 
 **Validation caller**:
-The caller that runs the suite selection, calls the one validation workflow with its shards and its Windows entry files, and gives the verdict. This repository's own validation caller calls the shared workflows by local path and runs its suites itself.
+The caller of a consumer that has not adopted the pipeline: it runs the suite selection, calls the consumer's validation workflow with its shards and its Windows entry files, and gives the verdict. In the pipeline, the part `suite-selection` and the suite jobs take its place.
 _Avoid_: Validate caller, validation.yml
 
 **Validation workflow**:
-A consumer's one workflow that runs its selected entry files, started only by the validation caller: the Linux entry files in shard jobs on one runner label, and the Windows entry files in one Windows job.
+A consumer's own workflow, of a consumer that has not adopted the pipeline, that runs its selected entry files, started only by the validation caller: the Linux entry files in shard jobs on one runner label, and the Windows entry files in one Windows job.
 _Avoid_: Test workflow, called workflow
+
+**Suite jobs**:
+The shared workflow that runs a repository's selected entry files, in shard jobs on Linux and one job on Windows, with the runner labels and setups that its suite list gives, for the suite selection in the pipeline and for the full recording.
+_Avoid_: Validation workflow, test jobs
 
 **Repository workflow**:
 A workflow of this repository that is no shared workflow and no caller and that runs only for this repository, such as the pins updater, `promote-v1.yml` or the full recording of this repository's own suites.
