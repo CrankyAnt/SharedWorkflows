@@ -793,6 +793,7 @@
           "tests/test_ci_policy_fixed_callers.py"
         ],
         "tests/test_ci_policy_pipeline_parts.py": [
+          ".github/ci-config.yml",
           ".github/workflows/apply-additions.yml",
           ".github/workflows/automation-caller.yml",
           ".github/workflows/automation.yml",
@@ -939,15 +940,6 @@
         "actions/pipeline/consumer-kit/previous/docs",
         "actions/pipeline/consumer-kit/previous/docs/agents",
         "actions/pipeline/missing.json/**",
-        "actions/pipeline/proof-kit",
-        "actions/pipeline/proof-kit/.github",
-        "actions/pipeline/proof-kit/.github/workflows",
-        "actions/pipeline/proof-kit/LICENSES",
-        "actions/pipeline/proof-kit/docs",
-        "actions/pipeline/proof-kit/docs/agents",
-        "actions/pipeline/proof-kit/dotnet",
-        "actions/pipeline/proof-kit/python",
-        "actions/pipeline/proof-kit/python/tests",
         "actions/pipeline/schema",
         "actions/pipeline/schema/v1",
         "actions/pipeline/schema/v1/ci-config.schema.json/**",
@@ -1041,7 +1033,6 @@
         "tests/test_consumer_kit_installed_validation.py/**",
         "tests/test_consumer_kit_management.py/**",
         "tests/test_consumer_kit_own_dependabot.py/**",
-        "tests/test_consumer_kit_proof.py/**",
         "tests/test_consumer_kit_publication.py/**",
         "tests/test_consumer_kit_python_tests.py/**",
         "tests/test_consumer_kit_templates.py/**",
@@ -1076,6 +1067,7 @@
         "tests/test_pipeline_register.py/**",
         "tests/test_pipeline_release.py/**",
         "tests/test_pipeline_schema.py/**",
+        "tests/test_pipeline_steps_shell.py/**",
         "tests/test_pipeline_verdict.py/**",
         "tests/test_pipeline_workflow.py/**",
         "tests/test_publication_author.py/**",
@@ -1265,7 +1257,6 @@
           "tests/test_consumer_kit_installed_validation.py/**",
           "tests/test_consumer_kit_management.py/**",
           "tests/test_consumer_kit_own_dependabot.py/**",
-          "tests/test_consumer_kit_proof.py/**",
           "tests/test_consumer_kit_publication.py/**",
           "tests/test_consumer_kit_python_tests.py/**",
           "tests/test_consumer_kit_templates.py/**",
@@ -1300,6 +1291,7 @@
           "tests/test_pipeline_register.py/**",
           "tests/test_pipeline_release.py/**",
           "tests/test_pipeline_schema.py/**",
+          "tests/test_pipeline_steps_shell.py/**",
           "tests/test_pipeline_verdict.py/**",
           "tests/test_pipeline_workflow.py/**",
           "tests/test_publication_author.py/**",
@@ -1380,15 +1372,6 @@
           "actions/pipeline/consumer-kit/previous",
           "actions/pipeline/consumer-kit/previous/docs",
           "actions/pipeline/consumer-kit/previous/docs/agents",
-          "actions/pipeline/proof-kit",
-          "actions/pipeline/proof-kit/.github",
-          "actions/pipeline/proof-kit/.github/workflows",
-          "actions/pipeline/proof-kit/LICENSES",
-          "actions/pipeline/proof-kit/docs",
-          "actions/pipeline/proof-kit/docs/agents",
-          "actions/pipeline/proof-kit/dotnet",
-          "actions/pipeline/proof-kit/python",
-          "actions/pipeline/proof-kit/python/tests",
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1",
           "actions/pipeline/schema/v1/parts",
@@ -1417,6 +1400,7 @@
         ],
         "tests/test_ci_policy_pipeline.py": [
           ".github/workflows/**",
+          "actions/**",
           "actions/pipeline/schema/v1/parts/**"
         ],
         "tests/test_ci_policy_fixed_callers.py": [
@@ -2546,10 +2530,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_consumer_kit_proof.py",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_consumer_kit_publication.py",
           "kind": "any"
         },
@@ -2683,6 +2663,10 @@
         },
         {
           "path": "tests/test_pipeline_schema.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_steps_shell.py",
           "kind": "any"
         },
         {
@@ -4341,10 +4325,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_consumer_kit_proof.py",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_publication.py",
             "kind": "any"
           },
@@ -4478,6 +4458,10 @@
           },
           {
             "path": "tests/test_pipeline_schema.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_steps_shell.py",
             "kind": "any"
           },
           {
@@ -5160,6 +5144,10 @@
         "tests/test_ci_policy_pipeline.py": [
           {
             "path": ".github/workflows",
+            "kind": "any"
+          },
+          {
+            "path": "actions",
             "kind": "any"
           },
           {
@@ -6218,8 +6206,7 @@
         "tests/test_consumer_kit_validation_workflow.py",
         "tests/test_consumer_kit_python_tests.py",
         "tests/test_consumer_kit_fixed_callers.py",
-        "tests/test_consumer_kit_management.py",
-        "tests/test_consumer_kit_proof.py"
+        "tests/test_consumer_kit_management.py"
       ],
       "command": [
         "python3",
@@ -6270,7 +6257,6 @@
         ".github/workflows/update-ci-pins.yml",
         ".github/workflows/update-publication-spec.yml",
         ".github/workflows/validate.yml",
-        "LICENSES/MIT.txt",
         "actions/dependabot-auto-merge/consumer-kit/README.md",
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
@@ -6278,42 +6264,10 @@
         "actions/pipeline/consumer-kit/automation.yml",
         "actions/pipeline/consumer-kit/ci.yml",
         "actions/pipeline/consumer-kit/docs/agents/ci.md",
-        "actions/pipeline/consumer-kit/fixed-callers.json",
-        "actions/pipeline/consumer-kit/previous/automation.yml",
-        "actions/pipeline/consumer-kit/previous/ci.yml",
-        "actions/pipeline/consumer-kit/previous/docs/agents/ci.md",
-        "actions/pipeline/consumer-kit/previous/release.yml",
         "actions/pipeline/consumer-kit/release.yml",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
-        "actions/pipeline/proof-kit/.github/ci-config.yml",
-        "actions/pipeline/proof-kit/.github/dependabot.yml",
-        "actions/pipeline/proof-kit/.github/workflows/automation.yml",
-        "actions/pipeline/proof-kit/.github/workflows/ci.yml",
-        "actions/pipeline/proof-kit/.github/workflows/release.yml",
-        "actions/pipeline/proof-kit/LICENSES/MIT.txt",
-        "actions/pipeline/proof-kit/REUSE.toml",
-        "actions/pipeline/proof-kit/docs/agents/ci.md",
-        "actions/pipeline/proof-kit/dotnet/Greeting.Tests.csproj",
-        "actions/pipeline/proof-kit/dotnet/Greeting.cs",
-        "actions/pipeline/proof-kit/dotnet/GreetingTests.cs",
-        "actions/pipeline/proof-kit/python/greeting.py",
-        "actions/pipeline/proof-kit/python/pyproject.toml",
-        "actions/pipeline/proof-kit/python/tests/test_greeting.py",
-        "actions/pipeline/schema/v1/base.json",
         "actions/pipeline/schema/v1/ci-config.schema.json",
-        "actions/pipeline/schema/v1/parts/additions.json",
-        "actions/pipeline/schema/v1/parts/custom.json",
-        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
-        "actions/pipeline/schema/v1/parts/dotnet-test.json",
-        "actions/pipeline/schema/v1/parts/full-recording.json",
-        "actions/pipeline/schema/v1/parts/github-release.json",
-        "actions/pipeline/schema/v1/parts/issue-title.json",
-        "actions/pipeline/schema/v1/parts/python-test.json",
-        "actions/pipeline/schema/v1/parts/python-verify.json",
-        "actions/pipeline/schema/v1/parts/repository-hygiene.json",
-        "actions/pipeline/schema/v1/parts/suite-selection.json",
-        "actions/pipeline/schema/v1/setups.json",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-tests/consumer-kit/README.md",
@@ -6328,7 +6282,6 @@
         "actions/repository-hygiene/package-ecosystems.json",
         "actions/repository-hygiene/pins.json",
         "actions/repository-hygiene/pins.py",
-        "actions/repository-hygiene/shared-surface.json",
         "actions/repository-hygiene/zizmor-policy.yml",
         "actions/repository-ruleset/README.md",
         "actions/suite-selection/ci_definition.py",
@@ -6372,7 +6325,6 @@
         "tests/test_consumer_kit_installed_validation.py",
         "tests/test_consumer_kit_management.py",
         "tests/test_consumer_kit_own_dependabot.py",
-        "tests/test_consumer_kit_proof.py",
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_python_tests.py",
         "tests/test_consumer_kit_templates.py",
@@ -6659,52 +6611,6 @@
           "actions/sync/sync.py",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_management.py"
-        ],
-        "tests/test_consumer_kit_proof.py": [
-          ".github/dependabot.yml",
-          "LICENSES/MIT.txt",
-          "actions/pipeline/consumer-kit/automation.yml",
-          "actions/pipeline/consumer-kit/ci.yml",
-          "actions/pipeline/consumer-kit/docs/agents/ci.md",
-          "actions/pipeline/consumer-kit/fixed-callers.json",
-          "actions/pipeline/consumer-kit/previous/automation.yml",
-          "actions/pipeline/consumer-kit/previous/ci.yml",
-          "actions/pipeline/consumer-kit/previous/docs/agents/ci.md",
-          "actions/pipeline/consumer-kit/previous/release.yml",
-          "actions/pipeline/consumer-kit/release.yml",
-          "actions/pipeline/consumer_checks.py",
-          "actions/pipeline/plan.py",
-          "actions/pipeline/proof-kit/.github/ci-config.yml",
-          "actions/pipeline/proof-kit/.github/dependabot.yml",
-          "actions/pipeline/proof-kit/.github/workflows/automation.yml",
-          "actions/pipeline/proof-kit/.github/workflows/ci.yml",
-          "actions/pipeline/proof-kit/.github/workflows/release.yml",
-          "actions/pipeline/proof-kit/LICENSES/MIT.txt",
-          "actions/pipeline/proof-kit/REUSE.toml",
-          "actions/pipeline/proof-kit/docs/agents/ci.md",
-          "actions/pipeline/proof-kit/dotnet/Greeting.Tests.csproj",
-          "actions/pipeline/proof-kit/dotnet/Greeting.cs",
-          "actions/pipeline/proof-kit/dotnet/GreetingTests.cs",
-          "actions/pipeline/proof-kit/python/greeting.py",
-          "actions/pipeline/proof-kit/python/pyproject.toml",
-          "actions/pipeline/proof-kit/python/tests/test_greeting.py",
-          "actions/pipeline/schema/v1/base.json",
-          "actions/pipeline/schema/v1/ci-config.schema.json",
-          "actions/pipeline/schema/v1/parts/additions.json",
-          "actions/pipeline/schema/v1/parts/custom.json",
-          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
-          "actions/pipeline/schema/v1/parts/dotnet-test.json",
-          "actions/pipeline/schema/v1/parts/full-recording.json",
-          "actions/pipeline/schema/v1/parts/github-release.json",
-          "actions/pipeline/schema/v1/parts/issue-title.json",
-          "actions/pipeline/schema/v1/parts/python-test.json",
-          "actions/pipeline/schema/v1/parts/python-verify.json",
-          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
-          "actions/pipeline/schema/v1/parts/suite-selection.json",
-          "actions/pipeline/schema/v1/setups.json",
-          "actions/repository-hygiene/dependabot_coverage.py",
-          "actions/repository-hygiene/shared-surface.json",
-          "tests/test_consumer_kit_proof.py"
         ]
       },
       "directory_memberships": [
@@ -6734,17 +6640,6 @@
         "actions",
         "actions/dependabot-auto-merge/consumer-kit",
         "actions/pipeline/consumer-kit",
-        "actions/pipeline/proof-kit",
-        "actions/pipeline/proof-kit/.github",
-        "actions/pipeline/proof-kit/.github/workflows",
-        "actions/pipeline/proof-kit/LICENSES",
-        "actions/pipeline/proof-kit/docs",
-        "actions/pipeline/proof-kit/docs/agents",
-        "actions/pipeline/proof-kit/dotnet",
-        "actions/pipeline/proof-kit/python",
-        "actions/pipeline/proof-kit/python/tests",
-        "actions/pipeline/schema",
-        "actions/pipeline/schema/v1/parts",
         "actions/python-language-step/consumer-kit",
         "actions/python-tests/consumer-kit",
         "actions/repository-hygiene",
@@ -6838,19 +6733,6 @@
         ],
         "tests/test_consumer_kit_management.py": [
           "actions/sync/consumer-kit"
-        ],
-        "tests/test_consumer_kit_proof.py": [
-          "actions/pipeline/proof-kit",
-          "actions/pipeline/proof-kit/.github",
-          "actions/pipeline/proof-kit/.github/workflows",
-          "actions/pipeline/proof-kit/LICENSES",
-          "actions/pipeline/proof-kit/docs",
-          "actions/pipeline/proof-kit/docs/agents",
-          "actions/pipeline/proof-kit/dotnet",
-          "actions/pipeline/proof-kit/python",
-          "actions/pipeline/proof-kit/python/tests",
-          "actions/pipeline/schema",
-          "actions/pipeline/schema/v1/parts"
         ]
       },
       "existence_reads": [
@@ -6920,10 +6802,6 @@
         },
         {
           "path": "actions/pipeline/plan.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/.github/dependabot.yaml",
           "kind": "any"
         },
         {
@@ -7464,22 +7342,6 @@
         },
         {
           "path": "tests/test_consumer_kit_own_dependabot.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_proof",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_consumer_kit_proof.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_proof.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_proof.so",
           "kind": "any"
         },
         {
@@ -9465,92 +9327,6 @@
             "path": "tests/test_consumer_kit_management.so",
             "kind": "any"
           }
-        ],
-        "tests/test_consumer_kit_proof.py": [
-          {
-            "path": "actions/pipeline/consumer_checks",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/pipeline/consumer_checks.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/consumer_checks.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/plan",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/pipeline/plan.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/plan.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/proof-kit/.github/dependabot.yaml",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_proof",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_consumer_kit_proof.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_proof.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_proof.so",
-            "kind": "any"
-          }
         ]
       },
       "lookup_directories": [
@@ -9630,12 +9406,6 @@
           "actions/pipeline",
           "actions/repository-hygiene",
           "actions/sync",
-          "tests"
-        ],
-        "tests/test_consumer_kit_proof.py": [
-          ".",
-          "actions/pipeline",
-          "actions/repository-hygiene",
           "tests"
         ]
       }
@@ -10887,7 +10657,6 @@
         "tests/test_consumer_kit_installed_validation.py/**",
         "tests/test_consumer_kit_management.py/**",
         "tests/test_consumer_kit_own_dependabot.py/**",
-        "tests/test_consumer_kit_proof.py/**",
         "tests/test_consumer_kit_publication.py/**",
         "tests/test_consumer_kit_python_tests.py/**",
         "tests/test_consumer_kit_templates.py/**",
@@ -10922,6 +10691,7 @@
         "tests/test_pipeline_register.py/**",
         "tests/test_pipeline_release.py/**",
         "tests/test_pipeline_schema.py/**",
+        "tests/test_pipeline_steps_shell.py/**",
         "tests/test_pipeline_verdict.py/**",
         "tests/test_pipeline_workflow.py/**",
         "tests/test_publication_author.py/**",
@@ -11054,7 +10824,6 @@
           "tests/test_consumer_kit_installed_validation.py/**",
           "tests/test_consumer_kit_management.py/**",
           "tests/test_consumer_kit_own_dependabot.py/**",
-          "tests/test_consumer_kit_proof.py/**",
           "tests/test_consumer_kit_publication.py/**",
           "tests/test_consumer_kit_python_tests.py/**",
           "tests/test_consumer_kit_templates.py/**",
@@ -11089,6 +10858,7 @@
           "tests/test_pipeline_register.py/**",
           "tests/test_pipeline_release.py/**",
           "tests/test_pipeline_schema.py/**",
+          "tests/test_pipeline_steps_shell.py/**",
           "tests/test_pipeline_verdict.py/**",
           "tests/test_pipeline_workflow.py/**",
           "tests/test_publication_author.py/**",
@@ -12064,10 +11834,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_consumer_kit_proof.py",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_consumer_kit_publication.py",
           "kind": "any"
         },
@@ -12201,6 +11967,10 @@
         },
         {
           "path": "tests/test_pipeline_schema.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_steps_shell.py",
           "kind": "any"
         },
         {
@@ -13971,10 +13741,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_consumer_kit_proof.py",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_publication.py",
             "kind": "any"
           },
@@ -14108,6 +13874,10 @@
           },
           {
             "path": "tests/test_pipeline_schema.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_steps_shell.py",
             "kind": "any"
           },
           {
@@ -16500,10 +16270,6 @@
           "kind": "directory"
         },
         {
-          "path": "actions/pipeline/proof-kit",
-          "kind": "directory"
-        },
-        {
           "path": "actions/repository-hygiene",
           "kind": "directory"
         },
@@ -18521,10 +18287,6 @@
             "kind": "directory"
           },
           {
-            "path": "actions/pipeline/proof-kit",
-            "kind": "directory"
-          },
-          {
             "path": "actions/repository-hygiene",
             "kind": "directory"
           },
@@ -19206,7 +18968,8 @@
         "tests/test_pipeline_parts.py",
         "tests/test_pipeline_release.py",
         "tests/test_issue_title.py",
-        "tests/test_automation_invocations.py"
+        "tests/test_automation_invocations.py",
+        "tests/test_pipeline_steps_shell.py"
       ],
       "command": [
         "python3",
@@ -19227,6 +18990,7 @@
         "actions/dotnet-test/action.yml",
         "actions/dotnet-test/dotnet_test.py",
         "actions/issue-title/issue_title.py",
+        "actions/pipeline/action.yml",
         "actions/pipeline/consumer-kit/automation.yml",
         "actions/pipeline/consumer-kit/ci.yml",
         "actions/pipeline/consumer-kit/docs/agents/ci.md",
@@ -19253,14 +19017,21 @@
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
         "actions/pipeline/schema/v1/parts/suite-selection.json",
         "actions/pipeline/schema/v1/setups.json",
+        "actions/python-tests/action.yml",
         "actions/python-tests/python_tests.py",
+        "actions/repository-hygiene/action.yml",
         "actions/repository-hygiene/dependabot_coverage.py",
         "actions/repository-hygiene/hygiene.py",
         "actions/repository-hygiene/install_tools.py",
         "actions/repository-hygiene/link_check.py",
         "actions/repository-hygiene/package-ecosystems.json",
+        "actions/repository-hygiene/pins.json",
         "actions/repository-hygiene/pins.py",
+        "actions/repository-hygiene/pins.schema.json",
+        "actions/repository-hygiene/promote_v1.py",
         "actions/repository-hygiene/shared-surface.json",
+        "actions/repository-hygiene/update_pins.py",
+        "actions/repository-hygiene/zizmor-policy.yml",
         "actions/suite-selection/ci_definition.py",
         "tests/ci_policy_support.py",
         "tests/consumer_checks_fixtures.py",
@@ -19281,6 +19052,7 @@
         "tests/test_pipeline_register.py",
         "tests/test_pipeline_release.py",
         "tests/test_pipeline_schema.py",
+        "tests/test_pipeline_steps_shell.py",
         "tests/test_pipeline_verdict.py",
         "tests/test_pipeline_workflow.py",
         "tests/workflow_commands.py"
@@ -19512,12 +19284,55 @@
           "tests/pipeline_fixtures.py",
           "tests/test_automation_invocations.py",
           "tests/workflow_commands.py"
+        ],
+        "tests/test_pipeline_steps_shell.py": [
+          ".github/workflows/pipeline.yml",
+          "actions/pipeline/action.yml",
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/release.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/parts/suite-selection.json",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/python-tests/action.yml",
+          "actions/python-tests/python_tests.py",
+          "actions/repository-hygiene/action.yml",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/hygiene.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/link_check.py",
+          "actions/repository-hygiene/package-ecosystems.json",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
+          "actions/repository-hygiene/pins.schema.json",
+          "actions/repository-hygiene/promote_v1.py",
+          "actions/repository-hygiene/shared-surface.json",
+          "actions/repository-hygiene/update_pins.py",
+          "actions/repository-hygiene/zizmor-policy.yml",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
+          "tests/pipeline_fixtures.py",
+          "tests/test_pipeline_steps_shell.py"
         ]
       },
       "directory_memberships": [
+        "actions/pipeline",
         "actions/pipeline/schema",
         "actions/pipeline/schema/v1",
-        "actions/pipeline/schema/v1/parts"
+        "actions/pipeline/schema/v1/parts",
+        "actions/python-tests",
+        "actions/repository-hygiene"
       ],
       "entry_directory_memberships": {
         "tests/test_pipeline_custom.py": [
@@ -19548,6 +19363,14 @@
         "tests/test_automation_invocations.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
+        ],
+        "tests/test_pipeline_steps_shell.py": [
+          "actions/pipeline",
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1",
+          "actions/pipeline/schema/v1/parts",
+          "actions/python-tests",
+          "actions/repository-hygiene"
         ]
       },
       "existence_reads": [
@@ -20013,6 +19836,22 @@
         },
         {
           "path": "tests/test_pipeline_schema.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_steps_shell",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_pipeline_steps_shell.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_steps_shell.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_steps_shell.so",
           "kind": "any"
         },
         {
@@ -21480,6 +21319,108 @@
             "path": "tests/workflow_commands.so",
             "kind": "any"
           }
+        ],
+        "tests/test_pipeline_steps_shell.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_steps_shell",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_pipeline_steps_shell.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_steps_shell.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_steps_shell.so",
+            "kind": "any"
+          }
         ]
       },
       "lookup_directories": [
@@ -21560,6 +21501,12 @@
           "tests"
         ],
         "tests/test_automation_invocations.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "tests"
+        ],
+        "tests/test_pipeline_steps_shell.py": [
           ".",
           "actions/pipeline",
           "actions/repository-hygiene",
@@ -22617,8 +22564,6 @@
         "actions/issue-title/issue_title.py",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
-        "actions/pipeline/proof-kit/python/greeting.py",
-        "actions/pipeline/proof-kit/python/tests/test_greeting.py",
         "actions/pipeline/release.py",
         "actions/publication-checks/update_spec.py",
         "actions/python-language-step/python_language_step.py",
@@ -22661,15 +22606,6 @@
         "actions/pipeline/consumer-kit/previous",
         "actions/pipeline/consumer-kit/previous/docs",
         "actions/pipeline/consumer-kit/previous/docs/agents",
-        "actions/pipeline/proof-kit",
-        "actions/pipeline/proof-kit/.github",
-        "actions/pipeline/proof-kit/.github/workflows",
-        "actions/pipeline/proof-kit/LICENSES",
-        "actions/pipeline/proof-kit/docs",
-        "actions/pipeline/proof-kit/docs/agents",
-        "actions/pipeline/proof-kit/dotnet",
-        "actions/pipeline/proof-kit/python",
-        "actions/pipeline/proof-kit/python/tests",
         "actions/pipeline/schema",
         "actions/pipeline/schema/v1",
         "actions/pipeline/schema/v1/parts",
@@ -22752,34 +22688,6 @@
         },
         {
           "path": "actions/pipeline/__init__.pyi",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/__init__.py",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/__init__.pyi",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/python/__init__.py",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/python/__init__.pyi",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/python/greeting",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/python/tests/__init__.py",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/proof-kit/python/tests/__init__.pyi",
           "kind": "any"
         },
         {
