@@ -155,7 +155,7 @@ The shared step that runs the shared checks of one language inside the consumer'
 _Avoid_: Lint job, language job, language workflow
 
 **Floor**:
-The checks that every pull request runs, whatever it touches: the convention checks of its branch name, commit subjects and title, and the credential scan, which also runs on every other event.
+The checks that every pull request runs, whatever it touches: the convention checks of its branch name, commit subjects and title, in a public repository the check of its references to the owner's repositories that are not public, and the credential scan, which also runs on every other event.
 _Avoid_: Baseline checks, always-on checks
 
 **Check name**:
