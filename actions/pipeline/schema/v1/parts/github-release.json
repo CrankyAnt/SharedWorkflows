@@ -30,7 +30,7 @@
         "minLength": 1
       },
       "notes": {
-        "description": "The path, relative to the repository root, of a tracked file whose content becomes the release notes, the body of the release. It is read at the commit that the verified tag names, so it is a tracked file of that commit and never a file that `script` writes, and it holds UTF-8 text of at most 125000 characters. Without it, the body is one fixed sentence that names the tag and its commit. Invented example: \"docs/release-notes.md\".",
+        "description": "The path, relative to the repository root, of a tracked file whose content becomes the release notes, the body of the release. It is read at the commit that the verified tag names, so it is a tracked file of that commit and never a file that `script` writes, and it holds UTF-8 text of at most 125000 characters. Without it, the body is the list of merged pull requests that GitHub generates for the tag since the previous release, the nearest earlier tag that matches a pattern of `tags` and has a published release, filtered by the part: it leaves out the titles of the types docs, style, refactor, test, build, ci and chore without `!` and the lines whose every author is a bot, and names only external contributors. Invented example: \"docs/release-notes.md\".",
         "$ref": "#/$defs/relative-path"
       },
       "script": {"$ref": "#/$defs/script"},

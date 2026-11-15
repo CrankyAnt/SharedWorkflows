@@ -123,11 +123,22 @@ parts:
 | `setups` | Optional, with `script`. The known setups that are installed before the script, in the listed order. |
 | `runner-label` | Optional, with `script`. The label of the GitHub-hosted runner of the script's job; `ubuntu-26.04` without it. |
 | `title` | Optional. The title of the release, in which `{tag}` stands for the tag and `{version}` for the tag without a leading `v`; the tag without it. |
-| `notes` | Optional. A tracked file whose content becomes the release notes, such as `docs/release-notes.md`. It is read at the commit that the tag names, so `script` cannot write it, and it holds UTF-8 text of at most 125000 characters. Without it, the release notes are one fixed sentence that names the tag and its commit. |
+| `notes` | Optional. A tracked file whose content becomes the release notes, such as `docs/release-notes.md`. It is read at the commit that the tag names, so `script` cannot write it, and it holds UTF-8 text of at most 125000 characters. Without it, the release notes are GitHub's generated list of changes, filtered as below. |
 
 A release tag is an annotated tag with an SSH signature, made with `git tag -s` and `gpg.format` set to `ssh`. A matching tag that is not annotated, carries no signature or carries one of a key that the file on `main` does not hold publishes nothing and fails the run, with the reason in the job summary of the job `plan`.
 
 For a tag that passes, the files are collected at the commit that the tag names, their build provenance is attested in a repository that is not private, and the release is created under the tag with the files. A tag that already has a release fails the run and changes nothing, and so does a tag that was moved or removed after its signature was verified: the release is created only while the tag still names the verified commit. Without the part in the configuration file, a pushed tag publishes nothing and the run passes.
+
+Without `notes`, the body of the release is the list of merged pull requests that GitHub generates for the tag at the verified commit, filtered by the part:
+
+- The list starts at the previous release: the nearest earlier tag that the released commit reaches, that matches a pattern of `tags` and that has a published release. Without such a tag the list is the one GitHub gives for a tag without a previous tag, which for a first release is the whole history. A commit pushed straight to `main` has no pull request and no line.
+- A line stays when its title has the type `feat`, `fix`, `perf` or `revert`, marks a breaking change with `!` before the colon, or starts with no Conventional Commits type, such as `deps: ...`. A line goes when its title has the type `docs`, `style`, `refactor`, `test`, `build`, `ci` or `chore` without `!`, in any case and with or without a scope, and when every author of it is a bot, a login that ends in `[bot]`.
+- A line keeps "by" only for its external contributors: authors that are not the owner of the repository, not a bot and not `Copilot`. In a repository of an organisation every person is an external contributor. "New Contributors" keeps the lines of external contributors and goes when none stays.
+- With a `.github/release.yml` of the repository, the same rules hold for the lines under each category heading, and a heading without lines goes.
+- When no change line stays, the body is "No user-facing changes are listed for this release." The line "Full Changelog" stays as the last line.
+- A body longer than 125000 characters loses change lines from the end of the list until it fits, and says so above "Full Changelog".
+
+A request for the list, for the previous release or for the owner of the repository that fails, or a list without a body, fails the run before the release is created, with the step that failed in the job summary.
 
 ## What repository hygiene checks in these files
 
