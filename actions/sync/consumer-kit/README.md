@@ -52,7 +52,7 @@ To rotate the key, generate a new private key for the App, replace the environme
 
 For every repository of the installation that holds `.github/ci-config.yml` and is not archived, the sync compares:
 
-- the fixed callers `ci.yml`, `automation.yml` and `release.yml` and the pointer document `docs/agents/ci.md` with their templates;
+- the fixed callers `ci.yml`, `automation.yml` and `release.yml` and the pointer document `docs/agents/ci.md` with their templates, the pointer document up to and including its heading `## Repository choices`, below which a repository's own choices stay;
 - `.github/dependabot.yml` with the file generated from `dependabot` in the configuration file;
 - the default-branch ruleset with the ruleset template, with `ci / verdict` as its one required check;
 - the merge settings with the values that the shared parts rely on.

@@ -11,12 +11,18 @@
 ``callers`` compares the fixed callers ``ci.yml``, ``automation.yml`` and ``release.yml`` under ``.github/workflows/``
 with their templates in the consumer kit, byte for byte. A caller that equals the previous version of its template,
 ``previous/<caller>`` in the kit, passes for one month after the promotion that changed the template, whose date the
-kit's record ``fixed-callers.json`` holds. Every other workflow file under ``.github/workflows/`` must be registered
-under ``local-workflows`` in the configuration file. A caller that differs is reported with the consumer's open pull
-request on the sync's branch, which the record names.
+kit's record ``fixed-callers.json`` holds. The pointer document ``docs/agents/ci.md`` equals its template in the kit,
+at that path there, byte for byte up to and including the heading ``## Repository choices`` that closes the template;
+below it a consumer records its own choices. Its previous version, ``previous/docs/agents/ci.md``, passes for the
+same month. A kit without that template compares none. Every other workflow file under
+``.github/workflows/`` must be registered under ``local-workflows`` in the configuration file. A caller or a pointer
+document that differs is reported with the consumer's open pull request on the sync's branch, which the record names.
 
 ``register`` asks GitHub for the issue that each entry of ``local-workflows`` names: a temporary entry names an issue
-of the repository, a permanent entry a closed one. A pull request is no issue.
+of the repository, a permanent entry a closed one. A pull request is no issue. A temporary entry whose ``waits-for``
+names a part of the current schema version is a finding too, the switch-over check: the part exists, so the consumer
+switches it on, removes the workflow with its entry and closes the request. An entry that waits for a setting of an
+existing part, ``<part>.<setting>``, is that finding once the part's configuration knows the setting.
 
 ``dependabot`` compares ``.github/dependabot.yml`` with the file generated from ``dependabot`` in the configuration
 file: one ``updates`` entry per ecosystem and directory, in the file's order. Without ecosystems the repository holds
@@ -52,6 +58,8 @@ KIT_PATH = "actions/pipeline/consumer-kit"  # the kit's path in the repository o
 RECORD = "fixed-callers.json"
 CALLERS = ("ci.yml", "automation.yml", "release.yml")
 WORKFLOWS = ".github/workflows"
+POINTER = "docs/agents/ci.md"  # the pointer document: its template is this path in the kit, when the kit holds it
+CHOICES = b"## Repository choices\n"  # the heading that closes the template of the pointer document
 DEPENDABOT_FILE = ".github/dependabot.yml"
 DEPENDABOT_OTHER_NAME = ".github/dependabot.yaml"
 DEPENDABOT_AUTHOR = "dependabot[bot]"
@@ -87,8 +95,8 @@ def shared_repository(kit: Path) -> str:
 
 
 def read_record(kit: Path) -> tuple[dict[str, datetime.date], str]:
-    """The record of the kit: per caller with a previous version the date of the promotion that changed its template,
-    and the branch of the sync's pull request."""
+    """The record of the kit: per fixed file with a previous version, a caller by its name and the pointer document by
+    its path, the date of the promotion that changed its template, and the branch of the sync's pull request."""
     path = kit / RECORD
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
@@ -100,8 +108,8 @@ def read_record(kit: Path) -> tuple[dict[str, datetime.date], str]:
         raise KitError(f"{path}: expected the keys previous and sync-branch")
     promoted = {}
     for name, date in previous.items():
-        if name not in CALLERS or not isinstance(date, str) or not DATE.match(date):
-            raise KitError(f"{path}: previous names {name} with {date!r}; expected a fixed caller with the date of its promotion as YYYY-MM-DD")
+        if name not in (*CALLERS, POINTER) or not isinstance(date, str) or not DATE.match(date):
+            raise KitError(f"{path}: previous names {name} with {date!r}; expected a fixed caller or {POINTER} with the date of its promotion as YYYY-MM-DD")
         if not (kit / "previous" / name).is_file():
             raise KitError(f"{path}: previous names {name}, but the kit holds no previous/{name}")
         try:
@@ -109,6 +117,23 @@ def read_record(kit: Path) -> tuple[dict[str, datetime.date], str]:
         except ValueError as error:
             raise KitError(f"{path}: previous names {name} with {date!r}: {error}") from error
     return promoted, branch
+
+
+def fixed_part(document: bytes) -> bytes:
+    """A pointer document up to and including the first heading ``## Repository choices``, below which a consumer
+    records its own choices; the whole document when it has no such heading."""
+    if document.startswith(CHOICES):
+        return CHOICES
+    index = document.find(b"\n" + CHOICES)
+    return document if index < 0 else document[:index + 1 + len(CHOICES)]
+
+
+def pointer_for(template: bytes, held: bytes | None) -> bytes:
+    """The pointer document that a consumer holds after it follows the template: the template, and below its closing
+    heading ``## Repository choices`` what the consumer recorded below that heading."""
+    if held is None or not template.endswith(CHOICES) or fixed_part(held) == held:
+        return template
+    return template + held[len(fixed_part(held)):]
 
 
 def a_month_after(date: datetime.date) -> datetime.date:
@@ -160,6 +185,10 @@ def templates_url(shared: str) -> str:
     return f"https://github.com/{shared}/tree/v1/{KIT_PATH}"
 
 
+def catalogue_url(shared: str) -> str:
+    return f"https://github.com/{shared}/blob/v1/catalogue.json"
+
+
 # --- the configuration file -----------------------------------------------------------------------------------------
 
 
@@ -173,6 +202,23 @@ def read_configuration(root: Path, schemas: Path) -> tuple[dict | None, list[str
     except (plan.PlanError, plan.SchemaError) as error:
         return None, str(error).splitlines()
     return configuration, []
+
+
+def settings_of(schema: object) -> set[str]:
+    """Every setting that a part's configuration knows: its own properties and those of the items of its lists."""
+    if not isinstance(schema, dict):
+        return set()
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    return set(properties).union(*(settings_of(inner) for inner in properties.values()), settings_of(schema.get("items")))
+
+
+def existing_parts(schemas: Path) -> dict[str, set[str]]:
+    """The shared parts that exist, each with the settings it knows: the parts of the current schema version of the
+    pipeline's own revision. A part that always runs knows no setting."""
+    versions = plan.schema_versions(schemas)
+    current = versions[max(versions)]
+    configurations = current.schema["properties"]["parts"]["properties"]
+    return {part: settings_of(configurations.get(part)) for part in current.parts}
 
 
 # --- the report -----------------------------------------------------------------------------------------------------
@@ -240,14 +286,17 @@ def run_callers(options: argparse.Namespace) -> int:
     shared = shared_repository(kit)
     today = options.today or datetime.datetime.now(datetime.timezone.utc).date()
     findings, notes, differs = [], [], False
-    for name in CALLERS:
-        path = f"{WORKFLOWS}/{name}"
+    pointer = read_bytes(kit / POINTER)
+    for name in (*CALLERS, *([POINTER] if pointer is not None else [])):
+        path = POINTER if name == POINTER else f"{WORKFLOWS}/{name}"
         template, held = read_bytes(kit / name), read_bytes(root / path)
         if template is None:
             raise KitError(f"{kit} holds no template {name}")
-        if held == template:
+        # Of the pointer document, only the part up to and including the heading of the repository's choices is fixed.
+        compared = fixed_part(held) if name == POINTER and held is not None else held
+        if compared == template:
             continue
-        if name in promoted and held == read_bytes(kit / "previous" / name):
+        if name in promoted and compared == read_bytes(kit / "previous" / name):
             until = a_month_after(promoted[name])
             if today <= until:
                 notes.append(Finding(f"`{path}` equals the previous version of its template, which passes until {until.isoformat()}; "
@@ -255,9 +304,14 @@ def run_callers(options: argparse.Namespace) -> int:
                 continue
             findings.append(Finding(f"`{path}` equals the previous version of its template, which passed until {until.isoformat()}.", path))
         elif held is None:
-            findings.append(Finding(f"`{path}` does not exist; every consumer holds this fixed caller.", path))
-        else:
+            findings.append(Finding(f"`{path}` does not exist; every consumer holds this {'pointer document' if name == POINTER else 'fixed caller'}.", path))
+        elif name != POINTER:
             findings.append(Finding(f"`{path}` differs from its template; a fixed caller equals its template byte for byte.", path))
+        elif template.endswith(CHOICES):
+            findings.append(Finding(f"`{path}` differs from its template up to and including the heading `{CHOICES.decode().strip()}`; "
+                                    "the pointer document equals its template byte for byte there, and the repository's own choices go below that heading.", path))
+        else:
+            findings.append(Finding(f"`{path}` differs from its template; the pointer document equals its template byte for byte.", path))
         differs = True
     if differs:
         findings.append(Finding(sync_pointer(Api(options.api_url, options.repository, os.environ.get("GITHUB_TOKEN")), branch, shared)))
@@ -274,8 +328,9 @@ def run_callers(options: argparse.Namespace) -> int:
         unregistered = [path for path in local if path not in register]
         findings += [Finding(f"`{path}` is neither a fixed caller nor registered under `local-workflows` in `{plan.CONFIGURATION}`.", path) for path in unregistered]
         if unregistered:
-            findings.append(Finding(f"The decision rule in the catalogue says where its work belongs: https://github.com/{shared}/blob/v1/catalogue.json"))
-    passed = ["Every fixed caller equals its template, and every other workflow file is registered.", *[f"- `{path}` is registered." for path in registered]]
+            findings.append(Finding(f"The decision rule in the catalogue says where its work belongs: {catalogue_url(shared)}"))
+    fixed = "Every fixed caller equals its template" if pointer is None else "Every fixed caller and the pointer document equal their templates"
+    passed = [f"{fixed}, and every other workflow file is registered.", *[f"- `{path}` is registered." for path in registered]]
     return report(options, CALLERS_TITLE, findings, passed, notes)
 
 
@@ -313,14 +368,24 @@ def run_register(options: argparse.Namespace) -> int:
     if not entries:
         return report(options, REGISTER_TITLE, [], ["The local workflow register is empty."])
     api = Api(options.api_url, options.repository, os.environ.get("GITHUB_TOKEN"))
-    findings = []
+    existing = existing_parts(Path(options.schemas))
+    findings, switches = [], False
     for entry in entries:
         permanent = "declined-request" in entry
         number = entry["declined-request"] if permanent else entry["request"]
+        part, _, setting = ("" if permanent else entry["waits-for"]).partition(".")
+        if part in existing and (not setting or setting in existing[part]):
+            switches = True
+            what = (f"the setting `{setting}` of the part `{part}`, which exists now: state it under `parts.{part}` in" if setting else
+                    f"the part `{part}`, which exists now: switch the part on under `parts` in")
+            findings.append(Finding(f"The entry of `{entry['workflow']}` waits for {what} `{plan.CONFIGURATION}`, remove the workflow and its entry, "
+                                    f"and close the request #{number}.", plan.CONFIGURATION))
         problem = issue_problem(api, number, closed=permanent)
         if problem:
             findings.append(Finding(f"The entry of `{entry['workflow']}` names the {'declined ' if permanent else ''}request #{number}, which {problem}.", plan.CONFIGURATION))
-    return report(options, REGISTER_TITLE, findings, ["Every entry of the local workflow register names its issue."])
+    if switches:
+        findings.append(Finding(f"The catalogue describes the part: {catalogue_url(shared_repository(Path(options.kit)))}"))
+    return report(options, REGISTER_TITLE, findings, ["Every entry of the local workflow register names its issue, and no part that an entry waits for exists yet."])
 
 
 # --- dependabot -----------------------------------------------------------------------------------------------------

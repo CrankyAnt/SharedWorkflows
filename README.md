@@ -4,7 +4,7 @@ Shared Workflows provides reusable GitHub Actions workflows, shared steps and to
 
 ## Scope and authority
 
-This repository owns the shared implementations and their consumer kits. Each consuming repository owns its caller workflows, test suites, configuration and repository settings. The [catalogue](catalogue.json) describes which shared parts apply and what each requires.
+This repository owns the shared implementations and their consumer kits. Each consuming repository owns its caller workflows, test suites, configuration and repository settings. The [catalogue](catalogue.json) holds the rule that says where CI work belongs, and describes which shared parts apply and what each requires.
 
 ## Start here
 

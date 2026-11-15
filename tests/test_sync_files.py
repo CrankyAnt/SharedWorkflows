@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 
 from tests.consumer_checks_fixtures import SHARED, SYNC_BRANCH, WORKFLOWS, template
-from tests.pipeline_fixtures import CONFIGURATION
+from tests.pipeline_fixtures import CONFIGURATION, write
 from tests.sync_fixtures import APP_TOKEN, CONSUMER, DEPENDABOT, MANAGEMENT, OTHER, POINTER, POINTER_TEXT, SyncFixture
 from tests.test_pipeline_dependabot import GENERATED, STATED
 
@@ -93,6 +93,41 @@ class FileDifferenceTests(SyncFixture):
         synced = self.run_sync()
         self.assertEqual(1, len(consumer.pulls))
         self.assertIn("auto-merge could not be enabled: Auto merge is not allowed for this repository", synced.summary)
+
+
+class RepositoryChoicesTests(SyncFixture):
+    """A template of the pointer document that ends with the heading ``## Repository choices`` is compared up to and
+    including that heading, and what a consumer recorded below it stays."""
+
+    TEMPLATE = POINTER_TEXT + "\n## Repository choices\n"
+    CHOICES = "\nThe ruleset keeps the merge queue, because releases are batched.\n"
+
+    def setUp(self) -> None:
+        super().setUp()
+        write(self.kit, POINTER, self.TEMPLATE)
+
+    def test_a_consumer_with_choices_below_the_heading_matches(self) -> None:
+        self.consumer({POINTER: self.TEMPLATE + self.CHOICES})
+        synced = self.run_sync()
+        self.assertEqual(0, synced.status, synced.stderr)
+        self.assertEqual([], self.api.writes)
+
+    def test_a_change_above_the_heading_is_replaced_and_the_choices_below_it_stay(self) -> None:
+        consumer = self.consumer({POINTER: self.TEMPLATE.replace("every rule", "some rules") + self.CHOICES})
+        synced = self.run_sync()
+        self.assertEqual(0, synced.status, synced.stderr)
+        self.assertEqual(1, len(consumer.pulls))
+        self.assertEqual(self.TEMPLATE + self.CHOICES, consumer.files(SYNC_BRANCH)[POINTER])
+
+    def test_a_document_without_the_heading_becomes_the_template(self) -> None:
+        consumer = self.consumer({POINTER: "# CI\n\nOur own rules.\n"})
+        self.assertEqual(0, self.run_sync().status)
+        self.assertEqual(self.TEMPLATE, consumer.files(SYNC_BRANCH)[POINTER])
+
+    def test_a_missing_document_becomes_the_template(self) -> None:
+        consumer = self.consumer({POINTER: None})
+        self.assertEqual(0, self.run_sync().status)
+        self.assertEqual(self.TEMPLATE, consumer.files(SYNC_BRANCH)[POINTER])
 
 
 class GeneratedDependabotTests(SyncFixture):

@@ -39,6 +39,17 @@ class AdoptionFixture(SyncFixture):
         return self.local(command="adopt")
 
 
+class AdoptedChoicesTests(AdoptionFixture):
+    def test_the_choices_that_a_repository_recorded_in_its_ci_guide_stay_below_the_pointer(self) -> None:
+        pointer = POINTER_TEXT + "\n## Repository choices\n"
+        (self.kit / POINTER).write_text(pointer, encoding="utf-8", newline="\n")
+        guide = "# CI\n\n## Principles\n\nThe guide before the adoption.\n\n## Repository choices\n\nThe ruleset keeps the merge queue.\n"
+        consumer = self.before({**BEFORE, POINTER: guide})
+        adopted = self.adopt()
+        self.assertEqual(0, adopted.status, adopted.stdout + adopted.stderr)
+        self.assertEqual(pointer + "\nThe ruleset keeps the merge queue.\n", consumer.files(BRANCH)[POINTER])
+
+
 class AdoptionTests(AdoptionFixture):
     def test_the_adoption_pull_request_holds_the_fixed_callers_and_the_derived_configuration_file(self) -> None:
         consumer = self.before()

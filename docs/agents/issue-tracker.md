@@ -57,7 +57,19 @@ This label belongs only to finding issues, which hold in-flow work found while a
 
 ## Repository vocabularies and intake rules
 
-None.
+### Requests for shared CI
+
+A request is an issue with the label `shared-ci` in a consumer, as the [catalogue](../../catalogue.json) tells an agent there under `requests`. No agent writes a request into this repository, so triage here also collects the open `shared-ci` issues from the owner's other repositories. It does so with the owner's own login, because a consumer can be private and no credential of this repository reaches it:
+
+```text
+gh search issues --owner CrankyAnt --label shared-ci --state open
+```
+
+For each request that it takes up, triage writes a public issue in this repository with a Work Brief in general terms: it names no other repository and holds no name, path or content of a private one; the publication checks fail on a reference to a repository of the owner that is not public. Triage then comments on the request in the consumer, with the owner's own login: the comment links the public issue and states the part's final name, and for an input that an existing part lacks the final name of the setting. The consumer's temporary entry names the part, or `<part>.<setting>`, under `waits-for`, and the switch-over check finds only those names. The agent in the consumer that switches the part on closes the request.
+
+Triage, which decides, declines a request in the consumer itself: it closes the request as not planned, with a comment that states the decline, again with the owner's own login. Only a request closed that way allows the consumer a permanent entry in its local workflow register.
+
+The label `shared-ci` belongs to the consumers' trackers. No issue of this repository carries it.
 
 ## Map operations
 

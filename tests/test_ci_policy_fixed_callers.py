@@ -11,6 +11,7 @@ from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, read_workflo
 
 KIT = "actions/pipeline/consumer-kit"
 RECORD = REPOSITORY_ROOT / KIT / "fixed-callers.json"
+POINTER = "docs/agents/ci.md"  # the pointer document, which the record names by its path in the kit
 PIPELINE = REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml"
 SHARED = "CrankyAnt/SharedWorkflows/.github/workflows/"
 # The trigger classes of the spec: per fixed caller its events and the shared workflow it calls. The read class gets
@@ -83,7 +84,7 @@ def reach_problems(caller: dict, pipeline: dict) -> list[str]:
 def previous_versions() -> dict[str, str]:
     """The text of each previous caller version that the record names, by the caller's file name."""
     record = json.loads(RECORD.read_text(encoding="utf-8"))
-    return {name: (REPOSITORY_ROOT / KIT / "previous" / name).read_text(encoding="utf-8") for name in record["previous"]}
+    return {name: (REPOSITORY_ROOT / KIT / "previous" / name).read_text(encoding="utf-8") for name in record["previous"] if name != POINTER}
 
 
 class TemplateTests(unittest.TestCase):
@@ -104,16 +105,16 @@ class TemplateTests(unittest.TestCase):
             with self.subTest(previous=name):
                 self.assertEqual([], caller_problems(name, text))
 
-    def test_the_record_names_only_fixed_callers_whose_previous_version_is_tracked_and_differs_from_the_template(self) -> None:
+    def test_the_record_names_only_fixed_files_whose_previous_version_is_tracked_and_differs_from_the_template(self) -> None:
         record = json.loads(RECORD.read_text(encoding="utf-8"))
         self.assertEqual({"previous", "sync-branch"}, set(record))
         tracked = tracked_files(REPOSITORY_ROOT, [f"{KIT}/previous"])
         self.assertEqual(sorted(f"{KIT}/previous/{name}" for name in record["previous"]), sorted(tracked))
         for name, promoted in record["previous"].items():
             with self.subTest(previous=name):
-                self.assertIn(name, CLASSES)
+                self.assertIn(name, (*CLASSES, POINTER), "the record names a fixed caller by its file name and the pointer document by its path")
                 self.assertRegex(promoted, r"^\d{4}-\d{2}-\d{2}$")
-                self.assertNotEqual(self.templates[name], previous_versions()[name])
+                self.assertNotEqual((REPOSITORY_ROOT / KIT / name).read_text(encoding="utf-8"), (REPOSITORY_ROOT / KIT / "previous" / name).read_text(encoding="utf-8"))
 
     def test_the_read_caller_runs_on_pull_requests_pushes_to_main_and_the_dispatch_after_a_dependabot_merge(self) -> None:
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "ci.yml")

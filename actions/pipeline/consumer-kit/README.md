@@ -1,6 +1,6 @@
 # Pipeline
 
-The consumer kit of the pipeline, a shared part of the [catalogue](../../../catalogue.json). A repository holds three fixed callers, copied unchanged from this kit, and one configuration file, `.github/ci-config.yml`. The callers hold no choice of the repository: every choice is in the configuration file.
+The consumer kit of the pipeline, a shared part of the [catalogue](../../../catalogue.json). A repository holds three fixed callers and the pointer document `docs/agents/ci.md`, copied from this kit, and one configuration file, `.github/ci-config.yml`. The callers hold no choice of the repository: every choice is in the configuration file.
 
 ## The fixed callers
 
@@ -19,6 +19,10 @@ Each caller sets `permissions: {}` at the top, holds one job named after its fil
 - `release.yml` is the release caller. Its job holds `attestations: write`, `contents: write` and `id-token: write` and passes no secret. Without release configuration it publishes nothing, as [The release part](#the-release-part) says.
 
 No caller starts on `pull_request_target`, and none inherits secrets.
+
+## The pointer document
+
+Copy [docs/agents/ci.md](docs/agents/ci.md) to `docs/agents/ci.md`. It points to the catalogue and the schema of the configuration file at `v1`, holds no rule of its own and ends with the heading `## Repository choices`. Up to and including that heading it is equal byte for byte in every repository, as a fixed caller is. Below the heading the repository records, each with its reason, the choices that no file states, such as a deviation of its ruleset from the [ruleset template](../../repository-ruleset/README.md). A choice that a shared part reads is a value in the configuration file, and work that no shared part covers follows the decision rule in the catalogue; neither goes below the heading.
 
 ## The configuration file
 
@@ -112,8 +116,10 @@ Repository hygiene runs in every run of the pipeline and checks the files of thi
 | Check | Fails when |
 | --- | --- |
 | Fixed callers | a fixed caller is missing or differs from its template |
+| Pointer document | `docs/agents/ci.md` is missing or differs from its template up to and including the heading `## Repository choices` |
 | Local workflows | a workflow file under `.github/workflows/` is no fixed caller and has no entry under `local-workflows` |
 | Register | a temporary entry names a `request` that is no issue of the repository, or a permanent entry names a `declined-request` that is no closed issue of the repository; a pull request is no issue |
+| Switch-over | the part that a temporary entry names under `waits-for` exists at `v1`, or for `<part>.<setting>` the part knows that setting there: switch the part on under `parts` or state the setting, remove the workflow with its entry, and close the request |
 | Dependabot configuration | `.github/dependabot.yml` differs from the file generated from `dependabot`, or exists while the configuration file states no ecosystems |
 
 The generated `.github/dependabot.yml` holds one `updates` entry per ecosystem and directory, in the order of the configuration file, each with a weekly schedule, a cooldown of seven days and one group for minor and patch updates. The entry of `github-actions` ignores `CrankyAnt/SharedWorkflows`, which the callers follow at `v1`. When the check fails, the job summary holds the expected content of the file.
@@ -121,6 +127,24 @@ The generated `.github/dependabot.yml` holds one `updates` entry per ecosystem a
 A finding fails a pull request. On a pull request whose author is `dependabot[bot]`, and on a push, a finding is a notice in the job summary and the check passes.
 
 A workflow that fails the local-workflows check follows the decision rule in the [catalogue](../../../catalogue.json): a shared part, the free job with a request, or a registered local workflow.
+
+## Requests for shared CI
+
+A request asks for a shared part, for an input that an existing part lacks, or for the repair of a fault of a shared part, as steps 2 to 4 of the decision rule in the [catalogue](../../../catalogue.json) say. It is an issue in the repository itself with the label `shared-ci`; an agent in the repository writes nothing into `CrankyAnt/SharedWorkflows`. A request for a new part proposes the part's name, `<ecosystem>-<phase>`, where the ecosystem is a language or the platform that the part serves, as in `github-release`. A temporary entry of the register names the part under `waits-for`. A request for an input names the existing part and proposes the name of the setting, and its temporary entry names both as `<part>.<setting>`.
+
+The repository's own triage leaves a request alone. The repository creates the label `shared-ci` and adds this vocabulary entry to its `docs/agents/triage-labels.md`:
+
+```markdown
+## Shared CI vocabulary
+
+This label belongs only to requests for shared CI, which the triage of Shared Workflows collects and answers. Such issues are not triaged here and never carry a Type, Triage, Ready, Status or Resolution label; triage discovery skips them as another workflow's vocabulary.
+
+| Default label | Colour | Meaning |
+| --- | --- | --- |
+| `shared-ci` | `bfd4f2` | A request for a shared part, for an input that a shared part lacks, or for the repair of a fault of a shared part |
+```
+
+The triage of Shared Workflows collects the open requests and answers each in a comment on the request. For a request that it takes up, the comment links a public issue in general terms and states the final name of the part, and of the setting for a missing input: keep `waits-for` equal to them. A request that it declines it closes as not planned, with the decline in the comment. When the part exists at `v1`, the switch-over check fails the next pull request: the agent that switches the part on removes the temporary workflow with its entry and closes the request. A workflow stays in the repository for good only with a permanent entry, which names a closed request that was declined.
 
 ## A corrected title
 
@@ -140,8 +164,8 @@ A change to a template reaches a repository through a pull request that replaces
 | [automation.yml](automation.yml) | `.github/workflows/automation.yml` |
 | [release.yml](release.yml) | `.github/workflows/release.yml` |
 
-Nothing of the installed caller carries over. After the move of `v1` that changes a template, a caller that equals the previous version of that template passes for one month, with a notice in the job summary. After that month a pull request fails on it, with a link to the repository's open pull request that brings the fixed callers up to date; a pull request of `dependabot[bot]` still passes with a notice.
+Nothing of the installed caller carries over. The pointer document follows its template, [docs/agents/ci.md](docs/agents/ci.md), the same way, up to and including its heading `## Repository choices`; what the repository recorded below that heading carries over. After the move of `v1` that changes a template, a caller or a pointer document that equals the previous version of that template passes for one month, with a notice in the job summary. After that month a pull request fails on it, with a link to the repository's open pull request that brings the fixed callers up to date; a pull request of `dependabot[bot]` still passes with a notice.
 
 ## When `v1` moves
 
-A move of `v1` changes the later runs of the callers without a change in the repository. When it changes a template, the previous section applies. A failure that the repository cannot fix in its own files is a fault of the shared part: report it to the user.
+A move of `v1` changes the later runs of the callers without a change in the repository. When it changes a template, the previous section applies. A failure that the repository cannot fix in its own files is a fault of the shared part: report it to the user and file a request, as [Requests for shared CI](#requests-for-shared-ci) says.

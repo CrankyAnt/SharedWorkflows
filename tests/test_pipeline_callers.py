@@ -1,15 +1,20 @@
 """The caller check of the pipeline's hygiene job: a consumer's fixed callers equal their templates, or for one month
-the previous version, and every other workflow file is registered in the configuration file."""
+the previous version, its pointer document equals its template, and every other workflow file is registered in the
+configuration file."""
 
 from __future__ import annotations
 
 import unittest
 
 from tests.consumer_checks_fixtures import CONSUMER, SHARED, SYNC_BRANCH, WORKFLOWS, ConsumerFixture, template
-from tests.pipeline_fixtures import CONFIGURATION
+from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, write
 
 RULE = f"https://github.com/{SHARED}/blob/v1/catalogue.json"
 LOCAL = f"{WORKFLOWS}/nightly-report.yml"
+POINTER = "docs/agents/ci.md"
+POINTER_TEXT = "# CI\n\nAn invented pointer to the catalogue.\n"
+WITH_CHOICES = POINTER_TEXT + "\n## Repository choices\n"
+REAL_KIT =PART_FOLDER / "consumer-kit"
 REGISTERED = f"version: 1\nlocal-workflows:\n  - workflow: {LOCAL}\n    request: 12\n    waits-for: python-release\n"
 
 
@@ -139,6 +144,161 @@ class LocalWorkflowTests(ConsumerFixture):
         self.assertIn(f"`{CONFIGURATION}` cannot be used, so the local workflow register is unknown", checked.summary)
         self.assertIn("local-workflows: expected a list", checked.summary)
         self.assertNotIn("neither a fixed caller", checked.summary)
+
+
+class PointerDocumentTests(ConsumerFixture):
+    """The kit holds the template of the pointer document, which a consumer holds byte for byte as ``docs/agents/ci.md``."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        write(self.kit, POINTER, POINTER_TEXT)
+        self.consumer({POINTER: POINTER_TEXT})
+
+    def test_a_consumer_whose_pointer_document_equals_the_template_passes(self) -> None:
+        checked = self.start("callers")
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        self.assertIn("Every fixed caller and the pointer document equal their templates", checked.summary)
+        self.assertEqual([], self.api.requests)
+
+    def test_a_pointer_document_with_a_rule_of_the_consumer_s_own_fails_with_the_open_sync_pull_request(self) -> None:
+        url = self.api.sync_pull_request(31)
+        self.consumer({POINTER: POINTER_TEXT + "\nRun the slow tests only at night.\n"})
+        checked = self.start("callers")
+        self.assertEqual(1, checked.status, checked.stdout + checked.stderr)
+        self.assertIn(f"::error file={POINTER}::", checked.stdout)
+        self.assertIn(f"`{POINTER}` differs from its template; the pointer document equals its template byte for byte.", checked.summary)
+        self.assertIn(f"The open sync pull request brings the fixed callers up to date: {url}", checked.summary)
+
+    def test_a_missing_pointer_document_fails(self) -> None:
+        self.consumer({POINTER: None})
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status)
+        self.assertIn(f"`{POINTER}` does not exist; every consumer holds this pointer document.", checked.summary)
+
+    def test_a_dependabot_pull_request_and_a_push_get_a_notice(self) -> None:
+        self.consumer({POINTER: "# CI\n"})
+        for event, author in (("pull_request", "dependabot[bot]"), ("push", "")):
+            with self.subTest(event=event):
+                checked = self.check("callers", event=event, author=author)
+                self.assertEqual(0, checked.status, checked.stdout)
+                self.assertIn(f"::notice file={POINTER}::", checked.stdout)
+                self.assertNotIn("::error", checked.stdout)
+
+    def test_a_kit_without_the_template_compares_no_pointer_document(self) -> None:
+        (self.kit / POINTER).unlink()
+        self.consumer({POINTER: "# A guide of the consumer's own\n"})
+        checked = self.check("callers")
+        self.assertEqual(0, checked.status, checked.stdout)
+        self.assertIn("Every fixed caller equals its template", checked.summary)
+
+
+class RepositoryChoicesTests(ConsumerFixture):
+    """A template that ends with the heading ``## Repository choices`` is compared up to and including that heading;
+    a consumer records its own choices below it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        write(self.kit, POINTER, WITH_CHOICES)
+        self.consumer({POINTER: WITH_CHOICES + "\nThe ruleset keeps the merge queue, because releases are batched.\n"})
+
+    def test_choices_below_the_heading_pass(self) -> None:
+        checked = self.check("callers")
+        self.assertEqual(0, checked.status, checked.stdout)
+        self.assertIn("Every fixed caller and the pointer document equal their templates", checked.summary)
+
+    def test_a_document_that_ends_with_the_heading_passes(self) -> None:
+        self.consumer({POINTER: WITH_CHOICES})
+        self.assertEqual(0, self.check("callers").status)
+
+    def test_a_change_above_the_heading_fails(self) -> None:
+        self.consumer({POINTER: WITH_CHOICES.replace("invented", "changed") + "\nA choice.\n"})
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status)
+        self.assertIn(f"`{POINTER}` differs from its template up to and including the heading `## Repository choices`", checked.summary)
+
+    def test_a_document_without_the_heading_fails(self) -> None:
+        self.consumer({POINTER: POINTER_TEXT})
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status)
+        self.assertIn(f"`{POINTER}` differs from its template", checked.summary)
+
+    def test_a_second_heading_of_that_name_belongs_to_the_consumer_s_part(self) -> None:
+        self.consumer({POINTER: WITH_CHOICES + "\n## Repository choices\n\nA repeated heading.\n"})
+        self.assertEqual(0, self.check("callers").status)
+
+
+class PreviousPointerTests(ConsumerFixture):
+    """A promotion on 2026-03-10 changed the template of the pointer document; the consumer still holds the version
+    before it, with its own choices below the heading."""
+
+    PREVIOUS = "# CI\n\nThe pointer before the change.\n\n## Repository choices\n"
+
+    def setUp(self) -> None:
+        super().setUp()
+        write(self.kit, POINTER, WITH_CHOICES)
+        write(self.kit, f"previous/{POINTER}", self.PREVIOUS)
+        self.record({POINTER: "2026-03-10"})
+        self.consumer({POINTER: self.PREVIOUS + "\nA choice of the repository.\n"})
+
+    def test_the_previous_version_passes_for_one_month_with_a_notice(self) -> None:
+        for today in ("2026-03-10", "2026-04-10"):
+            with self.subTest(today=today):
+                checked = self.check("callers", "--today", today)
+                self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+                self.assertIn(f"`{POINTER}` equals the previous version of its template, which passes until 2026-04-10", checked.summary)
+                self.assertIn(f"::notice file={POINTER}::", checked.stdout)
+
+    def test_after_that_month_a_pull_request_fails_with_the_open_sync_pull_request(self) -> None:
+        url = self.api.sync_pull_request(31)
+        checked = self.check("callers", "--today", "2026-04-11")
+        self.assertEqual(1, checked.status, checked.stdout)
+        self.assertIn(f"`{POINTER}` equals the previous version of its template, which passed until 2026-04-10", checked.summary)
+        self.assertIn(url, checked.summary)
+
+    def test_after_that_month_a_dependabot_pull_request_passes_with_a_notice(self) -> None:
+        checked = self.check("callers", "--today", "2026-06-01", author="dependabot[bot]")
+        self.assertEqual(0, checked.status, checked.stdout)
+        self.assertIn("**Notice.**", checked.summary)
+        self.assertNotIn("::error", checked.stdout)
+
+    def test_a_document_that_equals_neither_version_fails_within_the_month(self) -> None:
+        self.consumer({POINTER: "# CI\n\nOur own rules.\n"})
+        self.assertEqual(1, self.check("callers", "--today", "2026-03-11").status)
+
+    def test_a_record_that_names_the_pointer_document_without_its_previous_file_cannot_be_used(self) -> None:
+        (self.kit / "previous" / POINTER).unlink()
+        checked = self.check("callers")
+        self.assertEqual(2, checked.status)
+        self.assertIn(f"previous/{POINTER}", checked.stderr)
+
+
+class RealKitTests(ConsumerFixture):
+    """A consumer that holds the files of the real consumer kit, checked against that kit."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.kit = REAL_KIT
+        for name in (*(f"{WORKFLOWS}/{caller}" for caller in ("ci.yml", "automation.yml", "release.yml")), POINTER):
+            self.consumer({name: (REAL_KIT / name.removeprefix(f"{WORKFLOWS}/")).read_text(encoding="utf-8")})
+
+    def test_a_consumer_that_holds_the_templates_of_the_kit_passes(self) -> None:
+        checked = self.check("callers")
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        self.assertIn("Every fixed caller and the pointer document equal their templates", checked.summary)
+
+    def test_a_consumer_with_choices_below_the_heading_of_the_real_template_passes(self) -> None:
+        template_text = (REAL_KIT / POINTER).read_text(encoding="utf-8")
+        self.assertTrue(template_text.endswith("\n## Repository choices\n"))
+        self.consumer({POINTER: template_text + "\nThe ruleset requires a second check, because the product has a manual gate.\n"})
+        self.assertEqual(0, self.check("callers").status)
+        self.consumer({POINTER: template_text.replace("catalogue", "list", 1)})
+        self.assertEqual(1, self.check("callers").status)
+
+    def test_a_consumer_without_the_kit_s_pointer_document_fails(self) -> None:
+        self.consumer({POINTER: None})
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status)
+        self.assertIn(f"`{POINTER}` does not exist", checked.summary)
 
 
 class SharedRepositoryTests(ConsumerFixture):

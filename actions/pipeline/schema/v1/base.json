@@ -66,14 +66,14 @@
       "oneOf": [
         {
           "title": "a temporary entry (workflow, request, waits-for)",
-          "description": "A workflow that stays local until the shared part it waits for exists. Invented example: {\"workflow\": \".github/workflows/nightly-report.yml\", \"request\": 12, \"waits-for\": \"python-release\"}.",
+          "description": "A workflow that stays local until the shared part it waits for exists, or until the part knows the setting it waits for. Invented example: {\"workflow\": \".github/workflows/nightly-report.yml\", \"request\": 12, \"waits-for\": \"python-release\"}.",
           "type": "object",
           "additionalProperties": false,
           "required": ["workflow", "request", "waits-for"],
           "properties": {
             "workflow": {"$ref": "#/$defs/workflow"},
             "request": {"description": "The number of the request issue in this repository.", "type": "integer", "minimum": 1},
-            "waits-for": {"description": "The name of the shared part the workflow waits for.", "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"}
+            "waits-for": {"description": "What the workflow waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. Invented examples: \"python-release\", \"python-test.coverage\".", "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*(\\.[a-z][a-z0-9]*(-[a-z0-9]+)*)?$"}
           }
         },
         {

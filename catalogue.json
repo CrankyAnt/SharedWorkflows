@@ -1,115 +1,250 @@
 {
-  "about": "The shared parts of the CI of CrankyAnt/SharedWorkflows that a consumer can adopt. Read this file at the tag v1. Paths are paths in CrankyAnt/SharedWorkflows at v1: a workflow is called as CrankyAnt/SharedWorkflows/.github/workflows/<workflow>@v1 and a step as CrankyAnt/SharedWorkflows/actions/<part>@v1. required_checks are the checks a consumer's default-branch ruleset requires for the part; the consumer kit of repository hygiene states that ruleset and the merge settings that the shared parts rely on, and leads to the ruleset template actions/repository-ruleset. consumer_kit is the folder that holds the part's caller templates and their explanation in its README.md, or null while the part has no consumer kit yet. A consumer applies shared parts and changes none of them.",
+  "about": "The one entry to the shared CI of CrankyAnt/SharedWorkflows for an agent in a consumer. Read this file at the tag v1. decision_rule says where CI work belongs, requests how a consumer asks for shared CI, local_workflows what the register in the configuration file holds, routes what to do where no run starts by itself, and parts lists every shared part. A consumer holds the fixed callers unchanged, and the pointer document docs/agents/ci.md unchanged up to and including its heading Repository choices, below which it records the choices that no file states, and states every choice in its configuration file, .github/ci-config.yml, whose schema is actions/pipeline/schema/v1/ci-config.schema.json. Paths are paths in CrankyAnt/SharedWorkflows at v1. In an entry of parts, configuration is the schema fragment of the key that the entry's name is under parts in the configuration file, where the fragment describes every setting, or null for an entry that a repository adopts through its consumer kit and not through that key; workflows and steps are the shared workflows and shared steps that the entry runs, which the fixed callers or the templates of its consumer kit call as CrankyAnt/SharedWorkflows/.github/workflows/<workflow>@v1 and CrankyAnt/SharedWorkflows/actions/<part>@v1; required_checks are the checks that a consumer's default-branch ruleset requires for the entry, where the consumer kit of the pipeline leads to the ruleset template actions/repository-ruleset; consumer_kit is the folder whose README.md explains the entry to a consumer, with its templates where it has them, or null when the entry and its fragment say everything; audience is consumer, or management repository for an entry that no consumer adopts and that an agent in a consumer skips. A consumer applies shared parts and changes none of them.",
+  "decision_rule": {
+    "about": "Where CI work of a consumer belongs: a check, a job or a workflow that the repository needs. Take the first step whose condition holds. No step asks whether another repository needs the same work, so no step needs a person's judgement. A part exists when parts holds an entry for the work, named <ecosystem>-<phase> with the phase verify, test, build, package, release or deploy, where the ecosystem is a language or, for a part without a language, the platform that the part serves, as in github-release; its inputs suffice when the settings in its schema fragment can state what the repository needs. Repository hygiene enforces the rule: a workflow file that is neither a fixed caller nor registered under local-workflows fails a pull request.",
+    "steps": [
+      {
+        "step": 1,
+        "when": "A part exists and its inputs suffice.",
+        "then": "Switch the part on under parts in .github/ci-config.yml."
+      },
+      {
+        "step": 2,
+        "when": "A part exists but its inputs do not suffice.",
+        "then": "File a request for the missing input and run the work in the free job, the part custom, meanwhile; when the missing input needs write permission, a secret or another trigger than a pull request or a push to main, register a temporary local workflow under local-workflows meanwhile instead."
+      },
+      {
+        "step": 3,
+        "when": "No part exists and read permission suffices for the work.",
+        "then": "Run the work in the free job, the part custom, and file a request."
+      },
+      {
+        "step": 4,
+        "when": "No part exists and the work needs write permission, a secret or another trigger than a pull request or a push to main.",
+        "then": "File a request and register a temporary local workflow under local-workflows meanwhile."
+      }
+    ]
+  },
+  "requests": {
+    "label": "shared-ci",
+    "where": "A request is an issue in the consumer's own repository with the label shared-ci. An agent in a consumer writes nothing into CrankyAnt/SharedWorkflows.",
+    "content": "The work that the repository needs, and the part or the input that is missing; a request for a new part proposes its name, <ecosystem>-<phase>, and a request for an input names the existing part and proposes the name of the setting, as <part>.<setting>; a temporary entry names the same under waits-for. A fault of a shared part that the repository cannot fix in its own files is a request too.",
+    "triage": "The repository's own triage skips a request: shared-ci is another workflow's vocabulary, which docs/agents/triage-labels.md of the consumer records as the consumer kit of the pipeline states. The triage of CrankyAnt/SharedWorkflows collects the open requests and answers each: with a public issue in general terms, to which the request then links, or by declining it. The triage states the final name of the part, and for a missing input the final name of the setting, in a comment on the request: keep waits-for equal to them, or the switch-over check never finds the part or the setting.",
+    "closing": "The agent that switches the part on, or that removes the temporary workflow, closes the request. The triage of CrankyAnt/SharedWorkflows, which decides, closes a request that it declines as not planned, with a comment that states the decline; only such a request allows a permanent entry."
+  },
+  "local_workflows": {
+    "about": "The register local-workflows in .github/ci-config.yml holds one entry per workflow file under .github/workflows/ that is no fixed caller. A workflow file without an entry fails repository hygiene on a pull request.",
+    "temporary": "A temporary entry holds workflow, request and waits-for: the path of the workflow file, the number of the request issue in the repository and the name of the part it waits for. For step 2 of the decision rule, where the part exists, waits-for is <part>.<setting>: the existing part and the setting that the part lacks. It is the entry of steps 2 and 4 of the decision rule.",
+    "permanent": "A permanent entry holds workflow and declined-request: the path of the workflow file and the number of a closed request issue in the repository that was declined. A workflow becomes permanent only after its request was declined; until then its entry is temporary.",
+    "checks": "Repository hygiene reads each issue that an entry names with the token of the run: it is an issue of the repository and no pull request, and the one of a permanent entry is closed. When the part that a temporary entry waits for exists at v1, or the part's schema fragment there knows the setting that the entry waits for, a pull request whose author is not Dependabot fails with the instruction to switch the part on or state the setting, remove the temporary workflow with its entry and close the request; a pull request of Dependabot and a push get a notice and pass."
+  },
+  "routes": {
+    "corrected_title": "The fixed caller ci.yml does not start on an edit of a pull request, so a corrected title or body starts no run. The title check and the reference check of repository hygiene read the current title and body from GitHub: after the correction, re-run the failed jobs of the pull request's run."
+  },
   "parts": [
     {
       "name": "Repository hygiene",
       "purpose": "One job that checks every repository's publication conventions and credentials and runs the shared checks that a change can affect: workflow validation, Dependabot coverage, relative Markdown links and REUSE.",
+      "configuration": null,
       "workflows": [".github/workflows/repository-hygiene.yml"],
       "steps": ["actions/repository-hygiene", "actions/publication-checks"],
       "required_checks": ["hygiene / hygiene"],
       "needs": "A GitHub repository whose squash merge and merge commits are enabled, whose rebase merge is disabled, whose squash and merge-commit subjects are the pull request title with an empty body, and whose default-branch ruleset requires the checks of the shared parts it uses, as its consumer kit states with the ruleset template.",
       "applies": "Every repository, a Markdown-only one included.",
-      "consumer_kit": "actions/repository-hygiene/consumer-kit"
+      "consumer_kit": "actions/repository-hygiene/consumer-kit",
+      "audience": "consumer"
     },
     {
       "name": "Dependabot auto-merge",
       "purpose": "Merges a Dependabot pull request whose updates are all patch or minor, and for GitHub Actions all from actions/*, once its required checks have passed.",
+      "configuration": null,
       "workflows": [".github/workflows/dependabot-auto-merge.yml"],
       "steps": ["actions/dependabot-auto-merge"],
       "required_checks": [],
       "needs": "A Dependabot configuration, Dependabot alerts and security updates enabled, and a default-branch ruleset that requires status checks.",
       "applies": "A repository with a dependency of its own: a package file that Dependabot updates, or a workflow of its own, other than a caller of a shared workflow, that uses an action from outside the repository.",
-      "consumer_kit": "actions/dependabot-auto-merge/consumer-kit"
+      "consumer_kit": "actions/dependabot-auto-merge/consumer-kit",
+      "audience": "consumer"
     },
     {
       "name": "Suite selection",
       "purpose": "Runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, and reports one verdict as the required check.",
+      "configuration": null,
       "workflows": [".github/workflows/suite-selection.yml", ".github/workflows/suite-verdict.yml"],
       "steps": ["actions/suite-selection", "actions/recording"],
       "required_checks": ["validation / validation"],
       "needs": "A validation workflow that runs the repository's suites on pull requests and pushes, a suite list of those suites, and for the full recording and the additions workflow a GitHub App that may push branches and open pull requests.",
       "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs.",
-      "consumer_kit": "actions/suite-selection/consumer-kit"
+      "consumer_kit": "actions/suite-selection/consumer-kit",
+      "audience": "consumer"
     },
     {
       "name": "Python language step",
       "purpose": "Runs ruff, mypy where the repository configures it, and optionally ruff format in a job that already installs Python.",
+      "configuration": null,
       "workflows": [],
       "steps": ["actions/python-language-step"],
       "required_checks": [],
       "needs": "A job that installs Python; with the suite selection, shard 1 of the validation workflow, where the verdict reports its result.",
       "applies": "A repository with Python files.",
-      "consumer_kit": "actions/python-language-step/consumer-kit"
+      "consumer_kit": "actions/python-language-step/consumer-kit",
+      "audience": "consumer"
     },
     {
       "name": "Python tests",
       "purpose": "One job that installs Python and a repository's dependencies, runs the Python language step and runs the repository's Python tests with pytest or unittest.",
+      "configuration": null,
       "workflows": [".github/workflows/python-tests.yml"],
       "steps": ["actions/python-tests", "actions/python-language-step"],
       "required_checks": ["tests / tests"],
       "needs": "A Python project for Python 3.11 or newer with tests that pytest or unittest discovers, and its test dependencies, pytest included where the project configures it, in a requirements file or an extra of the project.",
       "applies": "A repository with Python tests short enough that the suite selection does not pay, and not a repository that uses the suite selection, which runs its Python tests through that part.",
-      "consumer_kit": "actions/python-tests/consumer-kit"
+      "consumer_kit": "actions/python-tests/consumer-kit",
+      "audience": "consumer"
     },
     {
       "name": "Pipeline",
-      "purpose": "Reads a repository's configuration file, runs repository hygiene and the shared parts that the file switches on and a change can affect, and reports one verdict as the required check; the automation workflow, which the fixed caller automation.yml calls, runs the parts that write and that the file switches on, which are dependabot-auto-merge, issue-title, additions and full-recording.",
-      "workflows": [".github/workflows/pipeline.yml", ".github/workflows/automation.yml"],
-      "steps": ["actions/pipeline", "actions/issue-title"],
+      "purpose": "Reads a repository's configuration file, runs repository hygiene and the parts that the file switches on and a change can affect, and reports one verdict as the required check, through three fixed callers that are equal in every repository: ci.yml calls the pipeline, automation.yml the automation workflow with the parts that write, and release.yml the release workflow.",
+      "configuration": null,
+      "workflows": [".github/workflows/pipeline.yml", ".github/workflows/automation.yml", ".github/workflows/release.yml"],
+      "steps": ["actions/pipeline"],
       "required_checks": ["ci / verdict"],
-      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, and the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, of which ci.yml calls the pipeline on pull requests, on pushes to main and on the dispatch dependabot-merged.",
+      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, and the pointer document docs/agents/ci.md, equal to its template there up to and including the heading Repository choices; ci.yml calls the pipeline on pull requests, on pushes to main and on the dispatch dependabot-merged.",
       "applies": "Every repository; until a repository holds the fixed callers, it adopts the other shared parts through their consumer kits.",
-      "consumer_kit": "actions/pipeline/consumer-kit"
+      "consumer_kit": "actions/pipeline/consumer-kit",
+      "audience": "consumer"
+    },
+    {
+      "name": "repository-hygiene",
+      "purpose": "The job of the pipeline that always runs and takes no settings: it checks the publication conventions and the credentials of every repository, the fixed callers, the pointer document, the generated Dependabot configuration and the local workflow register, and runs the shared checks that a change can affect, which are workflow validation, Dependabot coverage, relative Markdown links and REUSE.",
+      "configuration": "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+      "workflows": [],
+      "steps": ["actions/repository-hygiene", "actions/publication-checks", "actions/pipeline"],
+      "required_checks": [],
+      "needs": "The pipeline, and nothing under parts: the part always runs and cannot be switched off, as the schema fragment actions/pipeline/schema/v1/parts/repository-hygiene.json states. The credential scan takes .gitleaks.toml as its configuration and .gitleaks-baseline.json as its baseline when the repository holds them under those names.",
+      "applies": "Every repository that runs the pipeline.",
+      "consumer_kit": "actions/pipeline/consumer-kit",
+      "audience": "consumer"
+    },
+    {
+      "name": "custom",
+      "purpose": "The free job: a job of the pipeline that installs the setups the repository names and runs a script of the repository with read permission only and without secrets, for CI that no other part covers.",
+      "configuration": "actions/pipeline/schema/v1/parts/custom.json",
+      "workflows": [],
+      "steps": [],
+      "required_checks": [],
+      "needs": "The pipeline, and parts.custom in .github/ci-config.yml with script, the path of a script of the repository that runs with Bash from the repository root and whose exit status is the job's result, and optionally setups, names from the known setups in actions/pipeline/schema/v1/setups.json that are installed in the listed order, and paths; the schema fragment actions/pipeline/schema/v1/parts/custom.json states every setting.",
+      "applies": "A repository with CI that no other part covers and for which read permission suffices, as steps 2 and 3 of the decision rule say; work that needs write permission, a secret or another trigger than a pull request or a push to main does not fit it.",
+      "consumer_kit": null,
+      "audience": "consumer"
     },
     {
       "name": "python-verify",
       "purpose": "A job of the pipeline per configured project that installs a Python version and the project's dependencies and runs the Python language checks: ruff check, mypy where the project configures it, and optionally ruff format --check.",
+      "configuration": "actions/pipeline/schema/v1/parts/python-verify.json",
       "workflows": [],
       "steps": ["actions/python-language-step", "actions/python-tests"],
       "required_checks": [],
       "needs": "The pipeline, and parts.python-verify in .github/ci-config.yml with projects, a list of one or more projects that each name python-version, 3.11 or newer, and optionally working-directory, install and format-check; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/python-verify.json states every setting.",
       "applies": "A repository with Python files that runs the pipeline.",
-      "consumer_kit": null
+      "consumer_kit": null,
+      "audience": "consumer"
     },
     {
       "name": "python-test",
       "purpose": "A job of the pipeline per configured project that installs a Python version and the project's dependencies and runs the project's Python tests with pytest where the project configures it and otherwise with unittest.",
+      "configuration": "actions/pipeline/schema/v1/parts/python-test.json",
       "workflows": [],
       "steps": ["actions/python-tests"],
       "required_checks": [],
       "needs": "The pipeline, a Python project with tests that pytest or unittest discovers, its test dependencies in a requirements file or an extra of the project, and parts.python-test in .github/ci-config.yml with projects, a list of one or more projects that each name python-version, 3.11 or newer, and optionally working-directory, install and runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/python-test.json states every setting.",
       "applies": "A repository that runs the pipeline and has Python tests short enough that the suite selection does not pay, and not a repository that uses the suite selection, which runs its Python tests through that part.",
-      "consumer_kit": null
+      "consumer_kit": null,
+      "audience": "consumer"
     },
     {
       "name": "dotnet-test",
       "purpose": "A job of the pipeline per configured test project or solution that installs a .NET SDK version, builds it, runs its tests with dotnet test and fails when no test ran.",
+      "configuration": "actions/pipeline/schema/v1/parts/dotnet-test.json",
       "workflows": [],
       "steps": ["actions/dotnet-test"],
       "required_checks": [],
       "needs": "The pipeline, a .NET test project or a solution that dotnet test runs, and parts.dotnet-test in .github/ci-config.yml with projects, a list of one or more items that each name sdk-version and project and optionally runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/dotnet-test.json states every setting.",
       "applies": "A repository with .NET tests that runs the pipeline.",
-      "consumer_kit": null
+      "consumer_kit": null,
+      "audience": "consumer"
     },
     {
-      "name": "GitHub release",
+      "name": "dependabot-auto-merge",
+      "purpose": "A job of the automation workflow that merges a Dependabot pull request whose updates are all patch or minor, and for GitHub Actions all from actions/*, once its required checks have passed.",
+      "configuration": "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+      "workflows": [".github/workflows/automation.yml"],
+      "steps": ["actions/dependabot-auto-merge"],
+      "required_checks": [],
+      "needs": "The fixed caller automation.yml, parts.dependabot-auto-merge in .github/ci-config.yml, stated as {} or with suites, the path of the suite list in a repository that uses the suite selection, the repository's Dependabot ecosystems under dependabot in the configuration file, Dependabot alerts and security updates enabled, and a default-branch ruleset that requires status checks; the schema fragment actions/pipeline/schema/v1/parts/dependabot-auto-merge.json states every setting.",
+      "applies": "A repository with a dependency of its own: a package file that Dependabot updates, or a workflow of its own, other than a caller of a shared workflow, that uses an action from outside the repository.",
+      "consumer_kit": "actions/dependabot-auto-merge/consumer-kit",
+      "audience": "consumer"
+    },
+    {
+      "name": "issue-title",
+      "purpose": "A job of the automation workflow that gives an opened issue the title prefix of its category, from the repository's category file.",
+      "configuration": "actions/pipeline/schema/v1/parts/issue-title.json",
+      "workflows": [".github/workflows/automation.yml"],
+      "steps": ["actions/issue-title"],
+      "required_checks": [],
+      "needs": "The fixed caller automation.yml, and parts.issue-title in .github/ci-config.yml with categories, the path of the repository's category file, a JSON object with the lists product_categories and generic_forms that the consumer kit describes; the schema fragment actions/pipeline/schema/v1/parts/issue-title.json states every setting.",
+      "applies": "A repository whose issues carry a title prefix per category.",
+      "consumer_kit": "actions/pipeline/consumer-kit",
+      "audience": "consumer"
+    },
+    {
+      "name": "additions",
+      "purpose": "A job of the automation workflow that commits the recorded additions of a failed pull-request run to the suite list on the pull request's branch, once per push, as a GitHub App.",
+      "configuration": "actions/pipeline/schema/v1/parts/additions.json",
+      "workflows": [".github/workflows/automation.yml"],
+      "steps": ["actions/recording", "actions/repository-hygiene"],
+      "required_checks": [],
+      "needs": "The fixed caller automation.yml, the suite selection, parts.additions in .github/ci-config.yml with suites, the path of the suite list, and the GitHub App of the suite selection, with its Client ID in the repository variable PUBLICATION_CHECKS_APP_CLIENT_ID and its private key in the repository secret PUBLICATION_CHECKS_APP_PRIVATE_KEY; the schema fragment actions/pipeline/schema/v1/parts/additions.json states every setting.",
+      "applies": "A repository that uses the suite selection.",
+      "consumer_kit": "actions/suite-selection/consumer-kit",
+      "audience": "consumer"
+    },
+    {
+      "name": "full-recording",
+      "purpose": "Jobs of the automation workflow that record every entry file of the suite list every two weeks and propose the changed stored lists and duration estimates as a pull request that merges itself once its required checks have passed.",
+      "configuration": "actions/pipeline/schema/v1/parts/full-recording.json",
+      "workflows": [".github/workflows/automation.yml"],
+      "steps": ["actions/suite-selection", "actions/recording", "actions/repository-hygiene"],
+      "required_checks": [],
+      "needs": "The fixed caller automation.yml, the suite selection, parts.full-recording in .github/ci-config.yml with suites, the path of the suite list, and validation-workflow, the path of the workflow that runs the suites on a pull request, and the GitHub App of the suite selection, with its Client ID in the repository variable PUBLICATION_CHECKS_APP_CLIENT_ID and its private key in the repository secret PUBLICATION_CHECKS_APP_PRIVATE_KEY; the schema fragment actions/pipeline/schema/v1/parts/full-recording.json states every setting.",
+      "applies": "A repository that uses the suite selection.",
+      "consumer_kit": "actions/suite-selection/consumer-kit",
+      "audience": "consumer"
+    },
+    {
+      "name": "github-release",
       "purpose": "Publishes a GitHub release with the files that the configuration file names, attested with build provenance in a public repository, for a pushed tag that matches a configured pattern and carries a valid SSH signature of a key that the default branch allows, and publishes nothing for any other tag or without release configuration.",
+      "configuration": "actions/pipeline/schema/v1/parts/github-release.json",
       "workflows": [".github/workflows/release.yml"],
       "steps": ["actions/pipeline"],
       "required_checks": [],
-      "needs": "The fixed caller release.yml of the pipeline's consumer kit, the part github-release under parts in the configuration file .github/ci-config.yml with its tag patterns, its allowed-signers file and the files to publish, as the schema actions/pipeline/schema/v1/ci-config.schema.json describes them, and that allowed-signers file on the default branch.",
+      "needs": "The fixed caller release.yml, parts.github-release in .github/ci-config.yml with tags, the patterns of the tags that are released, allowed-signers, the path of the file with the SSH keys that may sign a release tag, which is read from the default branch, and files, the files to publish, and optionally title, script, setups and runner-label; the schema fragment actions/pipeline/schema/v1/parts/github-release.json states every setting.",
       "applies": "A repository that publishes files as a GitHub release from signed tags.",
-      "consumer_kit": "actions/pipeline/consumer-kit"
+      "consumer_kit": "actions/pipeline/consumer-kit",
+      "audience": "consumer"
     },
     {
       "name": "Sync",
       "purpose": "Compares every repository that the sync App is installed on with the templates of the fixed files and with the ruleset and merge settings, opens a pull request with auto-merge for file differences and reports settings differences as issues.",
+      "configuration": null,
       "workflows": [".github/workflows/sync.yml"],
       "steps": ["actions/sync"],
       "required_checks": [],
       "needs": "A private repository built from the management repository kit, with the environment sync limited to main that holds the Client ID and the private key of the sync App, which has Contents, Pull requests and Workflows write and Issues read, no Administration, and is never installed on CrankyAnt/SharedWorkflows.",
       "applies": "The one management repository of the owner; a consumer does not call it, and the sync reaches a consumer through the App's installation.",
-      "consumer_kit": "actions/sync/consumer-kit"
+      "consumer_kit": "actions/sync/consumer-kit",
+      "audience": "management repository"
     }
   ]
 }

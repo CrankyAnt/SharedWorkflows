@@ -14,6 +14,8 @@ SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.j
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
 PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "issue-title", "sync")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
+# The consumer kits whose README leads to the ruleset template.
+LEADING_KITS = ("actions/repository-hygiene/consumer-kit", "actions/pipeline/consumer-kit")
 # The header of the pin-source table of a consumer kit's README, which consumers follow and the pin-source test reads.
 PIN_SOURCE_HEADER = "| Template | Pin source |"
 
@@ -242,8 +244,8 @@ class CatalogueTests(unittest.TestCase):
 
     def test_an_entry_that_names_a_missing_workflow_step_or_consumer_kit_fails(self) -> None:
         first = self.catalogue["parts"][0]
-        # Without the consumer kit of repository hygiene, the consumer kit of the pipeline, which the release part names too,
-        # still leads to the ruleset template.
+        # Without the consumer kit of repository hygiene, the consumer kit of the pipeline, which several of its parts name
+        # too, still leads to the ruleset template.
         unreached: list[str] = []
         for key, value, problem, more in (
             ("workflows", [*first["workflows"], ".github/workflows/missing.yml"], "the workflow .github/workflows/missing.yml is no shared workflow", []),
@@ -253,7 +255,7 @@ class CatalogueTests(unittest.TestCase):
             with self.subTest(key=key):
                 catalogue = {"parts": [{**first, key: value}, *self.catalogue["parts"][1:]]}
                 self.assertEqual([f"{first['name']}: {problem}", *more], catalogue_problems(catalogue, self.surface, self.tracked))
-        without_leading_kits = {"parts": [{**entry, "consumer_kit": None} if entry["name"] in ("Repository hygiene", "Pipeline", "GitHub release") else entry for entry in self.catalogue["parts"]]}
+        without_leading_kits = {"parts": [{**entry, "consumer_kit": None} if entry["consumer_kit"] in LEADING_KITS else entry for entry in self.catalogue["parts"]]}
         self.assertEqual(["actions/repository-ruleset holds no step and no consumer kit leads to it"], catalogue_problems(without_leading_kits, self.surface, self.tracked))
 
     def test_the_suite_selection_names_its_consumer_kit(self) -> None:

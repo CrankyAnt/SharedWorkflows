@@ -6,6 +6,7 @@
       "entries": [
         "tests/test_ci_policy_action_pins.py",
         "tests/test_ci_policy_auto_merge_caller.py",
+        "tests/test_ci_policy_catalogue.py",
         "tests/test_ci_policy_shared_surface.py",
         "tests/test_ci_policy_hygiene_caller.py",
         "tests/test_ci_policy_hygiene_core.py",
@@ -186,6 +187,7 @@
         "tests/test_ci_policy_additions.py",
         "tests/test_ci_policy_auto_merge_caller.py",
         "tests/test_ci_policy_automation.py",
+        "tests/test_ci_policy_catalogue.py",
         "tests/test_ci_policy_etw_consumer.py",
         "tests/test_ci_policy_fixed_callers.py",
         "tests/test_ci_policy_full_recording.py",
@@ -738,6 +740,9 @@
           "tests/ci_policy_support.py",
           "tests/fixtures/issue_title/categories.json",
           "tests/test_ci_policy_automation.py"
+        ],
+        "tests/test_ci_policy_catalogue.py": [
+          "tests/test_ci_policy_catalogue.py"
         ],
         "tests/test_ci_policy_sync.py": [
           ".github/workflows/sync.yml",

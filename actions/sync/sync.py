@@ -13,7 +13,9 @@
 the consumer kit, ``.github/dependabot.yml`` with the file generated from the configuration file, the default-branch
 ruleset with the ruleset template and the merge settings with ``merge-settings.json``. For file differences it opens one
 pull request on the sync's branch, which the kit's record names, requests auto-merge and stops: it waits for nothing.
-A pull request that is already open keeps its number; its branch moves when the files it should hold changed.
+A pull request that is already open keeps its number; its branch moves when the files it should hold changed. Of the
+pointer document only the part up to and including the heading ``## Repository choices``, which closes its template, is
+compared and replaced: what a repository recorded below that heading stays.
 
 Without ``--local`` the sync runs with the installation token of the sync App in ``GH_TOKEN`` and reaches the
 repositories of that installation, which it asks GitHub for. A settings difference is reported, never changed. With
@@ -314,7 +316,15 @@ def request_auto_merge(api: Api, pull: dict) -> str | None:
 
 def file_changes(api: Api, repository: str, default: str, templates: Templates, configuration_text: bytes, notes: list[str]) -> dict[str, bytes | None]:
     """The files of the default branch that differ from what the templates and the configuration file give."""
-    changes: dict[str, bytes | None] = {path: content for path, content in templates.fixed.items() if api.file(repository, path, default) != content}
+    changes: dict[str, bytes | None] = {}
+    for path, content in templates.fixed.items():
+        held = api.file(repository, path, default)
+        if path == POINTER:
+            # Only the part up to and including the heading of the repository's choices is fixed; what follows it stays.
+            if held is None or consumer_checks.fixed_part(held) != content:
+                changes[path] = consumer_checks.pointer_for(content, held)
+        elif held != content:
+            changes[path] = content
     held, other = api.file(repository, DEPENDABOT_FILE, default), api.file(repository, DEPENDABOT_OTHER_NAME, default)
     try:
         configuration, _ = plan.checked_configuration(configuration_text.decode("utf-8"), templates.versions)
@@ -687,6 +697,8 @@ def run_adopt(options: argparse.Namespace) -> int:
     if read_back != document:
         raise SyncError("the derived configuration file does not read back as it was derived")
     changes: dict[str, bytes | None] = {**templates.fixed, plan.CONFIGURATION: text.encode("utf-8"), **{path: None for path in replaced}}
+    if POINTER in templates.fixed:
+        changes[POINTER] = consumer_checks.pointer_for(templates.fixed[POINTER], api.file(repository, POINTER, default))
     if ecosystems:
         changes[DEPENDABOT_FILE] = consumer_checks.dependabot_text(ecosystems, templates.shared).encode("utf-8")
         changes.update({DEPENDABOT_OTHER_NAME: None} if files[DEPENDABOT_OTHER_NAME] is not None else {})

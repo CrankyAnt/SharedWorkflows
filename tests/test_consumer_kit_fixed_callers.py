@@ -13,6 +13,8 @@ from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 KIT = REPOSITORY_ROOT / "actions" / "pipeline" / "consumer-kit"
 TEMPLATES = ("ci.yml", "automation.yml", "release.yml")
+POINTER = "docs/agents/ci.md"
+AT_V1 = "https://github.com/CrankyAnt/SharedWorkflows/blob/v1/"
 # What only this repository has, and what a template that a repository fills in would hold.
 NOT_FIXED = re.compile(r"\$/|<[a-z-]+>|@[0-9a-f]{40}")
 
@@ -81,6 +83,74 @@ class FixedCallerReadmeTest(unittest.TestCase):
         for text in ("`local-workflows`", "`dependabot`", "`.github/dependabot.yml`", "`request`", "`declined-request`", "closed"):
             with self.subTest(text=text):
                 self.assertIn(text, self.readme)
+
+
+class PointerDocumentTemplateTest(unittest.TestCase):
+    """The template of a consumer's ``docs/agents/ci.md``: a fixed pointer to the catalogue at v1."""
+
+    def setUp(self) -> None:
+        self.template = (KIT / POINTER).read_text(encoding="utf-8")
+        self.readme = (KIT / "README.md").read_text(encoding="utf-8")
+
+    def test_the_template_points_to_the_catalogue_and_the_schema_at_v1_and_names_the_configuration_file(self) -> None:
+        self.assertIn(f"]({AT_V1}catalogue.json)", self.template)
+        self.assertIn(f"]({AT_V1}actions/pipeline/schema/v1/ci-config.schema.json)", self.template)
+        self.assertIn("`.github/ci-config.yml`", self.template)
+        self.assertTrue((REPOSITORY_ROOT / "catalogue.json").is_file())
+        self.assertTrue((REPOSITORY_ROOT / "actions/pipeline/schema/v1/ci-config.schema.json").is_file())
+
+    def test_every_link_of_the_template_is_absolute_because_the_file_lives_in_another_repository(self) -> None:
+        targets = re.findall(r"\]\(([^)]+)\)", self.template)
+        self.assertTrue(targets)
+        for target in targets:
+            with self.subTest(target=target):
+                self.assertTrue(target.startswith("https://github.com/CrankyAnt/SharedWorkflows"))
+                self.assertNotIn("/main/", target, "a consumer reads the shared parts at v1")
+
+    def test_the_template_holds_no_rule_of_its_own_no_placeholder_and_nothing_of_this_repository_alone(self) -> None:
+        self.assertIn("holds no rule of its own", self.template)
+        self.assertEqual(["# CI", "## Repository choices"], re.findall(r"(?m)^#+ .*$", self.template), "another section would hold a rule")
+        self.assertEqual([], NOT_FIXED.findall(self.template))
+        self.assertEqual([], re.findall(r"tests/|maintaining\.md|ci-policy|suites\.json", self.template))
+        self.assertLessEqual(len(self.template.splitlines()), 12)
+
+    def test_the_template_ends_with_the_heading_below_which_a_consumer_records_its_choices(self) -> None:
+        self.assertTrue(self.template.endswith("\n\n## Repository choices\n"), "the comparison stops at this heading, so nothing fixed follows it")
+        self.assertEqual(1, self.template.count("\n## Repository choices\n"))
+        self.assertIn("`## Repository choices`", self.readme)
+        ruleset = (REPOSITORY_ROOT / "actions" / "repository-ruleset" / "README.md").read_text(encoding="utf-8")
+        self.assertIn("under `## Repository choices` in the repository's `docs/agents/ci.md`", ruleset, "the ruleset README sends a deviation there")
+
+    def test_the_readme_says_that_a_consumer_holds_the_pointer_document_unchanged(self) -> None:
+        self.assertIn(f"[{POINTER}]({POINTER})", self.readme)
+        self.assertIn("## The pointer document", self.readme)
+        self.assertIn("| Pointer document |", self.readme)
+
+
+class RequestReadmeTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.readme = (KIT / "README.md").read_text(encoding="utf-8")
+        # The section holds a fenced heading of the vocabulary entry, so it ends at the next section by name.
+        self.section = self.readme.split("\n## Requests for shared CI\n", 1)[1].split("\n## A corrected title\n", 1)[0]
+
+    def test_the_readme_states_the_vocabulary_entry_for_a_consumer_s_triage_labels(self) -> None:
+        self.assertIn("`docs/agents/triage-labels.md`", self.section)
+        entry = self.section.split("```markdown\n", 1)[1].split("```", 1)[0]
+        self.assertIn("| `shared-ci` |", entry)
+        self.assertIn("another workflow's vocabulary", entry)
+        self.assertIn("never carry a Type, Triage, Ready, Status or Resolution label", entry)
+        self.assertRegex(entry, r"(?m)^## ")
+
+    def test_the_readme_says_where_a_request_goes_and_who_closes_it(self) -> None:
+        for text in ("an issue in the repository itself", "`shared-ci`", "general terms", "closes the request", "(../../../catalogue.json)"):
+            with self.subTest(text=text):
+                self.assertIn(text, self.section)
+
+    def test_the_readme_states_the_switch_over_check(self) -> None:
+        row = next(line for line in self.readme.splitlines() if line.startswith("| Switch-over |"))
+        for text in ("`waits-for`", "exists", "`<part>.<setting>`", "switch the part on", "remove the workflow", "close the request"):
+            with self.subTest(text=text):
+                self.assertIn(text, row)
 
 
 if __name__ == "__main__":
