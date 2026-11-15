@@ -718,6 +718,7 @@
         "tests/test_ci_policy_python_language_step.py/**",
         "tests/test_ci_policy_python_tests_caller.py/**",
         "tests/test_ci_policy_recording_action.py/**",
+        "tests/test_ci_policy_release.py/**",
         "tests/test_ci_policy_reuse.py/**",
         "tests/test_ci_policy_shared_surface.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
@@ -766,6 +767,7 @@
         "tests/test_pipeline_parts.py/**",
         "tests/test_pipeline_plan.py/**",
         "tests/test_pipeline_register.py/**",
+        "tests/test_pipeline_release.py/**",
         "tests/test_pipeline_schema.py/**",
         "tests/test_pipeline_verdict.py/**",
         "tests/test_pipeline_workflow.py/**",
@@ -868,6 +870,7 @@
           "tests/test_ci_policy_python_language_step.py/**",
           "tests/test_ci_policy_python_tests_caller.py/**",
           "tests/test_ci_policy_recording_action.py/**",
+          "tests/test_ci_policy_release.py/**",
           "tests/test_ci_policy_reuse.py/**",
           "tests/test_ci_policy_shared_surface.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
@@ -916,6 +919,7 @@
           "tests/test_pipeline_parts.py/**",
           "tests/test_pipeline_plan.py/**",
           "tests/test_pipeline_register.py/**",
+          "tests/test_pipeline_release.py/**",
           "tests/test_pipeline_schema.py/**",
           "tests/test_pipeline_verdict.py/**",
           "tests/test_pipeline_workflow.py/**",
@@ -1018,6 +1022,9 @@
           "actions/pipeline/consumer-kit/previous/**"
         ],
         "tests/test_ci_policy_pipeline_parts.py": [
+          ".github/workflows/**"
+        ],
+        "tests/test_ci_policy_release.py": [
           ".github/workflows/**"
         ]
       },
@@ -1707,6 +1714,26 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_ci_policy_release",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_release.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_release.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_release.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_release.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_reuse",
           "kind": "directory"
         },
@@ -1976,6 +2003,10 @@
         },
         {
           "path": "tests/test_pipeline_register.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_release.py",
           "kind": "any"
         },
         {
@@ -3216,6 +3247,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_ci_policy_release.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_reuse.py",
             "kind": "any"
           },
@@ -3421,6 +3456,10 @@
           },
           {
             "path": "tests/test_pipeline_register.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_release.py",
             "kind": "any"
           },
           {
@@ -4233,6 +4272,76 @@
             "path": "tests/test_ci_policy_pipeline_parts.so",
             "kind": "any"
           }
+        ],
+        "tests/test_ci_policy_release.py": [
+          {
+            "path": ".github/workflows",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_pipeline",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_pipeline.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_pipeline.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_pipeline.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_release",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_release.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_release.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_release.so",
+            "kind": "any"
+          }
         ]
       },
       "lookup_directories": [
@@ -4339,6 +4448,10 @@
           "tests"
         ],
         "tests/test_ci_policy_pipeline_parts.py": [
+          ".",
+          "tests"
+        ],
+        "tests/test_ci_policy_release.py": [
           ".",
           "tests"
         ]
@@ -9023,6 +9136,7 @@
         "tests/test_ci_policy_python_language_step.py/**",
         "tests/test_ci_policy_python_tests_caller.py/**",
         "tests/test_ci_policy_recording_action.py/**",
+        "tests/test_ci_policy_release.py/**",
         "tests/test_ci_policy_reuse.py/**",
         "tests/test_ci_policy_shared_surface.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
@@ -9071,6 +9185,7 @@
         "tests/test_pipeline_parts.py/**",
         "tests/test_pipeline_plan.py/**",
         "tests/test_pipeline_register.py/**",
+        "tests/test_pipeline_release.py/**",
         "tests/test_pipeline_schema.py/**",
         "tests/test_pipeline_verdict.py/**",
         "tests/test_pipeline_workflow.py/**",
@@ -9161,6 +9276,7 @@
           "tests/test_ci_policy_python_language_step.py/**",
           "tests/test_ci_policy_python_tests_caller.py/**",
           "tests/test_ci_policy_recording_action.py/**",
+          "tests/test_ci_policy_release.py/**",
           "tests/test_ci_policy_reuse.py/**",
           "tests/test_ci_policy_shared_surface.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
@@ -9209,6 +9325,7 @@
           "tests/test_pipeline_parts.py/**",
           "tests/test_pipeline_plan.py/**",
           "tests/test_pipeline_register.py/**",
+          "tests/test_pipeline_release.py/**",
           "tests/test_pipeline_schema.py/**",
           "tests/test_pipeline_verdict.py/**",
           "tests/test_pipeline_workflow.py/**",
@@ -9921,6 +10038,10 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_ci_policy_release.py",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_reuse.py",
           "kind": "any"
         },
@@ -10126,6 +10247,10 @@
         },
         {
           "path": "tests/test_pipeline_register.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_release.py",
           "kind": "any"
         },
         {
@@ -11608,6 +11733,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_ci_policy_release.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_reuse.py",
             "kind": "any"
           },
@@ -11797,6 +11926,10 @@
           },
           {
             "path": "tests/test_pipeline_register.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_release.py",
             "kind": "any"
           },
           {
@@ -16763,6 +16896,10 @@
         "tests/test_pipeline_parts.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
+        ],
+        "tests/test_pipeline_release.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
         ]
       },
       "existence_reads": [
@@ -16824,6 +16961,22 @@
         },
         {
           "path": "actions/pipeline/plan.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/release",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/release.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/release.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/release.so",
           "kind": "any"
         },
         {
@@ -17015,6 +17168,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/release_fixtures",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/release_fixtures.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/release_fixtures.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/release_fixtures.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_pipeline_callers",
           "kind": "directory"
         },
@@ -17108,6 +17277,22 @@
         },
         {
           "path": "tests/test_pipeline_register.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_release",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_pipeline_release.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_release.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_release.so",
           "kind": "any"
         },
         {
@@ -18257,6 +18442,152 @@
             "path": "tests/workflow_commands.so",
             "kind": "any"
           }
+        ],
+        "tests/test_pipeline_release.py": [
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/release",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/release.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/release.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/release.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/release_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/release_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/release_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/release_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_release",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_pipeline_release.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_release.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_release.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/workflow_commands.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.so",
+            "kind": "any"
+          }
         ]
       },
       "lookup_directories": [
@@ -18321,6 +18652,12 @@
           "actions/dotnet-test",
           "actions/pipeline",
           "actions/python-tests",
+          "actions/repository-hygiene",
+          "tests"
+        ],
+        "tests/test_pipeline_release.py": [
+          ".",
+          "actions/pipeline",
           "actions/repository-hygiene",
           "tests"
         ]
@@ -18419,6 +18756,7 @@
         "actions/dotnet-test/dotnet_test.py",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
+        "actions/pipeline/release.py",
         "actions/publication-checks/update_spec.py",
         "actions/python-language-step/python_language_step.py",
         "actions/python-tests/python_tests.py",
@@ -20667,6 +21005,7 @@
     ],
     "actions/repository-hygiene": [
       "consumer_checks",
+      "release",
       "tests"
     ],
     "actions/suite-selection": [
