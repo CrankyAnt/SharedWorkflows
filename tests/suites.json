@@ -5732,6 +5732,7 @@
         ".github/workflows/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/action.yml",
         "actions/dependabot-auto-merge/auto_merge.py",
+        "actions/dependabot-auto-merge/consumer-kit/README.md",
         "tests/dependabot_auto_merge_source.py",
         "tests/test_dependabot_auto_merge.py",
         "tests/test_dependabot_auto_merge_action.py",
@@ -5748,6 +5749,7 @@
         ],
         "tests/test_dependabot_auto_merge_action.py": [
           "actions/dependabot-auto-merge/action.yml",
+          "actions/dependabot-auto-merge/consumer-kit/README.md",
           "tests/test_dependabot_auto_merge_action.py"
         ],
         "tests/test_dependabot_auto_merge_caller.py": [
