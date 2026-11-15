@@ -401,6 +401,7 @@
           "actions/sync/consumer-kit/AGENTS.template.md",
           "actions/sync/consumer-kit/README.md",
           "actions/sync/consumer-kit/sync.yml",
+          "actions/sync/merge-settings.json",
           "catalogue.json",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_shared_surface.py"
@@ -886,9 +887,15 @@
         ],
         "tests/test_ci_policy_sync.py": [
           ".github/workflows/sync.yml",
+          "actions/pipeline/consumer-kit/README.md",
+          "actions/pipeline/consumer-kit/docs/agents/ci.md",
+          "actions/pipeline/consumer-kit/previous/docs/agents/ci.md",
           "actions/pipeline/consumer_checks.py",
           "actions/pipeline/plan.py",
+          "actions/repository-hygiene/consumer-kit/README.md",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-ruleset/README.md",
+          "actions/repository-ruleset/ruleset-main-template.json",
           "actions/suite-selection/ci_definition.py",
           "actions/sync/action.yml",
           "actions/sync/adoption.json",
@@ -1831,6 +1838,10 @@
         },
         {
           "path": "actions/sync/consumer-kit",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/merge-settings.json",
           "kind": "any"
         },
         {
@@ -3190,6 +3201,10 @@
           },
           {
             "path": "actions/sync/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/merge-settings.json",
             "kind": "any"
           },
           {
@@ -19401,7 +19416,17 @@
           "actions/pipeline/consumer_checks.py",
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/parts/suite-selection.json",
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_checks_fixtures.py",
@@ -19425,6 +19450,9 @@
           "actions/pipeline/schema/v1/parts/suite-selection.json",
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/hygiene.py",
+          "actions/repository-hygiene/link_check.py",
+          "actions/repository-hygiene/package-ecosystems.json",
           "tests/consumer_checks_fixtures.py",
           "tests/consumer_kit_support.py",
           "tests/pipeline_fixtures.py",
@@ -19530,6 +19558,10 @@
           "actions/pipeline/schema/v1/parts"
         ],
         "tests/test_pipeline_workflow.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
+        ],
+        "tests/test_pipeline_register.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
         ],
@@ -20950,6 +20982,22 @@
           },
           {
             "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/link_check.so",
             "kind": "any"
           },
           {
