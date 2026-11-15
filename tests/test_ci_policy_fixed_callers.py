@@ -14,11 +14,12 @@ RECORD = REPOSITORY_ROOT / KIT / "fixed-callers.json"
 PIPELINE = REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml"
 SHARED = "CrankyAnt/SharedWorkflows/.github/workflows/"
 # The trigger classes of the spec: per fixed caller its events and the shared workflow it calls. The read class gets
-# read permissions only.
+# read permissions only, and the release class exactly the rights with which the release part publishes and attests.
 CLASSES = {
     "ci.yml": {"class": "read", "events": {"pull_request", "push"}, "calls": "pipeline.yml"},
     "automation.yml": {"class": "write", "events": {"workflow_run", "schedule", "workflow_dispatch", "issues"}, "calls": "automation.yml"},
-    "release.yml": {"class": "release", "events": {"push", "workflow_dispatch"}, "calls": "release.yml"},
+    "release.yml": {"class": "release", "events": {"push", "workflow_dispatch"}, "calls": "release.yml",
+                    "rights": {"attestations": "write", "contents": "write", "id-token": "write"}},
 }
 LEVELS = {"none": 0, "read": 1, "write": 2}
 
@@ -55,6 +56,9 @@ def caller_problems(name: str, text: str) -> list[str]:
         elif rules["class"] == "read":
             problems += [f"{name}: the job {job_name} holds {scope}: {level} in the read class"
                          for scope, level in job["permissions"].items() if level != "read"]
+        elif "rights" in rules and job["permissions"] != rules["rights"]:
+            rights = ", ".join(f"{scope}: {level}" for scope, level in rules["rights"].items())
+            problems.append(f"{name}: the job {job_name} does not hold exactly {rights}")
     return problems
 
 
@@ -124,6 +128,8 @@ class TemplateTests(unittest.TestCase):
     def test_the_release_caller_runs_on_tag_pushes_only_and_by_hand(self) -> None:
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "release.yml")
         self.assertEqual({"push": {"tags": '["**"]'}, "workflow_dispatch": None}, caller["on"])
+        self.assertEqual({"attestations": "write", "contents": "write", "id-token": "write"}, caller["jobs"]["release"]["permissions"])
+        self.assertNotIn("secrets", caller["jobs"]["release"])
 
     def test_a_caller_that_breaks_a_rule_is_named(self) -> None:
         ci, automation = self.templates["ci.yml"], self.templates["automation.yml"]
@@ -139,6 +145,10 @@ class TemplateTests(unittest.TestCase):
             ("automation.yml", automation.replace("  workflow_dispatch:\n", ""), ["automation.yml does not start on workflow_dispatch"]),
             ("release.yml", self.templates["release.yml"].replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  schedule:\n    - cron: \"0 0 * * *\"\n"),
              ["release.yml starts on schedule, which is outside the release class"]),
+            ("release.yml", self.templates["release.yml"].replace("      id-token: write\n", ""),
+             ["release.yml: the job release does not hold exactly attestations: write, contents: write, id-token: write"]),
+            ("release.yml", self.templates["release.yml"].replace("      contents: write\n", "      contents: write\n      packages: write\n"),
+             ["release.yml: the job release does not hold exactly attestations: write, contents: write, id-token: write"]),
         )
         for name, text, problems in cases:
             with self.subTest(problems=problems):

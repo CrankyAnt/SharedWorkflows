@@ -77,6 +77,56 @@
             }
           }
         },
+        "github-release": {
+          "description": "The release part: publishes a GitHub release with the named files for a pushed tag that matches a pattern of `tags` and carries a valid SSH signature of a key in the allowed-signers file on the default branch. The shared workflow release.yml runs it, which the fixed caller release.yml calls on a pushed tag; for any other tag, and without this part, that workflow publishes nothing and passes. Invented example: {\"tags\": [\"v*\"], \"allowed-signers\": \".github/allowed_signers\", \"files\": [\"dist/tool.zip\"], \"script\": \"ci/build-release.sh\", \"setups\": [\"dotnet-10\"]}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tags",
+            "allowed-signers",
+            "files"
+          ],
+          "properties": {
+            "tags": {
+              "description": "The patterns of the tags that are released. `*` matches within one segment of a tag between `/`, `?` matches one character of a segment and `**` matches any number of segments; any other pattern matches that one tag. Invented example: [\"v*\"].",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "allowed-signers": {
+              "description": "The path, relative to the repository root, of the file with the SSH keys that may sign a release tag, in the format of ssh-keygen's allowed signers. It is read from the default branch, never from the tagged commit, so a tag cannot approve its own key. Invented example: \".github/allowed_signers\".",
+              "$ref": "#/$defs/relative-path"
+            },
+            "files": {
+              "description": "The files that the release publishes, as paths relative to the repository root: files that `script` writes, or without `script` tracked files of the tagged commit. Each is published under its file name, so no two share a file name. Invented example: [\"dist/tool.zip\"].",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative-path"
+              }
+            },
+            "title": {
+              "description": "The title of the release, in which `{tag}` stands for the tag and `{version}` for the tag without a leading `v`. Without it, the title is the tag. Invented example: \"Tool {version}\".",
+              "type": "string",
+              "minLength": 1
+            },
+            "script": {
+              "$ref": "#/$defs/script"
+            },
+            "setups": {
+              "$ref": "#/$defs/setups"
+            },
+            "runner-label": {
+              "description": "The label of the GitHub-hosted runner of the job that runs `script`. Without it, ubuntu-26.04. It needs `script`, as `setups` does.",
+              "$ref": "#/$defs/runner-label"
+            }
+          }
+        },
         "python-test": {
           "description": "The Python tests of one or more projects, each project in a job of its own: pytest where the project configures it, otherwise unittest discover, on the Python version the project names; a job fails when the runner finds no tests. Invented example: {\"projects\": [{\"python-version\": \"3.13\", \"working-directory\": \"backend\", \"install\": \"requirements-dev.txt\"}], \"paths\": [\"backend/\"]}.",
           "type": "object",

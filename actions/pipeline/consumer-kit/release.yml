@@ -10,5 +10,7 @@ permissions: {}
 jobs:
   release:
     permissions:
+      attestations: write
       contents: write
+      id-token: write
     uses: CrankyAnt/SharedWorkflows/.github/workflows/release.yml@v1

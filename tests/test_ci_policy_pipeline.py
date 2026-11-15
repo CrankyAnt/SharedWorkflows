@@ -1,5 +1,6 @@
 """Text contract of the pipeline and of this repository's caller of it: one verdict that always runs, repository hygiene
-outside the configuration, and every other shared part a job that the plan starts."""
+outside the configuration, and every other shared part a job that the plan starts, in the pipeline or in the shared
+workflow that its fragment names."""
 
 from __future__ import annotations
 
@@ -49,6 +50,17 @@ SETUPS = REPOSITORY_ROOT / "actions" / "pipeline" / "schema" / "v1" / "setups.js
 SCRIPT_REFERENCE = "#/$defs/script"
 # The action that installs each tool of a setup, with the input that takes the setup's version.
 SETUP_ACTIONS = {"python": ("actions/setup-python", "python-version"), "dotnet": ("actions/setup-dotnet", "dotnet-version")}
+
+
+def fragments() -> dict[str, dict]:
+    """The fragment of each shared part of the current schema version, by the part's name."""
+    return {path.rsplit("/", 1)[1].removesuffix(".json"): json.loads((REPOSITORY_ROOT / path).read_text(encoding="utf-8"))
+            for path in sorted(tracked_files(REPOSITORY_ROOT, [FRAGMENTS]))}
+
+
+def pipeline_parts() -> list[str]:
+    """The parts whose job is in the pipeline: those whose fragment names no other shared workflow."""
+    return [name for name, fragment in fragments().items() if "workflow" not in fragment]
 
 
 def step_key(step: dict) -> str:
@@ -137,8 +149,7 @@ class PipelineTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text, self.pipeline = read_workflow(PIPELINE)
         self.jobs = self.pipeline["jobs"]
-        fragments = tracked_files(REPOSITORY_ROOT, [FRAGMENTS])
-        self.parts = sorted(path.rsplit("/", 1)[1].removesuffix(".json") for path in fragments)
+        self.parts = pipeline_parts()
 
     def test_the_pipeline_is_only_called_and_takes_no_input_and_no_secret(self) -> None:
         self.assertIn("\non:\n  workflow_call:\n\npermissions: {}\n", self.text)
@@ -265,9 +276,7 @@ class ReadClassTests(unittest.TestCase):
     def setUp(self) -> None:
         self.workflow = read_workflow(PIPELINE)[1]
         self.jobs = self.workflow["jobs"]
-        fragments = {path.rsplit("/", 1)[1].removesuffix(".json"): json.loads((REPOSITORY_ROOT / path).read_text(encoding="utf-8"))
-                     for path in sorted(tracked_files(REPOSITORY_ROOT, [FRAGMENTS]))}
-        self.script_parts = [name for name, fragment in fragments.items() if refers_to(fragment, SCRIPT_REFERENCE)]
+        self.script_parts = [name for name in pipeline_parts() if refers_to(fragments()[name], SCRIPT_REFERENCE)]
 
     def test_the_free_job_has_read_rights_only_no_secret_no_checkout_credentials_and_no_cache_mode_that_writes(self) -> None:
         self.assertEqual([], read_class_problems(CUSTOM, self.jobs[CUSTOM], self.workflow))
@@ -303,6 +312,58 @@ class ReadClassTests(unittest.TestCase):
         self.assertEqual(["the workflow requests cache-mode write"], read_class_problems(CUSTOM, good, {**self.workflow, "cache-mode": "write"}))
         for mode in ("read", "none"):
             self.assertEqual([], read_class_problems(CUSTOM, {**good, "cache-mode": mode}, self.workflow))
+
+
+def other_workflow_problems(name: str, fragment: dict, workflows: dict[str, dict]) -> list[str]:
+    """Each way a part whose fragment names another shared workflow is not a job of that workflow that its plan starts.
+    ``workflows`` holds the document of each tracked workflow by its file name."""
+    workflow = workflows.get(fragment["workflow"])
+    if workflow is None:
+        return [f"{name} names the workflow {fragment['workflow']}, which is no tracked workflow"]
+    on = workflow.get("on")
+    if "workflow_call" not in (on if isinstance(on, dict) else {}):
+        return [f"{name} names the workflow {fragment['workflow']}, which is no shared workflow"]
+    job = workflow.get("jobs", {}).get(name)
+    if not isinstance(job, dict):
+        return [f"{fragment['workflow']} has no job {name}"]
+    problems = []
+    if PLAN not in needed(job):
+        problems.append(f"{name} does not need {PLAN}")
+    if str(job.get("if", "")) != f"${{{{ fromJSON(needs.plan.outputs.plan).parts['{name}'].run }}}}":
+        problems.append(f"{name} does not run on the plan's decision for {name} alone")
+    return problems
+
+
+class OtherWorkflowTests(unittest.TestCase):
+    """A part whose fragment names a shared workflow other than the pipeline is a job of that workflow under the part's
+    name, started by the decision of that workflow's own plan."""
+
+    def setUp(self) -> None:
+        self.elsewhere = {name: fragment for name, fragment in fragments().items() if "workflow" in fragment}
+        self.workflows = {path.rsplit("/", 1)[1]: read_workflow(REPOSITORY_ROOT / path)[1] for path in sorted(tracked_files(REPOSITORY_ROOT, [".github/workflows"]))}
+
+    def test_every_part_of_another_workflow_is_a_job_of_that_workflow_that_its_plan_starts(self) -> None:
+        self.assertEqual({"github-release": "release.yml"}, {name: fragment["workflow"] for name, fragment in self.elsewhere.items()})
+        for name, fragment in self.elsewhere.items():
+            with self.subTest(part=name):
+                self.assertEqual([], other_workflow_problems(name, fragment, self.workflows))
+                self.assertNotEqual("pipeline.yml", fragment["workflow"], "a part of the pipeline names no workflow")
+                self.assertNotIn(name, read_workflow(PIPELINE)[1]["jobs"])
+
+    def test_a_part_of_another_workflow_without_its_job_there_is_named(self) -> None:
+        good = {"needs": "plan", "if": "${{ fromJSON(needs.plan.outputs.plan).parts['invented-release'].run }}"}
+        fragment = {"description": "x", "workflow": "invented.yml", "configuration": {}}
+        shared = {"on": {"workflow_call": None}, "jobs": {"plan": {}, "invented-release": good}}
+        self.assertEqual([], other_workflow_problems("invented-release", fragment, {"invented.yml": shared}))
+        for workflows, problem in (
+            ({}, "invented-release names the workflow invented.yml, which is no tracked workflow"),
+            ({"invented.yml": {**shared, "on": {"push": None}}}, "invented-release names the workflow invented.yml, which is no shared workflow"),
+            ({"invented.yml": {**shared, "jobs": {"plan": {}}}}, "invented.yml has no job invented-release"),
+            ({"invented.yml": {**shared, "jobs": {"invented-release": {**good, "needs": "other"}}}}, "invented-release does not need plan"),
+            ({"invented.yml": {**shared, "jobs": {"invented-release": {**good, "if": "always()"}}}}, "invented-release does not run on the plan's decision for invented-release alone"),
+        ):
+            with self.subTest(problem=problem):
+                self.assertEqual([problem], other_workflow_problems("invented-release", fragment, workflows))
 
 
 class HygieneStepTests(unittest.TestCase):

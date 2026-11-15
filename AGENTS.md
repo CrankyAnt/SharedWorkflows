@@ -71,6 +71,7 @@ One line per validation or test command and per CI workflow the repository runs.
 - `python-tests-caller` (local path): Python tests on the fixture project `tests/fixtures/python_tests`: its installation, the Python language step and its pytest test
 - `validate` (local path): the validation caller; selects the units from the stored lists of the suite list, runs them in Linux shards and one Windows job under the recording step and reports the verdict `validation / validation`
 - `ci` (local path): the pipeline caller; checks the configuration file `.github/ci-config.yml`, runs repository hygiene, whose checks of a consumer's fixed callers, local workflow register and generated Dependabot configuration pass here without a check, the free job on the fixture script `tests/fixtures/custom/pass.sh`, the parts `python-verify` and `python-test` on the fixture project `tests/fixtures/python_tests` and `dotnet-test` on the fixture project `tests/fixtures/dotnet_test`, and reports the verdict `ci / verdict`
+- `release-caller` (local path): the release caller; calls the release workflow on a pushed tag and on a start by hand, where this repository's configuration file states no release part, so the run publishes nothing and passes
 - `full-recording`: records every entry file every two weeks and proposes the changed stored lists and duration estimates as a pull request
 - `repository-hygiene`: the shared workflow of repository hygiene, called by `repository-hygiene-caller` and by consumers at `v1`
 - `dependabot-auto-merge`: the shared workflow of Dependabot auto-merge, called by `dependabot-auto-merge-caller` and by consumers at `v1`
@@ -78,6 +79,7 @@ One line per validation or test command and per CI workflow the repository runs.
 - `suite-verdict`: the shared workflow of the verdict, called by `validate` and by consumers at `v1`
 - `python-tests`: the shared workflow of Python tests, called by `python-tests-caller` and by consumers at `v1`
 - `pipeline`: the shared workflow of the pipeline, called by `ci` and by consumers at `v1`
+- `release`: the shared workflow of the release part `github-release`, called by `release-caller` and by consumers at `v1`; publishes a GitHub release only for a pushed tag that matches a configured pattern and carries a valid signature of a key that the default branch allows
 - `promote-v1`: moves `v1` after a pins-only commit on `main` whose CI passed
 - `apply-additions`: commits the recorded additions of a failed `Validate` run onto its pull request's branch, once per push, or comments with the manual route, and leaves a run that `rebuild-etw-consumer` acts on to it; the kit template, kept equal by `ci-policy`
 - `rebuild-etw-consumer`: rebuilds the committed ETW consumer for a Dependabot pull request after a failed `Validate` and commits it with the run's recorded additions to its branch, once per push, or comments with the manual route when a failed or cancelled job leaves a run it acts on without that commit

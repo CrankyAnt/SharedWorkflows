@@ -90,6 +90,16 @@
       "needs": "The pipeline, a .NET test project or a solution that dotnet test runs, and parts.dotnet-test in .github/ci-config.yml with projects, a list of one or more items that each name sdk-version and project and optionally runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/dotnet-test.json states every setting.",
       "applies": "A repository with .NET tests that runs the pipeline.",
       "consumer_kit": null
+    },
+    {
+      "name": "GitHub release",
+      "purpose": "Publishes a GitHub release with the files that the configuration file names, attested with build provenance in a public repository, for a pushed tag that matches a configured pattern and carries a valid SSH signature of a key that the default branch allows, and publishes nothing for any other tag or without release configuration.",
+      "workflows": [".github/workflows/release.yml"],
+      "steps": ["actions/pipeline"],
+      "required_checks": [],
+      "needs": "The fixed caller release.yml of the pipeline's consumer kit, the part github-release under parts in the configuration file .github/ci-config.yml with its tag patterns, its allowed-signers file and the files to publish, as the schema actions/pipeline/schema/v1/ci-config.schema.json describes them, and that allowed-signers file on the default branch.",
+      "applies": "A repository that publishes files as a GitHub release from signed tags.",
+      "consumer_kit": "actions/pipeline/consumer-kit"
     }
   ]
 }

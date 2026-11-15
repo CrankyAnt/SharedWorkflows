@@ -16,13 +16,41 @@ Each caller sets `permissions: {}` at the top, holds one job named after its fil
 
 - `ci.yml` is the read caller. Its job `ci` holds `actions: read`, `contents: read`, `issues: read` and `pull-requests: read` and passes no secret. The pipeline's verdict reports as the check `ci / verdict`.
 - `automation.yml` is the write caller. Its job holds `actions: read`, `contents: write`, `issues: write` and `pull-requests: write` and passes the secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY` under its own name. A part that the configuration file does not switch on does nothing.
-- `release.yml` is the release caller. Its job holds `contents: write` and passes no secret. Without release configuration it publishes nothing.
+- `release.yml` is the release caller. Its job holds `attestations: write`, `contents: write` and `id-token: write` and passes no secret. Without release configuration it publishes nothing, as [The release part](#the-release-part) says.
 
 No caller starts on `pull_request_target`, and none inherits secrets.
 
 ## The configuration file
 
 `.github/ci-config.yml` matches the schema [ci-config.schema.json](../schema/v1/ci-config.schema.json), which describes every key. The smallest file is the line `version: 1`. It holds the shared parts that the repository switches on under `parts`, its Dependabot ecosystems under `dependabot` and its local workflow register under `local-workflows`.
+
+## The release part
+
+The part `github-release` publishes a GitHub release with files of the repository for a signed tag. The release caller starts on every pushed tag; the part decides whether the tag is released. Switch it on under `parts`:
+
+```yaml
+parts:
+  github-release:
+    tags: ["v*"]
+    allowed-signers: .github/allowed_signers
+    files: [dist/tool.zip]
+    script: ci/build-release.sh
+    setups: [dotnet-10]
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `tags` | The patterns of the tags that are released. A tag that matches none publishes nothing, and the run passes. |
+| `allowed-signers` | The file with the SSH keys that may sign a release tag, in the format of ssh-keygen's allowed signers. It is read from `main`, never from the tagged commit: a new key signs releases once the change that adds it is on `main`. |
+| `files` | The files that the release publishes, each under its file name. Without `script` they are tracked files of the tagged commit. |
+| `script` | Optional. A script of the repository that writes the files. It runs with Bash from the repository root at the tagged commit, with read permission only and without secrets, as the free job runs its script. |
+| `setups` | Optional, with `script`. The known setups that are installed before the script, in the listed order. |
+| `runner-label` | Optional, with `script`. The label of the GitHub-hosted runner of the script's job; `ubuntu-26.04` without it. |
+| `title` | Optional. The title of the release, in which `{tag}` stands for the tag and `{version}` for the tag without a leading `v`; the tag without it. |
+
+A release tag is an annotated tag with an SSH signature, made with `git tag -s` and `gpg.format` set to `ssh`. A matching tag that is not annotated, carries no signature or carries one of a key that the file on `main` does not hold publishes nothing and fails the run, with the reason in the job summary of the job `plan`.
+
+For a tag that passes, the files are collected at the commit that the tag names, their build provenance is attested in a repository that is not private, and the release is created under the tag with the files. A tag that already has a release fails the run and changes nothing. Without the part in the configuration file, a pushed tag publishes nothing and the run passes.
 
 ## What repository hygiene checks in these files
 

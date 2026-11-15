@@ -257,5 +257,54 @@ class ComparisonWithTheBaseTests(PipelineFixture):
         self.assertIn("could not be compared with the base", outcome.summary)
 
 
+class OtherWorkflowTests(PipelineFixture):
+    """A part whose fragment names another shared workflow: the configuration file states it, and the pipeline leaves it
+    to that workflow."""
+
+    PARTS = {"fixture-build": {"description": "An invented part without settings.",
+                               "configuration": {"type": "object", "additionalProperties": False, "properties": {}}},
+             "fixture-publish": {"description": "An invented part that another shared workflow runs.", "workflow": "fixture.yml",
+                                 "configuration": {"type": "object", "additionalProperties": False, "properties": {"level": {"type": "string"}}}}}
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = self.schema_folder("other", versions=(1,), parts=self.PARTS)
+
+    def test_the_configuration_file_states_a_part_of_another_workflow_and_the_pipeline_s_plan_leaves_it_out(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  fixture-publish:\n    level: high\n"})
+        outcome = self.plan("--workflow", "CI", "--event", "push", "--run-id", "7")
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual(["fixture-build"], list(outcome.plan["parts"]))
+        self.assertEqual(["fixture-build"], list(json.loads(outcome.outputs["concurrency"])))
+        self.assertNotIn("fixture-publish", outcome.summary)
+
+    def test_a_setting_that_such_a_part_does_not_have_fails_the_plan(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  fixture-publish:\n    other: 1\n"})
+        outcome = self.plan()
+        self.assertEqual(1, outcome.status)
+        self.assertIn("parts.fixture-publish.other: is not a setting of the part fixture-publish", outcome.summary)
+
+    def test_a_part_of_another_workflow_that_a_change_switches_off_is_named(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  fixture-publish: {}\n"})
+        head = self.commit({CONFIGURATION: "version: 1\n"})
+        self.assertEqual(["fixture-publish"], self.plan("--base", base, "--head", head).plan["switched-off"])
+
+    def test_a_part_that_is_no_part_of_the_schema_is_told_every_part_that_the_file_can_state(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  unknown: {}\n"})
+        self.assertIn("parts.unknown: is not a part of this pipeline; its parts are fixture-build and fixture-publish", self.plan().summary)
+
+    def test_a_fragment_names_a_workflow_file_and_a_part_that_always_runs_names_none(self) -> None:
+        for number, (fragment, message) in enumerate((
+                ({**self.PARTS["fixture-publish"], "workflow": "fixture"}, "workflow names a workflow file, such as release.yml"),
+                ({**self.PARTS["fixture-publish"], "workflow": "../fixture.yml"}, "workflow names a workflow file, such as release.yml"),
+                ({"description": "x", "always": True, "workflow": "fixture.yml"}, "a part that always runs is a part of the pipeline"))):
+            with self.subTest(message=message):
+                self.schemas = self.schema_folder(f"broken-{number}", versions=(1,), parts={"fixture-publish": fragment})
+                self.commit({CONFIGURATION: "version: 1\n"})
+                outcome = self.plan()
+                self.assertEqual(1, outcome.status)
+                self.assertIn(message, outcome.summary)
+
+
 if __name__ == "__main__":
     unittest.main()

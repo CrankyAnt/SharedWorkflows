@@ -17,6 +17,7 @@ The shared parts, with one row per shared step:
 | Python tests | `python-tests.yml` | Python tests, `python-tests/` | `python-tests/python_tests.py` | `python-tests` |
 | Python tests | `python-tests.yml` runs it from the working directory | Python language step, `python-language-step/` | `python-language-step/python_language_step.py` | `python-language-step` |
 | Pipeline | `pipeline.yml` | Pipeline, `pipeline/`; its job of repository hygiene loads `repository-hygiene/`, `suite-selection/` and `publication-checks/` | `pipeline/plan.py`, `pipeline/consumer_checks.py` | `pipeline` |
+| GitHub release | `release.yml` | Pipeline, `pipeline/` | `pipeline/release.py` | `pipeline` |
 
 The repository workflows run only for this repository, and no caller calls them. Each runs scripts from a part folder:
 
@@ -617,12 +618,14 @@ The schema lives in `actions/pipeline/schema/`, one folder `v<N>` per schema ver
 | --- | --- |
 | `base.json` | The schema of the file apart from the parts: `version`, `parts`, `dependabot`, `local-workflows`, and the definitions that a fragment refers to: `paths` as `#/$defs/paths`, `setups` as `#/$defs/setups`, whose items are the definition `setup`, and `script` as `#/$defs/script`. |
 | `setups.json` | The known setups by name, each with the `tool` and the `version` that a job installs. The definition `setup` accepts these names only. |
-| `parts/<part>.json` | The fragment of one shared part: its `description` and either `configuration`, the schema of the part's values as an object without additional properties, or `"always": true` for a part that runs in every pipeline run. |
+| `parts/<part>.json` | The fragment of one shared part: its `description` and either `configuration`, the schema of the part's values as an object without additional properties, or `"always": true` for a part that runs in every pipeline run. A fragment with `"workflow": "<file>.yml"` is a part whose job is in that shared workflow instead of the pipeline. |
 | `ci-config.schema.json` | The schema assembled from the base and the fragments, for a reader and an editor. `plan.py schema` writes it, and `plan.py schema --check` fails while it differs. |
 
 The highest version folder is the current version. `plan` reads a configuration file of the current version and of the one before it, each against its own folder, and fails on any other version. The check reads a fixed set of JSON Schema keywords; a base or a fragment with another keyword fails instead of being skipped.
 
 Repository hygiene is a part that always runs. Its fragment holds `"always": true` and no configuration, so the configuration file cannot state it: `parts.repository-hygiene` fails `plan` with any value.
+
+A part of another trigger class runs in the shared workflow of that class, which its fragment names under `workflow`, such as `release.yml` for [the release part](#the-release-part). The configuration file states it under `parts` like any other part and `plan` checks its values, but the pipeline's plan, concurrency and verdict leave it out; `switched-off` still names it when a change removes it. `tests/test_ci_policy_pipeline.py` fails while the named workflow is no shared workflow or holds no job under the part's name that needs that workflow's own `plan` job and runs on `fromJSON(needs.plan.outputs.plan).parts['<part>'].run`.
 
 #### Plan
 
@@ -660,9 +663,9 @@ The consumer kit of the pipeline, `actions/pipeline/consumer-kit/`, holds the te
 | --- | --- | --- | --- | --- | --- |
 | `ci.yml` | read | `pull_request`, `push` to `main` | `pipeline.yml` | `actions`, `contents`, `issues` and `pull-requests`, all `read` | none |
 | `automation.yml` | write | `workflow_run` of `CI`, `schedule`, `workflow_dispatch`, `issues` of type `opened` | `automation.yml` | `actions: read`, `contents: write`, `issues: write`, `pull-requests: write` | `PUBLICATION_CHECKS_APP_PRIVATE_KEY`, by name |
-| `release.yml` | release | `push` of a tag, `workflow_dispatch` | `release.yml` | `contents: write` | none |
+| `release.yml` | release | `push` of a tag, `workflow_dispatch` | `release.yml` | `attestations: write`, `contents: write`, `id-token: write` | none |
 
-Each template sets `permissions: {}` at the top and holds one job, named after the file, that runs no step. `tests/test_ci_policy_fixed_callers.py` fails on `pull_request_target`, on `secrets: inherit`, on a secret passed under another name, on an event outside the caller's trigger class and on a write permission in the read caller, for the templates and for each previous version. It also fails when the template or the previous version of `ci.yml` does not grant a permission that a job of `pipeline.yml` holds, so a consumer on either version starts every job of the pipeline.
+Each template sets `permissions: {}` at the top and holds one job, named after the file, that runs no step. `tests/test_ci_policy_fixed_callers.py` fails on `pull_request_target`, on `secrets: inherit`, on a secret passed under another name, on an event outside the caller's trigger class, on a write permission in the read caller and on any other rights of the release caller than the three in the table, for the templates and for each previous version. It also fails when the template or the previous version of `ci.yml` does not grant a permission that a job of `pipeline.yml` holds, so a consumer on either version starts every job of the pipeline.
 
 The kit's record `fixed-callers.json` holds two keys. `previous` names each caller whose template a promotion changed, with the date of that promotion as `YYYY-MM-DD`; the version before the change is `previous/<caller>` in the kit. `sync-branch` is the branch of the pull request with which the sync brings a consumer's fixed callers up to date. [Change a fixed caller](#change-a-fixed-caller) keeps the record.
 
@@ -701,6 +704,55 @@ The known setups are the names in `setups.json`: `python-3.11` to `python-3.14` 
 The job has the limits of the read class: `contents: read` as its only right, no secret and no token in any step, no checkout credentials left in the checkout, and no `cache-mode` that writes, on the job or on the workflow. `tests/test_ci_policy_pipeline.py` fails when one of them changes. The same limits hold for every job that runs code of the repository through a hook: a setting of a part that names such code refers to `#/$defs/script`, and the test applies the limits to the job of every part whose fragment holds that reference. It also fails when a job of another part reads a script from the plan.
 
 This repository's own configuration file switches the free job on with the one setup `python-3.14` and the fixture script `tests/fixtures/custom/pass.sh`, which fails unless `python3` is Python 3.14. `tests/fixtures/custom/fail.sh` is the fixture script that fails, for a run that shows the verdict failing.
+
+#### The release part
+
+`release.yml` is the shared workflow that the fixed caller `release.yml` calls on a pushed tag and on a start by hand. It takes no input and no secret, and it runs the part `github-release`, the one part whose fragment names it under `workflow`. A repository switches the part on in its configuration file:
+
+```yaml
+parts:
+  github-release:
+    tags: ["v*"]
+    allowed-signers: .github/allowed_signers
+    files: [dist/tool.zip]
+    script: ci/build-release.sh
+    setups: [dotnet-10]
+    runner-label: windows-2025
+    title: "Tool {version}"
+```
+
+`tags`, `allowed-signers` and `files` are required. A pattern of `tags` follows the rules of `paths`, with the segments of a tag between `/`. `files` are paths relative to the repository root, each published under its file name, so no two share one. `script` is a hook; `setups` and `runner-label` belong to its job and fail the plan without it. `runner-label` is a label of GitHub's `ubuntu`, `windows` or `macos` runners, the definition `runner-label` of the base, and the job runs on `ubuntu-26.04` when the part does not state it. `allowed-signers` and each item of `files` are the definition `relative-path`. In `title`, `{tag}` stands for the tag and `{version}` for the tag without a leading `v`; without `title` the release is named after the tag.
+
+[release.py](../actions/pipeline/release.py) in the part folder `actions/pipeline/` holds the commands `plan` and `publish`. The workflow has three jobs:
+
+| Job | Rights | Runs | What it does |
+| --- | --- | --- | --- |
+| `plan` | `contents: read` | always | Checks out the ref of the run with its full history and runs `release.py plan`. |
+| `github-release-files` | `contents: read` | when the plan decides to publish | Checks out the commit that the verified tag names, installs the named setups as the free job does, runs `script` when the part names one, and uploads the files of `files` as one artifact, each under its file name. A named file that does not exist fails the job. |
+| `github-release` | `attestations: write`, `contents: write`, `id-token: write` | when the plan decides to publish and the files were collected | Downloads the artifact, attests the build provenance of the files in a repository that is not private, and runs `release.py publish`. |
+
+`plan` decides from the configuration file of the checked-out commit:
+
+| Run | Outcome |
+| --- | --- |
+| The ref is no tag, such as a start by hand on a branch | Nothing is published; the run passes. |
+| The repository has no configuration file, or the file does not state `github-release` | Nothing is published; the run passes. |
+| The tag matches no pattern of `tags` | Nothing is published; the run passes. |
+| The configuration file does not match its schema, or `setups` or `runner-label` lacks `script`, or two files share a file name | The run fails with every mismatch in the job summary. |
+| The tag matches and is not annotated, carries no signature, or carries one that no allowed key made | The run fails with the reason in the job summary. |
+| The tag matches and carries a valid signature of an allowed key | The run publishes. |
+
+The allowed-signers file is read from `origin/<default branch>` of the checkout, never from the tagged commit, so a commit that adds a key and is tagged in the same push does not approve its own tag. The signature is an SSH signature, verified with `git verify-tag` against that file. A start by hand on a tag ref is decided like a push of that tag.
+
+The output `plan` is one JSON document with the part under `parts`, as the pipeline's plan has it: `run` and `reason`, and for a run that publishes `tag`, `commit`, `title`, `config`, `script` (empty without a hook), `runner`, `setups` (the `tool` and `version` of each named setup) and `files` (one path per line). The two later jobs run on `parts['github-release'].run`. A failed plan gives no output, so neither starts.
+
+`release.py publish` reads the plan and the folder of collected files. It fails before any request when a named file is missing, and when a release of the tag exists. Otherwise it creates the release as a draft, with the tag, the title and a body that names the tag and its commit, uploads each file, and then publishes the draft. A refused upload leaves the draft, which is not published, and fails the run with the step that failed. The exit code is 0 when the command passed, 1 when it failed and 2 when its input cannot be read.
+
+The job `github-release-files` is the only one that runs code of the repository, and it has the limits of [the free job](#the-free-job): `contents: read` as its only right, no secret and no token, no checkout credentials, and no cache. The job `github-release` holds the writing rights and runs no code of the repository: it checks nothing out, and the files reach it as data. Only its last step holds the run's token. No job restores or saves a cache, and the workflow reads no secret. `tests/test_ci_policy_release.py` fails when one of these changes, when a later job stops following the plan, and when the template of the caller or this repository's `release-caller.yml` does not grant a right that a job holds.
+
+Artifact attestations are not available to a private repository of a personal account, so the attestation step runs only when the repository is not private.
+
+This repository's own caller is `release-caller.yml`, which equals the template apart from the local path. Its configuration file does not state the part, so a pushed tag here, a move of `v1` included, runs `plan` alone and passes.
 
 #### The pipeline's verdict
 
@@ -973,13 +1025,15 @@ A new shared part gets its part folder, a subfolder of `actions/` with the scrip
 5. Add the part's page to the [catalogue](../catalogue.json): an entry under the part's name with no workflow, its shared steps, no required check, `"consumer_kit": null`, and in `needs` the key `parts.<part>` with its required settings and the path of its fragment. A part that a repository may need for several projects takes them as a list `projects` and runs as a matrix over it, and a setting that names a runner refers to `#/$defs/runner-label`, as the Python and .NET parts do.
 6. Describe the part under [Pipeline](#pipeline), switch it on in this repository's `.github/ci-config.yml` on a fixture project, and validate as [Validation](#validation) says.
 
+A part of another trigger class differs in step 3. Its fragment names the shared workflow of its class under `"workflow"`, and its job goes into that workflow under the part's name, with `needs` on that workflow's own `plan` job and the same condition on that plan's output; the pipeline and its verdict hold nothing of it. A right, an event or a secret that the job needs and the fixed caller of its class lacks is a change as [Change a fixed caller](#change-a-fixed-caller) says.
+
 A change to the schema that makes a valid configuration file invalid needs a new version folder `v<N+1>`, a copy of the current one with the change; the folder before the previous version is removed in the same change.
 
 ### Add a setup
 
 1. Add the setup to `actions/pipeline/schema/v<N>/setups.json` in the current version folder, under its name `<tool>-<version>`, with its `tool` and the `version` that the tool's action takes.
 2. Run `python actions/pipeline/plan.py schema` and commit the assembled `ci-config.schema.json`.
-3. Add one place to the install steps of every job of `pipeline.yml` that installs setups: one step per tool, with the condition on the plan's `setups[<place>].tool` and the version from `setups[<place>].version`. `tests/test_ci_policy_pipeline.py` fails while the free job has fewer or more places than `setups.json` has setups.
+3. Add one place to the install steps of every job that installs setups, the free job of `pipeline.yml` and the job `github-release-files` of `release.yml`: one step per tool, with the condition on the plan's `setups[<place>].tool` and the version from `setups[<place>].version`. `tests/test_ci_policy_pipeline.py` fails while the free job has fewer or more places than `setups.json` has setups, and `tests/test_ci_policy_release.py` while the install steps of the two jobs differ.
 4. For a new tool, add its install step to every place, and add the tool with its action to `SETUP_ACTIONS` in `tests/test_ci_policy_pipeline.py`, which fails while a tool of `setups.json` has no install step in the free job.
 5. Name the setup under [The free job](#the-free-job) and in the cases of `tests/test_pipeline_custom.py`, and validate as [Validation](#validation) says.
 

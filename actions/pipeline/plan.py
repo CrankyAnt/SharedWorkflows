@@ -9,7 +9,9 @@
 ``plan`` reads ``.github/ci-config.yml``, checks it against the schema of its version and decides per part whether it
 runs. The schema folder holds one folder per schema version, ``v<N>``, with the ``base.json`` of the file and one
 fragment per part, ``parts/<part>.json``: its ``description`` and either the schema of its ``configuration`` or
-``"always": true`` for a part that runs in every pipeline run, which the configuration file cannot state. Beside them,
+``"always": true`` for a part that runs in every pipeline run, which the configuration file cannot state. A fragment
+with ``"workflow": "<file>.yml"`` is a part whose job is in that shared workflow and not in the pipeline: the
+configuration file states it under ``parts`` like any other part, and the plan and the verdict leave it out. Beside them,
 ``setups.json`` holds the known setups by name, each with the ``tool`` and the ``version`` that a job installs; the
 definition ``setup`` of the base accepts those names only. The highest version is the current one; the plan reads it and
 the one before.
@@ -51,6 +53,7 @@ PLAN_JOB = "plan"
 FAILING_RESULTS = ("failure", "cancelled")
 ALL_ZERO = re.compile(r"^0+$")
 VERSION_FOLDER = re.compile(r"^v([1-9][0-9]*)$")
+WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.yml$")
 # The schema keywords that say nothing about a value, and those the check reads; any other keyword fails the check.
 ANNOTATIONS = {"$schema", "$id", "$defs", "title", "description", "examples", "default"}
 KEYWORDS = {"type", "const", "enum", "pattern", "minLength", "minimum", "minItems", "uniqueItems", "items", "properties", "required",
@@ -76,11 +79,17 @@ class SchemaVersion:
     schema: dict
     always: frozenset[str]
     setups: dict = field(default_factory=dict)
+    workflows: dict = field(default_factory=dict)
 
     @property
     def parts(self) -> list[str]:
-        """Every part of the pipeline by name: those the configuration file switches on and those that always run."""
+        """Every part by name: those the configuration file switches on and those that always run."""
         return sorted({*self.schema["properties"]["parts"]["properties"], *self.always})
+
+    @property
+    def pipeline_parts(self) -> list[str]:
+        """The parts whose job is in the pipeline: every part but those whose fragment names another shared workflow."""
+        return [name for name in self.parts if name not in self.workflows]
 
 
 def read_json(path: Path) -> dict:
@@ -134,11 +143,18 @@ def assemble(folder: Path, version: int) -> SchemaVersion:
             raise SchemaError(f"{folder / SETUPS}: the base has the definition setup, so this file names at least one setup")
         schema["$defs"]["setup"]["enum"] = list(setups)
     always = set()
+    workflows = {}
     for path in sorted((folder / "parts").glob("*.json")):
         fragment = read_json(path)
-        unknown = sorted(set(fragment) - {"description", "always", "configuration"})
+        unknown = sorted(set(fragment) - {"description", "always", "configuration", "workflow"})
         if unknown or not isinstance(fragment.get("description"), str) or not isinstance(fragment.get("always", False), bool):
             raise SchemaError(f"{path}: a fragment holds a description and either a configuration or always")
+        if "workflow" in fragment:
+            if fragment.get("always"):
+                raise SchemaError(f"{path}: a part that always runs is a part of the pipeline and names no workflow")
+            if not isinstance(fragment["workflow"], str) or not WORKFLOW_FILE.match(fragment["workflow"]):
+                raise SchemaError(f"{path}: workflow names a workflow file, such as release.yml")
+            workflows[path.stem] = fragment["workflow"]
         if fragment.get("always"):
             if "configuration" in fragment:
                 raise SchemaError(f"{path}: a part that always runs has no configuration")
@@ -151,7 +167,7 @@ def assemble(folder: Path, version: int) -> SchemaVersion:
         parts[path.stem] = {"description": fragment["description"], **configuration}
     if always:
         schema["properties"]["parts"]["description"] += f" Not stated here, because it always runs and has no settings: {and_list(sorted(always))}."
-    return SchemaVersion(version, schema, frozenset(always), setups)
+    return SchemaVersion(version, schema, frozenset(always), setups, workflows)
 
 
 def schema_versions(folder: Path) -> dict[int, SchemaVersion]:
@@ -414,7 +430,7 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     before = base_configuration(root, start) if changed is not None else None
     parts, base_parts = stated_parts(configuration), stated_parts(before)
     decisions = {}
-    for name in version.parts:
+    for name in version.pipeline_parts:
         run, reason = decide(name, version, parts, base_parts, changed)
         decisions[name] = {"run": run, "reason": reason, "config": parts.get(name, {})}
         if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
@@ -463,7 +479,7 @@ def concurrency(parts: list[str], workflow: str, event: str, pull_request: str, 
 def run_plan(options: argparse.Namespace) -> int:
     try:
         versions = schema_versions(Path(options.schemas))
-        groups = concurrency(versions[max(versions)].parts, options.workflow, options.event, options.pull_request, options.run_id)
+        groups = concurrency(versions[max(versions)].pipeline_parts, options.workflow, options.event, options.pull_request, options.run_id)
         append(options.github_output, f"concurrency={json.dumps(groups, separators=(',', ':'))}\n")
         plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare)
     except (PlanError, SchemaError) as error:
