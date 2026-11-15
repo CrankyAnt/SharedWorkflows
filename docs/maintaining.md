@@ -914,9 +914,15 @@ This repository calls the workflow from `automation-caller.yml`, which equals th
 
 ### Sync
 
-`sync.yml` is the sync: the shared workflow that the private [management repository](../actions/sync/consumer-kit/README.md) calls every twelve hours and on a start by hand. No consumer calls it and this repository holds no caller of it, because it needs the sync App, which is never installed here; its program is tested on fixture repositories behind a stand-in for the GitHub API, and its first run in the management repository shows what only GitHub can show.
+`sync.yml` is the sync: the shared workflow that the private management repository calls every twelve hours and on a start by hand. No consumer calls it and this repository runs no caller of it, because it needs the [sync App](#sync-app), which is never installed here; its program is tested on fixture repositories behind a stand-in for the GitHub API, and its first run in the management repository shows what only GitHub can show.
 
 The workflow has one job, `sync`, which runs only on `main`, in the environment `sync` of the calling repository, with `issues: write`. It loads [sync.py](../actions/sync/sync.py) from its own revision, gets an installation token for every repository of the App's installation with `actions/create-github-app-token`, pinned to a full commit, from the environment's variable `SYNC_APP_CLIENT_ID` and secret `SYNC_APP_PRIVATE_KEY`, limited to the App's four permissions (Contents, Pull requests and Workflows write, Issues read), and runs `sync.py sync --own-repository <the calling repository>`. The App's token goes to that step alone. When a step fails, the last step runs `sync.py failure`. No file of the sync names a repository other than this one; `tests/test_ci_policy_sync.py` fails when one does, and on each rule of this paragraph.
+
+#### The sync caller
+
+[caller.yml](../actions/sync/caller.yml) is the caller that the management repository holds as `.github/workflows/sync.yml` on its `main`. The sync has no consumer kit: the caller lies in the part folder, outside one, and the management repository owns its other files, its instructions for agents among them. The caller starts on a schedule every twelve hours and on `workflow_dispatch`, sets `permissions: {}` at the top and holds one job, `sync`, that calls `CrankyAnt/SharedWorkflows/.github/workflows/sync.yml@v1` with `issues: write` and passes the secret `SYNC_APP_PRIVATE_KEY` under its own name. The job runs no step of its own. `issues: write` is for the token of the run, with which the sync opens issues in the management repository. `tests/test_ci_policy_sync.py` holds the caller against the shared workflow: it grants what the shared job holds and passes the secrets that the workflow declares.
+
+The file in the management repository is never edited there. A promotion by hand that changes the template class compares it with the caller at the commit that `v1` names and replaces it when the two differ, as [Promote v1 by hand](#promote-v1-by-hand) says, so a change made there by hand is undone by the next such promotion.
 
 #### What the sync compares
 
@@ -989,6 +995,7 @@ Every change to a kit's templates, `actions/*/consumer-kit/*.yml`, updates that 
 - The recording step: [Change the ETW consumer](#change-the-etw-consumer), [Renew the stored strace recordings](#renew-the-stored-strace-recordings) and [Renew the standard-library names](#renew-the-standard-library-names).
 - This repository's own files: [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline).
 - The GitHub App: [Rotate the App's private key](#rotate-the-apps-private-key) and [Replace the App](#replace-the-app).
+- The sync App: [Set up the sync environment](#set-up-the-sync-environment) and [Rotate the sync App's private key](#rotate-the-sync-apps-private-key).
 - Pull requests and runs of the automation: [Act on an updater pull request or a failed updater run](#act-on-an-updater-pull-request-or-a-failed-updater-run) and [Act on the full recording's pull request or a failed `close`](#act-on-the-full-recordings-pull-request-or-a-failed-close).
 
 ### Validation
@@ -1046,7 +1053,7 @@ A move that changes check names ships in one coordinated move. When `v1` moves, 
 
 Creating or moving the shared `v1` tag is a question to the user, including the first creation, a rollback and a move that changes a check name: one promotion changes every caller's subsequent runs, and moving the tag back does not undo those runs' effects. The one exception is automatic: `.github/workflows/promote-v1.yml` moves `v1` to a commit on `main` whose changes compared with the current `v1` stay in the read class, once the commit's CI on `main` passed, as [Automatic v1 move](#automatic-v1-move) states. The merge of such a commit into `main` is the approval for that move. One commit outside the read class moves the same way: the pins update, a pins-only pull request that the updater App opened from `chore/update-ci-pins` and the repository owner merged, whose merge is its review and its approval. Every other creation or move of `v1` still needs the question. A commit that changes the write class or the template class never moves `v1` automatically, whoever made it, so a Dependabot pull request that merged itself moves `v1` only when its changes stay in the read class.
 
-`promote-v1.yml` and `promote_v1.py` reach one other repository and no further one: the management repository. Only the job `move` names the environment `promote-v1` and reads a deploy key. `promote` starts the sync in the management repository after a move by hand that changes the template class; only the local Git configuration of the checkout names that repository. The name of the management repository reaches no run summary, log or terminal output of the workflow, and nothing here asks GitHub about a consumer, sends one an event or holds a token for one. `tests/test_v1_promotion.py` and `tests/test_ci_policy_hygiene_promotion.py` fail when a reach to another repository is added.
+`promote-v1.yml` and `promote_v1.py` reach one other repository and no further one: the management repository. Only the job `move` names the environment `promote-v1` and reads a deploy key. After a move by hand that changes the template class, `promote` reads the management repository's sync caller, replaces it when it differs from the caller at `v1` and starts the sync there, and `caller` repeats that; only the local Git configuration of the checkout names that repository. The name of the management repository reaches no run summary, log or terminal output of the workflow or of these subcommands, which print nothing that `gh` returns, and nothing here asks GitHub about a consumer, sends one an event or holds a token for one. `tests/test_v1_promotion.py` and `tests/test_ci_policy_hygiene_promotion.py` fail when a reach to another repository is added.
 
 #### Promotion classes
 
@@ -1056,7 +1063,7 @@ Creating or moving the shared `v1` tag is a question to the user, including the 
 | --- | --- | --- |
 | read | the shared workflows whose jobs only read and that no workflow of another class calls, `pipeline.yml` among them, the part folders that only they load (`publication-checks`, `python-tests`, `dotnet-test`, `node-test`) and the catalogue | automatic, after the CI on `main` |
 | write | the shared workflows that grant a write permission to a job or to an App token (`automation.yml`, `release.yml`, `dependabot-auto-merge.yml`) `suite-jobs.yml`, which `automation.yml` calls, and every part folder that one of them loads: `pipeline`, `recording`, `repository-hygiene`, `suite-selection`, `python-language-step`, `dependabot-auto-merge` and `issue-title` | by hand, after the question |
-| template | the consumer kits with the fixed callers, `consumer_checks.py`, which holds the generated Dependabot configuration and the caller check, the ruleset template, `sync.yml` and the sync's part folder | by hand, after the question; the sync starts right after the move |
+| template | the consumer kits with the fixed callers, `consumer_checks.py`, which holds the generated Dependabot configuration and the caller check, the ruleset template, `sync.yml` and the sync's part folder, which holds the sync caller | by hand, after the question; the management repository's caller is brought in line and the sync starts right after the move |
 
 A part folder or a shared workflow takes the highest class among the shared workflows that load or call it, whatever else does: `actions/pipeline` is in the write class because `automation.yml` and `release.yml` load it, although the pipeline loads it too. A change inside such a folder reaches a workflow that writes, so it stays a question, a Dependabot update included. The folders in the write class hold the configuration schema and `promote_v1.py` with `shared-surface.json`, which decide the promotion, so a change to the classes is a question too. They also hold the pins file, which has the one exception: the reviewed pins update of [Automatic v1 move](#automatic-v1-move). A Dependabot update in the write class has no exception.
 
@@ -1128,15 +1135,17 @@ The move pushes with `--force-with-lease=refs/tags/v1:<previous tag object>`, so
 
 Every other creation or move of `v1` is a question to the user (`docs/agents/publication.md`): a promotion that changes the write class or the template class, a rollback, the first creation, a move that changes a check name, and a commit in the read class that the automatic move left behind. Where a procedure of this document says that a change reaches callers through this section, a change that stays in the read class reaches them through [Automatic v1 move](#automatic-v1-move) instead.
 
-A move that changes the template class starts the sync: right after the push, `promote` starts `sync.yml` in the management repository with `workflow_dispatch` on its `main`, through the `gh` CLI, so that the sync opens its pull requests in the consumers at once. The management repository is private and no tracked file names it. The checkout that runs `promote` names it once in its local Git configuration:
+A move that changes the template class reaches the management repository right after the push, in two steps through the `gh` CLI. First `promote` brings the management repository's caller in line with `v1`: it reads the blob of `.github/workflows/sync.yml` on that repository's `main`, compares it with the blob of [actions/sync/caller.yml](../actions/sync/caller.yml) in the Git object of the commit that `v1` now names, never with the working tree, and replaces the file with one commit only when the two blobs differ. It replaces a caller and never creates one: a named repository without that file counts as a failed read. The comparison is with the installed file and not with the earlier `v1`, so it also repairs a caller that an earlier update left behind or that was changed there by hand, and a rollback brings back the caller of the earlier commit. Then `promote` starts `sync.yml` in the management repository with `workflow_dispatch` on its `main`, so that the sync opens its pull requests in the consumers at once. The management repository is private and no tracked file names it. The checkout that runs `promote` names it once in its local Git configuration:
 
 ```text
 git config --local sharedworkflows.managementRepository <owner>/<name>
 ```
 
-Without that setting `promote` starts no sync and says so; the scheduled sync then brings the consumers up to date within twelve hours.
+Without that setting `prepare` refuses a move that changes the caller, because the management repository would keep the old one. A move that leaves the caller as it is goes on: `promote` then starts no sync and says so, and the scheduled sync brings the consumers up to date within twelve hours.
 
-Two subcommands of [promote_v1.py](../actions/repository-hygiene/promote_v1.py), run from the repository root, carry the move: `prepare` gathers the facts and prints the question, and `promote` moves the tag after the answer. They read the CI through the authentication of the `gh` CLI and scan with the locally installed Gitleaks.
+`promote` and `caller` make every request about the management repository with the login of the `gh` CLI. The write of a file under `.github/workflows/` needs a token with the `workflow` scope beside `repo`; the start of the sync alone needs only `repo`. `gh` prefers a token in the environment, `GH_TOKEN` and then `GITHUB_TOKEN`, over its stored login, so a session that sets one writes with that token: unset both, or make sure the token is the owner's and holds both scopes. `gh auth status` shows the account and the scopes in use.
+
+Three subcommands of [promote_v1.py](../actions/repository-hygiene/promote_v1.py), run from the repository root, carry the move: `prepare` gathers the facts and prints the question, `promote` moves the tag after the answer, and `caller` repeats the caller update and the start of the sync without moving the tag. They read the CI through the authentication of the `gh` CLI and scan with the locally installed Gitleaks.
 
 1. Run `prepare`. The agent whose delivery merged a change to `main` that does not promote automatically, one in the write class or the template class, runs it once the commit's CI on `main` has completed and before it ends the delivery, as `docs/agents/delivery.md` states, so that no such change stays on `main` unpromoted without the question. The target is the head of `origin/main` after its fetch; `--commit <sha>` names another commit on `origin/main`. When `promote-v1.yml` reported that `v1` stays, its run summary names the reason.
 
@@ -1144,9 +1153,9 @@ Two subcommands of [promote_v1.py](../actions/repository-hygiene/promote_v1.py),
    python3 actions/repository-hygiene/promote_v1.py prepare [--commit <sha>]
    ```
 
-   It reports the current `v1` commit and the object that `git ls-remote origin refs/tags/v1` shows, never a local `v1` tag; the target; the kind of move, a promotion, a rollback or the first creation; the changed files under the `paths` of [shared-surface.json](../actions/repository-hygiene/shared-surface.json), each with its promotion class; the commits between the two; the conclusions of `ci.yml`, `repository-hygiene-caller.yml` and `python-tests-caller.yml` on `main` for the target, read once; the result of the push gate's Gitleaks scan for the tag push (`docs/agents/delivery.md`); and, for a move that changes the template class, whether the sync starts after it.
-2. `prepare` refuses, names the reason, asks no question and exits with `1` when the target is not on `origin/main`, is neither a descendant nor an ancestor of the current `v1`, has CI on `main` that cannot be read, is still running, concluded other than `success` or has no run, when the Gitleaks scan reports a finding or cannot run because Gitleaks is not installed, or when the shared surface is identical at `v1` and the target, so that no move is needed. CI that is still running is not a failure: run `prepare` again once it has completed.
-3. Otherwise `prepare` prints the question, which names the current `v1` commit, the target, the kind of move and the changed shared-surface files with their promotion classes, says that the move changes the later runs of every caller and, for a move that changes the template class, that the sync starts right after it, and below it the `promote` command. Ask the user the question as printed. Only a yes to that question approves the move.
+   It reports the current `v1` commit and the object that `git ls-remote origin refs/tags/v1` shows, never a local `v1` tag; the target; the kind of move, a promotion, a rollback or the first creation; the changed files under the `paths` of [shared-surface.json](../actions/repository-hygiene/shared-surface.json), each with its promotion class; the commits between the two; the conclusions of `ci.yml`, `repository-hygiene-caller.yml` and `python-tests-caller.yml` on `main` for the target, read once; the result of the push gate's Gitleaks scan for the tag push (`docs/agents/delivery.md`); and, for a move that changes the template class, whether the sync caller changes between the two commits and what follows the move in the management repository.
+2. `prepare` refuses, names the reason, asks no question and exits with `1` when the target is not on `origin/main`, is neither a descendant nor an ancestor of the current `v1`, has CI on `main` that cannot be read, is still running, concluded other than `success` or has no run, when the Gitleaks scan reports a finding or cannot run because Gitleaks is not installed, when the shared surface is identical at `v1` and the target, so that no move is needed, or when the move changes the sync caller and the checkout names no management repository. CI that is still running is not a failure: run `prepare` again once it has completed.
+3. Otherwise `prepare` prints the question, which names the current `v1` commit, the target, the kind of move and the changed shared-surface files with their promotion classes, says that the move changes the later runs of every caller and, for a move that changes the template class, that right after it the move replaces the management repository's caller when it differs from the caller at the target and the sync starts, and below it the `promote` command. Ask the user the question as printed. Only a yes to that question approves the move.
 4. After a yes, run the printed command. `--old` is the object the remote ref held, empty (`--old=`) for the first creation:
 
    ```text
@@ -1155,7 +1164,13 @@ Two subcommands of [promote_v1.py](../actions/repository-hygiene/promote_v1.py),
 
    `promote` runs the push gate's Gitleaks scan again and pushes nothing on a finding. It pushes with `--force-with-lease=refs/tags/v1:<object>`; a rejected push means that `v1` moved after `prepare` and keeps its newer target, so start again at step 1. On success it prints the old and the new commit; a later rollback names the old one.
 
-   After a move that changes the template class, `promote` starts the sync and prints that it did, without the management repository's name. When that start fails, `v1` has moved and `promote` exits with `1`: start `sync.yml` in the management repository by hand, with `gh workflow run sync.yml --repo <management repository>`. Beyond that start `promote` asks GitHub about no other repository and sends none an event.
+   After a move that changes the template class, `promote` prints whether the management repository's caller was equal or was replaced and that the sync started, without the management repository's name and without anything that `gh` returned. When the read of the caller, its write or the start of the sync fails, `v1` has moved and `promote` exits with `1`. A failed read or write starts no sync, since the sync would run the old caller against the new shared workflow. GitHub can refuse a start right after a write that changes the caller's triggers, before it has registered the file. The message names the command that repeats the caller update and the start against the remote `v1`, as often as needed and without moving the tag:
+
+   ```text
+   python3 actions/repository-hygiene/promote_v1.py caller
+   ```
+
+   When the commit that `v1` names holds no file at `actions/sync/caller.yml`, as after a rollback to a commit from before the caller lay there, `promote` and `caller` write nothing to the management repository, delete nothing there, start no sync and exit with `1`; the management repository keeps its caller, and whether it fits that commit is checked by hand. Beyond the read, the write and the start `promote` and `caller` ask GitHub about no other repository and send none an event.
 5. Watch the consumers' first runs after the move. Later workflow resolutions in all callers use the new version without repository edits; jobs already running keep the commit they resolved. [Find the consumers](#find-the-consumers) lists the consumers. In each, watch the first run of every caller after the move: the runs of the checks that its ruleset requires, `hygiene / hygiene` and, with the suite selection, `validation / validation` or, with the pipeline, `ci / verdict`, and the runs of its other callers. The move starts no run: each starts with the consumer's next pull request, push or Dependabot merge, and with the suite selection the pull-request runs run every suite until a run on the default branch has passed under the new digest ([A move of v1 in a consumer](#a-move-of-v1-in-a-consumer)); `gh run list --repo <consumer>` lists them, and a run records the commit that `v1` resolved to. A failure that the consumer can fix in its own repository, as the section "When `v1` moves" of its consumer kit says, is fixed there. When a run fails on the moved workflows, roll `v1` back as [Roll v1 back](#roll-v1-back) says.
 
 A move that changes check names follows [Change a check name](#change-a-check-name).
@@ -1172,7 +1187,7 @@ A rollback is another one-way move of `v1`, to a previously validated commit. It
    ```
 
 3. Ask the user the printed question again. The answer to an earlier promotion does not cover the rollback.
-4. After a yes, run the printed `promote` command, as step 4 of [Promote v1 by hand](#promote-v1-by-hand) says. When the rollback changes the shared digest, the consumers of the suite selection run every suite again until a run on their default branch has passed under the digest of the earlier commit, as after a promotion.
+4. After a yes, run the printed `promote` command, as step 4 of [Promote v1 by hand](#promote-v1-by-hand) says. A rollback that changes the template class brings the management repository's caller to the caller of the earlier commit. When the rollback changes the shared digest, the consumers of the suite selection run every suite again until a run on their default branch has passed under the digest of the earlier commit, as after a promotion.
 5. Undo a faulty change in the read class with a revert on `main`. The revert of a read-class change is itself a read-class change, so `promote-v1.yml` moves `v1` to it once the CI on `main` passed, and no later push moves `v1` back onto the fault. Until the revert lands, a move back by hand keeps `v1` off the fault. Run `prepare --commit <earlier-commit>` and the printed `promote` command, as steps 2 to 4 say. The revert lands before any other read-class change merges, since `promote-v1.yml` would otherwise move `v1` to a commit that still holds the fault. While the shared surface at `v1` differs from `main` in a file of the write class or the template class, `promote-v1.yml` leaves `v1` in place; the next move is a manual promotion.
 6. Watch the consumers' first runs after the rollback, as step 5 of [Promote v1 by hand](#promote-v1-by-hand) says. When a run fails on the workflows that `v1` names after the rollback, roll `v1` back again, to another validated commit, from step 1 of this procedure.
 
@@ -1229,7 +1244,7 @@ Both commands change another repository, so each is a question to the user first
 2. Resolve what the command lists under "Not derived" in that pull request, by the decision rule of the catalogue: a workflow that stays needs a part, the free job or an entry under `local-workflows`; an input or a Dependabot key that is not carried over needs a setting or is dropped.
 3. Merge the pull request once `ci / verdict` passed on it.
 4. Correct the settings as [Correct a consumer's settings](#correct-a-consumers-settings) says, which sets the ruleset that requires `ci / verdict`.
-5. Install the sync App on the repository, so that the sync keeps its fixed files from then on.
+5. Install the [sync App](#sync-app) on the repository, so that the sync keeps its fixed files from then on. Only the owner adds a repository to the App's installation, and it is a question to the user.
 
 ### Correct a consumer's settings
 
@@ -1237,17 +1252,18 @@ An issue `Settings differ: <repository>` in the management repository lists the 
 
 ### Change what the sync compares
 
-A change to `sync.py`, `sync.yml`, the management repository kit, the merge settings or the adoption table is a template-class change and reaches the management repository through a promotion by hand.
+A change to `sync.py`, `sync.yml`, the sync caller, the merge settings or the adoption table is a template-class change and reaches the management repository through a promotion by hand.
 
 - A new fixed file: add its template to `actions/pipeline/consumer-kit/` at its path in a consumer state its path once in `consumer_checks.py`, as `CI_GUIDE` is, and add it where `sync.py` collects the fixed files of the kit beside `CI_GUIDE`, which it takes from there, with a case in `tests/test_sync_files.py`.
 - A merge setting: change `actions/sync/merge-settings.json` and the merge settings in the hygiene kit's README together: its list, its `PATCH` command and its read-back command. `tests/test_ci_policy_sync.py` fails, naming the field, while the kit and the file differ in a field or a value.
 - The ruleset: change `actions/repository-ruleset/ruleset-main-template.json`; the sync keeps `ci / verdict` as the one required check, which the hygiene kit's `### Default-branch ruleset` names, and `tests/test_ci_policy_sync.py` fails while it does not.
 - A part that replaces an earlier shared workflow: add `"<workflow file>": "<part>"` to `actions/sync/adoption.json`; `tests/test_sync_adoption.py` fails on a workflow or a part that does not exist.
-- A change to `actions/sync/consumer-kit/sync.yml` or `AGENTS.template.md`: update the kit's section "When a repository adopted it earlier", and replace the files in the management repository by hand after the promotion.
+- The caller: change `actions/sync/caller.yml`, which `tests/test_ci_policy_sync.py` holds against the permissions and the declared secrets of `sync.yml`. The promotion writes it to the management repository, as [Promote v1 by hand](#promote-v1-by-hand) says; no file is copied there by hand.
+- A change to the title of a finding, to the findings that the sync opens, or to a name of the environment, `sync`, `SYNC_APP_CLIENT_ID` or `SYNC_APP_PRIVATE_KEY`: the delivery report names each changed title, finding and name, because instructions outside this repository, the management repository's own among them, refer to them and no check of this repository reads those instructions.
 
 ### Add a part
 
-A new shared part gets its part folder, a subfolder of `actions/` with the scripts and files of one shared workflow or of several that belong together, loaded through a resource-only composite action `uses: $/actions/<folder>`; the part folders are grouped by kind once there are many. A part folder holds no document of its own: this document describes it. The shared part's consumer kit, the subfolder `consumer-kit/` of its part folder, holds the caller templates and a `README.md` for consumers.
+A new shared part gets its part folder, a subfolder of `actions/` with the scripts and files of one shared workflow or of several that belong together, loaded through a resource-only composite action `uses: $/actions/<folder>`; the part folders are grouped by kind once there are many. A part folder holds no document of its own: this document describes it. The shared part's consumer kit, the subfolder `consumer-kit/` of its part folder, holds the caller templates and a `README.md` for consumers. The sync has no consumer kit, because no consumer adopts it: its catalogue entry states `"consumer_kit": null` and `"audience": "management repository"`, its caller is `actions/sync/caller.yml`, and [Sync](#sync) and [Sync App](#sync-app) in this document describe it.
 
 1. Add the folder with its `action.yml`. The existing ones, such as [dependabot-auto-merge/action.yml](../actions/dependabot-auto-merge/action.yml), output their own path from `github.action_path` and check out nothing. A package manifest in the folder needs an `updates` entry in `.github/dependabot.yml`, or the Dependabot coverage check fails.
 2. Add the workflow, `.github/workflows/<name>.yml` with `on: workflow_call`, `permissions: {}` at the top and its rights on its jobs, loading its files only through `$/actions/<folder>`.
@@ -1578,6 +1594,32 @@ A new App has a login other than `crankyant-publication-checks[bot]`. That login
 6. Move `v1` to the merged commit as [Promote v1 by hand](#promote-v1-by-hand) says, so that every caller receives the new login.
 7. After the move, uninstall the old App from every repository and delete it in its settings.
 
+### Set up the sync environment
+
+The management repository reads the key of the [sync App](#sync-app) as an environment secret, so that only a run on `main` can read it. Each step changes a setting or a secret of another repository and is a question to the user (`docs/agents/publication.md`).
+
+1. Create the environment `sync` in the management repository.
+2. Under its deployment branches and tags, choose selected branches and add `main` as the only branch.
+3. Add the environment variable `SYNC_APP_CLIENT_ID` with the App's Client ID.
+4. Generate a private key for the App and add it as the environment secret `SYNC_APP_PRIVATE_KEY`. Delete the downloaded key file afterwards.
+5. Install the caller: commit [actions/sync/caller.yml](../actions/sync/caller.yml) as it is at `v1` to `.github/workflows/sync.yml` on `main`, unchanged. This first copy is the only one made by hand, since `promote` and `caller` replace a caller and never create one; from then on they keep it equal, once the checkout names the management repository as [Promote v1 by hand](#promote-v1-by-hand) says.
+
+The management repository holds no repository secret and no repository variable. Code on its `main` can use the key, so only the owner pushes there.
+
+### Rotate the sync App's private key
+
+This is the key of the [sync App](#sync-app), the environment secret `SYNC_APP_PRIVATE_KEY` of the management repository; [Rotate the App's private key](#rotate-the-apps-private-key) is the procedure for the other App, whose key is `PUBLICATION_CHECKS_APP_PRIVATE_KEY`. A GitHub App holds several private keys at once, so the new key works before the old one goes. Each change to the App's settings and to the secret is a question to the user (`docs/agents/publication.md`).
+
+1. In the sync App's settings, under **Private keys**, generate a private key. GitHub downloads it as a PEM file; keep that file outside every repository and delete it after step 4.
+2. Replace the environment secret in the management repository:
+
+   ```text
+   gh secret set SYNC_APP_PRIVATE_KEY --env sync --repo <management repository> < <key file>
+   ```
+
+3. Start the sync by hand, `gh workflow run sync.yml --repo <management repository> --ref main`, and wait until that run has passed: it mints the App's token with the new key.
+4. Delete the old key in the App's settings, under **Private keys**. A compromised key is deleted right after step 2 instead; a wrong secret then shows as a failed run and the issue `The sync failed`.
+
 ## Reference
 
 ### Pins
@@ -1616,6 +1658,26 @@ This repository's `.github/dependabot.yml` checks weekly for changes to pinned G
 The user creates one GitHub App and installs it on this repository. A consumer that switches the full recording or the additions workflow on gets an installation as the [repository settings](../actions/suite-selection/consumer-kit/README.md#repository-settings) of the suite-selection consumer kit state. Each installation is a question to the user. The App has repository **Contents: read and write** and **Pull requests: read and write**, and no other requested permissions. GitHub's mandatory metadata read access is implicit. No account permission or webhook subscription is needed.
 
 The repository variable `PUBLICATION_CHECKS_APP_CLIENT_ID` holds the App Client ID and the repository secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY` its private key. The user supplies these credentials; the workflows create neither the App nor its repository credentials or settings, and changing any of them is a question to the user. Five workflows of this repository use the key. Three propose changes as pull requests: the [pins updater](#the-pins-updater) (`update-ci-pins.yml`), the [specification updater](#the-specification-updater) (`update-publication-spec.yml`) and the [full recording](#full-recording) (the job `full-recording-close` of `automation.yml`, which `automation-caller.yml` passes the key). Two commit to a pull request's branch: the [additions workflow](#apply-recorded-additions) (the job `additions` of `automation.yml`) commits the applied suite list, or proposes it as a pull request onto that branch when started by hand, and the [rebuild workflow](#the-rebuild-workflow) (`rebuild-etw-consumer.yml`) commits the rebuilt ETW consumer to a Dependabot pull request's branch. Each mints a token through SHA-pinned `actions/create-github-app-token`, scoped to the current repository and those two permissions, the rebuild workflow to `contents: write` alone, only when it has a change to propose, and the full recording also when a run by hand asks for its token verification; the installation token lets the pull request or the push trigger CI, and the normal workflow token stays read-only. The fifth, `promote-v1.yml`, mints only a metadata-only token, to learn the App's login, as [Automatic v1 move](#automatic-v1-move) says. Every consumer that switches the full recording or the additions workflow on, as the [suite-selection consumer kit](../actions/suite-selection/consumer-kit/README.md) says, or that still runs the workflows it installed from the earlier kit, holds its own copy of the Client ID and the private key, under the same variable and secret names, and commits or proposes its changed suite list with the App's token. The fixed caller passes the key to the automation workflow by name, and the workflow reads the Client ID from the caller's repository variables. [Rotate the App's private key](#rotate-the-apps-private-key) and [Replace the App](#replace-the-app) reach this repository and those consumers. See [GitHub App tokens in Actions](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/making-authenticated-api-requests-with-a-github-app-in-a-github-actions-workflow).
+
+### Sync App
+
+The sync App is a GitHub App of its own, used for nothing but the [sync](#sync). The user creates it; its creation, each installation and each key are questions to the user.
+
+| Permission | Level | Use |
+| --- | --- | --- |
+| Contents | write | push the sync's branch |
+| Pull requests | write | open the sync pull request and request auto-merge |
+| Workflows | write | change the fixed callers under `.github/workflows/` |
+| Issues | read | find open issues with the label `shared-ci` |
+| Metadata | read | read a repository, its merge settings and its rulesets |
+
+The App holds no Administration permission, so its key cannot change a setting or a ruleset. It subscribes to no event and needs no webhook.
+
+The App is installed on selected repositories only, the consumers that the sync keeps equal, chosen one by one; only the owner adds a repository to the installation. A consumer outside the installation receives no sync updates. Never install it on `CrankyAnt/SharedWorkflows`: a key that reaches that repository could change what every consumer runs, and the sync fails before any write when it finds that repository in the installation. The App is not installed on the management repository either: the sync opens its issues there with the token of the run, and the App's token is never sent to that repository.
+
+The management repository holds the App's Client ID as the variable `SYNC_APP_CLIENT_ID` and its private key as the secret `SYNC_APP_PRIVATE_KEY`, both in the environment `sync`, which allows `main` as its only branch; [Set up the sync environment](#set-up-the-sync-environment) creates it and [Rotate the sync App's private key](#rotate-the-sync-apps-private-key) replaces the key. The shared workflow reads both names, and `tests/test_ci_policy_sync.py` holds this section and that procedure against it.
+
+The App has no part in keeping the management repository's own caller equal. That write uses the owner's login, as [Promote v1 by hand](#promote-v1-by-hand) says, so no App installation and no key reaches the management repository for it.
 
 ### Runner choice
 

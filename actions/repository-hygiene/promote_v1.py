@@ -8,6 +8,7 @@ on ``main``, and by hand for every other move.
     python3 promote_v1.py move   --old SHA --new SHA [--deploy-key VARIABLE] [--remote origin] [--repository-root DIR] [--summary FILE]
     python3 promote_v1.py prepare [--commit SHA] [--remote origin] [--repository-root DIR]
     python3 promote_v1.py promote --old OBJECT --new SHA [--remote origin] [--repository-root DIR]
+    python3 promote_v1.py caller  [--remote origin] [--repository-root DIR]
 
 ``shared-surface.json`` gives every path of the shared surface one promotion class under ``classes``; a file takes the
 class of the longest recorded path that holds it. ``decide`` compares the shared surface at the current ``v1`` with the
@@ -42,16 +43,22 @@ here, :data:`GITHUB_HOST_KEY`. Without the option, Git pushes with what its envi
 ``prepare`` and ``promote`` carry every manual move of ``v1``: ``prepare`` reports the facts of the move, the
 promotion class of every changed file among them, and prints the question for the user with the ``promote`` command
 below it, or refuses, and ``promote`` pushes the tag after a yes. Right after a move that changes the template class,
-``promote`` starts ``sync.yml`` in the management repository with ``workflow_dispatch``, through the ``gh`` CLI. Only
-the local Git configuration of the checkout names that repository, under ``sharedworkflows.managementRepository``;
-nothing that these subcommands print names it. Beyond that start they ask GitHub about no other repository and send
-none an event. "Promote v1 by hand" in ``docs/maintaining.md`` states what ``prepare`` reports, when it refuses and
-what ``promote`` does.
+``promote`` brings the sync caller of the management repository in line with ``v1`` and starts the sync there, through
+the ``gh`` CLI and its own login: it reads the blob of ``.github/workflows/sync.yml`` on that repository's ``main``,
+compares it with the blob of :data:`CALLER_PATH` in the Git object of the commit that ``v1`` names, replaces the file
+with one commit only when the two differ, and then starts ``sync.yml`` with ``workflow_dispatch``. A read or a write
+that fails starts no sync, and a commit without a caller at that path writes nothing. ``caller`` repeats the caller
+update and the start against the remote ``v1`` without moving the tag. Only the local Git configuration of the
+checkout names the management repository, under ``sharedworkflows.managementRepository``; nothing that these
+subcommands print names it, and nothing that ``gh`` returns about it is printed. Beyond that read, that write and
+that start they ask GitHub about no other repository and send none an event. "Promote v1 by hand" in
+``docs/maintaining.md`` states what ``prepare`` reports, when it refuses and what ``promote`` and ``caller`` do.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import json
 import os
@@ -83,8 +90,13 @@ CI_WORKFLOWS = ("ci.yml", "repository-hygiene-caller.yml", "python-tests-caller.
 # GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
 GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 MANAGEMENT_KEY = "sharedworkflows.managementRepository"
-NO_MANAGEMENT = f"not started: this checkout names no management repository (`git config {MANAGEMENT_KEY} <owner>/<name>`)"
+MANAGEMENT_SETTING = f"`git config --local {MANAGEMENT_KEY} <owner>/<name>`"
+NO_MANAGEMENT = f"not started: this checkout names no management repository ({MANAGEMENT_SETTING})"
 SYNC_WORKFLOW = "sync.yml"
+# The sync caller in this repository, and the path it is installed at on the management repository's main.
+CALLER_PATH = "actions/sync/caller.yml"
+INSTALLED_CALLER = f".github/workflows/{SYNC_WORKFLOW}"
+CALLER_MESSAGE = "chore: bring the sync caller in line with v1"
 CI_TIMEOUT = 10 * 60
 CI_INTERVAL = 30
 REQUEST_TIMEOUT = 20
@@ -318,7 +330,8 @@ def move_question(v1: str, target: str, kind: str, grouped: Mapping[str | None, 
         move_text = f"Create v1 at {target}, the first creation, which carries the shared-surface files {files}?"
     else:
         move_text = f"Move v1 from {v1} to {target}, a {kind} that changes the shared-surface files {files}?"
-    sync = " It changes the template class, so the sync starts right after it." if TEMPLATE in grouped else ""
+    sync = (" It changes the template class, so right after it the management repository's caller is replaced when it differs from the caller at the "
+            "target, and the sync starts.") if TEMPLATE in grouped else ""
     return f"Question: {move_text} The move changes the later runs of every caller.{sync} Answer yes or no."
 
 
@@ -523,6 +536,7 @@ class Preparation:
     refusals: list[str]
     classes: Mapping[str, str] = field(default_factory=dict)
     management: bool = False
+    caller_changes: bool = False
 
     @property
     def grouped(self) -> dict[str | None, list[str]]:
@@ -542,7 +556,10 @@ class Preparation:
         if not self.scan.passed:
             lines.extend(f"  {line}" for line in self.scan.output.splitlines())
         if TEMPLATE in self.grouped:
-            lines.append(f"Sync after the move: {'started in the management repository' if self.management else NO_MANAGEMENT}")
+            follows = ("the management repository's caller is replaced when it differs from the caller at the target, then the sync starts" if self.management
+                       else f"nothing: this checkout names no management repository ({MANAGEMENT_SETTING})")
+            lines.append(f"Sync caller: {'changes between' if self.caller_changes else 'the same at'} the current v1 and the target")
+            lines.append(f"Caller and sync after the move: {follows}")
         return "\n".join(lines)
 
     def question(self) -> str:
@@ -550,12 +567,17 @@ class Preparation:
 
     def command(self, remote: str, root: Path | None) -> str:
         old = f"--old {shlex.quote(self.v1_object)}" if self.v1_object else "--old="
-        parts = [f"{SCRIPT_COMMAND} promote {old} --new {self.target}"]
-        if remote != "origin":
-            parts.append(f"--remote {shlex.quote(remote)}")
-        if root is not None:
-            parts.append(f"--repository-root {shlex.quote(str(root))}")
-        return " ".join(parts)
+        return script_command(f"promote {old} --new {self.target}", remote, root)
+
+
+def script_command(subcommand: str, remote: str, root: Path | None) -> str:
+    """The command line of a subcommand of this script, with the remote and the repository root that it was given."""
+    parts = [f"{SCRIPT_COMMAND} {subcommand}"]
+    if remote != "origin":
+        parts.append(f"--remote {shlex.quote(remote)}")
+    if root is not None:
+        parts.append(f"--repository-root {shlex.quote(str(root))}")
+    return " ".join(parts)
 
 
 def prepare(root: Path, remote: str, commit: str, surface: dict, *, ci: Callable[[str], Mapping[str, CiRun]], scan: Callable[[str], ScanResult]) -> Preparation:
@@ -597,7 +619,12 @@ def prepare(root: Path, remote: str, commit: str, surface: dict, *, ci: Callable
     scanned = scan(target)
     if not scanned.passed:
         refusals.append(f"{SCAN_REFUSAL}.")
-    return Preparation(v1, v1_object, target, kind, surface_files, commits, runs, scanned, refusals, surface["classes"], bool(management_repository(root)))
+    management = bool(management_repository(root))
+    caller_changes = caller_blob(root, v1) != caller_blob(root, target)
+    if caller_changes and not management:
+        refusals.append(f"the move changes the sync caller, {CALLER_PATH}, and this checkout names no management repository, whose caller would stay "
+                        f"behind: name it with {MANAGEMENT_SETTING} and run prepare again.")
+    return Preparation(v1, v1_object, target, kind, surface_files, commits, runs, scanned, refusals, surface["classes"], management, caller_changes)
 
 
 def management_repository(root: Path) -> str:
@@ -606,14 +633,94 @@ def management_repository(root: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def gh_quiet(*arguments: str) -> subprocess.CompletedProcess | None:
+    """Run the ``gh`` CLI with its own login, for a request about the management repository; None when it is not
+    installed. What it returns can name that repository, so no caller of this function prints any of it."""
+    try:
+        return subprocess.run(["gh", *arguments], capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return None
+
+
+def caller_blob(root: Path, commit: str) -> str:
+    """The blob of the sync caller in the Git object of ``commit``; empty when the commit holds no file at
+    :data:`CALLER_PATH`, is empty or is not available here. The working tree is never read."""
+    if not commit:
+        return ""
+    result = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{commit}:{CALLER_PATH}"], capture_output=True, text=True, check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def installed_caller(repository: str) -> str | None:
+    """The blob of the caller that the management repository holds on its ``main``; None when the read failed or the
+    repository holds no file there, so that a caller is only ever replaced and never created in a repository that the
+    checkout names by mistake."""
+    result = gh_quiet("api", f"repos/{repository}/contents/{INSTALLED_CALLER}?ref=main")
+    if result is None:
+        return None
+    try:
+        body = json.loads(result.stdout)
+    except ValueError:
+        return None
+    if result.returncode != 0 or not isinstance(body, dict):
+        return None
+    sha = body.get("sha")
+    return sha if isinstance(sha, str) and sha else None
+
+
+def write_caller(root: Path, repository: str, blob: str, installed: str) -> bool:
+    """Put the content of ``blob`` at the caller's path on the management repository's ``main``, as one commit that
+    replaces the file whose blob is ``installed``."""
+    content = subprocess.run(["git", "-C", str(root), "cat-file", "blob", blob], capture_output=True, check=False)
+    if content.returncode != 0:
+        return False
+    fields = ["-f", f"message={CALLER_MESSAGE}", "-f", f"content={base64.b64encode(content.stdout).decode('ascii')}", "-f", "branch=main", "-f", f"sha={installed}"]
+    result = gh_quiet("api", "--method", "PUT", f"repos/{repository}/contents/{INSTALLED_CALLER}", *fields)
+    return result is not None and result.returncode == 0
+
+
 def start_sync(repository: str) -> bool:
     """Start the sync in the management repository with ``workflow_dispatch`` on its ``main``, through the ``gh`` CLI."""
-    try:
-        result = subprocess.run(["gh", "api", "--method", "POST", f"repos/{repository}/actions/workflows/{SYNC_WORKFLOW}/dispatches", "-f", "ref=main"],
-                                capture_output=True, text=True, check=False)
-    except FileNotFoundError:
-        return False
-    return result.returncode == 0
+    result = gh_quiet("api", "--method", "POST", f"repos/{repository}/actions/workflows/{SYNC_WORKFLOW}/dispatches", "-f", "ref=main")
+    return result is not None and result.returncode == 0
+
+
+def reconcile_caller(root: Path, repository: str, commit: str, recovery: str) -> tuple[bool, str]:
+    """Bring the management repository's caller in line with the caller in the Git object of ``commit``, the commit
+    that ``v1`` names, and start the sync: whether all of it was done, and what to print. The file is written only
+    when its blob differs, and the sync starts only after a caller that is known to equal the one at ``v1``."""
+    blob = caller_blob(root, commit)
+    if not blob:
+        return False, (f"that commit holds no caller at {CALLER_PATH}, so nothing was written to the management repository, its caller stays as it is "
+                       f"and no sync was started")
+    repeat = f"repeat the caller update and the start of the sync with `{recovery}`"
+    installed = installed_caller(repository)
+    if installed is None:
+        return False, f"the management repository's caller could not be read, so nothing was written and no sync was started; {repeat}"
+    if installed == blob:
+        state = "the management repository's caller equals the caller at v1 and stays as it is"
+    elif write_caller(root, repository, blob, installed):
+        state = "the management repository's caller was replaced with the caller at v1"
+    else:
+        return False, f"the management repository's caller differs from the caller at v1 and could not be replaced, so no sync was started; {repeat}"
+    if not start_sync(repository):
+        return False, f"{state}, but the start of the sync failed; {repeat}"
+    return True, f"{state}, and the sync was started"
+
+
+def caller(root: Path, remote: str, recovery: str) -> tuple[bool, str]:
+    """Repeat the caller update and the start of the sync against the commit that the remote ``v1`` names, without
+    moving the tag."""
+    fetch_remote(root, remote)
+    v1_object = remote_object(root, remote)
+    if not v1_object:
+        return False, "No remote v1 exists, so no caller was read or written and no sync was started."
+    commit = peel(root, v1_object)
+    repository = management_repository(root)
+    if not repository:
+        return False, f"v1 names {commit}. Nothing was read, written or started: this checkout names no management repository ({MANAGEMENT_SETTING})."
+    done, text = reconcile_caller(root, repository, commit, recovery)
+    return done, f"v1 names {commit}: {text}."
 
 
 def moved_files(root: Path, old_commit: str, new_commit: str, paths: list[str]) -> list[str] | None:
@@ -626,23 +733,35 @@ def moved_files(root: Path, old_commit: str, new_commit: str, paths: list[str]) 
     return changed_files(root, old_commit, new_commit, paths)
 
 
-def sync_after_move(root: Path, old_commit: str, new_commit: str, surface: dict) -> tuple[bool, str]:
-    """Start the sync when the move changed the template class; whether nothing is left to do, and what to print."""
+def sync_after_move(root: Path, old_commit: str, new_commit: str, surface: dict, recovery: str) -> tuple[bool, str]:
+    """After a move that changed the template class, bring the management repository's caller in line with ``v1`` and
+    start the sync; whether nothing is left to do, and what to print."""
     files = moved_files(root, old_commit, new_commit, surface["paths"])
     if files is not None and TEMPLATE not in by_class(files, surface["classes"]):
         return True, ""
     changed = "The move changes the template class" if files is not None else "Whether the move changes the template class is unknown here"
     repository = management_repository(root)
     if not repository:
-        return True, f" {changed}; the sync was {NO_MANAGEMENT}."
-    if start_sync(repository):
-        return True, f" {changed}: the sync was started in the management repository."
-    return False, f" {changed}, but the start of the sync failed: start `{SYNC_WORKFLOW}` in the management repository by hand, with workflow_dispatch."
+        new_caller = caller_blob(root, new_commit)
+        if files is None:
+            # Without the old commit its caller is unknown: only a new commit without a caller rules a change out.
+            caller_text = " and may change the sync caller" if new_caller else ""
+        else:
+            caller_text = " and the sync caller" if caller_blob(root, old_commit) != new_caller else ""
+        if not caller_text:
+            return True, f" {changed}; the sync was {NO_MANAGEMENT}."
+        return False, (f" {changed}{caller_text}, but this checkout names no management repository, so its caller stays behind and no sync was "
+                       f"started: name it with {MANAGEMENT_SETTING} and run `{recovery}`.")
+    done, text = reconcile_caller(root, repository, new_commit, recovery)
+    return done, f" {changed}: {text}."
 
 
-def promote(root: Path, remote: str, old: str, new: str, surface: dict, *, scan: Callable[[str], ScanResult]) -> tuple[bool, str]:
-    """Scan, then push ``new`` to ``v1`` under the lease on ``old``, the object ``prepare`` reported, and start the sync
-    right after a move that changes the template class. False with a pushed tag means that the sync still has to start."""
+def promote(root: Path, remote: str, old: str, new: str, surface: dict, *, scan: Callable[[str], ScanResult],
+            recovery: str = f"{SCRIPT_COMMAND} caller") -> tuple[bool, str]:
+    """Scan, then push ``new`` to ``v1`` under the lease on ``old``, the object ``prepare`` reported, and right after a
+    move that changes the template class bring the management repository's caller in line with ``v1`` and start the
+    sync. False with a pushed tag means that the caller update or the start is still to do; ``recovery`` is the
+    command that repeats both."""
     fetch_remote(root, remote)
     new_commit = git(root, "rev-parse", "--verify", f"{new}^{{commit}}")
     scanned = scan(new_commit)
@@ -659,7 +778,7 @@ def promote(root: Path, remote: str, old: str, new: str, surface: dict, *, scan:
             return False, f"The push of v1 to {new_commit} failed; v1 still holds {old or 'nothing'}.\n{result.stderr.strip()}"
         return False, (f"The push of v1 to {new_commit} was rejected: refs/tags/v1 no longer holds {old or 'nothing'}, so v1 moved after prepare "
                        f"and keeps its newer target. Start again at prepare.\n{result.stderr.strip()}")
-    done, sync = sync_after_move(root, old_commit, new_commit, surface)
+    done, sync = sync_after_move(root, old_commit, new_commit, surface, recovery)
     if not old_commit:
         return done, f"v1 was created at {new_commit}.{sync}"
     if not has_commit(root, old_commit):
@@ -714,18 +833,27 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--new", required=True)
     promote_parser.add_argument("--remote", default="origin")
     promote_parser.add_argument("--repository-root", type=Path)
+    caller_parser = subcommands.add_parser("caller", help="bring the management repository's sync caller in line with the remote v1 and start the sync")
+    caller_parser.add_argument("--remote", default="origin")
+    caller_parser.add_argument("--repository-root", type=Path)
     return parser
 
 
 def manual_move(arguments: argparse.Namespace) -> int:
-    """``prepare`` or ``promote``: exit 0 only for a printed question and command, or for a pushed tag whose sync, when
-    the move needs one, was started or has no management repository to start in."""
+    """``prepare``, ``promote`` or ``caller``: exit 0 only for a printed question and command, for a pushed tag whose
+    caller update and sync, when the move needs them, were done or have no management repository and no changed caller,
+    or for a caller that equals the one at ``v1`` with the sync started."""
     root = (arguments.repository_root or Path(".")).resolve()
     remote = arguments.remote
     scan = lambda commit: gitleaks_scan(root, remote, commit)  # noqa: E731
+    recovery = script_command("caller", remote, arguments.repository_root)
     try:
+        if arguments.command == "caller":
+            done, text = caller(root, remote, recovery)
+            print(text)
+            return 0 if done else 1
         if arguments.command == "promote":
-            moved, text = promote(root, remote, arguments.old, arguments.new, load_surface(SURFACE_PATH), scan=scan)
+            moved, text = promote(root, remote, arguments.old, arguments.new, load_surface(SURFACE_PATH), scan=scan, recovery=recovery)
             print(text)
             return 0 if moved else 1
         preparation = prepare(root, remote, arguments.commit, load_surface(SURFACE_PATH), scan=scan,
@@ -779,7 +907,7 @@ def run(arguments: argparse.Namespace) -> int:
         _append(arguments.summary, outcome.summary())
         _append(arguments.output, f"move={str(outcome.move).lower()}\nold={outcome.old}\nnew={outcome.new}\n")
         return 0
-    if arguments.command in ("prepare", "promote"):
+    if arguments.command in ("prepare", "promote", "caller"):
         return manual_move(arguments)
     moved, summary = move(arguments.repository_root.resolve(), arguments.remote, arguments.old, arguments.new)
     print(summary)

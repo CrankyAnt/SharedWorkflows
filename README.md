@@ -25,7 +25,7 @@ Consumer kits contain templates to copy into a consuming repository. The committ
 These links describe the current checkout. Use their `v1` versions when adopting a published part.
 
 - [Pipeline](actions/pipeline/consumer-kit/README.md): the fixed callers, the configuration file and the CI guide
-- [Sync](actions/sync/consumer-kit/README.md): the private management repository that keeps consumers on the fixed callers
+- [Sync](docs/maintaining.md#sync): the private management repository that keeps consumers on the fixed callers
 - [Repository hygiene](actions/repository-hygiene/consumer-kit/README.md), with the [ruleset template](actions/repository-ruleset/README.md) for the default branch
 - [Dependabot auto-merge](actions/dependabot-auto-merge/consumer-kit/README.md)
 - [Suite selection](actions/suite-selection/consumer-kit/README.md)

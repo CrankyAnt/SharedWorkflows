@@ -1,8 +1,10 @@
 """Text contract of the shared workflow of the sync: it is only called, takes its repositories from the App's
 installation and names none, pins its actions to full commits, reads the key only in an environment on main, and gives
-the App's token to the sync program alone. Beside it, the settings that the sync keeps as the consumer kits state them:
-the merge settings and the one required check in the hygiene kit, and no document that sends a difference of either to
-a repository's recorded choices."""
+the App's token to the sync program alone. Beside it, the sync caller that the management repository runs, held against
+that workflow; the sync App's permissions, its installation and the environment's names as the maintenance document
+and the pipeline's consumer kit state them; and the settings that the sync keeps as the consumer kits state them: the
+merge settings and the one required check in the hygiene kit, and no document that sends a difference of either to a
+repository's recorded choices."""
 
 from __future__ import annotations
 
@@ -16,6 +18,11 @@ from tests.workflow_commands import script_invocations
 
 WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "sync.yml"
 PART = "actions/sync"
+CALLER = f"{PART}/caller.yml"
+MAINTAINING = REPOSITORY_ROOT / "docs" / "maintaining.md"
+CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
+# What only this repository has, and what a template that a repository fills in would hold.
+NOT_FIXED = re.compile(r"\$/|<[a-z-]+>|@[0-9a-f]{40}")
 SECRET = "SYNC_APP_PRIVATE_KEY"
 TOKEN_ACTION = "actions/create-github-app-token"
 TOKEN_PERMISSIONS = ("permission-contents", "permission-issues", "permission-pull-requests", "permission-workflows")
@@ -110,7 +117,8 @@ class SyncWorkflowTests(unittest.TestCase):
     def test_no_file_of_the_sync_names_a_repository_but_the_one_of_the_shared_parts(self) -> None:
         self.assertEqual(set(), named_repositories(self.text))
         files = sorted(tracked_files(REPOSITORY_ROOT, [PART]))
-        self.assertIn(f"{PART}/consumer-kit/sync.yml", files)
+        self.assertIn(CALLER, files)
+        self.assertEqual([], [path for path in files if "consumer-kit" in path], "the sync has no consumer kit: no instructions template and no kit README")
         for path in files:
             with self.subTest(file=path):
                 self.assertLessEqual(named_repositories((REPOSITORY_ROOT / path).read_text(encoding="utf-8")), {SHARED})
@@ -173,6 +181,159 @@ def section(text: str, heading: str) -> str:
     start = text.index(f"\n{heading}\n") + len(heading) + 2
     following = re.search(rf"(?m)^#{{1,{len(level)}}} ", text[start:])
     return text[start:start + following.start()] if following else text[start:]
+
+
+def runs_per_day(cron: str) -> list[int]:
+    """The hours at which a cron line of a fixed minute on every day starts."""
+    minute, hours, day, month, weekday = cron.split()
+    assert minute.isdigit() and (day, month, weekday) == ("*", "*", "*"), cron
+    return sorted(int(hour) for hour in hours.split(","))
+
+
+class CallerTests(unittest.TestCase):
+    """The sync caller that the management repository holds as ``.github/workflows/sync.yml``."""
+
+    def setUp(self) -> None:
+        self.text, self.caller = read_workflow(REPOSITORY_ROOT / CALLER)
+
+    def test_the_caller_starts_every_twelve_hours_and_by_hand_and_on_nothing_else(self) -> None:
+        self.assertEqual({"schedule", "workflow_dispatch"}, set(self.caller["on"]))
+        self.assertIsNone(self.caller["on"]["workflow_dispatch"])
+        (schedule,) = self.caller["on"]["schedule"]
+        hours = runs_per_day(schedule["cron"])
+        self.assertEqual(2, len(hours))
+        self.assertEqual(12, hours[1] - hours[0])
+
+    def test_the_caller_is_one_job_that_calls_the_shared_workflow_at_v1_and_runs_no_step(self) -> None:
+        self.assertEqual("{}", self.caller["permissions"])
+        self.assertEqual(["sync"], list(self.caller["jobs"]))
+        job = self.caller["jobs"]["sync"]
+        self.assertEqual(f"{SHARED}/.github/workflows/sync.yml@v1", job["uses"])
+        self.assertEqual({"issues": "write"}, job["permissions"])
+        self.assertEqual({SECRET: f"${{{{ secrets.{SECRET} }}}}"}, job["secrets"], "the key is passed under its own name and nothing is inherited")
+        self.assertNotIn("steps", job)
+        self.assertNotIn("environment", job, "a job that calls a workflow states no environment; the shared job does")
+        self.assertNotRegex(self.text, r"(?m)^\s*(?:- )?run:")
+
+    def test_the_caller_holds_no_placeholder_no_repository_of_a_consumer_and_no_pull_request_target(self) -> None:
+        self.assertEqual([], NOT_FIXED.findall(self.text))
+        self.assertEqual({SHARED}, named_repositories(self.text))
+        self.assertNotIn("pull_request", self.text)
+        self.assertNotIn("with:", self.text)
+
+    def test_the_caller_grants_what_the_shared_job_holds_and_passes_the_secret_it_declares(self) -> None:
+        _, shared = read_workflow(WORKFLOW)
+        self.assertEqual(shared["jobs"]["sync"]["permissions"], self.caller["jobs"]["sync"]["permissions"])
+        self.assertEqual(list(shared["on"]["workflow_call"]["secrets"]), list(self.caller["jobs"]["sync"]["secrets"]))
+        self.assertNotIn("inputs", shared["on"]["workflow_call"])
+
+    def test_the_caller_lies_outside_a_consumer_kit_in_the_template_class_and_the_catalogue_names_no_kit(self) -> None:
+        surface = json.loads((REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json").read_text(encoding="utf-8"))
+        holders = [path for path in surface["classes"] if CALLER == path or CALLER.startswith(path + "/")]
+        self.assertEqual("template", surface["classes"][max(holders, key=len)])
+        catalogue = json.loads(CATALOGUE.read_text(encoding="utf-8"))
+        (entry,) = [item for item in catalogue["parts"] if ".github/workflows/sync.yml" in item["workflows"]]
+        self.assertIsNone(entry["configuration"])
+        self.assertIsNone(entry["consumer_kit"])
+        self.assertEqual("management repository", entry["audience"])
+        self.assertIn(CALLER, entry["needs"])
+        self.assertNotIn("kit", " ".join(str(value) for value in entry.values()))
+        about = catalogue["about"]
+        self.assertIn("configuration is the schema fragment", about)
+        self.assertIn("or null for an entry that a repository adopts through its consumer kit and not through that key, and for an entry that no consumer adopts;", about)
+        self.assertIn("or null when the entry and its fragment say everything, and for an entry that no consumer adopts, which has neither;", about)
+        self.assertIn("management repository for an entry that no consumer adopts, that has no configuration and no consumer kit, and that an agent in a consumer skips", about)
+
+
+class SyncAppDocumentTests(unittest.TestCase):
+    """The maintenance document's sections on the sync App, against the shared workflow that uses the App."""
+
+    def setUp(self) -> None:
+        self.document = MAINTAINING.read_text(encoding="utf-8")
+        self.app = section(self.document, "### Sync App")
+        self.environment = section(self.document, "### Set up the sync environment")
+        self.rotation = section(self.document, "### Rotate the sync App's private key")
+        self.workflow, self.shared = read_workflow(WORKFLOW)
+
+    def test_the_reference_states_the_app_s_permissions_as_the_token_step_asks_for_them(self) -> None:
+        rows = dict(re.findall(r"(?m)^\| (Contents|Pull requests|Workflows|Issues|Metadata) \| (read|write) \|", self.app))
+        self.assertEqual({"Contents": "write", "Pull requests": "write", "Workflows": "write", "Issues": "read", "Metadata": "read"}, rows)
+        self.assertEqual(5, len(re.findall(r"(?m)^\| [A-Z][a-z ]+ \| (?:read|write) \|", self.app)), "the table grants nothing else")
+        token = next(step for step in self.shared["jobs"]["sync"]["steps"] if str(step.get("uses", "")).startswith(TOKEN_ACTION))
+        asked = {name.removeprefix("permission-").replace("-", " ").capitalize(): level for name, level in token["with"].items() if name.startswith("permission-")}
+        self.assertEqual({name: level for name, level in rows.items() if name != "Metadata"}, asked, "GitHub adds the metadata read by itself")
+        self.assertIn("The App holds no Administration permission", self.app)
+
+    def test_the_reference_states_where_the_app_is_installed_and_where_never(self) -> None:
+        for text in ("The App is installed on selected repositories only", "only the owner adds a repository to the installation",
+                     "A consumer outside the installation receives no sync updates", f"Never install it on `{SHARED}`",
+                     "The App is not installed on the management repository either",
+                     "no App installation and no key reaches the management repository"):
+            with self.subTest(text=text):
+                self.assertIn(text, self.app)
+
+    def test_the_environment_is_limited_to_main_and_holds_the_names_that_the_shared_workflow_reads(self) -> None:
+        self.assertIn("Create the environment `sync`", self.environment)
+        self.assertIn("add `main` as the only branch", self.environment)
+        self.assertIn("no repository secret", self.environment)
+        self.assertEqual("sync", self.shared["jobs"]["sync"]["environment"])
+        for name, reference in (("SYNC_APP_CLIENT_ID", "vars.SYNC_APP_CLIENT_ID"), (SECRET, f"secrets.{SECRET}")):
+            for place, text in (("the procedure", self.environment), ("the reference", self.app)):
+                with self.subTest(name=name, place=place):
+                    self.assertIn(f"`{name}`", text)
+            self.assertIn(reference, self.workflow)
+        self.assertIn("the environment `sync`, which allows `main` as its only branch", self.app)
+
+    def test_the_rotation_is_a_procedure_of_its_own_that_names_the_sync_app_s_secret(self) -> None:
+        self.assertIn(f"gh secret set {SECRET} --env sync --repo <management repository>", self.rotation)
+        self.assertNotIn("PUBLICATION_CHECKS_APP_PRIVATE_KEY", self.rotation.replace("whose key is `PUBLICATION_CHECKS_APP_PRIVATE_KEY`", ""))
+        other = section(self.document, "### Rotate the App's private key")
+        self.assertNotIn(SECRET, other, "the other App's procedure does not rotate the sync App's key")
+        tasks = section(self.document, "### Recurring tasks")
+        self.assertIn("- The sync App: [Set up the sync environment](#set-up-the-sync-environment) and "
+                      "[Rotate the sync App's private key](#rotate-the-sync-apps-private-key).", tasks)
+
+    def test_the_promotion_procedure_states_the_scope_and_which_credential_gh_takes(self) -> None:
+        promotion = section(self.document, "#### Promote v1 by hand")
+        for text in ("needs a token with the `workflow` scope beside `repo`", "`gh` prefers a token in the environment, `GH_TOKEN` and then `GITHUB_TOKEN`, over its stored login",
+                     "unset both, or make sure the token is the owner's and holds both scopes"):
+            with self.subTest(text=text):
+                self.assertIn(text, promotion)
+
+    def test_the_procedures_state_what_a_delivery_reports_and_that_the_sync_has_no_consumer_kit(self) -> None:
+        compares = section(self.document, "### Change what the sync compares")
+        program = (REPOSITORY_ROOT / PART / "sync.py").read_text(encoding="utf-8")
+        self.assertIn("the delivery report names each changed title, finding and name", compares)
+        self.assertIn("instructions outside this repository", compares)
+        for name in ("`sync`", "`SYNC_APP_CLIENT_ID`", f"`{SECRET}`"):
+            self.assertIn(name, compares)
+        self.assertNotIn("by hand after the promotion", compares)
+        self.assertIn("no file is copied there by hand", compares)
+        self.assertIn("The sync has no consumer kit", section(self.document, "### Add a part"))
+        issues = section(self.document, "#### Issues in the management repository")
+        self.assertEqual(["| Finding | Issue title | One issue |"], [line for line in issues.splitlines() if line.startswith("| Finding")])
+        self.assertNotIn("What it asks for", self.document)
+        for title in ("Sync pull request not merged after six hours", "Request for shared CI", "Settings differ", "The sync failed"):
+            with self.subTest(title=title):
+                self.assertIn(f"`{title}", issues)
+                self.assertIn(f'"{title}', program)
+
+    def test_the_documents_link_to_what_is_kept_and_to_no_file_of_the_removed_kit(self) -> None:
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("- [Sync](docs/maintaining.md#sync):", readme)
+        self.assertIn("[caller.yml](../actions/sync/caller.yml)", section(self.document, "#### The sync caller"))
+        for name, text in (("README.md", readme), ("docs/maintaining.md", self.document), ("tests/README.md", (REPOSITORY_ROOT / "tests" / "README.md").read_text(encoding="utf-8"))):
+            with self.subTest(document=name):
+                self.assertNotIn("sync/consumer-kit", text)
+                self.assertNotIn("AGENTS.template.md", text)
+                self.assertNotIn("management repository kit", text)
+
+    def test_the_pipeline_kit_states_the_consumer_s_side_of_the_sync_app(self) -> None:
+        app = section((PIPELINE_KIT / "README.md").read_text(encoding="utf-8"), "## The sync App")
+        self.assertIn("Only the owner adds a repository to the sync App.", app)
+        self.assertIn("A repository outside the installation receives no sync updates", app)
+        self.assertEqual(set(), named_repositories(app))
+        self.assertNotIn("maintaining.md", app, "a consumer reads the kit at v1, where it has all it needs")
 
 
 def as_text(value: object) -> str:
