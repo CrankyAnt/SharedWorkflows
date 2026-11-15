@@ -15,16 +15,33 @@ file that does not match its schema; the summary says why.
 The output ``plan`` is one JSON document with the part under ``parts``: ``run`` and ``reason``, and for a run that
 publishes ``tag``, ``commit`` (the commit that the verified tag names, which the later jobs check out), ``title``,
 ``config``, ``script`` (the hook, empty without one), ``notes`` (the file of the release notes, empty without one), ``runner``, ``setups`` (the tool and the version of each named
-setup, in the listed order) and ``files`` (the files to publish, one per line).
+setup, in the listed order), ``files`` (the files to publish, one per line) and ``earlier-tags`` (the tags that match a
+pattern of ``tags`` and name a commit that the released commit reaches, other than that commit itself, nearest first).
 
 ``notes`` of the part names a tracked file whose content becomes the release notes, the body of the release. ``plan``
 fails when the commit that the verified tag names holds no such file, or one that is not UTF-8 text of at most
 125000 characters, and ``publish`` reads the file from GitHub at that commit, so a script of the repository cannot
-change it. Without ``notes`` the body is one fixed sentence that names the tag and its commit.
+change it.
+
+Without ``notes`` the body is the list of merged pull requests that GitHub generates for the tag
+(``releases/generate-notes`` with ``target_commitish`` the verified commit), filtered. The list starts at the previous
+release: the first tag of ``earlier-tags`` that has a published release, which the request names as
+``previous_tag_name``; without one the request names none. The filter reads each change line from its end. A line goes
+when its title has the type ``docs``, ``style``, ``refactor``, ``test``, ``build``, ``ci`` or ``chore`` without ``!``,
+in any case and with or without a scope, or when every author is a bot, a login that ends in ``[bot]``; every other
+line stays. A line keeps "by" only for its external contributors, the authors that are not the repository owner as
+GitHub reports it, not a bot and not ``Copilot``. "New Contributors" keeps the lines of external contributors, and a
+heading without lines goes, a category heading of the repository's ``.github/release.yml`` included. A line that does
+not have the shape of a change line stays as it is. Without a change line the body is the sentence "No user-facing
+changes are listed for this release." and the line "Full Changelog", which is always the last line. A body of more than
+125000 characters loses change lines from the end of the list until it fits, and says so in one sentence above "Full
+Changelog".
 
 ``publish`` reads that document from a file and publishes the release through the GitHub API with ``GITHUB_TOKEN``: it
 creates a draft for the tag, uploads each file of ``files`` from the folder under its file name, and then publishes the
-draft. It fails, and publishes nothing, when a file is missing or a release of the tag exists. It reads the tag from
+draft. It fails, and publishes nothing, when a file is missing or a release of the tag exists, and before it creates
+anything when a request for the release notes, the previous release or the owner fails or GitHub answers without a
+body. It reads the tag from
 GitHub again twice: right before it creates the draft, and right before the request that publishes the draft, after
 the uploads. A tag that no longer names ``commit``, the commit whose signature ``plan`` verified, or that no longer
 exists, fails the command and publishes nothing; at the second reading the command also deletes the draft.
@@ -39,6 +56,7 @@ import base64
 import binascii
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -57,6 +75,17 @@ DEFAULT_RUNNER = "ubuntu-26.04"
 API_TIMEOUT = 60
 NOTES_LIMIT = 125000  # the characters that GitHub accepts as the body of a release
 TAG_DEPTH = 8  # how many tag objects a tag may chain before it names its commit
+RELEASES_PAGE = 100  # the releases that one request lists, the most that GitHub gives
+HIDDEN_TYPES = frozenset({"docs", "style", "refactor", "test", "build", "ci", "chore"})
+NO_CHANGES = "No user-facing changes are listed for this release."
+FULL_CHANGELOG = "**Full Changelog**"
+CONTRIBUTORS_HEADING = "## New Contributors"
+LOGIN = r"@[^\s,]+"
+# A change line as GitHub generates it, read from its end: the greedy title leaves the authors and the address of the last
+# " by ... in <address>", so a title that holds such words itself stays whole.
+CHANGE_LINE = re.compile(rf"\* (?P<title>.+) by (?P<authors>{LOGIN}(?:(?:, and |, | and | with ){LOGIN})*) in (?P<address>\S+)")
+CONTRIBUTOR_LINE = re.compile(rf"\* (?P<login>{LOGIN}) made their first contribution in (?P<address>\S+)")
+COMMIT_TYPE = re.compile(r"(?P<type>[A-Za-z]+)(?:\([^()]*\))?(?P<breaking>!)?:\s")
 
 
 class ReleaseError(Exception):
@@ -103,6 +132,7 @@ def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
     commit = verified_commit(root, tag, values["allowed-signers"], default_branch)
     if "notes" in values:
         tracked_notes(root, commit, values["notes"])
+    patterns = [plan.pattern_expression(pattern) for pattern in values["tags"]]
     return {
         "run": True,
         "reason": f"the tag `{tag}` matches {quoted([pattern for pattern in values['tags'] if plan.pattern_expression(pattern).fullmatch(tag)][:1])} "
@@ -116,7 +146,28 @@ def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
         "runner": values.get("runner-label", DEFAULT_RUNNER),
         "setups": [version.setups[setup] for setup in values.get("setups", [])],
         "files": "\n".join(values["files"]),
+        "earlier-tags": earlier_tags(root, commit, patterns),
     }
+
+
+def earlier_tags(root: Path, commit: str, patterns: list[re.Pattern]) -> list[str]:
+    """The tags that match a pattern and name a commit that the released commit reaches, other than the released commit
+    itself, nearest first: in the topological order of their commits, so no tag comes before a tag on a later commit
+    of its own history, and on one commit the newest tag first. ``publish`` takes the first that has a published release
+    as the previous release."""
+    logged = plan.git(root, "log", "--topo-order", "--decorate=full", "--decorate-refs=refs/tags/", "--format=%H%x00%D", commit)
+    created = plan.git(root, "for-each-ref", "--sort=-creatordate", "--format=%(refname:strip=2)", "refs/tags/")
+    if logged.returncode != 0 or created.returncode != 0:
+        raise ReleaseError(f"the tags that the commit `{commit}` reaches cannot be read: {(logged.stderr or created.stderr).strip()}")
+    newest = {tag: index for index, tag in enumerate(created.stdout.splitlines())}
+    found: list[str] = []
+    for line in logged.stdout.splitlines():
+        held, _, decorations = line.partition("\0")
+        if held == commit or not decorations:
+            continue
+        tags = [name.removeprefix("tag: refs/tags/") for name in decorations.split(", ") if name.startswith("tag: refs/tags/")]
+        found += sorted((tag for tag in tags if any(pattern.fullmatch(tag) for pattern in patterns)), key=lambda tag: newest.get(tag, len(newest)))
+    return found
 
 
 def value_problems(values: dict) -> list[str]:
@@ -295,6 +346,145 @@ def published_notes(repository_url: str, commit: str, path: str, token: str | No
     return notes_text(data, path, commit)
 
 
+def previous_release(repository_url: str, earlier: list[str], token: str | None) -> str | None:
+    """The previous release: the first of the earlier tags, nearest first, that has a published release; None without one."""
+    if not earlier:
+        return None
+    what = "reading the releases of the repository"
+    published: set[str] = set()
+    page = 1
+    while True:
+        listed = step(what, "GET", f"{repository_url}/releases?{urllib.parse.urlencode({'per_page': RELEASES_PAGE, 'page': page})}", token)
+        if not isinstance(listed, list):
+            raise ReleaseError(f"{what} failed: GitHub's answer holds no list of releases.")
+        published.update(item["tag_name"] for item in listed if isinstance(item, dict) and item.get("draft") is False and isinstance(item.get("tag_name"), str))
+        if len(listed) < RELEASES_PAGE or earlier[0] in published:
+            break
+        page += 1
+    return next((tag for tag in earlier if tag in published), None)
+
+
+def repository_owner(repository_url: str, token: str | None) -> str:
+    """The login of the owner of the repository, as GitHub reports it."""
+    what = "reading the owner of the repository"
+    document = step(what, "GET", repository_url, token)
+    owner = document.get("owner") if isinstance(document, dict) else None
+    if not isinstance(owner, dict) or not isinstance(owner.get("login"), str) or not owner["login"]:
+        raise ReleaseError(f"{what} failed: GitHub's answer names no owner.")
+    return owner["login"]
+
+
+def generated_notes(repository_url: str, tag: str, commit: str, previous: str | None, token: str | None) -> str:
+    """The list of the merged pull requests that GitHub generates for the tag, from the previous release when there is one."""
+    what = f"generating the release notes of the tag `{tag}`"
+    request_body = {"tag_name": tag, "target_commitish": commit, **({"previous_tag_name": previous} if previous else {})}
+    document = step(what, "POST", f"{repository_url}/releases/generate-notes", token, json.dumps(request_body).encode("utf-8"))
+    if not isinstance(document, dict) or not isinstance(document.get("body"), str) or not document["body"].strip():
+        raise ReleaseError(f"{what} failed: GitHub's answer holds no body.")
+    return document["body"]
+
+
+def shown_title(title: str) -> bool:
+    """Whether a change line with this title stays: a hidden type without a breaking mark goes, any other title stays."""
+    typed = COMMIT_TYPE.match(title)
+    return not typed or typed["type"].lower() not in HIDDEN_TYPES or bool(typed["breaking"])
+
+
+def external(login: str, owner: str) -> bool:
+    """Whether the author is an external contributor: not the owner, not a bot and not Copilot. Logins ignore case."""
+    name = login.removeprefix("@").lower()
+    return name != owner.lower() and not name.endswith("[bot]") and name != "copilot"
+
+
+def authors_text(logins: list[str]) -> str:
+    return logins[0] if len(logins) == 1 else ", ".join(logins[:-1]) + " and " + logins[-1]
+
+
+def filtered_entries(body: str, owner: str) -> tuple[list[tuple[str, str]], str | None]:
+    """The lines of the generated body after the filter, each with its kind, and the line "Full Changelog"."""
+    entries: list[tuple[str, str]] = []
+    full = None
+    section = ""
+    for line in body.replace("\r\n", "\n").split("\n"):
+        if line.startswith(FULL_CHANGELOG):
+            full = line
+        elif line.startswith("## "):
+            section = line.strip()
+            entries.append(("section", line))
+        elif line.startswith("### "):
+            entries.append(("category", line))
+        elif not line.strip():
+            entries.append(("blank", ""))
+        elif section == CONTRIBUTORS_HEADING and (contributor := CONTRIBUTOR_LINE.fullmatch(line)):
+            if external(contributor["login"], owner):
+                entries.append(("line", line))
+        elif section != CONTRIBUTORS_HEADING and (change := CHANGE_LINE.fullmatch(line)):
+            logins = re.findall(LOGIN, change["authors"])
+            if all(login.lower().endswith("[bot]") for login in logins) or not shown_title(change["title"]):
+                continue
+            kept = [login for login in logins if external(login, owner)]
+            entries.append(("change", f"* {change['title']}" + (f" by {authors_text(kept)}" if kept else "") + f" in {change['address']}"))
+        else:
+            entries.append(("line", line))
+    return entries, full
+
+
+def rendered(entries: list[tuple[str, str]], full: str | None, shown: int, shortened: str | None) -> str:
+    """The body with the first ``shown`` change lines, without the headings that hold no line, and with the sentence
+    that the list is shortened and the line "Full Changelog" at the end."""
+    kept: list[tuple[str, str]] = []
+    changes = 0
+    for kind, text in entries:
+        if kind == "change":
+            changes += 1
+            if changes > shown:
+                continue
+        kept.append((kind, text))
+    # A heading goes when no line stands under it before the next heading of its level or a higher one.
+    lines: list[str] = []
+    for index, (kind, text) in enumerate(kept):
+        if kind in ("section", "category"):
+            ends = ("section",) if kind == "section" else ("section", "category")
+            holds_line = False
+            for next_kind, _ in kept[index + 1:]:
+                if next_kind in ends or next_kind in ("line", "change"):
+                    holds_line = next_kind in ("line", "change")
+                    break
+            if not holds_line:
+                continue
+        lines.append(text)
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip("\n")
+    tail = [part for part in (shortened, full) if part]
+    return "\n\n".join(part for part in (text, *tail) if part)
+
+
+def release_body(generated: str, owner: str) -> str:
+    """The body of the release from the list that GitHub generated: the filtered lines, or the sentence that no change is
+    listed, shortened from the end of the list to the length that GitHub accepts."""
+    entries, full = filtered_entries(generated, owner)
+    total = sum(kind == "change" for kind, _ in entries)
+    if total == 0:
+        return "\n\n".join(part for part in (NO_CHANGES, full) if part)
+    body = rendered(entries, full, total, None)
+    if len(body) <= NOTES_LIMIT:
+        return body
+
+    def shortened(shown: int) -> str:
+        sentence = f"The list is shortened to its first {shown} of {total} changes to fit the length that GitHub accepts for a release."
+        return rendered(entries, full, shown, sentence)
+
+    low, high = 0, total - 1  # the most change lines that fit lies in [low, high]
+    while low < high:
+        middle = (low + high + 1) // 2
+        if len(shortened(middle)) <= NOTES_LIMIT:
+            low = middle
+        else:
+            high = middle - 1
+    if low == 0:
+        raise ReleaseError(f"the release notes that GitHub generated do not fit the {NOTES_LIMIT} characters of a release, not even with one change line.")
+    return shortened(low)
+
+
 def delete_draft(draft_url: str, token: str | None) -> str:
     """Delete the draft of a release that must not be published, with its uploaded files; the sentence that says what became of it."""
     try:
@@ -306,8 +496,9 @@ def delete_draft(draft_url: str, token: str | None) -> str:
     return "The draft of the release was deleted."
 
 
-def publish(part: dict, files: Path, repository: str, api_url: str, token: str | None) -> tuple[str, list[str]]:
-    """Publish the release of the plan's tag with its files; the address of the release and the names of its files."""
+def publish(part: dict, files: Path, repository: str, api_url: str, token: str | None) -> tuple[str, list[str], str]:
+    """Publish the release of the plan's tag with its files; the address of the release, the names of its files and the
+    sentence that says where the body comes from."""
     tag = part["tag"]
     paths = [path for path in str(part["files"]).splitlines() if path]
     collected = {path: files / PurePosixPath(path).name for path in paths}
@@ -324,8 +515,13 @@ def publish(part: dict, files: Path, repository: str, api_url: str, token: str |
         raise ReleaseError(f"a release of the tag `{tag}` exists. A release is published once; remove it before this run publishes again.")
     if part.get("notes"):
         body = published_notes(repository_url, part["commit"], str(part["notes"]), token)
+        source = f"The release notes are the file `{part['notes']}` of the tagged commit."
     else:
-        body = f"Published by the release part of the shared workflows from the signed tag `{tag}` at commit `{part['commit']}`."
+        previous = previous_release(repository_url, part.get("earlier-tags") or [], token)
+        generated = generated_notes(repository_url, tag, part["commit"], previous, token)
+        body = release_body(generated, repository_owner(repository_url, token))
+        source = (f"The list of changes starts after the release of the tag `{previous}`." if previous
+                  else "The list of changes names no previous release.")
     check_tag(repository_url, tag, part["commit"], token)
     draft = step(f"creating the release of the tag `{tag}`", "POST", releases, token,
                  json.dumps({"tag_name": tag, "name": part.get("title") or tag, "body": body, "draft": True}).encode("utf-8"))
@@ -348,7 +544,7 @@ def publish(part: dict, files: Path, repository: str, api_url: str, token: str |
     except ReleaseError as error:
         raise ReleaseError(f"{error} {kept}") from error
     address = published.get("html_url") if isinstance(published, dict) else None
-    return str(address or draft.get("html_url") or ""), [held.name for held in collected.values()]
+    return str(address or draft.get("html_url") or ""), [held.name for held in collected.values()], source
 
 
 def run_publish(options: argparse.Namespace) -> int:
@@ -357,18 +553,21 @@ def run_publish(options: argparse.Namespace) -> int:
         part = document["parts"][PART]
         if part.get("run") is not True or not all(isinstance(part.get(key), str) and part[key] for key in ("tag", "commit", "files")):
             raise ValueError("the plan does not publish")
+        earlier = part.get("earlier-tags", [])
+        if not isinstance(earlier, list) or not all(isinstance(tag, str) and tag for tag in earlier):
+            raise ValueError("earlier-tags is not a list of tags")
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"::error::The plan {options.plan} cannot be used: {error}", file=sys.stderr)
         return 2
     title = "## Release"
     try:
-        address, names = publish(part, Path(options.files), options.repository, options.api_url, os.environ.get("GITHUB_TOKEN"))
+        address, names, source = publish(part, Path(options.files), options.repository, options.api_url, os.environ.get("GITHUB_TOKEN"))
     except ReleaseError as error:
         print(f"The release failed: {error}")
         append(options.summary, f"{title}\n\n**Failed.** Nothing is published: {error}\n")
         return 1
     print(f"Published the release of the tag {part['tag']}: {address}")
-    append(options.summary, "\n".join([title, "", f"Published the release of the tag `{part['tag']}`: {address}", "", *[f"- `{name}`" for name in names]]) + "\n")
+    append(options.summary, "\n".join([title, "", f"Published the release of the tag `{part['tag']}`: {address}", "", *[f"- `{name}`" for name in names], "", source]) + "\n")
     return 0
 
 

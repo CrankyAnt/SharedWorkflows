@@ -11,7 +11,8 @@ import unittest
 
 from tests.ci_policy_support import read_workflow
 from tests.pipeline_fixtures import REPOSITORY_ROOT, git
-from tests.release_fixtures import CONFIGURATION, CONSUMER, PART, SIGNERS, SSH_KEYGEN, TOKEN, GitHubStandIn, Outcome, ReleaseFixture, configuration, release
+from tests.release_fixtures import (CHANGES, CONFIGURATION, CONSUMER, FULL_CHANGELOG, OWNER, PART, SIGNERS, SSH_KEYGEN, TOKEN, GitHubStandIn, Outcome, ReleaseFixture,
+                                    configuration, release)
 from tests.workflow_commands import script_invocations
 
 WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "release.yml"
@@ -203,6 +204,30 @@ class BuildPlanTests(ReleaseFixture):
         self.assertEqual(1, outcome.status)
         self.assertIn("holds no file `NOTES.md`", outcome.summary)
 
+    def test_the_plan_lists_the_earlier_matching_tags_that_the_released_commit_reaches_nearest_first(self) -> None:
+        maintainer, line = self.key()
+        self.commit({CONFIGURATION: configuration(tags='["v*", "release/*"]'), SIGNERS: line})
+        self.publish_main()
+        self.tag("v0.9.0", annotated=False)
+        self.commit({"a.txt": "a\n"})
+        self.tag("release/0.9.5")
+        self.commit({"b.txt": "b\n"})
+        self.tag("v1.0.0", key=maintainer)
+        self.tag("candidate")  # matches no pattern
+        git(self.repository, "checkout", "--quiet", "-b", "side")
+        self.commit({"side.txt": "side\n"})
+        self.tag("v1.5.0")  # not reachable from the released commit
+        git(self.repository, "checkout", "--quiet", "main")
+        self.commit({"c.txt": "c\n"})
+        self.tag("nightly")
+        self.tag("v1.1.0", key=maintainer)
+        self.tag("v1.1.0-rc", annotated=False)  # on the released commit itself, so not earlier
+        part = self.plan("refs/tags/v1.1.0").part
+        self.assertEqual(["v1.0.0", "release/0.9.5", "v0.9.0"], part["earlier-tags"])
+        self.assertEqual(["release/0.9.5", "v0.9.0"], self.plan("refs/tags/v1.0.0").part["earlier-tags"])
+        git(self.repository, "tag", "-d", "v0.9.0", "release/0.9.5")
+        self.assertEqual([], self.plan("refs/tags/v1.0.0").part["earlier-tags"], "a first release has no earlier tag")
+
     def test_a_setting_of_the_script_s_job_without_a_script_and_two_files_of_one_name_fail_the_plan(self) -> None:
         for text, reason in ((configuration("    setups: [python-3.14]\n"), f"parts.{PART}.setups: names setups for `script`, which the part does not state"),
                              (configuration("    runner-label: windows-2025\n"), f"parts.{PART}.runner-label: names the runner of `script`, which the part does not state"),
@@ -249,8 +274,7 @@ class PublishTests(ReleaseFixture):
         self.assertEqual(1, len(self.github.published))
         published = self.github.published[0]
         self.assertEqual(("v1.2.0", "Tool 1.2.0", False), (published["tag_name"], published["name"], published["draft"]))
-        self.assertIn("signed tag `v1.2.0`", published["body"])
-        self.assertIn(self.COMMIT, published["body"])
+        self.assertEqual(f"## What's Changed\n* feat: add the export in {CHANGES}/pull/1\n\n{FULL_CHANGELOG}", published["body"])
         self.assertEqual({"tool.zip": b"PK\x03\x04 the archive", "manual.pdf": b"%PDF the manual"}, self.github.assets[published["id"]])
         self.assertIn(published["html_url"], outcome.summary)
         for name in ("tool.zip", "manual.pdf"):
@@ -260,8 +284,8 @@ class PublishTests(ReleaseFixture):
         self.assertEqual(0, self.publish().status)
         steps = [(request.method, request.path.rsplit("/", 2)[-1] if "assets" in request.path else "", request.document.get("draft") if request.method != "GET" and "assets" not in request.path else None)
                  for request in self.github.requests]
-        self.assertEqual([("GET", "", None), ("GET", "", None), ("GET", "", None), ("POST", "", True), ("POST", "assets", None), ("POST", "assets", None),
-                          ("GET", "", None), ("GET", "", None), ("PATCH", "", False)], steps)
+        self.assertEqual([("GET", "", None), ("POST", "", None), ("GET", "", None), ("GET", "", None), ("GET", "", None), ("POST", "", True), ("POST", "assets", None),
+                          ("POST", "assets", None), ("GET", "", None), ("GET", "", None), ("PATCH", "", False)], steps)
 
     def test_every_request_carries_the_token_of_the_run_and_each_file_goes_up_as_bytes_under_its_file_name(self) -> None:
         self.assertEqual(0, self.publish().status)
@@ -294,14 +318,197 @@ class PublishTests(ReleaseFixture):
         self.assertIn("uploading `tool.zip` failed: HTTP 422", outcome.summary)
         self.assertIn("draft", outcome.summary)
 
-    def test_without_release_notes_the_body_is_the_fixed_sentence_and_no_file_is_read(self) -> None:
+    def test_without_release_notes_the_body_is_the_filtered_list_that_github_generates_for_the_tag_at_the_verified_commit(self) -> None:
+        self.github.generated = self.changes(f"* feat: add the export by @{OWNER} in {CHANGES}/pull/1", f"* docs: describe the export by @{OWNER} in {CHANGES}/pull/2")
         for part in ({}, {"notes": ""}):
             with self.subTest(part=part):
                 self.github.releases.clear()
+                self.github.requests.clear()
                 self.assertEqual(0, self.publish(part).status)
-                self.assertEqual(f"Published by the release part of the shared workflows from the signed tag `v1.2.0` at commit `{self.COMMIT}`.",
-                                 self.github.published[0]["body"])
-        self.assertEqual([], [request.path for request in self.github.requests if "/contents/" in request.path])
+                self.assertEqual(self.changes(f"* feat: add the export in {CHANGES}/pull/1"), self.github.published[0]["body"])
+                self.assertEqual([{"tag_name": "v1.2.0", "target_commitish": self.COMMIT}], self.github.generate_requests())
+                self.assertEqual([], [request.path for request in self.github.requests if "/contents/" in request.path])
+                order = [(request.method, request.path.removeprefix(f"/repos/{CONSUMER}")) for request in self.github.requests[:6]]
+                self.assertEqual([("GET", "/releases/tags/v1.2.0"), ("POST", "/releases/generate-notes"), ("GET", ""), ("GET", "/git/ref/tags/v1.2.0")], order[:4],
+                                 "the tag is still read last before the release is created")
+                self.assertEqual(("POST", "/releases"), order[5])
+
+    # --- the previous release
+
+    def test_the_request_names_the_nearest_earlier_tag_with_a_published_release_as_the_previous_tag(self) -> None:
+        for number in range(150):  # more releases than one page holds
+            self.github.hold_release(f"tool-{number}")
+        self.github.hold_release("v1.0.0")
+        self.github.hold_release("v1.1.0")
+        for number in range(120):
+            self.github.hold_release(f"later-{number}")
+        self.github.hold_release("v1.1.1", draft=True)
+        outcome = self.publish({"earlier-tags": ["v1.1.2", "v1.1.1", "v1.1.0", "v1.0.0"]})
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual([{"tag_name": "v1.2.0", "target_commitish": self.COMMIT, "previous_tag_name": "v1.1.0"}], self.github.generate_requests())
+        self.assertIn("The list of changes starts after the release of the tag `v1.1.0`.", outcome.summary)
+        pages = [request.query for request in self.github.requests if request.method == "GET" and request.path == f"/repos/{CONSUMER}/releases"]
+        self.assertEqual([{"per_page": ["100"], "page": [str(page)]} for page in (1, 2, 3)], pages)
+
+    def test_without_an_earlier_tag_that_has_a_published_release_the_request_names_no_previous_tag_and_the_run_publishes(self) -> None:
+        self.github.hold_release("v1.1.0", draft=True)
+        self.github.hold_release("v0.1.0")  # a release of a tag that the released commit does not reach
+        for earlier in ([], ["v1.1.0", "v1.0.0"]):
+            with self.subTest(earlier=earlier):
+                self.github.requests.clear()
+                outcome = self.publish({"earlier-tags": earlier})
+                self.assertEqual(0, outcome.status, outcome.summary)
+                self.assertEqual([{"tag_name": "v1.2.0", "target_commitish": self.COMMIT}], self.github.generate_requests())
+                self.assertIn("The list of changes names no previous release.", outcome.summary)
+                looked_up = [request for request in self.github.requests if request.path == f"/repos/{CONSUMER}/releases" and request.method == "GET"]
+                self.assertEqual(1 if earlier else 0, len(looked_up), "only an earlier tag is looked up among the releases")
+                self.github.releases = {number: item for number, item in self.github.releases.items() if item["tag_name"] != "v1.2.0"}
+
+    # --- the filter
+
+    def changes(self, *lines: str, contributors: tuple[str, ...] = (), full: str = FULL_CHANGELOG) -> str:
+        """A body in the shape that GitHub generates."""
+        blocks = ["## What's Changed\n" + "\n".join(lines)] if lines else []
+        blocks += ["## New Contributors\n" + "\n".join(contributors)] if contributors else []
+        return "\n\n".join([*blocks, full])
+
+    def body(self, generated: str) -> str:
+        """The body of the release that the run publishes when GitHub generates this body."""
+        self.github.releases.clear()
+        self.github.generated = generated
+        outcome = self.publish()
+        self.assertEqual(0, outcome.status, outcome.summary)
+        return self.github.published[0]["body"]
+
+    def test_a_line_whose_title_has_a_shown_type_stays_with_or_without_a_scope(self) -> None:
+        titles = ["feat: add the export", "fix(cli): handle an empty file", "perf: start faster", "revert: undo the export", "Feat(api): add a field", "FIX: a crash"]
+        generated = self.changes(*[f"* {title} by @{OWNER} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)])
+        self.assertEqual(self.changes(*[f"* {title} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)]), self.body(generated))
+
+    def test_a_line_whose_title_has_a_hidden_type_without_a_breaking_mark_goes(self) -> None:
+        hidden = ["docs: describe it", "style: format it", "refactor: move it", "test: cover it", "build: pin it", "ci: speed it up", "chore: tidy it",
+                  "chore(deps): bump it", "DOCS(guide): fix a word", "Ci: retry"]
+        generated = self.changes(f"* feat: keep me by @{OWNER} in {CHANGES}/pull/100", *[f"* {title} by @{OWNER} in {CHANGES}/pull/{number}" for number, title in enumerate(hidden)])
+        self.assertEqual(self.changes(f"* feat: keep me in {CHANGES}/pull/100"), self.body(generated))
+
+    def test_a_line_whose_title_of_a_hidden_type_marks_a_breaking_change_stays(self) -> None:
+        titles = ["refactor!: drop the old flag", "chore(api)!: remove the endpoint", "ci!: require a newer runner"]
+        generated = self.changes(*[f"* {title} by @{OWNER} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)])
+        self.assertEqual(self.changes(*[f"* {title} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)]), self.body(generated))
+
+    def test_a_line_whose_title_starts_with_no_conventional_commits_type_stays(self) -> None:
+        titles = ["Add a command", "deps: bump the parser", 'Revert "feat: add the export"', "docs:no space after the colon", "Update README.md"]
+        generated = self.changes(*[f"* {title} by @{OWNER} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)])
+        self.assertEqual(self.changes(*[f"* {title} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)]), self.body(generated))
+
+    def test_a_line_whose_every_author_is_a_bot_goes_whatever_its_title(self) -> None:
+        generated = self.changes(f"* feat: keep me by @{OWNER} in {CHANGES}/pull/1",
+                                 f"* Bump the parser from 1 to 2 by @dependabot[bot] in {CHANGES}/pull/2",
+                                 f"* feat!: a generated feature by @github-actions[bot] and @dependabot[bot] in {CHANGES}/pull/3",
+                                 f"* fix: a bot and the owner by @renovate[bot] and @{OWNER} in {CHANGES}/pull/4")
+        self.assertEqual(self.changes(f"* feat: keep me in {CHANGES}/pull/1", f"* fix: a bot and the owner in {CHANGES}/pull/4"), self.body(generated))
+
+    def test_a_line_of_the_owner_or_copilot_alone_names_no_author(self) -> None:
+        generated = self.changes(f"* feat: by the owner by @{OWNER} in {CHANGES}/pull/1", f"* fix: by Copilot by @Copilot in {CHANGES}/pull/2",
+                                 f"* fix: together by @{OWNER} with @Copilot in {CHANGES}/pull/3", f"* fix: the owner in another case by @Example-Owner in {CHANGES}/pull/4")
+        self.assertEqual(self.changes(f"* feat: by the owner in {CHANGES}/pull/1", f"* fix: by Copilot in {CHANGES}/pull/2", f"* fix: together in {CHANGES}/pull/3",
+                                      f"* fix: the owner in another case in {CHANGES}/pull/4"), self.body(generated))
+
+    def test_a_line_with_an_external_contributor_names_that_contributor_alone(self) -> None:
+        generated = self.changes(f"* feat: alone by @outsider in {CHANGES}/pull/1", f"* fix: shared by @outsider and @{OWNER} in {CHANGES}/pull/2",
+                                 f"* fix: with help by @{OWNER} with @Copilot and @outsider in {CHANGES}/pull/3",
+                                 f"* perf: many by @outsider, @dependabot[bot], @another and @{OWNER} in {CHANGES}/pull/4")
+        self.assertEqual(self.changes(f"* feat: alone by @outsider in {CHANGES}/pull/1", f"* fix: shared by @outsider in {CHANGES}/pull/2",
+                                      f"* fix: with help by @outsider in {CHANGES}/pull/3", f"* perf: many by @outsider and @another in {CHANGES}/pull/4"), self.body(generated))
+
+    def test_in_a_repository_of_an_organisation_every_person_is_an_external_contributor(self) -> None:
+        self.github.owner = "example-organisation"
+        generated = self.changes(f"* feat: by a member by @{OWNER} in {CHANGES}/pull/1", f"* fix: by Copilot by @Copilot in {CHANGES}/pull/2",
+                                 contributors=(f"* @{OWNER} made their first contribution in {CHANGES}/pull/1",))
+        self.assertEqual(self.changes(f"* feat: by a member by @{OWNER} in {CHANGES}/pull/1", f"* fix: by Copilot in {CHANGES}/pull/2",
+                                      contributors=(f"* @{OWNER} made their first contribution in {CHANGES}/pull/1",)), self.body(generated))
+
+    def test_a_title_that_holds_an_author_and_an_address_itself_stays_whole(self) -> None:
+        generated = self.changes(f"* feat: credit by @someone in {CHANGES}/pull/9 by @outsider in {CHANGES}/pull/1",
+                                 f"* feat: credit by @{OWNER} in {CHANGES}/pull/9 by @dependabot[bot] in {CHANGES}/pull/2",
+                                 f"* docs: x by @outsider in {CHANGES}/pull/9 and feat: y by @{OWNER} in {CHANGES}/pull/3")
+        self.assertEqual(self.changes(f"* feat: credit by @someone in {CHANGES}/pull/9 by @outsider in {CHANGES}/pull/1"), self.body(generated))
+
+    def test_new_contributors_keep_only_external_contributors_and_the_heading_goes_without_one(self) -> None:
+        lines = (f"* feat: one by @outsider in {CHANGES}/pull/1", f"* feat: two by @{OWNER} in {CHANGES}/pull/2")
+        newcomers = (f"* @{OWNER} made their first contribution in {CHANGES}/pull/2", f"* @dependabot[bot] made their first contribution in {CHANGES}/pull/3",
+                     f"* @Copilot made their first contribution in {CHANGES}/pull/4")
+        kept = (f"* feat: one by @outsider in {CHANGES}/pull/1", f"* feat: two in {CHANGES}/pull/2")
+        self.assertEqual(self.changes(*kept), self.body(self.changes(*lines, contributors=newcomers)))
+        external = f"* @outsider made their first contribution in {CHANGES}/pull/1"
+        self.assertEqual(self.changes(*kept, contributors=(external,)), self.body(self.changes(*lines, contributors=(newcomers[0], external, *newcomers[1:]))))
+
+    def test_under_category_headings_each_line_is_filtered_and_an_empty_category_goes(self) -> None:
+        generated = "\n".join(["## What's Changed", "### Features", f"* feat: add the export by @{OWNER} in {CHANGES}/pull/1",
+                               f"* docs: describe the export by @{OWNER} in {CHANGES}/pull/2", "### Maintenance", f"* chore: tidy by @{OWNER} in {CHANGES}/pull/3",
+                               f"* Bump the parser by @dependabot[bot] in {CHANGES}/pull/4", "### Other Changes", f"* Add a command by @outsider in {CHANGES}/pull/5",
+                               "", "", FULL_CHANGELOG])
+        self.assertEqual("\n".join(["## What's Changed", "### Features", f"* feat: add the export in {CHANGES}/pull/1", "### Other Changes",
+                                    f"* Add a command by @outsider in {CHANGES}/pull/5", "", FULL_CHANGELOG]), self.body(generated))
+
+    def test_a_line_without_the_shape_of_a_change_line_stays_as_it_is(self) -> None:
+        generated = self.changes(f"* feat: add the export by @{OWNER} in {CHANGES}/pull/1", "* A line that names no author", "Some text of a category.")
+        self.assertEqual(self.changes(f"* feat: add the export in {CHANGES}/pull/1", "* A line that names no author", "Some text of a category."), self.body(generated))
+
+    def test_without_a_change_line_that_stays_the_body_says_that_no_user_facing_change_is_listed(self) -> None:
+        empty = f"No user-facing changes are listed for this release.\n\n{FULL_CHANGELOG}"
+        hidden = self.changes(f"* docs: describe it by @{OWNER} in {CHANGES}/pull/1", f"* Bump the parser by @dependabot[bot] in {CHANGES}/pull/2",
+                              contributors=(f"* @dependabot[bot] made their first contribution in {CHANGES}/pull/2",))
+        first = f"**Full Changelog**: {CHANGES}/commits/v1.2.0"
+        for name, generated, expected in (("every line hidden", hidden, empty), ("no change line", FULL_CHANGELOG, empty),
+                                          ("no change line and no previous tag", first, f"No user-facing changes are listed for this release.\n\n{first}")):
+            with self.subTest(answer=name):
+                self.assertEqual(expected, self.body(generated))
+
+    def test_the_line_full_changelog_is_the_last_line_in_both_of_its_forms(self) -> None:
+        for full in (FULL_CHANGELOG, f"**Full Changelog**: {CHANGES}/commits/v1.2.0"):
+            with self.subTest(full=full):
+                body = self.body(self.changes(f"* feat: add the export by @outsider in {CHANGES}/pull/1",
+                                              contributors=(f"* @outsider made their first contribution in {CHANGES}/pull/1",), full=full))
+                self.assertEqual(full, body.splitlines()[-1])
+                self.assertEqual(1, body.count("**Full Changelog**"))
+
+    def test_a_body_beyond_the_limit_loses_change_lines_from_the_end_and_says_that_the_list_is_shortened(self) -> None:
+        lines = [f"* feat: change {number:04} with a long description of what it does for the people who use the tool by @outsider in {CHANGES}/pull/{number}"
+                 for number in range(1, 1501)]
+        body = self.body(self.changes(*lines))
+        self.assertLessEqual(len(body), 125000)
+        self.assertGreater(len(body), 124000, "only as many lines go as the limit needs")
+        listed = [line for line in body.splitlines() if line.startswith("* ")]
+        self.assertEqual(lines[:len(listed)], listed, "the first change lines stay, in their order")
+        self.assertLess(len(listed), len(lines))
+        self.assertTrue(body.startswith(f"## What's Changed\n{lines[0]}\n"))
+        self.assertTrue(body.endswith(f"{listed[-1]}\n\nThe list is shortened to its first {len(listed)} of 1500 changes to fit the length that GitHub accepts for a release."
+                                      f"\n\n{FULL_CHANGELOG}"))
+        self.assertEqual(self.changes(*lines[:3]), self.body(self.changes(*lines[:3])), "a body within the limit is not shortened")
+
+    def test_a_request_for_the_list_or_the_previous_release_that_fails_fails_the_run_before_the_release_is_created(self) -> None:
+        cases = {"the notes refused": ({("POST", f"/repos/{CONSUMER}/releases/generate-notes"): 403}, None, "generating the release notes of the tag `v1.2.0` failed: HTTP 403."),
+                 "the notes absent": ({("POST", f"/repos/{CONSUMER}/releases/generate-notes"): 404}, None, "generating the release notes of the tag `v1.2.0` failed: HTTP 404."),
+                 "an answer without a body": ({}, "", "generating the release notes of the tag `v1.2.0` failed: GitHub's answer holds no body."),
+                 "the releases refused": ({("GET", f"/repos/{CONSUMER}/releases$"): 500}, None, "reading the releases of the repository failed: HTTP 500."),
+                 "the repository refused": ({("GET", f"/repos/{CONSUMER}$"): 500}, None, "reading the owner of the repository failed: HTTP 500.")}
+        for name, (refuse, generated, reason) in cases.items():
+            with self.subTest(case=name):
+                self.github.refuse = refuse
+                self.github.generated = None if generated == "" else self.changes(f"* feat: add the export by @{OWNER} in {CHANGES}/pull/1")
+                self.github.requests.clear()
+                outcome = self.publish({"earlier-tags": ["v1.1.0"]})
+                self.assertEqual(1, outcome.status, outcome.summary)
+                self.assertEqual({}, self.github.releases, "no release is created, not even a draft")
+                self.assertEqual([], [request for request in self.github.requests if request.path.startswith(f"/repos/{CONSUMER}/git/")], "the tag is not read")
+                self.assertIn(f"**Failed.** Nothing is published: {reason}", outcome.summary)
+
+    def test_a_plan_whose_earlier_tags_are_not_a_list_of_tags_is_refused(self) -> None:
+        for earlier in ("v1.1.0", [1], [""]):
+            with self.subTest(earlier=earlier):
+                self.assertEqual(2, self.publish({"earlier-tags": earlier}).status)
+        self.assertEqual([], self.github.requests)
 
     def test_the_named_file_at_the_verified_commit_becomes_the_release_notes(self) -> None:
         notes = "## Changes\n\n- A fix, with an é.\n" + "A long line of the notes. " * 40 + "\n"
@@ -310,6 +517,7 @@ class PublishTests(ReleaseFixture):
         outcome = self.publish({"notes": "docs/release notes.md"})
         self.assertEqual(0, outcome.status, outcome.summary)
         self.assertEqual(notes, self.github.published[0]["body"], "the body is the file's content and nothing else")
+        self.assertEqual([], self.github.generate_requests(), "no list is generated")
         read = [request for request in self.github.requests if "/contents/" in request.path]
         self.assertEqual([(f"/repos/{CONSUMER}/contents/docs/release%20notes.md", {"ref": [self.COMMIT]})], [(request.path, request.query) for request in read])
         order = [request.path.removeprefix(f"/repos/{CONSUMER}/").split("/")[0] for request in self.github.requests[:5]]
@@ -339,7 +547,9 @@ class PublishTests(ReleaseFixture):
         self.assertEqual(0, self.publish().status)
         requests = [(request.method, request.path.removeprefix(f"/repos/{CONSUMER}/")) for request in self.github.requests]
         tag_object = self.github.tags["v1.2.0"]["sha"]
-        self.assertEqual([("GET", "releases/tags/v1.2.0"), ("GET", "git/ref/tags/v1.2.0"), ("GET", f"git/tags/{tag_object}"), ("POST", "releases")], requests[:4])
+        created = requests.index(("POST", "releases"))
+        self.assertEqual([("GET", "git/ref/tags/v1.2.0"), ("GET", f"git/tags/{tag_object}"), ("POST", "releases")], requests[created - 2:created + 1])
+        self.assertEqual(("GET", "releases/tags/v1.2.0"), requests[0])
 
     def test_a_tag_that_moved_after_its_signature_was_verified_publishes_nothing_and_fails(self) -> None:
         moved = "2" * 40
@@ -349,7 +559,7 @@ class PublishTests(ReleaseFixture):
                 outcome = self.publish()
                 self.assertEqual(1, outcome.status)
                 self.assertEqual({}, self.github.releases, "no release is created, not even a draft")
-                self.assertEqual([], [request for request in self.github.requests if request.method != "GET"])
+                self.assertEqual([], [request for request in self.github.requests if request.method != "GET" and not request.path.endswith("/generate-notes")])
                 self.assertIn(f"**Failed.** Nothing is published: the tag `v1.2.0` moved after its signature was verified: it names the commit `{moved}`, "
                               f"not the commit `{self.COMMIT}` whose signature was verified.", outcome.summary)
 
@@ -371,7 +581,8 @@ class PublishTests(ReleaseFixture):
                 outcome = self.publish()
                 self.assertEqual(1, outcome.status)
                 self.assertEqual(({}, {}), (self.github.releases, self.github.assets), "the draft is gone, with the files it held")
-                writes = [(request.method, "assets" if "assets" in request.path else "release") for request in self.github.requests if request.method != "GET"]
+                writes = [(request.method, "assets" if "assets" in request.path else "release") for request in self.github.requests
+                          if request.method != "GET" and not request.path.endswith("/generate-notes")]
                 self.assertEqual([("POST", "release"), ("POST", "assets"), ("POST", "assets"), ("DELETE", "release")], writes, "no request publishes the draft")
                 self.assertIn(f"**Failed.** Nothing is published: {reason}", outcome.summary)
                 self.assertIn("The draft of the release was deleted.", outcome.summary)
@@ -527,6 +738,28 @@ class FixtureReleaseTests(ReleaseFixture):
         planned, published = self.release_run("v1.4.0")
         self.assertEqual((0, 0), (planned.status, published.status), published.stdout + published.stderr)
         self.assertEqual("## 1.4.0\n\nThe tracked notes.\n", self.github.published[0]["body"])
+
+    def test_the_list_of_changes_starts_after_the_nearest_earlier_tag_with_a_published_release(self) -> None:
+        self.tag("v1.2.0", key=self.maintainer)
+        self.commit({"VERSION": "1.3.0\n"})
+        self.tag("v1.3.0", key=self.maintainer)
+        self.commit({"VERSION": "1.3.5\n"})
+        self.tag("candidate", key=self.maintainer)  # matches no pattern of tags
+        self.github.hold_release("candidate")
+        self.commit({"VERSION": "1.4.0\n"})
+        self.tag("v1.4.0", key=self.maintainer)
+        self.github.hold_release("v1.2.0")
+        self.github.hold_release("v1.3.0", draft=True)
+        planned, published = self.release_run("v1.4.0")
+        self.assertEqual((0, 0), (planned.status, published.status), published.stdout + published.stderr)
+        self.assertEqual([{"tag_name": "v1.4.0", "target_commitish": planned.part["commit"], "previous_tag_name": "v1.2.0"}], self.github.generate_requests())
+        self.github.releases.clear()
+        self.github.hold_release("v1.2.0")
+        self.github.hold_release("v1.3.0")
+        self.github.requests.clear()
+        planned, published = self.release_run("v1.4.0")
+        self.assertEqual(0, published.status, published.stdout + published.stderr)
+        self.assertEqual("v1.3.0", self.github.generate_requests()[0]["previous_tag_name"])
 
     def test_a_tag_that_is_moved_to_a_later_commit_while_the_run_collects_its_files_is_not_released(self) -> None:
         self.tag("v1.4.0", key=self.maintainer)

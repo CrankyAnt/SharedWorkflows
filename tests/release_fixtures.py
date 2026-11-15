@@ -25,7 +25,10 @@ SCRIPT = PART_FOLDER / "release.py"
 import release  # noqa: E402  (tests.pipeline_fixtures puts the part folder on the module path)
 
 PART = "github-release"
-CONSUMER = "example-owner/consumer"
+OWNER = "example-owner"
+CONSUMER = f"{OWNER}/consumer"
+CHANGES = f"https://github.com/{CONSUMER}"
+FULL_CHANGELOG = f"**Full Changelog**: {CHANGES}/compare/v1.1.0...v1.2.0"
 SIGNERS = ".github/allowed_signers"
 TOKEN = "fixture-token"
 # What a test needs to make a signed tag: the tests that sign skip without it.
@@ -74,8 +77,11 @@ class GitHubStandIn:
         self.contents: dict[tuple[str, str], object] = {}  # (commit, path) -> the bytes of the file there, or the document that answers
         self.assets: dict[int, dict[str, bytes]] = {}
         self.requests: list[Request] = []
-        self.refuse: dict[tuple[str, str], int] = {}  # (method, start of the path) -> status
+        self.refuse: dict[tuple[str, str], int] = {}  # (method, start of the path, or the whole path followed by $) -> status
         self.after_upload: Callable[[], None] | None = None  # what happens in the repository once a file of a draft is uploaded
+        self.owner = OWNER  # the owner of the repository as GitHub reports it
+        # The body that releases/generate-notes answers with; None answers without a body.
+        self.generated: str | None = f"## What's Changed\n* feat: add the export by @{OWNER} in {CHANGES}/pull/1\n\n{FULL_CHANGELOG}"
         stand_in = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -93,7 +99,7 @@ class GitHubStandIn:
                 request = Request(self.command, address.path, {name.lower(): value for name, value in self.headers.items()}, body, parse_qs(address.query))
                 stand_in.requests.append(request)
                 for (method, start), status in stand_in.refuse.items():
-                    if method == self.command and address.path.startswith(start):
+                    if method == self.command and (address.path == start.removesuffix("$") if start.endswith("$") else address.path.startswith(start)):
                         return self.answer(status, {"message": "refused"})
                 prefix = f"/repos/{CONSUMER}/releases"
                 upload = f"/upload/repos/{CONSUMER}/releases/"
@@ -112,12 +118,20 @@ class GitHubStandIn:
                 if self.command == "GET" and address.path.startswith(objects):
                     named = stand_in.tag_objects.get(address.path.removeprefix(objects))
                     return self.answer(200, {"object": named}) if named else self.answer(404, {"message": "Not Found"})
+                if self.command == "GET" and address.path == f"/repos/{CONSUMER}":
+                    return self.answer(200, {"full_name": CONSUMER, "owner": {"login": stand_in.owner}})
+                if self.command == "GET" and address.path == prefix:  # newest first, in pages, drafts included as for a token that may push
+                    size, page = int(request.query.get("per_page", ["30"])[0]), int(request.query.get("page", ["1"])[0])
+                    listed = sorted(stand_in.releases.values(), key=lambda item: item["id"], reverse=True)
+                    return self.answer(200, listed[(page - 1) * size:page * size])
+                if self.command == "POST" and address.path == prefix + "/generate-notes":
+                    return self.answer(200, {"name": request.document["tag_name"], **({"body": stand_in.generated} if stand_in.generated is not None else {})})
                 if self.command == "GET" and address.path.startswith(prefix + "/tags/"):
                     tag = address.path.removeprefix(prefix + "/tags/")
                     found = [item for item in stand_in.releases.values() if item["tag_name"] == tag and not item["draft"]]
                     return self.answer(200, found[0]) if found else self.answer(404, {"message": "Not Found"})
                 if self.command == "POST" and address.path == prefix:
-                    number = len(stand_in.releases) + 1
+                    number = max(stand_in.releases, default=0) + 1
                     stand_in.releases[number] = {"id": number, **request.document, "html_url": f"https://github.invalid/{CONSUMER}/releases/{number}",
                                                  "upload_url": f"{stand_in.url}{upload}{number}/assets{{?name,label}}"}
                     stand_in.assets[number] = {}
@@ -156,6 +170,16 @@ class GitHubStandIn:
     def close(self) -> None:
         self.server.shutdown()
         self.server.server_close()
+
+    def hold_release(self, tag: str, draft: bool = False) -> None:
+        """Let the repository hold a release of the tag: published, or a draft."""
+        number = max(self.releases, default=0) + 1
+        self.releases[number] = {"id": number, "tag_name": tag, "name": tag, "body": "", "draft": draft, "html_url": f"https://github.invalid/{CONSUMER}/releases/{number}"}
+        self.assets[number] = {}
+
+    def generate_requests(self) -> list[dict]:
+        """The documents of the requests to releases/generate-notes."""
+        return [request.document for request in self.requests if request.method == "POST" and request.path.endswith("/releases/generate-notes")]
 
     def hold_tag(self, tag: str, commit: str, annotated: bool = True) -> None:
         """Let the repository hold the tag on the commit: through a tag object of its own, or as a lightweight tag."""
@@ -229,4 +253,4 @@ class ReleaseFixture(PipelineFixture):
         return self.run_program("plan", "--ref", ref, *arguments)
 
 
-__all__ = ["CONFIGURATION", "CONSUMER", "PART", "SIGNERS", "SSH_KEYGEN", "TOKEN", "GitHubStandIn", "Outcome", "ReleaseFixture", "configuration", "release"]
+__all__ = ["CHANGES", "CONFIGURATION", "CONSUMER", "FULL_CHANGELOG", "OWNER", "PART", "SIGNERS", "SSH_KEYGEN", "TOKEN", "GitHubStandIn", "Outcome", "ReleaseFixture", "configuration", "release"]
