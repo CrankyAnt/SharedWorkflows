@@ -115,7 +115,7 @@ A public repository that exists only to run a candidate: its fixed callers equal
 _Avoid_: Test repository, canary consumer, pilot consumer
 
 **Sweep**:
-The search through the owner's repositories, archived ones left out, for the consumers of the suite selection: each repository whose default-branch workflow files call the suite selection at `v1`. A manual move of `v1` sends a `v1-moved` dispatch run to each one whose calling workflow lists that event.
+The search by hand, in the maintainer's terminal, through the owner's repositories, archived ones left out, for the consumers: each repository whose default-branch workflow files call a shared workflow at `v1`. No workflow or script of Shared Workflows runs it, and a move of `v1` sends no event to any repository.
 _Avoid_: Scan, consumer search
 
 **Pins file**:
@@ -173,7 +173,7 @@ The tree that a pull-request run checked out: the head merged with the base at t
 _Avoid_: PR tree, head tree
 
 **Dispatch run**:
-A run on the default branch that a `repository_dispatch` event starts and that selects and checks as a push of one commit would: a `dependabot-merged` run on the commit of a Dependabot merge, or a `v1-moved` run on the default branch's tip after a manual move of `v1`.
+A run on the default branch that a `repository_dispatch` event starts and that selects and checks as a push of one commit would: a `dependabot-merged` run on the commit of a Dependabot merge, which Dependabot auto-merge starts in its own repository.
 _Avoid_: Repository dispatch, triggered run
 
 **Push lookup**:
