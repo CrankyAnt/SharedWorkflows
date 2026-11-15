@@ -1,0 +1,32 @@
+{
+  "description": "The install, build and tests of one or more Node projects with npm, each in a job of its own: the Node version of the project's .nvmrc, the npm version of packageManager in its package.json or else the npm of that Node, and then npm ci, npm run build when package.json defines the script build, and npm test. Invented example: {\"projects\": [{\"working-directory\": \"web\"}], \"paths\": [\"web/\"]}.",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["projects"],
+    "properties": {
+      "projects": {
+        "description": "The Node projects that are installed, built and tested, one job per project; the smallest form is one project that names its working-directory.",
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["working-directory"],
+          "properties": {
+            "working-directory": {
+              "description": "The project's directory, relative to the repository root, that holds its package.json, its package-lock.json and its .nvmrc, and from which every npm command runs.",
+              "$ref": "#/$defs/relative-path"
+            },
+            "runner-label": {
+              "description": "The label of the GitHub-hosted runner of the project's job. Without it, ubuntu-26.04.",
+              "$ref": "#/$defs/runner-label"
+            }
+          }
+        }
+      },
+      "paths": {"$ref": "#/$defs/paths"}
+    }
+  }
+}

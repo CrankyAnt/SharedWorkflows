@@ -22589,6 +22589,21 @@
       ]
     },
     {
+      "name": "node-test",
+      "entries": [
+        "tests/test_node_test.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ]
+    },
+    {
       "name": "python-floor",
       "entries": [
         "tests/test_python_floor.py"

@@ -22,6 +22,7 @@
     "actions/python-tests",
     "actions/pipeline",
     "actions/dotnet-test",
+    "actions/node-test",
     "actions/issue-title",
     "actions/sync",
     "actions/repository-ruleset"
@@ -54,6 +55,7 @@
     "actions/pipeline/consumer-kit": "template",
     "actions/pipeline/consumer_checks.py": "template",
     "actions/dotnet-test": "read",
+    "actions/node-test": "read",
     "actions/issue-title": "write",
     "actions/sync": "template",
     "actions/repository-ruleset": "template"

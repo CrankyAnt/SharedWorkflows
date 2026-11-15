@@ -1,0 +1,33 @@
+name: Shared Node test step
+description: Check a Node project before the job installs Node, or install the project's npm version and run npm ci, its build and its tests with the Node that the job installed.
+inputs:
+  command:
+    description: check, before the job installs Node, checks the project's files and settings and runs no command; test, after it, installs the npm of packageManager and runs npm ci, npm run build when the project defines it, and npm test.
+    required: true
+  working-directory:
+    description: The project's directory, as a path relative to the repository root.
+    required: true
+runs:
+  using: composite
+  steps:
+    - if: inputs.command == 'check'
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+      run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/node_test.py" check --working-directory "$WORKING_DIRECTORY"
+    - if: inputs.command == 'test'
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+      run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/node_test.py" test --working-directory "$WORKING_DIRECTORY"
+    - if: inputs.command != 'check' && inputs.command != 'test'
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.command }}
+      run: |
+        echo "::error title=node-test::the step's command $COMMAND is neither check nor test"
+        exit 2

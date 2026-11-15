@@ -1,4 +1,4 @@
-"""Text contract of the Python and .NET parts of the pipeline: each is a job with read rights only that runs once per
+"""Text contract of the Python, .NET and Node parts of the pipeline: each is a job with read rights only that runs once per
 configured project, takes its values from the plan and runs a shared step of the pipeline's own revision, and none is a
 reusable workflow of its own; the pipeline reaches one reusable workflow, the suite jobs."""
 
@@ -16,13 +16,18 @@ PIPELINE = REPOSITORY_ROOT / PIPELINE_PATH
 SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
 FRAGMENTS = REPOSITORY_ROOT / "actions" / "pipeline" / "schema" / "v1" / "parts"
-PYTHON_VERIFY, PYTHON_TEST, DOTNET_TEST = "python-verify", "python-test", "dotnet-test"
-# Each part with the shared steps its job reaches at the pipeline's own revision, in the job's order.
+PYTHON_VERIFY, PYTHON_TEST, DOTNET_TEST, NODE_TEST = "python-verify", "python-test", "dotnet-test", "node-test"
+# Each part with the shared steps its job reaches at the pipeline's own revision, in the job's order; node-test reaches
+# its step twice, to check the project before Node is installed and to run its npm commands after.
 SHARED_STEPS = {
     PYTHON_VERIFY: ["actions/python-tests", "actions/python-language-step"],
     PYTHON_TEST: ["actions/python-tests"],
     DOTNET_TEST: ["actions/dotnet-test"],
+    NODE_TEST: ["actions/node-test", "actions/node-test"],
 }
+# The one setting that names a cache and is allowed: it switches off the cache that actions/setup-node restores by itself
+# when package.json names packageManager.
+NO_PACKAGE_MANAGER_CACHE = "package-manager-cache: false"
 # The pipeline calls one reusable workflow, the suite jobs, and that one calls none: a caller, the pipeline and the suite
 # jobs keep the pipeline two levels deep, as the spec states. The suite jobs are a workflow and not jobs of the pipeline
 # because the full recording of the automation workflow runs the same jobs, so their steps stand once.
@@ -84,6 +89,10 @@ class PartJobTests(unittest.TestCase):
             with self.subTest(part=part):
                 self.assertEqual({"contents": "read"}, self.jobs[part]["permissions"])
                 section = self.section(part)
+                if part == NODE_TEST:
+                    lines = [line.strip() for line in section.splitlines() if "cache" in line.lower()]
+                    self.assertEqual([NO_PACKAGE_MANAGER_CACHE], lines, "the one cache setting of node-test switches setup-node's cache off")
+                    section = "\n".join(line for line in section.splitlines() if line.strip() != NO_PACKAGE_MANAGER_CACHE)
                 for forbidden in ("secrets.", "github.token", "GITHUB_TOKEN", "inputs.", "vars.", "actions/cache", "cache:", "cache-mode", "PIP_CACHE_DIR"):
                     self.assertNotIn(forbidden, section)
                 checkouts = [step for step in self.steps(part) if str(step.get("uses", "")).startswith("actions/checkout@")]
@@ -115,6 +124,7 @@ class PartJobTests(unittest.TestCase):
         self.assertEqual(f"{PYTHON_VERIFY} ({directory})", self.jobs[PYTHON_VERIFY]["name"])
         self.assertEqual(f"{PYTHON_TEST} ({directory}{label})", self.jobs[PYTHON_TEST]["name"])
         self.assertEqual(f"{DOTNET_TEST} (${{{{ matrix.project['project'] }}}}{label})", self.jobs[DOTNET_TEST]["name"])
+        self.assertEqual(f"{NODE_TEST} (${{{{ matrix.project['working-directory'] }}}}{label})", self.jobs[NODE_TEST]["name"])
 
     def test_the_jobs_of_two_projects_of_one_part_do_not_share_a_concurrency_group(self) -> None:
         for part in SHARED_STEPS:
@@ -161,8 +171,23 @@ class PartJobTests(unittest.TestCase):
         self.assertEqual("$/actions/dotnet-test", step["uses"])
         self.assertEqual({"project": f"${{{{ {value('project')} }}}}"}, step["with"])
 
+    def test_node_test_checks_the_project_installs_the_node_of_its_nvmrc_and_runs_the_npm_commands_on_the_configured_runner(self) -> None:
+        job = self.jobs[NODE_TEST]
+        self.assertEqual(f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}", job["runs-on"])
+        checkout, check, setup, step = self.steps(NODE_TEST)
+        directory = f"${{{{ {value('working-directory')} }}}}"
+        self.assertEqual("$/actions/node-test", check["uses"])
+        self.assertEqual({"command": "check", "working-directory": directory}, check["with"], "a missing .nvmrc fails before setup-node reads it")
+        self.assertRegex(setup["uses"], r"^actions/setup-node@[0-9a-f]{40}$")
+        self.assertEqual({"node-version-file": f"{directory}/.nvmrc", "package-manager-cache": "false"}, {key: str(item).lower() if isinstance(item, bool) else str(item) for key, item in setup["with"].items()},
+                         "the Node version of the project's .nvmrc, and no cache")
+        self.assertEqual("$/actions/node-test", step["uses"])
+        self.assertEqual({"command": "test", "working-directory": directory}, step["with"])
+        self.assertNotIn("if", step, "a failed check or setup skips the npm commands")
+
     def test_the_setup_actions_carry_the_pins_of_this_repository_s_other_workflows(self) -> None:
-        for action, source in (("actions/setup-python", "python-tests.yml"), ("actions/setup-dotnet", "suite-jobs.yml"), ("actions/checkout", "python-tests.yml")):
+        for action, source in (("actions/setup-python", "python-tests.yml"), ("actions/setup-dotnet", "suite-jobs.yml"), ("actions/setup-node", "suite-jobs.yml"),
+                               ("actions/checkout", "python-tests.yml")):
             with self.subTest(action=action):
                 pins = set(re.findall(rf"uses: ({re.escape(action)}@[0-9a-f]{{40}} # v[\d.]+)", self.text))
                 self.assertEqual(1, len(pins))
@@ -208,7 +233,7 @@ def missing_paths(part: str, settings: dict, job: dict) -> list[str]:
 
 
 class FixturePartPathsTests(unittest.TestCase):
-    """This repository's configuration file runs the three parts on its fixtures only for a change that can reach them, so
+    """This repository's configuration file runs the four parts on its fixtures only for a change that can reach them, so
     their `paths` must name every path through which a change reaches a part's job."""
 
     def setUp(self) -> None:
@@ -229,7 +254,7 @@ class FixturePartPathsTests(unittest.TestCase):
         for part, path in ((PYTHON_VERIFY, "tests/fixtures/python_tests/"), (PYTHON_VERIFY, "actions/python-language-step/"),
                            (PYTHON_VERIFY, "actions/repository-hygiene/"), (PYTHON_TEST, "actions/python-tests/"), (DOTNET_TEST, "tests/fixtures/dotnet_test/"),
                            (DOTNET_TEST, "actions/dotnet-test/"), (DOTNET_TEST, "actions/pipeline/"), (PYTHON_TEST, ".github/workflows/pipeline.yml"),
-                           (PYTHON_TEST, ".github/workflows/ci.yml")):
+                           (PYTHON_TEST, ".github/workflows/ci.yml"), (NODE_TEST, "tests/fixtures/node_test/"), (NODE_TEST, "actions/node-test/")):
             with self.subTest(part=part, path=path):
                 settings = {**self.parts[part], "paths": [item for item in self.parts[part]["paths"] if item != path]}
                 self.assertEqual([f"{part}: paths lack {path}"], missing_paths(part, settings, self.jobs[part]))
@@ -255,6 +280,32 @@ class DotnetTestStepTests(unittest.TestCase):
 
     def test_the_step_installs_no_sdk_and_checks_out_nothing(self) -> None:
         for text in ("uses:", "setup-dotnet", "dotnet-version", "checkout"):
+            self.assertNotIn(text, self.text)
+
+
+class NodeTestStepTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.text, self.action = read_workflow(REPOSITORY_ROOT / "actions" / "node-test" / "action.yml")
+
+    def test_the_step_runs_its_script_on_the_job_s_python_with_the_command_and_the_working_directory_of_its_inputs(self) -> None:
+        self.assertEqual("composite", self.action["runs"]["using"])
+        self.assertEqual(["command", "working-directory"], list(self.action["inputs"]))
+        for name in ("command", "working-directory"):
+            self.assertEqual("true", str(self.action["inputs"][name]["required"]))
+        check, test, unknown = self.action["runs"]["steps"]
+        for step, command in ((check, "check"), (test, "test")):
+            with self.subTest(command=command):
+                self.assertEqual(f"inputs.command == '{command}'", step["if"])
+                self.assertEqual("bash", step["shell"])
+                self.assertEqual({"RESOURCE_PATH": "${{ github.action_path }}", "WORKING_DIRECTORY": "${{ inputs.working-directory }}",
+                                  "PYTHON": "${{ runner.os == 'Windows' && 'python' || 'python3' }}"}, step["env"])
+                self.assertEqual(f'PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/node_test.py" {command} --working-directory "$WORKING_DIRECTORY"',
+                                 step["run"])
+        self.assertEqual("inputs.command != 'check' && inputs.command != 'test'", unknown["if"], "another command fails the step")
+        self.assertIn("exit 2", unknown["run"])
+
+    def test_the_step_installs_no_node_and_checks_out_nothing(self) -> None:
+        for text in ("uses:", "setup-node", "node-version", "checkout"):
             self.assertNotIn(text, self.text)
 
 
@@ -305,7 +356,7 @@ class CataloguePageTests(unittest.TestCase):
         for part, shared in SHARED_STEPS.items():
             with self.subTest(part=part):
                 entry = self.entries[part]
-                self.assertEqual(sorted(shared), sorted(entry["steps"]))
+                self.assertEqual(sorted(set(shared)), sorted(entry["steps"]))
                 self.assertEqual([], entry["workflows"], "a part of the pipeline is no shared workflow")
                 self.assertEqual([], entry["required_checks"], "the pipeline's verdict is the one required check")
                 self.assertIsNone(entry["consumer_kit"])
@@ -322,7 +373,7 @@ class CataloguePageTests(unittest.TestCase):
     def test_a_page_names_nothing_that_exists_only_in_this_repository(self) -> None:
         for part in SHARED_STEPS:
             text = json.dumps(self.entries[part])
-            for own in ("tests/", "python_tests", "dotnet_test", "maintaining.md", "docs/agents"):
+            for own in ("tests/", "python_tests", "dotnet_test", "node_test", "maintaining.md", "docs/agents"):
                 with self.subTest(part=part, own=own):
                     self.assertNotIn(own, text)
 

@@ -22,6 +22,7 @@ class OwnDependabotConfigurationTest(unittest.TestCase):
                 ("npm", "/actions/publication-checks"),
                 ("pip", "/tests/fixtures/python_tests"),
                 ("nuget", "/tests/fixtures/dotnet_test"),
+                ("npm", "/tests/fixtures/node_test"),
             },
             set(entries),
         )

@@ -60,3 +60,13 @@ updates:
       minor-and-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /tests/fixtures/node_test
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

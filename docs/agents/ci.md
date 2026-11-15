@@ -27,7 +27,7 @@ This repository calls its own shared workflows and shared steps by local path, `
 | Suite jobs | `pipeline.yml`, job `suite-selection-jobs`, and `automation.yml`, job `full-recording-jobs` | the checks of the suite selection above; the full recording's checks `automation / full-recording-jobs / <shared job>` are checks that no ruleset requires | none; the suite list `tests/suites.json` states the runners, the fetch depth and the setups |
 | Python language step | `pipeline.yml`, job `suite-selection-jobs`, shard 1 through `suite-jobs.yml`; `python-tests.yml` in `python-tests-caller.yml` | none | none |
 | Python tests | `python-tests-caller.yml` | `tests / tests` | `python-version: "3.14"`, `working-directory: tests/fixtures/python_tests`, `install: dev` |
-| Pipeline | `ci.yml` | `ci / verdict` | none; the configuration file `.github/ci-config.yml` switches on the free job and the parts `python-verify`, `python-test`, `dotnet-test` and `suite-selection` |
+| Pipeline | `ci.yml` | `ci / verdict` | none; the configuration file `.github/ci-config.yml` switches on the free job and the parts `python-verify`, `python-test`, `dotnet-test`, `node-test` and `suite-selection` |
 | Pipeline, the automation workflow | `automation-caller.yml` | none that a ruleset requires | the secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY`; the configuration file switches on `dependabot-auto-merge`, `additions` and `full-recording` with `tests/suites.json`, and `issue-title` with a fixture category file |
 
 `docs/maintaining.md` describes what each part runs:

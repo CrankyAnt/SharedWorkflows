@@ -157,6 +157,41 @@ jobs:
         with:
           project: ${{ matrix.project['project'] }}
 
+  node-test:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['node-test'].run }}
+    name: node-test (${{ matrix.project['working-directory'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.plan).parts['node-test'].config['projects'] }}
+    runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['node-test'].group }}-${{ strategy.job-index }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['node-test']['cancel-in-progress'] == true }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          persist-credentials: false
+      - name: Check the project before Node is installed
+        uses: $/actions/node-test
+        with:
+          command: check
+          working-directory: ${{ matrix.project['working-directory'] }}
+      - name: Set up the Node version of the project's .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ matrix.project['working-directory'] }}/.nvmrc
+          package-manager-cache: false
+      - name: Install the project's npm and run its install, build and tests
+        uses: $/actions/node-test
+        with:
+          command: test
+          working-directory: ${{ matrix.project['working-directory'] }}
+
   python-test:
     needs: plan
     if: ${{ fromJSON(needs.plan.outputs.plan).parts['python-test'].run }}
@@ -611,7 +646,7 @@ jobs:
           key: suite-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}
 
   verdict:
-    needs: [plan, custom, dotnet-test, python-test, python-verify, repository-hygiene, suite-selection, suite-selection-jobs, suite-selection-results]
+    needs: [plan, custom, dotnet-test, node-test, python-test, python-verify, repository-hygiene, suite-selection, suite-selection-jobs, suite-selection-results]
     if: always()
     runs-on: ubuntu-slim
     permissions:
