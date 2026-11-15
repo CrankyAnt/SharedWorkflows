@@ -2,7 +2,7 @@ name: Automation
 
 on:
   workflow_run: # zizmor: ignore[dangerous-triggers] the shared workflow checks out and runs no code of the pull request while it holds a write token
-    workflows: [CI, Repository hygiene, Validate, Python tests]
+    workflows: [CI, Repository hygiene, Python tests]
     types: [completed]
   schedule:
     # Mondays at 03:17 UTC.

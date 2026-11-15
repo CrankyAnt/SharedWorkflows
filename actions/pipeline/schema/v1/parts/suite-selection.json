@@ -1,0 +1,17 @@
+{
+  "description": "The suite selection: runs only the entry files of the suite list that a change can affect, each under the recording step, in Linux shards and one Windows job, and reuses the passed results of a pull request. `suites` names the suite list, which states the suites, the setups with one script each and the jobs' runner labels. `language-steps` names the language steps that the first Linux shard runs after its entry files. Invented example: {\"suites\": \"ci/suites.json\", \"language-steps\": [\"python\"]}.",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["suites"],
+    "properties": {
+      "suites": {"$ref": "#/$defs/file"},
+      "language-steps": {
+        "description": "The language steps that the first Linux shard runs outside the recording when a change reaches their files.",
+        "type": "array",
+        "uniqueItems": true,
+        "items": {"type": "string", "enum": ["python"]}
+      }
+    }
+  }
+}

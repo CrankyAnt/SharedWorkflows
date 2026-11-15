@@ -1,10 +1,15 @@
-"""A caller run through the validation caller template: the selection's shards run only the selected entry files.
+"""The legacy test of a consumer that still runs the suite selection as registered local workflows: an installed caller
+and validation workflow from the earlier kit, which the kit holds no template of any more.
 
-The fixture repository holds the filled caller template, the filled validation workflow template and a suite list with
-one suite selected per entry file and one selected as a whole. The suite selection runs as the shared selection
-workflow runs it; the caller's `with` values become the validation workflow's inputs, and each shard of its `shards`
-input runs, as the shard job does, the setups whose gate holds for the shard and then each of its entry files with the
-command the shard gives for it.
+The fixture folder `tests/fixtures/registered_validation` holds that earlier caller (`validation.yml`) and validation
+workflow (`validation-workflow.yml`) with the names of the workflow and the default branch filled in. The fixture
+repository holds them as `.github/workflows/validation.yml` and `tests.yml`, and a suite list with one suite selected per entry file and
+one selected as a whole. The suite selection runs as the shared selection workflow runs it; the caller's `with` values
+become the validation workflow's inputs, and each shard of its `shards` input runs, as the shard job does, the setups
+whose gate holds for the shard and then each of its entry files with the command the shard gives for it.
+
+The registration test shows that the consumer check of the pipeline's hygiene job passes such a consumer only when its
+configuration file registers both files under `local-workflows`.
 """
 
 from __future__ import annotations
@@ -19,8 +24,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.consumer_checks_fixtures import ConsumerFixture
+from tests.pipeline_fixtures import CONFIGURATION
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
+FIXTURE = REPOSITORY_ROOT / "tests" / "fixtures" / "registered_validation"
 TOOL = REPOSITORY_ROOT / "actions" / "suite-selection"
 SELECTION_TOOL = TOOL / "suite_selection.py"
 sys.path.insert(0, str(TOOL))
@@ -46,7 +54,7 @@ def filled(template: str) -> str:
     return template
 
 
-VALIDATION_WORKFLOW = filled((SELECTION_KIT / "validation-workflow.yml").read_text(encoding="utf-8"))
+VALIDATION_WORKFLOW = filled((FIXTURE / "validation-workflow.yml").read_text(encoding="utf-8"))
 COMMAND = ["python", "-m", "unittest", "-v"]
 
 SUITE_LIST = {"always": [], "suites": [
@@ -111,7 +119,7 @@ class CallerRun(unittest.TestCase):
         self.repository = Path(temporary.name) / "caller"
         self.markers = Path(temporary.name) / "markers"
         self.repository.mkdir()
-        template = (SELECTION_KIT / "validation.yml").read_text(encoding="utf-8")
+        template = (FIXTURE / "validation.yml").read_text(encoding="utf-8")
         caller = template.replace("<default-branch>", "main").replace("<validation-workflow>", "tests")
         files = {
             ".github/workflows/validation.yml": caller,
@@ -242,6 +250,38 @@ class CallerWithoutEntrySelectionTest(CallerRun):
         outputs = self.select(self.change("src/lint.txt"))
         self.assertEqual({"unit": "skip", "lint": "run"}, json.loads(outputs["suites"]))
         self.assertEqual({"lint"}, self.run_validation(self.inputs(outputs)))
+
+
+REGISTERED_FILES = (".github/workflows/validation.yml", ".github/workflows/tests.yml")
+REGISTERED = "version: 1\nlocal-workflows:\n" + "".join(
+    f"  - workflow: {path}\n    request: 12\n    waits-for: suite-selection\n" for path in REGISTERED_FILES)
+
+
+class LegacyRegistrationTest(ConsumerFixture):
+    """The consumer check of the pipeline's hygiene job, `callers`, on a consumer that holds the installed earlier caller and
+    validation workflow of the fixture folder: it passes when the configuration file registers both files, and fails
+    naming both when it does not."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        installed = {".github/workflows/validation.yml": "validation.yml", ".github/workflows/tests.yml": "validation-workflow.yml"}
+        for path, name in installed.items():
+            text = (FIXTURE / name).read_text(encoding="utf-8").replace("<default-branch>", "main").replace("<validation-workflow>", "tests")
+            self.consumer({path: text})
+
+    def test_registered_under_local_workflows_the_callers_check_passes(self) -> None:
+        self.consumer({CONFIGURATION: REGISTERED})
+        checked = self.check("callers")
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        for path in REGISTERED_FILES:
+            self.assertIn(f"`{path}` is registered", checked.summary)
+
+    def test_unregistered_the_callers_check_fails_and_names_both_files(self) -> None:
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status, checked.stdout + checked.stderr)
+        for path in REGISTERED_FILES:
+            self.assertIn(f"::error file={path}::", checked.stdout)
+            self.assertIn(f"`{path}` is neither a fixed caller nor registered under `local-workflows`", checked.summary)
 
 
 if __name__ == "__main__":

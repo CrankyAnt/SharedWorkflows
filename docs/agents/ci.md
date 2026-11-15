@@ -17,16 +17,17 @@ Every agent that adds or changes a check, a suite or a workflow holds to these p
 
 ## Shared Workflows
 
-This repository calls its own shared workflows and shared steps by local path, `uses: $/.github/workflows/<file>` and `uses: $/actions/<part>`, from its callers and its validation caller, as [Calling the workflows](../maintaining.md#calling-the-workflows) says. It uses these shared parts:
+This repository calls its own shared workflows and shared steps by local path, `uses: $/.github/workflows/<file>` and `uses: $/actions/<part>`, from its callers, its pipeline and its automation workflow, as [Calling the workflows](../maintaining.md#calling-the-workflows) says. It uses these shared parts:
 
 | Shared part | Caller | Check | Inputs |
 | --- | --- | --- | --- |
 | Repository hygiene | `repository-hygiene-caller.yml` | `hygiene / hygiene` | `gitleaks-config: .gitleaks.toml`, `gitleaks-baseline: .gitleaks-baseline.json` |
 | Dependabot auto-merge | `dependabot-auto-merge-caller.yml` | `auto-merge / auto-merge`, `auto-merge / merge` | none |
-| Suite selection | `validate.yml` | `validation / validation` | on `select`: `suites: tests/suites.json`, `language-steps: python`, `runner-labels: linux=ubuntu-26.04 windows=windows-2025`, `setup-versions: python=3.13` |
-| Python language step | `validate.yml`, shard 1; `python-tests.yml` in `python-tests-caller.yml` | none | none |
+| Suite selection | `pipeline.yml`, job `suite-selection`, through the part `suite-selection` | the suite jobs: `ci / suite-selection-jobs / shard <n>` and `ci / suite-selection-jobs / windows`; the pipeline's verdict is `ci / verdict` | the configuration file `.github/ci-config.yml` states `suites: tests/suites.json` and `language-steps: [python]` |
+| Suite jobs | `pipeline.yml`, job `suite-selection-jobs`, and `automation.yml`, job `full-recording-jobs` | the checks of the suite selection above; the full recording's checks `automation / full-recording-jobs / <shared job>` are checks that no ruleset requires | none; the suite list `tests/suites.json` states the runners, the fetch depth and the setups |
+| Python language step | `pipeline.yml`, job `suite-selection-jobs`, shard 1 through `suite-jobs.yml`; `python-tests.yml` in `python-tests-caller.yml` | none | none |
 | Python tests | `python-tests-caller.yml` | `tests / tests` | `python-version: "3.14"`, `working-directory: tests/fixtures/python_tests`, `install: dev` |
-| Pipeline | `ci.yml` | `ci / verdict` | none; the configuration file `.github/ci-config.yml` switches on the free job and the parts `python-verify`, `python-test` and `dotnet-test` |
+| Pipeline | `ci.yml` | `ci / verdict` | none; the configuration file `.github/ci-config.yml` switches on the free job and the parts `python-verify`, `python-test`, `dotnet-test` and `suite-selection` |
 | Pipeline, the automation workflow | `automation-caller.yml` | none that a ruleset requires | the secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY`; the configuration file switches on `dependabot-auto-merge`, `additions` and `full-recording` with `tests/suites.json`, and `issue-title` with a fixture category file |
 
 `docs/maintaining.md` describes what each part runs:
@@ -36,11 +37,11 @@ This repository calls its own shared workflows and shared steps by local path, `
 - Suite selection: [Job layout](../maintaining.md#job-layout) and [Suite selection](../maintaining.md#suite-selection).
 - Python language step: [Python language step](../maintaining.md#python-language-step).
 - Python tests: [Python tests](../maintaining.md#python-tests), on the fixture project that tests the shared workflow.
-- Pipeline: [Pipeline](../maintaining.md#pipeline), which runs repository hygiene a second time beside the hygiene caller while both shared workflows are at `v1`, and [The automation workflow](../maintaining.md#the-automation-workflow), which runs Dependabot auto-merge a second time beside the auto-merge caller for the same reason.
+- Pipeline: [Pipeline](../maintaining.md#pipeline), which runs repository hygiene a second time beside the hygiene caller while both shared workflows are at `v1`, and runs the suite selection and the suite jobs of [Job layout](../maintaining.md#job-layout); [The automation workflow](../maintaining.md#the-automation-workflow), which runs Dependabot auto-merge a second time beside the auto-merge caller for the same reason, and the full recording's suite jobs.
 
-The hygiene caller, the validation caller, the Python tests caller and the pipeline caller `ci.yml` also run on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event).
+The hygiene caller, the Python tests caller and the pipeline caller `ci.yml` also run on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event).
 
-The checks to require in a ruleset on the default branch are `hygiene / hygiene`, `validation / validation` and `tests / tests`; [Change a check name](../maintaining.md#change-a-check-name) changes them. `ci / verdict` reports on every pull request and is not required yet.
+The verdict of the pipeline, `ci / verdict`, carries the result of the suites, the hygiene check and the other parts. The checks to require in a ruleset on the default branch are `hygiene / hygiene`, `tests / tests` and `ci / verdict`; [Change a check name](../maintaining.md#change-a-check-name) changes them, and a change to the ruleset is a question to the user.
 
 ## Inputs
 
@@ -54,7 +55,7 @@ A new package file that Dependabot supports gets an `updates` entry in `.github/
 
 ## Suite selection
 
-`validate.yml` is the validation caller, which calls the selection and verdict workflows by local path on `tests/suites.json` and runs its suites under the recording step, the parts `full-recording` and `additions` of the automation workflow, which `automation-caller.yml` calls, are its [full recording](../maintaining.md#full-recording) and its [additions workflow](../maintaining.md#apply-recorded-additions); `tests/README.md` describes the suites and how they run, and `docs/maintaining.md` the shared parts themselves.
+The suites of this repository run in the pipeline. The part `suite-selection` of `.github/ci-config.yml`, which states `suites: tests/suites.json` and `language-steps: [python]`, selects the entry files that a change reaches in its job `suite-selection`, and its job `suite-selection-jobs` calls `suite-jobs.yml` for the Linux shards and the Windows job, each under the recording step. The part `full-recording` of the automation workflow, which `automation-caller.yml` calls, runs the same jobs in `full-recording-jobs`; it is the [full recording](../maintaining.md#full-recording), and the part `additions` is the [additions workflow](../maintaining.md#apply-recorded-additions). `tests/README.md` describes the suites and how they run, and `docs/maintaining.md` the shared parts themselves.
 
 ## Repository choices
 

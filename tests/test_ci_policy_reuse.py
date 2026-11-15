@@ -62,9 +62,9 @@ class SelectionStepTests(unittest.TestCase):
 
 
 class StoreStepTests(unittest.TestCase):
-    def test_only_the_verdict_and_the_hygiene_job_store_and_only_a_pull_request_run_that_was_not_cancelled(self) -> None:
+    def test_only_the_verdict_the_pipeline_s_results_job_and_the_hygiene_job_store_and_only_a_pull_request_run_that_was_not_cancelled(self) -> None:
         for path in sorted(WORKFLOWS.glob("*.yml")):
-            if path.name not in ("suite-verdict.yml", "repository-hygiene.yml"):
+            if path.name not in ("suite-verdict.yml", "repository-hygiene.yml", "pipeline.yml"):
                 with self.subTest(workflow=path.name):
                     self.assertNotIn("actions/cache/save", path.read_text(encoding="utf-8"))
         text, workflow = read_workflow(WORKFLOWS / "suite-verdict.yml")
@@ -80,11 +80,27 @@ class StoreStepTests(unittest.TestCase):
         self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' && steps.store.outputs.stored == 'true' }}", save["if"])
         self.assertEqual(PREFIX + "${{ github.run_id }}-${{ github.run_attempt }}", save["with"]["key"])
         self.assertNotIn("if", steps[-1], "the verdict itself reports on every run")
+        pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
+        self.assertEqual(1, pipeline_text.count("uses: actions/cache/save"))
+        results = pipeline["jobs"]["suite-selection-results"]
+        self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' && needs.suite-selection.result == 'success' }}", results["if"])
+        self.assertEqual(save["with"], results["steps"][-1]["with"], "the pipeline stores under the key that the selection restores")
 
 
-class ValidateJobTests(unittest.TestCase):
+def outside_the_full_recording(workflow: dict) -> dict:
+    """The suite jobs as a pull-request or push run reads them: without the condition that keeps a step out of the full
+    recording."""
+    for job in workflow["jobs"].values():
+        for step in job["steps"]:
+            if "if" in step:
+                step["if"] = str(step["if"]).replace("!inputs.full && ", "")
+    return workflow
+
+
+class SuiteJobTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.text, self.workflow = read_workflow(WORKFLOWS / "validate.yml")
+        self.text, workflow = read_workflow(WORKFLOWS / "suite-jobs.yml")
+        self.workflow = outside_the_full_recording(workflow)
 
     def test_each_job_that_runs_units_uploads_its_passed_entry_files_after_its_check_without_those_with_additions(self) -> None:
         for job, name, keep in (
@@ -127,16 +143,6 @@ class ValidateJobTests(unittest.TestCase):
                 with self.subTest(job=job, case=case):
                     ran = passed_list_steps(steps, outcome, additions, keep)
                     self.assertEqual((listed[job] if expected else []) + expected, ran)
-
-    def test_the_runner_labels_and_setup_versions_of_the_key_are_those_the_jobs_use(self) -> None:
-        inputs = self.workflow["jobs"]["select"]["with"]
-        labels = dict(item.split("=", 1) for item in inputs["runner-labels"].split())
-        self.assertEqual({"linux": self.workflow["jobs"]["linux"]["runs-on"], "windows": self.workflow["jobs"]["windows"]["runs-on"]}, labels)
-        versions = dict(item.split("=", 1) for item in inputs["setup-versions"].split())
-        for job in ("linux", "windows"):
-            with self.subTest(job=job):
-                setup = next(step for step in steps_of(self.workflow, job) if str(step.get("uses", "")).startswith("actions/setup-python@"))
-                self.assertEqual(versions["python"], setup["with"]["python-version"])
 
 
 if __name__ == "__main__":

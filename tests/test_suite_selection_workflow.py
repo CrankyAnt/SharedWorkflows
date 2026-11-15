@@ -14,10 +14,14 @@ from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, BARE_DISPATCH_TIP, en
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
-# The suite list and the validation workflow with the workflows and local actions that its CI definition follows.
-DEFINITION_FILES = ("tests/suites.json", ".github/workflows/validate.yml", ".github/workflows/suite-selection.yml",
-                    ".github/workflows/suite-verdict.yml", "actions/suite-selection/action.yml",
-                    "actions/recording/action.yml", "actions/python-language-step/action.yml")
+# The suite list with the files of its setups, and the pipeline caller with the workflows and local actions that its CI
+# definition follows to the suite jobs.
+DEFINITION_FILES = ("tests/suites.json", "tests/setups/python.py", "tests/setups/node.py", "tests/setups/dotnet.py", "tests/setups/pinned-tool.sh",
+                    "tests/setups/commitlint.sh", "actions/recording/etw-consumer/global.json", "actions/repository-hygiene/pins.json",
+                    ".github/workflows/ci.yml", ".github/workflows/pipeline.yml", ".github/workflows/suite-jobs.yml",
+                    "actions/suite-selection/action.yml", "actions/recording/action.yml", "actions/python-language-step/action.yml",
+                    "actions/pipeline/action.yml", "actions/repository-hygiene/action.yml", "actions/publication-checks/action.yml",
+                    "actions/python-tests/action.yml", "actions/dotnet-test/action.yml")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "actions/suite-selection"))
 
 from reuse import DIGEST_STEP  # noqa: E402
@@ -35,14 +39,14 @@ def fixture_checkout(root: Path, kept: tuple[str, ...]) -> None:
 
 
 class SelectionReadsTheWorkflowTests(unittest.TestCase):
-    def test_select_reads_the_validation_workflow_as_the_selection_workflow_calls_it(self) -> None:
+    def test_select_reads_the_pipeline_caller_as_the_pipeline_s_selection_job_calls_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "outputs.txt"
             checkout = Path(directory) / "checkout"
             fixture_checkout(checkout, DEFINITION_FILES)
             result = subprocess.run(
                 [sys.executable, str(REPOSITORY_ROOT / "actions/suite-selection/suite_selection.py"), "select", "--root", ".",
-                 "--suites", "tests/suites.json", "--workflow", ".github/workflows/validate.yml", "--language-step", "python",
+                 "--suites", "tests/suites.json", "--workflow", ".github/workflows/ci.yml", "--language-step", "python",
                  "--changed-file", "actions/python-language-step/python_language_step.py", "--json-output", str(output)],
                 cwd=checkout, capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(0, result.returncode, result.stderr)

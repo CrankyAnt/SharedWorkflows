@@ -364,9 +364,9 @@ class ReuseTests(FixtureRepository):
         outputs, _, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--results", str(self.record), *labels, *extra)
         return outputs
 
-    def store(self, outputs: dict[str, str], passed: list[tuple[str, str]], run: int, result: str = "success") -> bool:
+    def store(self, outputs: dict[str, str], passed: list[tuple[str, str]], run: int, result: str = "success", job: str = "select") -> bool:
         needs = self.root.parent / "needs.json"
-        needs.write_text(json.dumps({"select": {"result": result, "outputs": outputs}, "linux": {"result": "success", "outputs": {}}}), encoding="utf-8")
+        needs.write_text(json.dumps({job: {"result": result, "outputs": outputs}, "linux": {"result": "success", "outputs": {}}}), encoding="utf-8")
         directory = self.root.parent / f"passed-{run}"
         (directory / "suite-results-shard-1").mkdir(parents=True, exist_ok=True)
         (directory / "suite-results-shard-1" / "passed.json").write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in passed]), encoding="utf-8")
@@ -374,6 +374,7 @@ class ReuseTests(FixtureRepository):
         github_output.unlink(missing_ok=True)
         with redirect_stdout(io.StringIO()):
             code = suite_selection.main(["store", "--needs", str(needs), "--passed", str(directory), "--run-id", str(run),
+                                         *(["--selection-job", job] if job != "select" else []),
                                          "--output", str(self.record), "--github-output", str(github_output)])
         self.assertEqual(code, 0)
         return github_output.read_text(encoding="utf-8") == "stored=true\n"
@@ -473,6 +474,18 @@ class ReuseTests(FixtureRepository):
         self.assertEqual(json.loads(outputs["reused"]), {})
         self.assertEqual(sorted(name for name, result in json.loads(outputs["suites"]).items() if result == "run"),
                          ["both", "per-entry", "pr-only", "windows"])
+
+    def test_the_store_reads_the_selection_from_the_job_that_the_caller_names(self) -> None:
+        outputs = self.select_head(self.head({"src/feature.py": "feature v2\n"}))
+        self.assertTrue(self.store(outputs, self.ALL, 9020, job="suite-selection"), "the pipeline's selection job carries the part's name")
+        self.assertEqual(len(json.loads(self.record.read_text(encoding="utf-8"))["passed"]), 4)
+        self.record.unlink()
+        needs = self.root.parent / "needs.json"
+        needs.write_text(json.dumps({"select": {"result": "success", "outputs": outputs}}), encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            suite_selection.main(["store", "--needs", str(needs), "--selection-job", "suite-selection", "--passed", str(self.root.parent / "passed-9020"),
+                                  "--run-id", "9021", "--output", str(self.record)])
+        self.assertFalse(self.record.exists(), "a needs context without the named job stores nothing")
 
     def test_only_passed_units_are_stored_and_a_failed_selection_stores_nothing(self) -> None:
         first = self.head({"src/feature.py": "feature v2\n"})
@@ -593,6 +606,18 @@ class SharedDigestTests(unittest.TestCase):
         write(self.shared_folder, "recording/__pycache__/recording.cpython-313.pyc", "cache\n")
         self.assertEqual(added, self.taken(), "a part or module it does not load and a bytecode cache are not part of it")
 
+    def test_the_digest_follows_the_shared_workflow_of_the_suite_jobs(self) -> None:
+        without = self.taken()
+        workflow = self.shared_folder.parent / ".github" / "workflows" / "suite-jobs.yml"
+        write(workflow.parent, workflow.name, "name: Suite jobs\n")
+        first = self.taken()
+        self.assertNotEqual(without, first, "the workflow that runs a consumer's entry files is part of the digest")
+        write(workflow.parent, workflow.name, "name: Suite jobs\njobs: {}\n")
+        self.assertNotEqual(first, self.taken())
+        write(workflow.parent, "pipeline.yml", "name: Pipeline\n")
+        write(workflow.parent, workflow.name, "name: Suite jobs\n")
+        self.assertEqual(first, self.taken(), "another workflow is not part of it")
+
     def test_the_digest_is_the_same_whichever_order_a_platform_sorts_the_shared_files_in(self) -> None:
         # Windows orders paths case-insensitively and Linux by code point, so the same revision lists its shared
         # files in two orders: recording/etw-consumer/EtwConsumer.csproj comes after build/ on Windows, before it on Linux.
@@ -602,8 +627,8 @@ class SharedDigestTests(unittest.TestCase):
             "import recording\n"
             "files = recording.shared_files()\n"
             "for flavour in (PurePosixPath, PureWindowsPath):\n"
-            "    order = sorted(files, key=lambda path: flavour(path.relative_to(recording.SHARED_FOLDER).as_posix()))\n"
-            "    print(' '.join(path.relative_to(recording.SHARED_FOLDER).as_posix() for path in order))\n"
+            "    order = sorted(files, key=lambda path: flavour(recording.shared_name(path)))\n"
+            "    print(' '.join(recording.shared_name(path) for path in order))\n"
             "    recording.shared_files = lambda order=order: order\n"
             "    print(recording.shared_digest())\n"
         )

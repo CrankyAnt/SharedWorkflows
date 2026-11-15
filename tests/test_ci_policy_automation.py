@@ -150,8 +150,8 @@ class AutomationWorkflowTests(unittest.TestCase):
                 self.assertNotIn(PLAN, needed(job))
         self.assertEqual(set(self.parts), {name for name in self.jobs if name in self.parts}, "every part has its job")
 
-    def test_no_job_calls_a_reusable_workflow(self) -> None:
-        self.assertEqual([], [name for name, job in self.jobs.items() if "uses" in job])
+    def test_only_the_jobs_of_the_full_recording_are_a_reusable_workflow_that_a_job_calls(self) -> None:
+        self.assertEqual({"full-recording-jobs": "$/.github/workflows/suite-jobs.yml"}, {name: job["uses"] for name, job in self.jobs.items() if "uses" in job})
 
     def test_every_part_s_job_states_its_events_and_the_plan_s_decision_as_a_job_level_condition(self) -> None:
         for part in self.parts:
@@ -212,7 +212,7 @@ class AutomationWorkflowTests(unittest.TestCase):
         for name, job in self.jobs.items():
             with self.subTest(job=name):
                 self.assertIsInstance(job.get("permissions"), dict)
-                for step in job["steps"]:
+                for step in job.get("steps", []):
                     if str(step.get("uses", "")).startswith("actions/checkout@"):
                         self.assertEqual("false", step["with"]["persist-credentials"])
         external = re.findall(r"(?m)^\s*(?:- )?uses: ([^$\s]\S*)", self.text)
@@ -227,7 +227,7 @@ class AutomationWorkflowTests(unittest.TestCase):
         self.assertEqual({"contents": "read", "issues": "write"}, self.jobs["issue-title"]["permissions"])
         self.assertEqual({"actions": "read", "contents": "read", "pull-requests": "read"}, self.jobs["additions"]["permissions"])
         self.assertEqual({"pull-requests": "write"}, self.jobs["additions-comment"]["permissions"])
-        for name in ("full-recording", "full-recording-linux", "full-recording-windows", "full-recording-close"):
+        for name in ("full-recording", "full-recording-jobs", "full-recording-close"):
             self.assertEqual({"contents": "read"}, self.jobs[name]["permissions"], name)
 
     def test_each_part_reads_its_values_from_the_plan(self) -> None:
@@ -411,18 +411,17 @@ class CallerTests(unittest.TestCase):
 
     def test_this_repository_s_caller_equals_the_fixed_caller_apart_from_the_local_path_and_its_own_check_workflows(self) -> None:
         expected = self.template.replace("uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1", "uses: $/.github/workflows/automation.yml")
-        expected = expected.replace("    workflows: [CI]\n", "    workflows: [CI, Repository hygiene, Validate, Python tests]\n")
+        expected = expected.replace("    workflows: [CI]\n", "    workflows: [CI, Repository hygiene, Python tests]\n")
         self.assertEqual(expected, self.own)
         self.assertNotIn("@v1", self.own)
         self.assertEqual([], reach_problems(self.own, self.automation, str(OWN_CALLER)))
-        names = {read_workflow(path)[1]["name"] for path in (WORKFLOWS / "ci.yml", WORKFLOWS / "repository-hygiene-caller.yml", WORKFLOWS / "validate.yml",
-                                                             WORKFLOWS / "python-tests-caller.yml")}
-        self.assertEqual({"CI", "Repository hygiene", "Validate", "Python tests"}, names, "the workflows whose runs report a check of a pull request or its additions")
+        names = {read_workflow(path)[1]["name"] for path in (WORKFLOWS / "ci.yml", WORKFLOWS / "repository-hygiene-caller.yml", WORKFLOWS / "python-tests-caller.yml")}
+        self.assertEqual({"CI", "Repository hygiene", "Python tests"}, names, "the workflows whose runs report a check of a pull request or its additions")
 
     def test_this_repository_switches_every_part_of_the_workflow_on(self) -> None:
         configuration = ci_definition().read_yaml((REPOSITORY_ROOT / ".github" / "ci-config.yml").read_text(encoding="utf-8"), "ci-config.yml")
         self.assertLessEqual(set(automation_parts()), set(configuration["parts"]))
-        self.assertEqual({"suites": "tests/suites.json", "validation-workflow": ".github/workflows/validate.yml"}, configuration["parts"]["full-recording"])
+        self.assertEqual({"suites": "tests/suites.json", "validation-workflow": ".github/workflows/ci.yml"}, configuration["parts"]["full-recording"])
         self.assertEqual({"suites": "tests/suites.json"}, configuration["parts"]["additions"])
         self.assertTrue((REPOSITORY_ROOT / configuration["parts"]["issue-title"]["categories"]).is_file())
 

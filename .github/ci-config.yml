@@ -37,6 +37,9 @@ parts:
       - actions/pipeline/
       - .github/workflows/pipeline.yml
       - .github/workflows/ci.yml
+  suite-selection:
+    suites: tests/suites.json
+    language-steps: [python]
   dependabot-auto-merge:
     suites: tests/suites.json
   issue-title:
@@ -45,4 +48,4 @@ parts:
     suites: tests/suites.json
   full-recording:
     suites: tests/suites.json
-    validation-workflow: .github/workflows/validate.yml
+    validation-workflow: .github/workflows/ci.yml

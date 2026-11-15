@@ -1,10 +1,9 @@
-"""Policy checks over the full recording, a part of the automation workflow: its two-weekly gate, its shards and Windows
-job under the full-recording mode, and the closing job that joins the results and proposes the list changes through the
-updater App, as a pull request that merges itself."""
+"""Policy checks over the full recording, a part of the automation workflow: its two-weekly gate, its call of the suite
+jobs in the full-recording mode, and the closing job that joins the results and proposes the list changes through the
+updater App, as a pull request that merges itself. The contract of the suite jobs is tests/test_ci_policy_suite_jobs.py."""
 
 from __future__ import annotations
 
-import json
 import re
 import unittest
 
@@ -14,8 +13,7 @@ WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 FULL_RECORDING = WORKFLOWS / "automation.yml"
 CALLER = WORKFLOWS / "automation-caller.yml"
 PART = "full-recording"
-LINUX, WINDOWS, CLOSE = "full-recording-linux", "full-recording-windows", "full-recording-close"
-VALIDATE = WORKFLOWS / "validate.yml"
+JOBS, CLOSE = "full-recording-jobs", "full-recording-close"
 APPLY_STEP = "Join the results, apply the removals and write the duration estimates"
 ON_DEFAULT_BRANCH = "github.ref_name == github.event.repository.default_branch"
 VERIFY_TOKEN = {"description": "For full-recording, mint the token of the updater App even without a change to propose, to verify its private key",
@@ -53,8 +51,7 @@ class FullRecordingWorkflowTests(unittest.TestCase):
         self.assertEqual("${{ github.event_name }}", gate["env"]["EVENT"])
         for step in plan["steps"][1:]:
             self.assertEqual("steps.week.outputs.run == 'true'", step["if"])
-        for name in (LINUX, WINDOWS):
-            self.assertIn("needs.full-recording.outputs.run == 'true'", self.jobs[name]["if"])
+        self.assertEqual("needs.full-recording.outputs.run == 'true'", self.jobs[JOBS]["if"])
         self.assertEqual("${{ !cancelled() && needs.full-recording.outputs.run == 'true' }}", self.jobs[CLOSE]["if"])
 
     def test_the_plan_shards_every_entry_file_with_the_full_mode_of_select(self) -> None:
@@ -68,28 +65,24 @@ class FullRecordingWorkflowTests(unittest.TestCase):
         self.assertEqual({"SELECTION": "${{ steps.selection.outputs.path }}", "SUITES": f"${{{{ {PLANNED}.config.suites }}}}"}, select["env"])
         self.assertEqual({"run": "${{ steps.week.outputs.run }}", "suites": f"${{{{ {PLANNED}.config.suites }}}}",
                           "validation-workflow": f"${{{{ {PLANNED}.config.validation-workflow }}}}",
-                          "shards": "${{ steps.select.outputs.shards }}", "windows": "${{ steps.select.outputs.windows }}"}, self.jobs[PART]["outputs"])
-        linux = self.jobs[LINUX]
-        self.assertEqual("needs.full-recording.outputs.run == 'true' && needs.full-recording.outputs.shards != '' && needs.full-recording.outputs.shards != '[]'",
-                         linux["if"])
-        self.assertEqual({"fail-fast": "false", "matrix": {"shard": "${{ fromJSON(needs.full-recording.outputs.shards) }}"}}, linux["strategy"])
-        self.assertEqual("needs.full-recording.outputs.run == 'true' && needs.full-recording.outputs.windows != ''", self.jobs[WINDOWS]["if"])
-        self.assertNotIn("strategy", self.jobs[WINDOWS], "one Windows job without shards")
+                          "shards": "${{ steps.select.outputs.shards }}", "windows": "${{ steps.select.outputs.windows }}",
+                          "jobs": "${{ steps.select.outputs.jobs }}"}, self.jobs[PART]["outputs"])
 
     def test_job_order_and_runner_labels(self) -> None:
-        self.assertEqual([PART, LINUX, WINDOWS, CLOSE], list(self.jobs))
+        self.assertEqual([PART, JOBS, CLOSE], list(self.jobs))
         self.assertEqual("plan", self.jobs[PART]["needs"])
-        self.assertEqual(PART, self.jobs[LINUX]["needs"])
-        self.assertEqual(PART, self.jobs[WINDOWS]["needs"])
-        self.assertEqual(f"[{PART}, {LINUX}, {WINDOWS}]", self.jobs[CLOSE]["needs"])
-        self.assertEqual({PART: "ubuntu-26.04", LINUX: "ubuntu-26.04", WINDOWS: "windows-2025", CLOSE: "ubuntu-slim"},
-                         {name: job["runs-on"] for name, job in self.jobs.items()})
+        self.assertEqual(PART, self.jobs[JOBS]["needs"])
+        self.assertEqual(f"[{PART}, {JOBS}]", self.jobs[CLOSE]["needs"])
+        self.assertEqual({PART: "ubuntu-26.04", CLOSE: "ubuntu-slim"}, {name: job["runs-on"] for name, job in self.jobs.items() if "runs-on" in job})
+        self.assertNotIn("runs-on", self.jobs[JOBS], "the suite jobs take their runner labels from the suite list")
 
     def test_every_job_holds_contents_read_and_no_checkout_persists_credentials(self) -> None:
         self.assertIn("\npermissions: {}\n\n", self.text)
         for name, job in self.jobs.items():
             with self.subTest(job=name):
                 self.assertEqual({"contents": "read"}, job["permissions"])
+                if name == JOBS:
+                    continue
                 checkouts = [step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")]
                 self.assertEqual(1, len(checkouts))
                 self.assertEqual("false", checkouts[0]["with"]["persist-credentials"])
@@ -102,65 +95,12 @@ class FullRecordingWorkflowTests(unittest.TestCase):
     def test_the_actions_are_pinned_and_the_recording_step_is_used_by_local_path(self) -> None:
         text = self.text[self.text.index(f"\n  {PART}:\n"):]
         external = sorted({uses.split("@")[0] for uses in re.findall(r"(?m)^\s*(?:- )?uses: ([^$\s]\S*)", text)})
-        self.assertEqual(["actions/checkout", "actions/create-github-app-token", "actions/download-artifact", "actions/setup-dotnet", "actions/setup-node",
-                          "actions/setup-python", "actions/upload-artifact"], external)
+        self.assertEqual(["actions/checkout", "actions/create-github-app-token", "actions/download-artifact", "actions/upload-artifact"], external)
         for action in external:
             pinned = len(re.findall(action_pin_pattern(action).replace(r"^[ \t]*- uses: ", r"^[ \t]*(?:- )?uses: "), text))
             self.assertEqual(text.count(f"uses: {action}@"), pinned, f"every use of {action} is pinned to a SHA with its version")
         self.assertEqual([], re.findall(r"uses: \./", self.text))
         self.assertNotIn("actions/cache", self.text)
-
-
-class FullRecordingJobTests(unittest.TestCase):
-    """The shards and the Windows job run the validation's own setups and entry runs, with the recording in the full mode."""
-
-    def setUp(self) -> None:
-        _, workflow = read_workflow(FULL_RECORDING)
-        _, validate = read_workflow(VALIDATE)
-        self.jobs, self.validate = workflow["jobs"], validate["jobs"]
-
-    @staticmethod
-    def with_this_repository_s_suite_list(steps: list[dict]) -> list[dict]:
-        """The steps with the suite list of the job's environment as this repository's own, which validate.yml names."""
-        text = json.dumps(steps).replace('--suites \\"$SUITES\\" --suite', "--suites tests/suites.json --suite").replace("--suites $env:SUITES --suite", "--suites tests/suites.json --suite")
-        return json.loads(text)
-
-    def test_each_recording_job_starts_the_full_recording_mode_under_its_own_job_name(self) -> None:
-        for job, run, name in ((LINUX, 'python3 "$RECORDING/recording.py" start --full --job "$JOB"', "shard-${{ matrix.shard.shard }}"),
-                               (WINDOWS, 'python "$env:RECORDING\\recording.py" start --full --job $env:JOB', "windows")):
-            with self.subTest(job=job):
-                steps = self.jobs[job]["steps"]
-                start = steps[step_index(steps, "recording.py\" start")]
-                self.assertEqual("start", start["id"])
-                self.assertEqual(run, start["run"])
-                self.assertEqual(name, start["env"]["JOB"])
-
-    def test_each_recording_job_runs_the_validation_s_setups_and_entry_run_unchanged(self) -> None:
-        def setups_and_entry_run(steps: list[dict]) -> list[dict]:
-            """Every step before the check but the checkout and the start of the recording."""
-            check = next(index for index, step in enumerate(steps) if step.get("uses") == "$/actions/recording" and "with" in step)
-            return [step for step in steps[:check] if step.get("id") != "start" and not str(step.get("uses", "")).startswith("actions/checkout@")]
-
-        for job, own in ((LINUX, "linux"), (WINDOWS, "windows")):
-            with self.subTest(job=job):
-                ours = setups_and_entry_run(self.jobs[job]["steps"])
-                self.assertNotIn("tests/suites.json", json.dumps(ours))
-                self.assertEqual(setups_and_entry_run(self.validate[own]["steps"]), self.with_this_repository_s_suite_list(ours))
-                self.assertGreater(len(ours), 5)
-                self.assertEqual(SUITES, self.jobs[job]["env"]["SUITES"])
-        self.assertEqual("${{ toJSON(matrix.shard) }}", self.jobs[LINUX]["env"]["SHARD"])
-        self.assertEqual("${{ needs.full-recording.outputs.windows }}", self.jobs[WINDOWS]["env"]["WINDOWS"])
-
-    def test_check_uploads_each_job_s_result_under_a_unique_name_unless_the_run_was_cancelled(self) -> None:
-        names = []
-        for job in (LINUX, WINDOWS):
-            steps = self.jobs[job]["steps"]
-            check = next(step for step in steps if step.get("uses") == "$/actions/recording" and "with" in step)
-            self.assertLess(step_index(steps, "exec --entry"), steps.index(check))
-            self.assertEqual("${{ !cancelled() && steps.start.outcome == 'success' }}", check["if"])
-            self.assertEqual({"check": "true", "suites": SUITES}, {key: check["with"][key] for key in ("check", "suites")})
-            names.append(check["with"]["artifact-name"])
-        self.assertEqual(["full-recording-shard-${{ matrix.shard.shard }}", "full-recording-windows"], names)
 
 
 class ClosingJobTests(unittest.TestCase):

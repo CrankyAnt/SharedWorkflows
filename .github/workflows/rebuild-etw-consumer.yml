@@ -2,7 +2,7 @@ name: Rebuild the ETW consumer
 
 on:
   workflow_run: # zizmor: ignore[dangerous-triggers] the job that builds the pull request's code holds a read-only token; the pushing and commenting jobs run no pull-request code
-    workflows: [Validate]
+    workflows: [CI]
     types: [completed]
 
 permissions: {}

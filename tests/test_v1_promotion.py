@@ -37,7 +37,7 @@ SURFACE = {
 }
 APP = "pins-updater[bot]"
 OWNER = "CrankyAnt"
-PASSED = {"validate.yml": "success", "repository-hygiene-caller.yml": "success", "python-tests-caller.yml": "success"}
+PASSED = {"ci.yml": "success", "repository-hygiene-caller.yml": "success", "python-tests-caller.yml": "success"}
 
 
 def git(repo: Path, *arguments: str) -> str:
@@ -175,11 +175,11 @@ class DecisionTests(unittest.TestCase):
     def test_the_ci_of_the_commit_on_main_must_pass_before_v1_moves(self) -> None:
         commit = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
         for ci, fragment in [
-            ({"validate.yml": "failure", "repository-hygiene-caller.yml": "success"}, "the CI of this commit on main did not pass: validate.yml concluded failure."),
-            ({"validate.yml": "success", "repository-hygiene-caller.yml": "cancelled"}, "the CI of this commit on main did not pass: repository-hygiene-caller.yml concluded cancelled."),
-            ({"validate.yml": "timed_out", "repository-hygiene-caller.yml": "success"}, "the CI of this commit on main did not pass: validate.yml concluded timed_out."),
-            ({"validate.yml": None, "repository-hygiene-caller.yml": "success"}, "the CI of this commit on main had not completed when the wait ended: validate.yml."),
-            ({"validate.yml": None, "repository-hygiene-caller.yml": None}, "the CI of this commit on main had not completed when the wait ended: validate.yml, repository-hygiene-caller.yml."),
+            ({"ci.yml": "failure", "repository-hygiene-caller.yml": "success"}, "the CI of this commit on main did not pass: ci.yml concluded failure."),
+            ({"ci.yml": "success", "repository-hygiene-caller.yml": "cancelled"}, "the CI of this commit on main did not pass: repository-hygiene-caller.yml concluded cancelled."),
+            ({"ci.yml": "timed_out", "repository-hygiene-caller.yml": "success"}, "the CI of this commit on main did not pass: ci.yml concluded timed_out."),
+            ({"ci.yml": None, "repository-hygiene-caller.yml": "success"}, "the CI of this commit on main had not completed when the wait ended: ci.yml."),
+            ({"ci.yml": None, "repository-hygiene-caller.yml": None}, "the CI of this commit on main had not completed when the wait ended: ci.yml, repository-hygiene-caller.yml."),
         ]:
             with self.subTest(ci=ci):
                 decision = self.decide(commit, pull_request(commit), ci=ci)
@@ -364,7 +364,7 @@ class CiWaitTests(unittest.TestCase):
 
     def test_the_newest_push_run_on_main_of_each_workflow_gives_its_conclusion_and_no_job_is_read(self) -> None:
         # A validation run whose verdict job was skipped for an identical tree concludes success; only the run's conclusion is read.
-        self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}, {"id": 4, "status": "completed", "conclusion": "failure"}])
+        self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}, {"id": 4, "status": "completed", "conclusion": "failure"}])
         self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 3, "status": "completed", "conclusion": "failure"}, {"id": 8, "status": "completed", "conclusion": "success"}])
         self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
         conclusions = self.wait()
@@ -384,9 +384,9 @@ class CiWaitTests(unittest.TestCase):
         ])
 
         def polling_fetch(url: str) -> bytes | None:
-            if "/validate.yml/" in url:
+            if "/ci.yml/" in url:
                 validate, hygiene = next(polls)
-                self.api.runs("validate.yml", self.COMMIT, validate)
+                self.api.runs("ci.yml", self.COMMIT, validate)
                 self.api.runs("repository-hygiene-caller.yml", self.COMMIT, hygiene)
             return self.api.fetch(url)
 
@@ -397,24 +397,24 @@ class CiWaitTests(unittest.TestCase):
         for conclusion in ["failure", "cancelled", "timed_out"]:
             with self.subTest(conclusion=conclusion):
                 self.sleeps.clear()
-                self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
+                self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
                 self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 8, "status": "completed", "conclusion": conclusion}])
                 conclusions = self.wait()
-                self.assertEqual({"validate.yml": None, "repository-hygiene-caller.yml": conclusion, "python-tests-caller.yml": None}, conclusions)
+                self.assertEqual({"ci.yml": None, "repository-hygiene-caller.yml": conclusion, "python-tests-caller.yml": None}, conclusions)
                 self.assertEqual([], self.sleeps)
                 self.assertEqual(f"the CI of this commit on main did not pass: repository-hygiene-caller.yml concluded {conclusion}.", promote.ci_stay_reason(conclusions))
 
     def test_runs_that_have_not_completed_within_the_bound_stay_unfinished(self) -> None:
-        self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
+        self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
         conclusions = self.wait(timeout=95, interval=30, request_timeout=5)
-        self.assertEqual({"validate.yml": None, "repository-hygiene-caller.yml": None, "python-tests-caller.yml": None}, conclusions)
+        self.assertEqual({"ci.yml": None, "repository-hygiene-caller.yml": None, "python-tests-caller.yml": None}, conclusions)
         self.assertEqual([30, 30, 20], self.sleeps, "the last poll starts when three full request timeouts still end at the bound")
-        self.assertEqual("the CI of this commit on main had not completed when the wait ended: validate.yml, repository-hygiene-caller.yml, python-tests-caller.yml.",
+        self.assertEqual("the CI of this commit on main had not completed when the wait ended: ci.yml, repository-hygiene-caller.yml, python-tests-caller.yml.",
                          promote.ci_stay_reason(conclusions))
 
     def test_a_failed_read_counts_as_not_completed_and_polling_goes_on(self) -> None:
         failures = iter([urllib.error.URLError("temporary failure in name resolution"), TimeoutError("timed out")])
-        self.api.runs("validate.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}])
+        self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}])
         self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 8, "status": "completed", "conclusion": "success"}])
         self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
 
@@ -683,7 +683,7 @@ class PrepareTests(ManualMove):
         self.assertEqual(self.command(self.fixture.v1, target), lines[-1])
         self.assertLess(lines.index(question), len(lines) - 1, "the command follows the question")
         self.assertIn("feat: change the shared workflow", output, "the commits between are reported")
-        self.assertIn("validate.yml: success", output)
+        self.assertIn("ci.yml: success", output)
         self.assertIn("Gitleaks scan of the tag push: no findings", output)
         self.assertEqual([target], self.ci_reads, "the CI is read once, without waiting")
         self.assertEqual([target], self.scans)
@@ -767,18 +767,18 @@ class PrepareTests(ManualMove):
         for status in ["queued", "in_progress"]:
             with self.subTest(status=status):
                 self.ci_reads.clear()
-                self.ci_result = {"validate.yml": promote.CiRun(status, None), "repository-hygiene-caller.yml": promote.CiRun("completed", "success")}
+                self.ci_result = {"ci.yml": promote.CiRun(status, None), "repository-hygiene-caller.yml": promote.CiRun("completed", "success")}
                 code, output = self.prepare()
-                self.assert_refused(code, output, f"CI is still running: validate.yml has not completed ({status}); run prepare again once it has.")
+                self.assert_refused(code, output, f"CI is still running: ci.yml has not completed ({status}); run prepare again once it has.")
                 self.assertNotIn("did not pass", output, "a running CI is not a failure")
                 self.assertEqual(1, len(self.ci_reads))
 
     def test_ci_that_did_not_pass_or_has_no_run_is_refused_with_the_workflow_and_its_conclusion(self) -> None:
         self.shared_change()
         for runs, reason in [
-            ({"validate.yml": promote.CiRun("completed", "failure")}, "the CI of the target on main did not pass: validate.yml concluded failure."),
+            ({"ci.yml": promote.CiRun("completed", "failure")}, "the CI of the target on main did not pass: ci.yml concluded failure."),
             ({"repository-hygiene-caller.yml": promote.CiRun("completed", "cancelled")}, "the CI of the target on main did not pass: repository-hygiene-caller.yml concluded cancelled."),
-            ({"validate.yml": promote.CiRun(None, None)}, "the CI of the target on main did not pass: validate.yml has no push run on main for the target."),
+            ({"ci.yml": promote.CiRun(None, None)}, "the CI of the target on main did not pass: ci.yml has no push run on main for the target."),
         ]:
             with self.subTest(reason=reason):
                 self.ci_result = {**RAN, **runs}

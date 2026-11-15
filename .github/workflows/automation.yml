@@ -432,6 +432,7 @@ jobs:
       validation-workflow: ${{ fromJSON(needs.plan.outputs.plan).parts['full-recording'].config.validation-workflow }}
       shards: ${{ steps.select.outputs.shards }}
       windows: ${{ steps.select.outputs.windows }}
+      jobs: ${{ steps.select.outputs.jobs }}
     steps:
       - id: week
         name: Record every two weeks on the schedule and always when started by hand
@@ -461,220 +462,23 @@ jobs:
           SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['full-recording'].config.suites }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --full --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
-  full-recording-linux:
+  # The suite jobs are the one reusable workflow that this workflow calls: the pipeline runs the same jobs on a pull
+  # request and a push, so their steps stand once. The suite list gives the setups, the runner labels and the fetch depth.
+  full-recording-jobs:
     needs: full-recording
-    if: needs.full-recording.outputs.run == 'true' && needs.full-recording.outputs.shards != '' && needs.full-recording.outputs.shards != '[]'
-    name: shard ${{ matrix.shard.shard }}
-    runs-on: ubuntu-26.04
+    if: needs.full-recording.outputs.run == 'true'
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(needs.full-recording.outputs.shards) }}
-    env:
-      SHARD: ${{ toJSON(matrix.shard) }}
-      SUITES: ${{ needs.full-recording.outputs.suites }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - id: recording
-        uses: $/actions/recording
-      - id: python
-        if: contains(matrix.shard.setups, 'python')
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.13"
-          update-environment: false
-      - name: Start the full recording
-        id: start
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-          JOB: shard-${{ matrix.shard.shard }}
-        run: python3 "$RECORDING/recording.py" start --full --job "$JOB"
-      - name: Provide the set-up Python with the lookup report to the entry files that state it
-        if: contains(matrix.shard.setups, 'python')
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
-        run: python3 "$RECORDING/recording.py" provide --setup python --path "$(dirname "$PYTHON_PATH")" --python "$PYTHON_PATH"
-      - name: Install the pinned tools of the shard's setups under the recording
-        if: contains(matrix.shard.setups, 'actionlint') || contains(matrix.shard.setups, 'zizmor') || contains(matrix.shard.setups, 'gitleaks') || contains(matrix.shard.setups, 'reuse') || contains(matrix.shard.setups, 'ruff') || contains(matrix.shard.setups, 'mypy')
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-          SETUPS: ${{ join(matrix.shard.setups, ' ') }}
-        run: |
-          set -euo pipefail
-          for setup in actionlint zizmor gitleaks reuse ruff mypy; do
-            [[ " $SETUPS " == *" $setup "* ]] || continue
-            tools=(--tool "$setup")
-            if [[ "$setup" == actionlint ]]; then tools+=(--tool shellcheck); fi
-            python3 "$RECORDING/recording.py" exec --setup "$setup" -- python3 actions/repository-hygiene/install_tools.py --pins actions/repository-hygiene/pins.json --platform linux-x64 --destination "$RUNNER_TEMP/setups/$setup" "${tools[@]}"
-            python3 "$RECORDING/recording.py" provide --setup "$setup" --path "$RUNNER_TEMP/setups/$setup"
-          done
-      - name: Read the pinned Node.js version under the recording
-        id: node
-        if: contains(matrix.shard.setups, 'node')
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-        run: |
-          set -euo pipefail
-          version="$(python3 "$RECORDING/recording.py" exec --setup node -- python3 -c "import json; print(json.load(open('actions/repository-hygiene/pins.json'))['node']['version'])")"
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-      - if: contains(matrix.shard.setups, 'node')
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ steps.node.outputs.version }}
-          package-manager-cache: false
-      - name: Provide the set-up Node.js to the entry files that state it
-        if: contains(matrix.shard.setups, 'node')
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-          VERSION: ${{ steps.node.outputs.version }}
-        run: python3 "$RECORDING/recording.py" provide --setup node --path "$RUNNER_TOOL_CACHE/node/$VERSION/x64/bin"
-      - name: Provision the locked commitlint toolchain under the recording
-        if: contains(matrix.shard.setups, 'commitlint')
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-          npm_config_update_notifier: "false"
-        run: |
-          set -euo pipefail
-          location="$RUNNER_TEMP/setups/commitlint"
-          mkdir -p "$location"
-          # shellcheck disable=SC2016 # the inner script expands $1 itself
-          python3 "$RECORDING/recording.py" exec --setup commitlint -- bash -c 'cp actions/publication-checks/package.json actions/publication-checks/package-lock.json "$1/" && cd "$1" && npm ci --ignore-scripts --no-audit --no-fund --userconfig /dev/null --prefix "$1"' _ "$location"
-          python3 "$RECORDING/recording.py" provide --setup commitlint --variable "PUBLICATION_CHECKS_TOOLS=$location"
-      - name: Run the shard's entry files under the recording, two at a time
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-        run: |
-          set -uo pipefail
-          export LOGS="$RUNNER_TEMP/entry-logs"
-          mkdir -p "$LOGS"
-          # Each entry file's log and status are named after its position in the shard, which no other entry file of the
-          # shard shares, also when two paths flatten alike or one entry file runs for two suites.
-          # shellcheck disable=SC2329 # xargs invokes run_entry through bash -c
-          run_entry() {
-            local index suite entry command
-            index="$(jq -r .index <<<"$1")"
-            suite="$(jq -r .suite <<<"$1")"
-            entry="$(jq -r .entry <<<"$1")"
-            mapfile -t command < <(jq -r '.command[]' <<<"$1")
-            python3 "$RECORDING/recording.py" exec --entry "$entry" --suites "$SUITES" --suite "$suite" -- "${command[@]}" "$entry" > "$LOGS/$index.log" 2>&1
-            echo "$?" > "$LOGS/$index.status"
-            echo "$entry ($suite) exited with $(cat "$LOGS/$index.status")"
-          }
-          export -f run_entry
-          # shellcheck disable=SC2016 # the inner script expands $1 itself
-          jq -c '.entries | to_entries[] | .value + {index: .key}' <<<"$SHARD" | xargs -d '\n' -r -n 1 -P 2 bash -c 'run_entry "$1"' _
-          failed=0
-          while IFS=$'\t' read -r index suite entry; do
-            echo "::group::$entry ($suite)"
-            cat "$LOGS/$index.log"
-            echo "::endgroup::"
-            if [[ "$(cat "$LOGS/$index.status" 2>/dev/null)" != 0 ]]; then
-              echo "::error::$entry ($suite) failed"
-              failed=1
-            fi
-          done < <(jq -r '.entries | to_entries[] | [(.key | tostring), .value.suite, .value.entry] | @tsv' <<<"$SHARD")
-          exit "$failed"
-      - name: Parse and classify the shard's recording and upload its result
-        if: ${{ !cancelled() && steps.start.outcome == 'success' }}
-        uses: $/actions/recording
-        with:
-          check: "true"
-          suites: ${{ needs.full-recording.outputs.suites }}
-          artifact-name: full-recording-shard-${{ matrix.shard.shard }}
-
-  full-recording-windows:
-    needs: full-recording
-    if: needs.full-recording.outputs.run == 'true' && needs.full-recording.outputs.windows != ''
-    runs-on: windows-2025
-    permissions:
-      contents: read
-    env:
-      WINDOWS: ${{ needs.full-recording.outputs.windows }}
-      SUITES: ${{ needs.full-recording.outputs.suites }}
-      SETUPS: ${{ needs.full-recording.outputs.windows != '' && toJSON(fromJSON(needs.full-recording.outputs.windows).setups) || '[]' }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-      - id: recording
-        uses: $/actions/recording
-      - id: python
-        if: contains(fromJSON(env.SETUPS), 'python')
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.13"
-          update-environment: false
-      - if: contains(fromJSON(env.SETUPS), 'dotnet')
-        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
-        env:
-          DOTNET_INSTALL_DIR: ${{ runner.temp }}\setups\dotnet
-        with:
-          global-json-file: actions/recording/etw-consumer/global.json
-      - name: Start the full recording
-        id: start
-        shell: pwsh
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-          JOB: windows
-        run: python "$env:RECORDING\recording.py" start --full --job $env:JOB
-      - name: Provide the set-up Python with the lookup report to the entry files that state it
-        if: contains(fromJSON(env.SETUPS), 'python')
-        shell: pwsh
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
-        run: |
-          python "$env:RECORDING\recording.py" provide --setup python --path (Split-Path -Parent $env:PYTHON_PATH) --path (Join-Path (Split-Path -Parent $env:PYTHON_PATH) 'Scripts') --python $env:PYTHON_PATH
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Provide the set-up .NET to the entry files that state it
-        if: contains(fromJSON(env.SETUPS), 'dotnet')
-        shell: pwsh
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-        run: |
-          python "$env:RECORDING\recording.py" provide --setup dotnet --path $env:DOTNET_ROOT --variable "DOTNET_ROOT=$env:DOTNET_ROOT"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run the selected Windows entry files under the recording
-        shell: pwsh
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-        run: |
-          $job = $env:WINDOWS | ConvertFrom-Json
-          $failed = @()
-          $passed = @()
-          foreach ($item in $job.entries) {
-            $command = @($item.command)
-            Write-Output "::group::$($item.entry)"
-            python "$env:RECORDING\recording.py" exec --entry $item.entry --suites $env:SUITES --suite $item.suite -- @command $item.entry
-            $status = $LASTEXITCODE
-            Write-Output "::endgroup::"
-            if ($status -ne 0) {
-              Write-Output "::error::$($item.entry) exited with $status"
-              $failed += $item.entry
-            } else {
-              $passed += [ordered]@{ suite = $item.suite; entry = $item.entry }
-            }
-          }
-          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\suite-results" | Out-Null
-          ConvertTo-Json -InputObject @($passed) -Depth 3 | Set-Content -Path "$env:RUNNER_TEMP\suite-results\passed.json" -Encoding utf8
-          if ($failed) { exit 1 }
-      - name: Classify the Windows recording and upload its result
-        if: ${{ !cancelled() && steps.start.outcome == 'success' }}
-        uses: $/actions/recording
-        with:
-          check: "true"
-          suites: ${{ needs.full-recording.outputs.suites }}
-          artifact-name: full-recording-windows
+    uses: $/.github/workflows/suite-jobs.yml
+    with:
+      suites: ${{ needs.full-recording.outputs.suites }}
+      shards: ${{ needs.full-recording.outputs.shards }}
+      windows: ${{ needs.full-recording.outputs.windows }}
+      jobs: ${{ needs.full-recording.outputs.jobs }}
+      full: true
 
   full-recording-close:
-    needs: [full-recording, full-recording-linux, full-recording-windows]
+    needs: [full-recording, full-recording-jobs]
     if: ${{ !cancelled() && needs.full-recording.outputs.run == 'true' }}
     runs-on: ubuntu-slim
     permissions:

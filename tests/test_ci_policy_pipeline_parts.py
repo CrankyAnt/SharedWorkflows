@@ -1,6 +1,6 @@
 """Text contract of the Python and .NET parts of the pipeline: each is a job with read rights only that runs once per
 configured project, takes its values from the plan and runs a shared step of the pipeline's own revision, and none is a
-reusable workflow of its own."""
+reusable workflow of its own; the pipeline reaches one reusable workflow, the suite jobs."""
 
 from __future__ import annotations
 
@@ -23,8 +23,11 @@ SHARED_STEPS = {
     PYTHON_TEST: ["actions/python-tests"],
     DOTNET_TEST: ["actions/dotnet-test"],
 }
-# The pipeline calls no reusable workflow: a caller and the pipeline are the only two levels, as the spec states.
-ALLOWED_REUSABLE_WORKFLOWS = 0
+# The pipeline calls one reusable workflow, the suite jobs, and that one calls none: a caller, the pipeline and the suite
+# jobs keep the pipeline two levels deep, as the spec states. The suite jobs are a workflow and not jobs of the pipeline
+# because the full recording of the automation workflow runs the same jobs, so their steps stand once.
+ALLOWED_REUSABLE_WORKFLOWS = 1
+SUITE_JOBS = ".github/workflows/suite-jobs.yml"
 LOCAL_WORKFLOW = re.compile(r"^(?:\$|\.)/(\.github/workflows/[^/@]+\.ya?ml)$")
 
 
@@ -159,7 +162,7 @@ class PartJobTests(unittest.TestCase):
         self.assertEqual({"project": f"${{{{ {value('project')} }}}}"}, step["with"])
 
     def test_the_setup_actions_carry_the_pins_of_this_repository_s_other_workflows(self) -> None:
-        for action, source in (("actions/setup-python", "python-tests.yml"), ("actions/setup-dotnet", "validate.yml"), ("actions/checkout", "python-tests.yml")):
+        for action, source in (("actions/setup-python", "python-tests.yml"), ("actions/setup-dotnet", "suite-jobs.yml"), ("actions/checkout", "python-tests.yml")):
             with self.subTest(action=action):
                 pins = set(re.findall(rf"uses: ({re.escape(action)}@[0-9a-f]{{40}} # v[\d.]+)", self.text))
                 self.assertEqual(1, len(pins))
@@ -189,6 +192,8 @@ class ReusableWorkflowCountTests(unittest.TestCase):
     def test_the_pipeline_reaches_no_more_reusable_workflows_than_the_spec_allows(self) -> None:
         reached = reached_reusable_workflows(tracked_workflows(REPOSITORY_ROOT), PIPELINE_PATH)
         self.assertLessEqual(len(reached), ALLOWED_REUSABLE_WORKFLOWS, f"the pipeline reaches {reached}; a shared part is a job with a shared step")
+        self.assertEqual([SUITE_JOBS], reached, "the suite jobs, which call no workflow in turn")
+        self.assertEqual([], reached_reusable_workflows(tracked_workflows(REPOSITORY_ROOT), SUITE_JOBS))
 
     def test_no_part_of_the_pipeline_is_a_reusable_workflow_of_its_own(self) -> None:
         workflows = tracked_workflows(REPOSITORY_ROOT)

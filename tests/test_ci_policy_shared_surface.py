@@ -326,13 +326,13 @@ class SelectionConsumerKitPinSourceTests(unittest.TestCase):
     TEMPLATE = {"kit.yml": "jobs:\n  unit:\n    steps:\n      - uses: actions/checkout@<pin>\n        with:\n          persist-credentials: false\n"}
     PINNED = "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
 
-    def test_the_readme_names_a_pin_source_for_each_template_that_pins_every_action_the_template_references(self) -> None:
+    def test_the_kit_holds_no_template_so_its_readme_names_no_pin_source(self) -> None:
         readme = (self.KIT / "README.md").read_text(encoding="utf-8")
         kit = self.KIT.relative_to(REPOSITORY_ROOT).as_posix()
         templates = {Path(path).name: (REPOSITORY_ROOT / path).read_text(encoding="utf-8")
                      for path in sorted(tracked_files(REPOSITORY_ROOT, [kit])) if re.fullmatch(rf"{re.escape(kit)}/[^/]+\.ya?ml", path)}
-        self.assertEqual({"validation.yml", "validation-workflow.yml"}, set(templates))
-        self.assertEqual({"validation-workflow.yml": [".github/workflows/validate.yml"]}, pin_sources(readme))
+        self.assertEqual(set(), set(templates), "the kit holds no template: the suite jobs are a shared workflow with pins of its own")
+        self.assertEqual({}, pin_sources(readme))
         self.assertEqual([], kit_pin_problems(readme, templates, tracked_workflows(REPOSITORY_ROOT)))
 
     def test_a_pin_source_that_pins_every_action_of_its_template_passes(self) -> None:

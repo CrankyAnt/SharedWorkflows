@@ -1,6 +1,6 @@
 """Text contract of the pipeline and of this repository's caller of it: one verdict that always runs, repository hygiene
 outside the configuration, and every other shared part a job that the plan starts, in the pipeline or in the shared
-workflow that its fragment names."""
+workflow that its fragment names, with the jobs that follow a part's job stated here."""
 
 from __future__ import annotations
 
@@ -40,6 +40,13 @@ PIPELINE_ONLY = {
 }
 # The jobs of the pipeline that are no shared part.
 PLAN, VERDICT = "plan", "verdict"
+# The jobs that follow the job of a part, in the pipeline's order: the suite selection selects in the part's own job, runs
+# the selected entry files in the suite jobs and then stores the passed results.
+SUITE_SELECTION = "suite-selection"
+FOLLOWING = {SUITE_SELECTION: ["suite-selection-jobs", "suite-selection-results"]}
+# The one reusable workflow that a job of the pipeline calls, with that job: the suite jobs, which the full recording of
+# the automation workflow runs as well.
+CALLED = {"suite-selection-jobs": "$/.github/workflows/suite-jobs.yml"}
 # The free job, the known setups, and the definition that a setting refers to when it names code of the repository to run.
 CUSTOM = "custom"
 SETUPS = REPOSITORY_ROOT / "actions" / "pipeline" / "schema" / "v1" / "setups.json"
@@ -153,12 +160,21 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("secrets", self.text)
         self.assertNotIn("pull_request_target", self.text)
 
-    def test_the_jobs_are_the_plan_one_job_per_shared_part_with_a_schema_fragment_and_the_verdict(self) -> None:
-        self.assertEqual([PLAN, *self.parts, VERDICT], list(self.jobs))
+    def test_the_jobs_are_the_plan_per_shared_part_with_a_schema_fragment_its_job_and_the_jobs_that_follow_it_and_the_verdict(self) -> None:
+        self.assertEqual([PLAN, *[name for part in self.parts for name in (part, *FOLLOWING.get(part, []))], VERDICT], list(self.jobs))
         self.assertIn(HYGIENE, self.parts)
+        self.assertLessEqual(set(FOLLOWING), set(self.parts))
 
-    def test_no_job_calls_a_reusable_workflow(self) -> None:
-        self.assertEqual([], [name for name, job in self.jobs.items() if "uses" in job])
+    def test_only_the_suite_jobs_are_a_reusable_workflow_that_a_job_calls(self) -> None:
+        self.assertEqual(CALLED, {name: job["uses"] for name, job in self.jobs.items() if "uses" in job})
+        self.assertEqual(["suite-selection-jobs"], [name for names in FOLLOWING.values() for name in names if name in CALLED])
+
+    def test_a_job_that_follows_a_part_s_job_needs_that_job_and_starts_only_after_it(self) -> None:
+        for part, following in FOLLOWING.items():
+            for name in following:
+                with self.subTest(job=name):
+                    self.assertIn(part, needed(self.jobs[name]))
+                    self.assertIn(f"needs.{part}.", self.jobs[name]["if"], "the job decides on what the part's job gave")
 
     def test_the_verdict_always_runs_and_needs_the_plan_and_every_part(self) -> None:
         verdict = self.jobs[VERDICT]
@@ -180,7 +196,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual("${{ !cancelled() }}", hygiene["if"])
         self.assertTrue(condition_holds(hygiene["if"], {}))
         start = self.text.index(f"\n  {HYGIENE}:\n")
-        section = self.text[start:self.text.index(f"\n  {VERDICT}:\n")]
+        section = self.text[start:self.text.index(f"\n  {SUITE_SELECTION}:\n")]
         self.assertNotIn("outputs.plan", section, "repository hygiene reads nothing of the configuration file")
         self.assertNotIn("ci-config", section)
         self.assertEqual([], concurrency_problems(HYGIENE, hygiene))
@@ -432,13 +448,13 @@ DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
 
 def dispatch_problems(jobs: dict) -> list[str]:
     """Each way a dependabot-merged run would not be a push of the dispatched commit behind the dispatch check: a checkout
-    of another commit, or a plan or hygiene checks that do not wait for the check."""
+    of another commit, or a plan, hygiene checks or a selection that do not wait for the check."""
     problems = []
     for name, job in jobs.items():
         for step in job.get("steps", []):
             if str(step.get("uses", "")).startswith("actions/checkout@") and (step.get("with") or {}).get("ref") != DISPATCHED:
                 problems.append(f"{name} does not check out the dispatched commit")
-    for name, guarded in ((PLAN, "plan"), (HYGIENE, "install")):
+    for name, guarded in ((PLAN, "plan"), (HYGIENE, "install"), (SUITE_SELECTION, "select")):
         steps = jobs[name]["steps"]
         names = [str(step.get("name") or step.get("id") or step.get("uses")) for step in steps]
         checkout = next((index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")), None)
@@ -473,10 +489,10 @@ class DispatchTests(unittest.TestCase):
 
         ref = f"          ref: {DISPATCHED}\n"
         self.assertEqual(["plan does not check out the dispatched commit"], dispatch_problems(changed(ref, "", 1)))
-        self.assertEqual(6, self.text.count(ref), "every checkout of the pipeline")
+        self.assertEqual(7, self.text.count(ref), "every checkout of the pipeline")
         check = self.text[self.text.index(f"      - name: {DISPATCH_CHECK}\n"):]
         check = check[:check.index("\n      - ", 1) + 1]
-        self.assertEqual(2, self.text.count(check))
+        self.assertEqual(2, self.text.count(check), "the plan and repository hygiene check it with the same step")
         self.assertEqual(["plan does not check the dispatched commit right after its checkout"], dispatch_problems(changed(check, "", 1)))
         self.assertEqual(["repository-hygiene installs its tools after a failed dispatch check"],
                          dispatch_problems(changed("if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' "

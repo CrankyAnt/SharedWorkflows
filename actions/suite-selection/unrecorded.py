@@ -8,18 +8,22 @@ the recording step. ``parts`` names the content of each such input per entry fil
 the checkout, or its working tree. An entry file whose part differs between the two sides is selected; the reuse key
 holds the parts of the tested tree.
 
-- A suite job is a job that runs entry files under the selection. In the repository that holds the shared CI, and in a
-  consumer's validation workflow made from the kit's template, it is a Linux shard job or the Windows job; in a
-  consumer's validation workflow that still gates its jobs per suite, it is a job whose gate names its suites or entry
-  files. Every suite job records its entry files, so a job that uses the recording step is a suite job; a test on the
-  workflow templates shows that each job of the template is one. A job whose condition, strategy or environment reads the
-  ``shards`` output of ``select`` runs every Linux entry file, one that reads its ``windows`` output every Windows entry
-  file; any other suite job runs the units its gate names, or every unit without a gate. The shard job and the
-  Windows job of the kit's template read ``shards`` and ``windows`` as inputs of the called workflow and have no gate,
-  so each of them runs every unit: a change to either job runs every suite.
-- The jobs above a suite job are the jobs it needs, directly or through other jobs, other than the jobs that run
-  ``select`` (through the suite-selection workflow, or a step that runs ``select`` of the suite selection), and the caller job of
-  the workflow that holds it, with the jobs above that caller.
+- A suite job is a job that runs entry files under the selection. In the shared workflow of the suite jobs, and in a
+  consumer's own validation workflow in that form, it is a Linux shard job or the Windows job; in a consumer's
+  validation workflow that still gates its jobs per suite, it is a job whose gate names its suites or entry files.
+  Every suite job records its entry files, so a job that uses the recording step is a suite job, apart from a job that
+  runs ``select``, which loads the recording step only to take its digest; a test on the shared workflow shows that
+  each of its jobs is one. A job whose condition, strategy or environment reads the ``shards`` output of ``select``
+  runs every Linux entry file, one that reads its ``windows`` output every Windows entry file; any other suite job runs
+  the units its gate names, or every unit without a gate. The shard job and the Windows job of the shared workflow read
+  ``shards`` and ``windows`` as inputs of the called workflow and have no gate, so each of them runs every unit: a
+  change to either job runs every suite. A repository reaches the shared workflow of the suite jobs in this walk only
+  by local path, as the repository that holds the shared CI does; a consumer that calls the pipeline at ``v1`` learns of
+  a change to it from the digest of the shared recording step.
+- The jobs above a suite job are the jobs it needs, directly or through other jobs, other than the jobs that only run
+  ``select`` (through the suite-selection workflow, or a step that runs ``select`` of the suite selection), and the
+  caller job of the workflow that holds it, with the jobs above that caller. A job that calls a workflow which runs
+  ``select`` and also reaches suite jobs, as the caller job of the pipeline does, is above those suite jobs.
 - A step of a suite job with a suite or entry-file gate belongs to the units of its gate, one whose condition names setups
   to the entry files of the job that state any of them, and one whose condition names a language step to that language
   step. A step after the last step that runs entry files and that uses no recording step only stores or reports results
@@ -150,8 +154,8 @@ def removed_lookups(previous, current, suite, entry: str) -> bool:
 
 def suite_list_changes(previous, current, list_path: str) -> dict[EntryFile, str]:
     """The entry files that a change of the suite list selects, with the reason: every entry file of a suite whose
-    command, setups, operating system or selection per entry file changed; an entry file that the change adds or whose
-    own setups it changes; and an entry file from whose lists, or from whose suite's lists, the change removes a read,
+    command, setups, operating system or selection per entry file changed, or the job of whose operating system changed;
+    an entry file that the change adds, whose own setups it changes, or the definition of one of whose setups it changes; and an entry file from whose lists, or from whose suite's lists, the change removes a read,
     a module lookup of a directory in which it looks up modules included."""
     before = {suite.name: suite for suite in previous.suites}
     selected: dict[EntryFile, str] = {}
@@ -164,8 +168,14 @@ def suite_list_changes(previous, current, list_path: str) -> dict[EntryFile, str
             selected.update({EntryFile(suite.name, entry): f"its command, setups, operating system or selection per entry file in `{list_path}` changed"
                              for entry in suite.entries})
             continue
+        if previous.job(suite.os) != current.job(suite.os):
+            selected.update({EntryFile(suite.name, entry): f"the job of its operating system in `{list_path}` changed" for entry in suite.entries})
+            continue
         for entry in suite.entries:
-            if entry not in old.entries:
+            setup = next((name for name in suite.setups_of(entry) if previous.setups_by_name.get(name) != current.setups_by_name.get(name)), None)
+            if setup is not None:
+                selected[EntryFile(suite.name, entry)] = f"the setup `{setup}` in `{list_path}` changed"
+            elif entry not in old.entries:
                 selected[EntryFile(suite.name, entry)] = f"`{entry}` is new in `{list_path}`"
             elif dict(old.entry_setups).get(entry, ()) != dict(suite.entry_setups).get(entry, ()):
                 selected[EntryFile(suite.name, entry)] = f"the setups of `{entry}` in `{list_path}` changed"
@@ -230,7 +240,10 @@ def suite_job_roles(job: dict) -> list[tuple[str, frozenset[str] | ci_definition
 
 
 def is_suite_job(job: object) -> bool:
-    return isinstance(job, dict) and isinstance(job.get("steps"), list) and any(uses_recording(step) for step in job["steps"])
+    """Whether a job runs entry files under the recording: it uses the recording step and runs no ``select``, whose job
+    loads the recording step only to take its digest."""
+    return (isinstance(job, dict) and isinstance(job.get("steps"), list) and any(uses_recording(step) for step in job["steps"])
+            and not runs_select(job))
 
 
 def runs_select(job: object) -> bool:
@@ -383,8 +396,9 @@ class WorkflowWalk:
             return []
 
     def selection_job(self, job: object) -> bool:
-        """Whether a job runs ``select``: it calls the suite-selection workflow, or it or a local workflow it calls runs
-        ``select`` in a step."""
+        """Whether a job only runs ``select``: it calls the suite-selection workflow, it runs ``select`` in a step, or a
+        local workflow it calls runs ``select`` in a step and reaches no suite job. A job that calls a workflow with
+        suite jobs, such as the caller job of the pipeline, is above those suite jobs."""
         if not isinstance(job, dict):
             return False
         called = uses_path(job.get("uses"))
@@ -392,12 +406,30 @@ class WorkflowWalk:
             return True
         if not is_local(job.get("uses")) or not called.endswith(ci_definition.WORKFLOW_SUFFIXES):
             return False
+        jobs = self._jobs_of(called)
+        return any(runs_select(other) for other in jobs.values()) and not self.reaches_suite_job(called)
+
+    def _jobs_of(self, path: str) -> dict:
+        """The jobs of a workflow on this side; none when it cannot be read."""
         try:
-            document = ci_definition.read_yaml(self.side.text(called) or "", called)
+            document = ci_definition.read_yaml(self.side.text(path) or "", path)
         except ci_definition.WorkflowReadError:
-            return False
+            return {}
         jobs = document.get("jobs") if isinstance(document, dict) else None
-        return isinstance(jobs, dict) and any(runs_select(other) for other in jobs.values())
+        return jobs if isinstance(jobs, dict) else {}
+
+    def reaches_suite_job(self, path: str, seen: frozenset[str] = frozenset()) -> bool:
+        """Whether a workflow holds a suite job, itself or in a local workflow that one of its jobs calls."""
+        if path in seen:
+            return False
+        for job in self._jobs_of(path).values():
+            if is_suite_job(job):
+                return True
+            called = uses_path(job.get("uses")) if isinstance(job, dict) else ""
+            if isinstance(job, dict) and is_local(job.get("uses")) and called.endswith(ci_definition.WORKFLOW_SUFFIXES) \
+                    and self.reaches_suite_job(called, seen | {path}):
+                return True
+        return False
 
     def _job_part(self, path: str, name: str, job: object) -> tuple[str, object, frozenset[str]]:
         content, files = self.forms.of(job)

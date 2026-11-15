@@ -87,11 +87,11 @@ class PythonLanguageStepConsumerKitTests(unittest.TestCase):
 # the setup that a repository names for its script, in its free job. The release part sets up the Python of the setup
 # that a repository names for the script that writes its files. The full recording of the automation workflow sets up
 # the Python that the suites of its suite list run on.
-INSTALLING = [".github/workflows/automation.yml", ".github/workflows/pipeline.yml", ".github/workflows/python-tests.yml", ".github/workflows/release.yml"]
+INSTALLING = [".github/workflows/pipeline.yml", ".github/workflows/python-tests.yml", ".github/workflows/release.yml", ".github/workflows/suite-jobs.yml"]
 
 
 class NoInterpreterInstallTests(unittest.TestCase):
-    def test_only_python_tests_the_python_parts_and_the_free_job_of_the_pipeline_the_release_part_and_the_full_recording_install_a_python_interpreter(self) -> None:
+    def test_only_python_tests_the_python_parts_and_the_free_job_of_the_pipeline_the_release_part_and_the_suite_jobs_install_a_python_interpreter(self) -> None:
         surface = json.loads(SURFACE.read_text(encoding="utf-8"))["paths"]
         # A consumer kit's templates become the consumer's own workflows, which set up the Python its suites test on.
         files = [path for path in (REPOSITORY_ROOT / "actions").rglob("*")

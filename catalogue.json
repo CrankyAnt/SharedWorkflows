@@ -68,13 +68,13 @@
     },
     {
       "name": "Suite selection",
-      "purpose": "Runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, and reports one verdict as the required check.",
+      "purpose": "Runs only the test suites and entry files that a change can affect through the validation caller of an earlier consumer kit, which calls the selection and verdict workflows and reports one verdict as the required check; a repository adopts the suite selection through the part suite-selection.",
       "configuration": null,
       "workflows": [".github/workflows/suite-selection.yml", ".github/workflows/suite-verdict.yml"],
       "steps": ["actions/suite-selection", "actions/recording"],
       "required_checks": ["validation / validation"],
-      "needs": "A validation workflow that runs the repository's suites on pull requests and pushes, a suite list of those suites, and for the full recording and the additions workflow a GitHub App that may push branches and open pull requests.",
-      "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs.",
+      "needs": "The validation caller and the validation workflow that the repository installed from an earlier consumer kit, both registered under local-workflows in .github/ci-config.yml, and a suite list of its suites; validation / validation is its required check until the repository switches to the part suite-selection, whose result reports in ci / verdict.",
+      "applies": "A repository that adopted the suite selection from an earlier consumer kit and has not switched to the part suite-selection.",
       "consumer_kit": "actions/suite-selection/consumer-kit",
       "audience": "consumer"
     },
@@ -85,7 +85,7 @@
       "workflows": [],
       "steps": ["actions/python-language-step"],
       "required_checks": [],
-      "needs": "A job that installs Python; with the suite selection, shard 1 of the validation workflow, where the verdict reports its result.",
+      "needs": "A job that installs Python; with the suite selection, the first Linux shard of the suite jobs runs it when the part names it under language-steps, and the pipeline's verdict reports its result.",
       "applies": "A repository with Python files.",
       "consumer_kit": "actions/python-language-step/consumer-kit",
       "audience": "consumer"
@@ -106,7 +106,7 @@
       "name": "Pipeline",
       "purpose": "Reads a repository's configuration file, runs repository hygiene and the parts that the file switches on and a change can affect, and reports one verdict as the required check, through three fixed callers that are equal in every repository: ci.yml calls the pipeline, automation.yml the automation workflow with the parts that write, and release.yml the release workflow.",
       "configuration": null,
-      "workflows": [".github/workflows/pipeline.yml", ".github/workflows/automation.yml", ".github/workflows/release.yml"],
+      "workflows": [".github/workflows/pipeline.yml", ".github/workflows/automation.yml", ".github/workflows/release.yml", ".github/workflows/suite-jobs.yml"],
       "steps": ["actions/pipeline"],
       "required_checks": ["ci / verdict"],
       "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, and the pointer document docs/agents/ci.md, equal to its template there up to and including the heading Repository choices; ci.yml calls the pipeline on pull requests, on pushes to main and on the dispatch dependabot-merged.",
@@ -172,6 +172,18 @@
       "needs": "The pipeline, a .NET test project or a solution that dotnet test runs, and parts.dotnet-test in .github/ci-config.yml with projects, a list of one or more items that each name sdk-version and project and optionally runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/dotnet-test.json states every setting.",
       "applies": "A repository with .NET tests that runs the pipeline.",
       "consumer_kit": null,
+      "audience": "consumer"
+    },
+    {
+      "name": "suite-selection",
+      "purpose": "Runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, as the part suite-selection of the pipeline: a job that selects, the shared suite jobs that run the setups of the suite list and the selected entry files in Linux shards and one Windows job, and a job that stores the passed results of a pull request, with its result in the pipeline's verdict.",
+      "configuration": "actions/pipeline/schema/v1/parts/suite-selection.json",
+      "workflows": [],
+      "steps": ["actions/suite-selection", "actions/recording", "actions/python-language-step"],
+      "required_checks": [],
+      "needs": "The pipeline, parts.suite-selection in .github/ci-config.yml with suites, the path of the suite list, and optionally language-steps, of which the schema fragment actions/pipeline/schema/v1/parts/suite-selection.json states every setting; a suite list that states the suites, each setup with its one script under setups and, where they differ from the defaults, the runner label and the fetch depth of each system's job under jobs; and for the full recording and the additions workflow a GitHub App that may push branches and open pull requests.",
+      "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs.",
+      "consumer_kit": "actions/suite-selection/consumer-kit",
       "audience": "consumer"
     },
     {

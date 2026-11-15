@@ -1,5 +1,53 @@
 {
   "always": [],
+  "jobs": {
+    "linux": {
+      "fetch-depth": 0
+    }
+  },
+  "setups": {
+    "python": {
+      "script": "tests/setups/python.py",
+      "recorded": false,
+      "tool": "python",
+      "version": "3.13"
+    },
+    "dotnet": {
+      "script": "tests/setups/dotnet.py",
+      "recorded": false,
+      "tool": "dotnet",
+      "version-file": "actions/recording/etw-consumer/global.json#/sdk/version"
+    },
+    "node": {
+      "script": "tests/setups/node.py",
+      "recorded": false,
+      "tool": "node",
+      "version-file": "actions/repository-hygiene/pins.json#/node/version"
+    },
+    "actionlint": {
+      "script": "tests/setups/pinned-tool.sh"
+    },
+    "zizmor": {
+      "script": "tests/setups/pinned-tool.sh"
+    },
+    "gitleaks": {
+      "script": "tests/setups/pinned-tool.sh"
+    },
+    "reuse": {
+      "script": "tests/setups/pinned-tool.sh"
+    },
+    "ruff": {
+      "script": "tests/setups/pinned-tool.sh"
+    },
+    "mypy": {
+      "script": "tests/setups/pinned-tool.sh"
+    },
+    "commitlint": {
+      "script": "tests/setups/commitlint.sh",
+      "tool": "node",
+      "version-file": "actions/repository-hygiene/pins.json#/node/version"
+    }
+  },
   "suites": [
     {
       "name": "ci-policy",
@@ -18,7 +66,7 @@
         "tests/test_ci_policy_publication.py",
         "tests/test_ci_policy_publication_document.py",
         "tests/test_ci_policy_tool_pins.py",
-        "tests/test_ci_policy_validate.py",
+        "tests/test_ci_policy_suite_jobs.py",
         "tests/test_ci_policy_zizmor.py",
         "tests/test_ci_policy_recording_action.py",
         "tests/test_ci_policy_etw_consumer.py",
@@ -57,7 +105,7 @@
         "tests/test_ci_policy_publication.py": 0.23,
         "tests/test_ci_policy_publication_document.py": 0.21,
         "tests/test_ci_policy_tool_pins.py": 0.22,
-        "tests/test_ci_policy_validate.py": 0.39,
+        "tests/test_ci_policy_suite_jobs.py": 0.39,
         "tests/test_ci_policy_zizmor.py": 0.23,
         "tests/test_ci_policy_recording_action.py": 0.23,
         "tests/test_ci_policy_etw_consumer.py": 0.27,
@@ -213,7 +261,7 @@
         "tests/test_ci_policy_shared_surface.py",
         "tests/test_ci_policy_sync.py",
         "tests/test_ci_policy_tool_pins.py",
-        "tests/test_ci_policy_validate.py",
+        "tests/test_ci_policy_suite_jobs.py",
         "tests/test_ci_policy_zizmor.py",
         "tests/workflow_commands.py"
       ],
@@ -418,7 +466,7 @@
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_tool_pins.py"
         ],
-        "tests/test_ci_policy_validate.py": [
+        "tests/test_ci_policy_suite_jobs.py": [
           ".github/workflows/apply-additions.yml",
           ".github/workflows/automation-caller.yml",
           ".github/workflows/automation.yml",
@@ -450,7 +498,7 @@
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
           "tests/suites.json",
-          "tests/test_ci_policy_validate.py"
+          "tests/test_ci_policy_suite_jobs.py"
         ],
         "tests/test_ci_policy_zizmor.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
@@ -888,7 +936,7 @@
         "tests/test_ci_policy_shared_surface.py/**",
         "tests/test_ci_policy_sync.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
-        "tests/test_ci_policy_validate.py/**",
+        "tests/test_ci_policy_suite_jobs.py/**",
         "tests/test_ci_policy_zizmor.py/**",
         "tests/test_ci_step_precision.py/**",
         "tests/test_consumer_kit_auto_merge.py/**",
@@ -1066,7 +1114,7 @@
         "tests/test_ci_policy_tool_pins.py": [
           ".github/workflows"
         ],
-        "tests/test_ci_policy_validate.py": [
+        "tests/test_ci_policy_suite_jobs.py": [
           ".github/workflows",
           "tests/test_automation_additions.py/**",
           "tests/test_automation_full_recording.py/**",
@@ -1098,7 +1146,7 @@
           "tests/test_ci_policy_shared_surface.py/**",
           "tests/test_ci_policy_sync.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
-          "tests/test_ci_policy_validate.py/**",
+          "tests/test_ci_policy_suite_jobs.py/**",
           "tests/test_ci_policy_zizmor.py/**",
           "tests/test_ci_step_precision.py/**",
           "tests/test_consumer_kit_auto_merge.py/**",
@@ -2277,23 +2325,23 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_ci_policy_validate",
+          "path": "tests/test_ci_policy_suite_jobs",
           "kind": "directory"
         },
         {
-          "path": "tests/test_ci_policy_validate.abi3.so",
+          "path": "tests/test_ci_policy_suite_jobs.abi3.so",
           "kind": "any"
         },
         {
-          "path": "tests/test_ci_policy_validate.cpython-313-x86_64-linux-gnu.so",
+          "path": "tests/test_ci_policy_suite_jobs.cpython-313-x86_64-linux-gnu.so",
           "kind": "any"
         },
         {
-          "path": "tests/test_ci_policy_validate.py",
+          "path": "tests/test_ci_policy_suite_jobs.py",
           "kind": "any"
         },
         {
-          "path": "tests/test_ci_policy_validate.so",
+          "path": "tests/test_ci_policy_suite_jobs.so",
           "kind": "any"
         },
         {
@@ -3782,7 +3830,7 @@
             "kind": "any"
           }
         ],
-        "tests/test_ci_policy_validate.py": [
+        "tests/test_ci_policy_suite_jobs.py": [
           {
             "path": "actions",
             "kind": "directory"
@@ -4044,23 +4092,23 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_ci_policy_validate",
+            "path": "tests/test_ci_policy_suite_jobs",
             "kind": "directory"
           },
           {
-            "path": "tests/test_ci_policy_validate.abi3.so",
+            "path": "tests/test_ci_policy_suite_jobs.abi3.so",
             "kind": "any"
           },
           {
-            "path": "tests/test_ci_policy_validate.cpython-313-x86_64-linux-gnu.so",
+            "path": "tests/test_ci_policy_suite_jobs.cpython-313-x86_64-linux-gnu.so",
             "kind": "any"
           },
           {
-            "path": "tests/test_ci_policy_validate.py",
+            "path": "tests/test_ci_policy_suite_jobs.py",
             "kind": "any"
           },
           {
-            "path": "tests/test_ci_policy_validate.so",
+            "path": "tests/test_ci_policy_suite_jobs.so",
             "kind": "any"
           },
           {
@@ -5410,7 +5458,7 @@
           ".",
           "tests"
         ],
-        "tests/test_ci_policy_validate.py": [
+        "tests/test_ci_policy_suite_jobs.py": [
           ".",
           "actions/suite-selection",
           "tests"
@@ -9192,7 +9240,9 @@
         "tests/test_recording_lookups.py",
         "tests/test_recording_etw.py",
         "tests/test_recording_pathspecs.py",
-        "tests/test_suite_selection_reuse.py"
+        "tests/test_suite_selection_reuse.py",
+        "tests/test_recording_setups.py",
+        "tests/test_suite_selection_setups.py"
       ],
       "command": [
         "python3",
@@ -9571,11 +9621,13 @@
         "tests/test_recording_full_close.py",
         "tests/test_recording_lookups.py",
         "tests/test_recording_pathspecs.py",
+        "tests/test_recording_setups.py",
         "tests/test_suite_selection.py",
         "tests/test_suite_selection_caller_entries.py",
         "tests/test_suite_selection_code_boundary.py",
         "tests/test_suite_selection_part_boundary.py",
         "tests/test_suite_selection_reuse.py",
+        "tests/test_suite_selection_setups.py",
         "tests/test_suite_selection_verdict_workflow.py",
         "tests/test_suite_selection_workflow.py",
         "tests/test_suite_selection_workflow_reader.py"
@@ -10146,6 +10198,12 @@
           "actions/suite-selection/unrecorded.py",
           "tests/suite_selection_fixtures.py",
           "tests/test_suite_selection_reuse.py"
+        ],
+        "tests/test_recording_setups.py": [
+          "tests/test_recording_setups.py"
+        ],
+        "tests/test_suite_selection_setups.py": [
+          "tests/test_suite_selection_setups.py"
         ]
       },
       "directory_memberships": [
@@ -10316,7 +10374,7 @@
         "tests/test_ci_policy_shared_surface.py/**",
         "tests/test_ci_policy_sync.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
-        "tests/test_ci_policy_validate.py/**",
+        "tests/test_ci_policy_suite_jobs.py/**",
         "tests/test_ci_policy_zizmor.py/**",
         "tests/test_ci_step_precision.py/**",
         "tests/test_consumer_kit_auto_merge.py/**",
@@ -10465,7 +10523,7 @@
           "tests/test_ci_policy_shared_surface.py/**",
           "tests/test_ci_policy_sync.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
-          "tests/test_ci_policy_validate.py/**",
+          "tests/test_ci_policy_suite_jobs.py/**",
           "tests/test_ci_policy_zizmor.py/**",
           "tests/test_ci_step_precision.py/**",
           "tests/test_consumer_kit_auto_merge.py/**",
@@ -11266,7 +11324,7 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_ci_policy_validate.py",
+          "path": "tests/test_ci_policy_suite_jobs.py",
           "kind": "any"
         },
         {
@@ -12997,7 +13055,7 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_ci_policy_validate.py",
+            "path": "tests/test_ci_policy_suite_jobs.py",
             "kind": "any"
           },
           {
@@ -23112,7 +23170,8 @@
     {
       "name": "windows",
       "entries": [
-        "tests/test_windows_recording.py"
+        "tests/test_windows_recording.py",
+        "tests/test_recording_setups.py"
       ],
       "os": "windows",
       "command": [
@@ -23149,6 +23208,7 @@
         "tests/recording_fixtures.py",
         "tests/strace_stand_in.py",
         "tests/test_recording_classification.py",
+        "tests/test_recording_setups.py",
         "tests/test_windows_recording.py"
       ],
       "entry_paths": {
@@ -23174,6 +23234,9 @@
           "tests/strace_stand_in.py",
           "tests/test_recording_classification.py",
           "tests/test_windows_recording.py"
+        ],
+        "tests/test_recording_setups.py": [
+          "tests/test_recording_setups.py"
         ]
       },
       "existence_reads": [

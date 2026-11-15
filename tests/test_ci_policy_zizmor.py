@@ -13,8 +13,9 @@ SHARED_POLICY = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "zizmor-pol
 SHARED_SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 SHARED_CI = REPOSITORY_ROOT / "actions"
 # The shared actions that no template calls any more, but that a workflow which a consumer installed from an earlier
-# template still calls at v1: the additions workflow and the full recording, whose templates left the kit.
-INSTALLED_EARLIER = {"actions/repository-hygiene", "actions/suite-selection"}
+# template still calls at v1: the additions workflow, the full recording and the validation workflow, whose templates
+# left the kit.
+INSTALLED_EARLIER = {"actions/repository-hygiene", "actions/suite-selection", "actions/recording", "actions/python-language-step"}
 
 
 def shared_workflows() -> set[str]:

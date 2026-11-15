@@ -11,9 +11,9 @@ from tests.ci_policy_support import REPOSITORY_ROOT, flow_items
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 CALLER = WORKFLOWS / "dependabot-auto-merge-caller.yml"
-# The workflows of the checks that the default-branch ruleset requires: hygiene / hygiene, the verdict of validate.yml and
-# tests / tests of the Python-tests caller.
-REQUIRED_CHECK_WORKFLOWS = ("repository-hygiene-caller.yml", "validate.yml", "python-tests-caller.yml")
+# The workflows of the checks that the default-branch ruleset requires: hygiene / hygiene, the verdict of the pipeline,
+# which carries the result of the suites, and tests / tests of the Python-tests caller.
+REQUIRED_CHECK_WORKFLOWS = ("repository-hygiene-caller.yml", "ci.yml", "python-tests-caller.yml")
 
 
 class AutoMergeCallerTests(unittest.TestCase):

@@ -607,10 +607,11 @@ def passed_entries(directory: Path) -> set[tuple[str, str]]:
     return passed
 
 
-def store(needs: dict, passed: set[tuple[str, str]], run_id: int) -> dict[str, int] | None:
+def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job: str = "select") -> dict[str, int] | None:
     """The record of a run: the results ``select`` reused, and every unit that ran and passed with all its entry
-    files. None when the selection did not succeed, so that nothing is stored."""
-    selection = needs.get("select")
+    files. ``selection_job`` names the job of the needs context that ran ``select``. None when the selection did not
+    succeed, so that nothing is stored."""
+    selection = needs.get(selection_job)
     if not isinstance(selection, dict) or selection.get("result") != "success":
         return None
     outputs = selection.get("outputs") if isinstance(selection.get("outputs"), dict) else {}
