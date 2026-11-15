@@ -8,6 +8,6 @@ public class GreetingTests
     [TestMethod]
     public void GreetsByName()
     {
-        Assert.AreEqual("Hello, CI", Greeting.For("CI"));
+        Assert.AreEqual("Hello, CI!", Greeting.For("CI"));
     }
 }

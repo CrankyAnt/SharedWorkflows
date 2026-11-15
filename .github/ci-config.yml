@@ -2,7 +2,7 @@ version: 1
 parts:
   custom:
     setups: [python-3.14]
-    script: tests/fixtures/custom/pass.sh
+    script: tests/fixtures/custom/fail.sh
   python-verify:
     projects:
       - python-version: "3.14"
