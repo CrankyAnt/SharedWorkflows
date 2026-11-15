@@ -66,8 +66,11 @@
       },
       "entry_selection": true,
       "paths": [
+        ".github/ci-config.yml",
         ".github/dependabot.yml",
         ".github/workflows/apply-additions.yml",
+        ".github/workflows/automation-caller.yml",
+        ".github/workflows/automation.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/dependabot-auto-merge-caller.yml",
         ".github/workflows/dependabot-auto-merge.yml",
@@ -96,6 +99,8 @@
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
         "actions/dotnet-test/action.yml",
         "actions/dotnet-test/dotnet_test.py",
+        "actions/issue-title/action.yml",
+        "actions/issue-title/issue_title.py",
         "actions/pipeline/action.yml",
         "actions/pipeline/consumer-kit/README.md",
         "actions/pipeline/consumer-kit/automation.yml",
@@ -106,9 +111,13 @@
         "actions/pipeline/plan.py",
         "actions/pipeline/release.py",
         "actions/pipeline/schema/v1/ci-config.schema.json",
+        "actions/pipeline/schema/v1/parts/additions.json",
         "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
         "actions/pipeline/schema/v1/parts/dotnet-test.json",
+        "actions/pipeline/schema/v1/parts/full-recording.json",
         "actions/pipeline/schema/v1/parts/github-release.json",
+        "actions/pipeline/schema/v1/parts/issue-title.json",
         "actions/pipeline/schema/v1/parts/python-test.json",
         "actions/pipeline/schema/v1/parts/python-verify.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -169,6 +178,7 @@
         "catalogue.json",
         "docs/maintaining.md",
         "tests/ci_policy_support.py",
+        "tests/fixtures/issue_title/categories.json",
         "tests/fixtures/python_tests/pyproject.toml",
         "tests/fixtures/python_tests/tests/test_greeting.py",
         "tests/suites.json",
@@ -205,6 +215,8 @@
       "entry_paths": {
         "tests/test_ci_policy_action_pins.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -221,6 +233,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -239,6 +252,8 @@
         ],
         "tests/test_ci_policy_shared_surface.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -255,6 +270,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -281,6 +297,9 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "actions/sync/consumer-kit/AGENTS.template.md",
+          "actions/sync/consumer-kit/README.md",
+          "actions/sync/consumer-kit/sync.yml",
           "catalogue.json",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_shared_surface.py"
@@ -350,6 +369,8 @@
         ],
         "tests/test_ci_policy_tool_pins.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -366,6 +387,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -375,6 +397,8 @@
         ],
         "tests/test_ci_policy_validate.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -391,6 +415,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -423,6 +448,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "actions/sync/consumer-kit/sync.yml",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_zizmor.py"
         ],
@@ -433,6 +459,8 @@
         ],
         "tests/test_ci_policy_etw_consumer.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -449,6 +477,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -460,6 +489,8 @@
           "tests/test_ci_policy_etw_consumer.py"
         ],
         "tests/test_ci_policy_full_recording.py": [
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/full-recording.yml",
           ".github/workflows/validate.yml",
           "actions/suite-selection/ci_definition.py",
@@ -467,6 +498,7 @@
           "tests/test_ci_policy_full_recording.py"
         ],
         "tests/test_ci_policy_python_language_step.py": [
+          ".github/workflows/automation.yml",
           ".github/workflows/dependabot-auto-merge.yml",
           ".github/workflows/pipeline.yml",
           ".github/workflows/python-tests.yml",
@@ -474,10 +506,13 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           "actions/dependabot-auto-merge/action.yml",
           "actions/dependabot-auto-merge/auto_merge.py",
           "actions/dotnet-test/action.yml",
           "actions/dotnet-test/dotnet_test.py",
+          "actions/issue-title/action.yml",
+          "actions/issue-title/issue_title.py",
           "actions/pipeline/action.yml",
           "actions/pipeline/consumer_checks.py",
           "actions/pipeline/plan.py",
@@ -513,12 +548,16 @@
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
+          "actions/sync/action.yml",
+          "actions/sync/sync.py",
           "catalogue.json",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_python_language_step.py"
         ],
         "tests/test_ci_policy_reuse.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -534,6 +573,7 @@
           ".github/workflows/repository-hygiene-caller.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -551,6 +591,8 @@
         ],
         "tests/test_ci_policy_additions.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/rebuild-etw-consumer.yml",
           ".github/workflows/validate.yml",
           "actions/suite-selection/ci_definition.py",
@@ -561,6 +603,8 @@
         ],
         "tests/test_ci_policy_pipeline.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -576,12 +620,17 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
+          "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -603,6 +652,8 @@
         ],
         "tests/test_ci_policy_pipeline_parts.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -618,6 +669,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -635,6 +687,8 @@
         ],
         "tests/test_ci_policy_release.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -650,6 +704,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -660,6 +715,28 @@
           "tests/test_ci_policy_release.py"
         ],
         "tests/test_ci_policy_automation.py": [
+          ".github/ci-config.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
+          ".github/workflows/ci.yml",
+          ".github/workflows/dependabot-auto-merge.yml",
+          ".github/workflows/python-tests-caller.yml",
+          ".github/workflows/repository-hygiene-caller.yml",
+          ".github/workflows/validate.yml",
+          "actions/pipeline/consumer-kit/automation.yml",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
+          "tests/fixtures/issue_title/categories.json",
           "tests/test_ci_policy_automation.py"
         ],
         "tests/test_ci_policy_sync.py": [
@@ -694,6 +771,8 @@
         "actions/dependabot-auto-merge/consumer-kit/**",
         "actions/dotnet-test",
         "actions/dotnet-test/**",
+        "actions/issue-title",
+        "actions/issue-title/**",
         "actions/pipeline",
         "actions/pipeline/**",
         "actions/pipeline/consumer-kit",
@@ -728,12 +807,20 @@
         "actions/suite-selection/**",
         "actions/suite-selection/consumer-kit",
         "actions/suite-selection/consumer-kit/**",
+        "actions/sync",
+        "actions/sync/**",
+        "actions/sync/consumer-kit",
+        "actions/sync/consumer-kit/**",
         "catalogue.json/**",
         "tests/fixtures/python_tests",
         "tests/fixtures/python_tests/tests",
+        "tests/test_automation_additions.py/**",
+        "tests/test_automation_full_recording.py/**",
+        "tests/test_automation_invocations.py/**",
         "tests/test_ci_policy_action_pins.py/**",
         "tests/test_ci_policy_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
+        "tests/test_ci_policy_automation.py/**",
         "tests/test_ci_policy_etw_consumer.py/**",
         "tests/test_ci_policy_fixed_callers.py/**",
         "tests/test_ci_policy_full_recording.py/**",
@@ -754,20 +841,20 @@
         "tests/test_ci_policy_release.py/**",
         "tests/test_ci_policy_reuse.py/**",
         "tests/test_ci_policy_shared_surface.py/**",
+        "tests/test_ci_policy_sync.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
         "tests/test_ci_policy_validate.py/**",
         "tests/test_ci_policy_zizmor.py/**",
         "tests/test_ci_step_precision.py/**",
-        "tests/test_automation_additions.py/**",
         "tests/test_consumer_kit_auto_merge.py/**",
         "tests/test_consumer_kit_dependabot.py/**",
         "tests/test_consumer_kit_fixed_callers.py/**",
-        "tests/test_automation_full_recording.py/**",
         "tests/test_consumer_kit_hygiene.py/**",
         "tests/test_consumer_kit_install_by_need.py/**",
         "tests/test_consumer_kit_installed_permissions.py/**",
         "tests/test_consumer_kit_installed_targets.py/**",
         "tests/test_consumer_kit_installed_validation.py/**",
+        "tests/test_consumer_kit_management.py/**",
         "tests/test_consumer_kit_own_dependabot.py/**",
         "tests/test_consumer_kit_publication.py/**",
         "tests/test_consumer_kit_python_tests.py/**",
@@ -792,6 +879,7 @@
         "tests/test_hygiene_zizmor.py/**",
         "tests/test_hygiene_zizmor_configuration.py/**",
         "tests/test_hygiene_zizmor_surface.py/**",
+        "tests/test_issue_title.py/**",
         "tests/test_link_check.py/**",
         "tests/test_pin_updater.py/**",
         "tests/test_pipeline_callers.py/**",
@@ -847,6 +935,9 @@
         "tests/test_suite_selection_verdict_workflow.py/**",
         "tests/test_suite_selection_workflow.py/**",
         "tests/test_suite_selection_workflow_reader.py/**",
+        "tests/test_sync_adoption.py/**",
+        "tests/test_sync_files.py/**",
+        "tests/test_sync_settings.py/**",
         "tests/test_v1_promotion.py/**",
         "tests/test_windows_recording.py/**"
       ],
@@ -863,6 +954,7 @@
           "actions/dependabot-auto-merge/**",
           "actions/dependabot-auto-merge/consumer-kit/**",
           "actions/dotnet-test/**",
+          "actions/issue-title/**",
           "actions/pipeline/**",
           "actions/publication-checks/**",
           "actions/python-language-step/**",
@@ -876,6 +968,8 @@
           "actions/repository-ruleset/**",
           "actions/suite-selection/**",
           "actions/suite-selection/consumer-kit/**",
+          "actions/sync/**",
+          "actions/sync/consumer-kit/**",
           "catalogue.json/**"
         ],
         "tests/test_ci_policy_tool_pins.py": [
@@ -883,9 +977,13 @@
         ],
         "tests/test_ci_policy_validate.py": [
           ".github/workflows",
+          "tests/test_automation_additions.py/**",
+          "tests/test_automation_full_recording.py/**",
+          "tests/test_automation_invocations.py/**",
           "tests/test_ci_policy_action_pins.py/**",
           "tests/test_ci_policy_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
+          "tests/test_ci_policy_automation.py/**",
           "tests/test_ci_policy_etw_consumer.py/**",
           "tests/test_ci_policy_fixed_callers.py/**",
           "tests/test_ci_policy_full_recording.py/**",
@@ -906,20 +1004,20 @@
           "tests/test_ci_policy_release.py/**",
           "tests/test_ci_policy_reuse.py/**",
           "tests/test_ci_policy_shared_surface.py/**",
+          "tests/test_ci_policy_sync.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
           "tests/test_ci_policy_validate.py/**",
           "tests/test_ci_policy_zizmor.py/**",
           "tests/test_ci_step_precision.py/**",
-          "tests/test_automation_additions.py/**",
           "tests/test_consumer_kit_auto_merge.py/**",
           "tests/test_consumer_kit_dependabot.py/**",
           "tests/test_consumer_kit_fixed_callers.py/**",
-          "tests/test_automation_full_recording.py/**",
           "tests/test_consumer_kit_hygiene.py/**",
           "tests/test_consumer_kit_install_by_need.py/**",
           "tests/test_consumer_kit_installed_permissions.py/**",
           "tests/test_consumer_kit_installed_targets.py/**",
           "tests/test_consumer_kit_installed_validation.py/**",
+          "tests/test_consumer_kit_management.py/**",
           "tests/test_consumer_kit_own_dependabot.py/**",
           "tests/test_consumer_kit_publication.py/**",
           "tests/test_consumer_kit_python_tests.py/**",
@@ -944,6 +1042,7 @@
           "tests/test_hygiene_zizmor.py/**",
           "tests/test_hygiene_zizmor_configuration.py/**",
           "tests/test_hygiene_zizmor_surface.py/**",
+          "tests/test_issue_title.py/**",
           "tests/test_link_check.py/**",
           "tests/test_pin_updater.py/**",
           "tests/test_pipeline_callers.py/**",
@@ -999,6 +1098,9 @@
           "tests/test_suite_selection_verdict_workflow.py/**",
           "tests/test_suite_selection_workflow.py/**",
           "tests/test_suite_selection_workflow_reader.py/**",
+          "tests/test_sync_adoption.py/**",
+          "tests/test_sync_files.py/**",
+          "tests/test_sync_settings.py/**",
           "tests/test_v1_promotion.py/**",
           "tests/test_windows_recording.py/**"
         ],
@@ -1009,7 +1111,8 @@
           "actions/python-language-step/consumer-kit",
           "actions/python-tests/consumer-kit",
           "actions/repository-hygiene/consumer-kit",
-          "actions/suite-selection/consumer-kit"
+          "actions/suite-selection/consumer-kit",
+          "actions/sync/consumer-kit"
         ],
         "tests/test_ci_policy_etw_consumer.py": [
           ".github/workflows"
@@ -1020,6 +1123,7 @@
           "actions/dependabot-auto-merge",
           "actions/dependabot-auto-merge/consumer-kit",
           "actions/dotnet-test",
+          "actions/issue-title",
           "actions/pipeline",
           "actions/pipeline/consumer-kit",
           "actions/pipeline/schema",
@@ -1037,7 +1141,9 @@
           "actions/repository-hygiene/consumer-kit",
           "actions/repository-ruleset",
           "actions/suite-selection",
-          "actions/suite-selection/consumer-kit"
+          "actions/suite-selection/consumer-kit",
+          "actions/sync",
+          "actions/sync/consumer-kit"
         ],
         "tests/test_ci_policy_reuse.py": [
           ".github/workflows"
@@ -1060,11 +1166,20 @@
         "tests/test_ci_policy_release.py": [
           ".github/workflows/**"
         ],
-        "tests/test_ci_policy_sync.py": []
+        "tests/test_ci_policy_automation.py": [
+          "actions/pipeline/schema/v1/parts/**"
+        ],
+        "tests/test_ci_policy_sync.py": [
+          "actions/sync/**"
+        ]
       },
       "existence_reads": [
         {
           "path": ".github/workflows",
+          "kind": "any"
+        },
+        {
+          "path": ".github/workflows/automation.yml",
           "kind": "any"
         },
         {
@@ -1100,6 +1215,10 @@
           "kind": "any"
         },
         {
+          "path": ".github/workflows/sync.yml",
+          "kind": "any"
+        },
+        {
           "path": "actions",
           "kind": "directory"
         },
@@ -1120,6 +1239,14 @@
           "kind": "any"
         },
         {
+          "path": "actions/issue-title",
+          "kind": "any"
+        },
+        {
+          "path": "actions/issue-title/consumer-kit",
+          "kind": "any"
+        },
+        {
           "path": "actions/pipeline",
           "kind": "any"
         },
@@ -1129,6 +1256,38 @@
         },
         {
           "path": "actions/pipeline/consumer-kit/previous",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/plan.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan.so",
           "kind": "any"
         },
         {
@@ -1185,6 +1344,22 @@
         },
         {
           "path": "actions/repository-hygiene/consumer-kit/target",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.so",
           "kind": "any"
         },
         {
@@ -1308,6 +1483,30 @@
           "kind": "any"
         },
         {
+          "path": "actions/sync",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/consumer-kit",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/sync/sync.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync.so",
+          "kind": "any"
+        },
+        {
           "path": "catalogue.json",
           "kind": "any"
         },
@@ -1348,6 +1547,18 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_automation_additions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_full_recording.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_invocations.py",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_action_pins",
           "kind": "directory"
         },
@@ -1368,6 +1579,26 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_ci_policy_additions",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_additions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_additions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_additions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_additions.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_apply_additions",
           "kind": "directory"
         },
@@ -1377,10 +1608,6 @@
         },
         {
           "path": "tests/test_ci_policy_apply_additions.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_ci_policy_additions.py",
           "kind": "any"
         },
         {
@@ -1405,6 +1632,26 @@
         },
         {
           "path": "tests/test_ci_policy_auto_merge_caller.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_automation",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_automation.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_automation.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_automation.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_automation.so",
           "kind": "any"
         },
         {
@@ -1808,6 +2055,26 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_ci_policy_sync",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_sync.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_sync.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_sync.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_sync.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_tool_pins",
           "kind": "directory"
         },
@@ -1872,10 +2139,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_automation_additions.py",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_consumer_kit_auto_merge.py",
           "kind": "any"
         },
@@ -1885,10 +2148,6 @@
         },
         {
           "path": "tests/test_consumer_kit_fixed_callers.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_automation_full_recording.py",
           "kind": "any"
         },
         {
@@ -1909,6 +2168,10 @@
         },
         {
           "path": "tests/test_consumer_kit_installed_validation.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_management.py",
           "kind": "any"
         },
         {
@@ -2005,6 +2268,10 @@
         },
         {
           "path": "tests/test_hygiene_zizmor_surface.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_issue_title.py",
           "kind": "any"
         },
         {
@@ -2228,11 +2495,39 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_sync_adoption.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_files.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_settings.py",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_v1_promotion.py",
           "kind": "any"
         },
         {
           "path": "tests/test_windows_recording.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/workflow_commands",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/workflow_commands.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/workflow_commands.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/workflow_commands.so",
           "kind": "any"
         }
       ],
@@ -2351,6 +2646,10 @@
             "kind": "any"
           },
           {
+            "path": ".github/workflows/automation.yml",
+            "kind": "any"
+          },
+          {
             "path": ".github/workflows/dependabot-auto-merge.yml",
             "kind": "any"
           },
@@ -2375,6 +2674,10 @@
             "kind": "any"
           },
           {
+            "path": ".github/workflows/sync.yml",
+            "kind": "any"
+          },
+          {
             "path": "actions/dependabot-auto-merge",
             "kind": "any"
           },
@@ -2384,6 +2687,10 @@
           },
           {
             "path": "actions/dotnet-test",
+            "kind": "any"
+          },
+          {
+            "path": "actions/issue-title",
             "kind": "any"
           },
           {
@@ -2452,6 +2759,14 @@
           },
           {
             "path": "actions/suite-selection/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/consumer-kit",
             "kind": "any"
           },
           {
@@ -3201,6 +3516,18 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_automation_additions.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_full_recording.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_invocations.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_action_pins.py",
             "kind": "any"
           },
@@ -3210,6 +3537,10 @@
           },
           {
             "path": "tests/test_ci_policy_auto_merge_caller.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_automation.py",
             "kind": "any"
           },
           {
@@ -3293,6 +3624,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_ci_policy_sync.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_tool_pins.py",
             "kind": "any"
           },
@@ -3325,10 +3660,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_automation_additions.py",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_auto_merge.py",
             "kind": "any"
           },
@@ -3338,10 +3669,6 @@
           },
           {
             "path": "tests/test_consumer_kit_fixed_callers.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_automation_full_recording.py",
             "kind": "any"
           },
           {
@@ -3362,6 +3689,10 @@
           },
           {
             "path": "tests/test_consumer_kit_installed_validation.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_management.py",
             "kind": "any"
           },
           {
@@ -3458,6 +3789,10 @@
           },
           {
             "path": "tests/test_hygiene_zizmor_surface.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_issue_title.py",
             "kind": "any"
           },
           {
@@ -3681,6 +4016,18 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_sync_adoption.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_files.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_settings.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_v1_promotion.py",
             "kind": "any"
           },
@@ -3692,6 +4039,10 @@
         "tests/test_ci_policy_zizmor.py": [
           {
             "path": "actions/dotnet-test/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/issue-title/consumer-kit",
             "kind": "any"
           },
           {
@@ -4121,6 +4472,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_ci_policy_additions",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_additions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_additions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_additions.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_apply_additions",
             "kind": "directory"
           },
@@ -4377,11 +4744,201 @@
             "kind": "any"
           }
         ],
-        "tests/test_ci_policy_sync.py": []
+        "tests/test_ci_policy_automation.py": [
+          {
+            "path": "actions/pipeline/schema/v1/parts",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_automation",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_automation.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_automation.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_automation.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_ci_policy_sync.py": [
+          {
+            "path": "actions/pipeline/consumer_checks",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_sync",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_sync.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_sync.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_sync.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/workflow_commands.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.so",
+            "kind": "any"
+          }
+        ]
       },
       "lookup_directories": [
         ".",
+        "actions/pipeline",
+        "actions/repository-hygiene",
         "actions/suite-selection",
+        "actions/sync",
         "tests"
       ],
       "entry_lookup_directories": {
@@ -4490,7 +5047,17 @@
           ".",
           "tests"
         ],
-        "tests/test_ci_policy_sync.py": []
+        "tests/test_ci_policy_automation.py": [
+          ".",
+          "tests"
+        ],
+        "tests/test_ci_policy_sync.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "actions/sync",
+          "tests"
+        ]
       }
     },
     {
@@ -5022,6 +5589,8 @@
       "paths": [
         ".github/dependabot.yml",
         ".github/workflows/apply-additions.yml",
+        ".github/workflows/automation-caller.yml",
+        ".github/workflows/automation.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/dependabot-auto-merge-caller.yml",
         ".github/workflows/dependabot-auto-merge.yml",
@@ -5096,7 +5665,6 @@
         "tests/strace_stand_in.py",
         "tests/test_automation_additions.py",
         "tests/test_automation_full_recording.py",
-        "tests/test_consumer_kit_auto_merge.py",
         "tests/test_consumer_kit_dependabot.py",
         "tests/test_consumer_kit_fixed_callers.py",
         "tests/test_consumer_kit_hygiene.py",
@@ -5111,7 +5679,6 @@
         "tests/test_consumer_kit_templates.py",
         "tests/test_consumer_kit_validation_workflow.py",
         "tests/test_setup_ci_apply_additions.py",
-        "tests/test_setup_ci_auto_merge.py",
         "tests/test_setup_ci_dependabot.py",
         "tests/test_setup_ci_full_recording.py",
         "tests/test_setup_ci_hygiene.py",
@@ -5127,6 +5694,7 @@
       "entry_paths": {
         "tests/test_automation_additions.py": [
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/full-recording.yml",
           ".github/workflows/rebuild-etw-consumer.yml",
           "actions/recording/recording.py",
@@ -5164,6 +5732,7 @@
           "tests/test_setup_ci_dependabot.py"
         ],
         "tests/test_automation_full_recording.py": [
+          ".github/workflows/automation.yml",
           ".github/workflows/full-recording.yml",
           "actions/recording/recording.py",
           "actions/repository-hygiene/install_tools.py",
@@ -5192,6 +5761,8 @@
         "tests/test_consumer_kit_install_by_need.py": [
           ".github/dependabot.yml",
           ".github/workflows/apply-additions.yml",
+          ".github/workflows/automation-caller.yml",
+          ".github/workflows/automation.yml",
           ".github/workflows/ci.yml",
           ".github/workflows/dependabot-auto-merge-caller.yml",
           ".github/workflows/dependabot-auto-merge.yml",
@@ -5208,6 +5779,7 @@
           ".github/workflows/repository-hygiene.yml",
           ".github/workflows/suite-selection.yml",
           ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
@@ -5292,6 +5864,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "actions/sync/consumer-kit/sync.yml",
           "tests/test_consumer_kit_publication.py",
           "tests/test_setup_ci_publication.py"
         ],
@@ -5311,6 +5884,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
+          "actions/sync/consumer-kit/README.md",
           "catalogue.json",
           "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
           "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
@@ -5324,6 +5898,7 @@
           "tests/test_setup_ci_templates.py"
         ],
         "tests/test_consumer_kit_validation_workflow.py": [
+          ".github/workflows/automation.yml",
           ".github/workflows/full-recording.yml",
           ".github/workflows/validate.yml",
           "actions/repository-hygiene/install_tools.py",
@@ -5411,6 +5986,7 @@
         "actions/repository-hygiene",
         "actions/repository-hygiene/consumer-kit",
         "actions/suite-selection/consumer-kit",
+        "actions/sync/consumer-kit",
         "docs/adr"
       ],
       "entry_directory_memberships": {
@@ -5472,7 +6048,8 @@
           "actions/python-tests/consumer-kit",
           "actions/repository-hygiene",
           "actions/repository-hygiene/consumer-kit",
-          "actions/suite-selection/consumer-kit"
+          "actions/suite-selection/consumer-kit",
+          "actions/sync/consumer-kit"
         ],
         "tests/test_consumer_kit_templates.py": [
           "actions/dependabot-auto-merge/consumer-kit",
@@ -5482,6 +6059,7 @@
           "actions/repository-hygiene",
           "actions/repository-hygiene/consumer-kit",
           "actions/suite-selection/consumer-kit",
+          "actions/sync/consumer-kit",
           "docs/adr"
         ],
         "tests/test_consumer_kit_validation_workflow.py": [
@@ -5494,7 +6072,9 @@
         "tests/test_consumer_kit_fixed_callers.py": [
           "actions/repository-hygiene"
         ],
-        "tests/test_consumer_kit_management.py": []
+        "tests/test_consumer_kit_management.py": [
+          "actions/sync/consumer-kit"
+        ]
       },
       "existence_reads": [
         {
@@ -5518,11 +6098,51 @@
           "kind": "any"
         },
         {
+          "path": "actions/issue-title/consumer-kit",
+          "kind": "any"
+        },
+        {
+          "path": "actions/issue-title/consumer-kit/publication-checks.yml",
+          "kind": "any"
+        },
+        {
           "path": "actions/pipeline/consumer-kit",
           "kind": "any"
         },
         {
           "path": "actions/pipeline/consumer-kit/publication-checks.yml",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/plan.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan.so",
           "kind": "any"
         },
         {
@@ -5706,6 +6326,26 @@
           "kind": "any"
         },
         {
+          "path": "actions/sync/consumer-kit/publication-checks.yml",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/sync/sync.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync.so",
+          "kind": "any"
+        },
+        {
           "path": "tests",
           "kind": "directory"
         },
@@ -5838,6 +6478,38 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_automation_additions",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_automation_additions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_additions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_additions.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_full_recording",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_automation_full_recording.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_full_recording.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_full_recording.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_consumer_kit_apply_additions",
           "kind": "directory"
         },
@@ -5851,22 +6523,6 @@
         },
         {
           "path": "tests/test_consumer_kit_apply_additions.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_auto_merge",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_consumer_kit_auto_merge.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_auto_merge.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_auto_merge.so",
           "kind": "any"
         },
         {
@@ -5998,6 +6654,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_consumer_kit_management",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_consumer_kit_management.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_management.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_management.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_consumer_kit_own_dependabot",
           "kind": "directory"
         },
@@ -6091,22 +6763,6 @@
         },
         {
           "path": "tests/test_setup_ci_apply_additions.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_auto_merge.so",
           "kind": "any"
         },
         {
@@ -6501,6 +7157,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_automation_additions",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_automation_additions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_additions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_additions.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_consumer_kit_apply_additions",
             "kind": "directory"
           },
@@ -6730,6 +7402,22 @@
           },
           {
             "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_full_recording",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_automation_full_recording.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_full_recording.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_full_recording.so",
             "kind": "any"
           },
           {
@@ -7363,6 +8051,14 @@
             "kind": "any"
           },
           {
+            "path": "actions/issue-title/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/issue-title/consumer-kit/publication-checks.yml",
+            "kind": "any"
+          },
+          {
             "path": "actions/pipeline/consumer-kit",
             "kind": "any"
           },
@@ -7408,6 +8104,10 @@
           },
           {
             "path": "actions/suite-selection/consumer-kit/publication-checks.yml",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/consumer-kit/publication-checks.yml",
             "kind": "any"
           },
           {
@@ -7855,13 +8555,128 @@
             "kind": "any"
           }
         ],
-        "tests/test_consumer_kit_management.py": []
+        "tests/test_consumer_kit_management.py": [
+          {
+            "path": "actions/pipeline/consumer_checks",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_management",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_consumer_kit_management.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_management.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_management.so",
+            "kind": "any"
+          }
+        ]
       },
       "lookup_directories": [
         ".",
+        "actions/pipeline",
         "actions/recording",
         "actions/repository-hygiene",
         "actions/suite-selection",
+        "actions/sync",
         "tests"
       ],
       "entry_lookup_directories": {
@@ -7927,7 +8742,13 @@
           ".",
           "tests"
         ],
-        "tests/test_consumer_kit_management.py": []
+        "tests/test_consumer_kit_management.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "actions/sync",
+          "tests"
+        ]
       }
     },
     {
@@ -7980,6 +8801,7 @@
       },
       "entry_selection": true,
       "paths": [
+        ".github/workflows/automation.yml",
         ".github/workflows/full-recording.yml",
         ".github/workflows/repository-hygiene.yml",
         ".github/workflows/suite-selection.yml",
@@ -8759,6 +9581,7 @@
           "tests/test_recording_full.py"
         ],
         "tests/test_recording_full_close.py": [
+          ".github/workflows/automation.yml",
           ".github/workflows/full-recording.yml",
           "actions/recording/recording.py",
           "actions/suite-selection/ci_definition.py",
@@ -9041,9 +9864,13 @@
         "tests/fixtures/recording_strace/linked/traces",
         "tests/fixtures/recording_strace/linked/units",
         "tests/suites.json/**",
+        "tests/test_automation_additions.py/**",
+        "tests/test_automation_full_recording.py/**",
+        "tests/test_automation_invocations.py/**",
         "tests/test_ci_policy_action_pins.py/**",
         "tests/test_ci_policy_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
+        "tests/test_ci_policy_automation.py/**",
         "tests/test_ci_policy_etw_consumer.py/**",
         "tests/test_ci_policy_fixed_callers.py/**",
         "tests/test_ci_policy_full_recording.py/**",
@@ -9064,20 +9891,20 @@
         "tests/test_ci_policy_release.py/**",
         "tests/test_ci_policy_reuse.py/**",
         "tests/test_ci_policy_shared_surface.py/**",
+        "tests/test_ci_policy_sync.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
         "tests/test_ci_policy_validate.py/**",
         "tests/test_ci_policy_zizmor.py/**",
         "tests/test_ci_step_precision.py/**",
-        "tests/test_automation_additions.py/**",
         "tests/test_consumer_kit_auto_merge.py/**",
         "tests/test_consumer_kit_dependabot.py/**",
         "tests/test_consumer_kit_fixed_callers.py/**",
-        "tests/test_automation_full_recording.py/**",
         "tests/test_consumer_kit_hygiene.py/**",
         "tests/test_consumer_kit_install_by_need.py/**",
         "tests/test_consumer_kit_installed_permissions.py/**",
         "tests/test_consumer_kit_installed_targets.py/**",
         "tests/test_consumer_kit_installed_validation.py/**",
+        "tests/test_consumer_kit_management.py/**",
         "tests/test_consumer_kit_own_dependabot.py/**",
         "tests/test_consumer_kit_publication.py/**",
         "tests/test_consumer_kit_python_tests.py/**",
@@ -9102,6 +9929,7 @@
         "tests/test_hygiene_zizmor.py/**",
         "tests/test_hygiene_zizmor_configuration.py/**",
         "tests/test_hygiene_zizmor_surface.py/**",
+        "tests/test_issue_title.py/**",
         "tests/test_link_check.py/**",
         "tests/test_pin_updater.py/**",
         "tests/test_pipeline_callers.py/**",
@@ -9157,6 +9985,9 @@
         "tests/test_suite_selection_verdict_workflow.py/**",
         "tests/test_suite_selection_workflow.py/**",
         "tests/test_suite_selection_workflow_reader.py/**",
+        "tests/test_sync_adoption.py/**",
+        "tests/test_sync_files.py/**",
+        "tests/test_sync_settings.py/**",
         "tests/test_v1_promotion.py/**",
         "tests/test_windows_recording.py/**"
       ],
@@ -9181,9 +10012,13 @@
           "actions/recording/action.yml/**",
           "actions/suite-selection/action.yml/**",
           "tests/suites.json/**",
+          "tests/test_automation_additions.py/**",
+          "tests/test_automation_full_recording.py/**",
+          "tests/test_automation_invocations.py/**",
           "tests/test_ci_policy_action_pins.py/**",
           "tests/test_ci_policy_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
+          "tests/test_ci_policy_automation.py/**",
           "tests/test_ci_policy_etw_consumer.py/**",
           "tests/test_ci_policy_fixed_callers.py/**",
           "tests/test_ci_policy_full_recording.py/**",
@@ -9204,20 +10039,20 @@
           "tests/test_ci_policy_release.py/**",
           "tests/test_ci_policy_reuse.py/**",
           "tests/test_ci_policy_shared_surface.py/**",
+          "tests/test_ci_policy_sync.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
           "tests/test_ci_policy_validate.py/**",
           "tests/test_ci_policy_zizmor.py/**",
           "tests/test_ci_step_precision.py/**",
-          "tests/test_automation_additions.py/**",
           "tests/test_consumer_kit_auto_merge.py/**",
           "tests/test_consumer_kit_dependabot.py/**",
           "tests/test_consumer_kit_fixed_callers.py/**",
-          "tests/test_automation_full_recording.py/**",
           "tests/test_consumer_kit_hygiene.py/**",
           "tests/test_consumer_kit_install_by_need.py/**",
           "tests/test_consumer_kit_installed_permissions.py/**",
           "tests/test_consumer_kit_installed_targets.py/**",
           "tests/test_consumer_kit_installed_validation.py/**",
+          "tests/test_consumer_kit_management.py/**",
           "tests/test_consumer_kit_own_dependabot.py/**",
           "tests/test_consumer_kit_publication.py/**",
           "tests/test_consumer_kit_python_tests.py/**",
@@ -9242,6 +10077,7 @@
           "tests/test_hygiene_zizmor.py/**",
           "tests/test_hygiene_zizmor_configuration.py/**",
           "tests/test_hygiene_zizmor_surface.py/**",
+          "tests/test_issue_title.py/**",
           "tests/test_link_check.py/**",
           "tests/test_pin_updater.py/**",
           "tests/test_pipeline_callers.py/**",
@@ -9297,6 +10133,9 @@
           "tests/test_suite_selection_verdict_workflow.py/**",
           "tests/test_suite_selection_workflow.py/**",
           "tests/test_suite_selection_workflow_reader.py/**",
+          "tests/test_sync_adoption.py/**",
+          "tests/test_sync_files.py/**",
+          "tests/test_sync_settings.py/**",
           "tests/test_v1_promotion.py/**",
           "tests/test_windows_recording.py/**"
         ],
@@ -9883,6 +10722,18 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_automation_additions.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_full_recording.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_invocations.py",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_action_pins.py",
           "kind": "any"
         },
@@ -9892,6 +10743,10 @@
         },
         {
           "path": "tests/test_ci_policy_auto_merge_caller.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_automation.py",
           "kind": "any"
         },
         {
@@ -9975,6 +10830,10 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_ci_policy_sync.py",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_tool_pins.py",
           "kind": "any"
         },
@@ -10007,10 +10866,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_automation_additions.py",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_consumer_kit_auto_merge.py",
           "kind": "any"
         },
@@ -10020,10 +10875,6 @@
         },
         {
           "path": "tests/test_consumer_kit_fixed_callers.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_automation_full_recording.py",
           "kind": "any"
         },
         {
@@ -10044,6 +10895,10 @@
         },
         {
           "path": "tests/test_consumer_kit_installed_validation.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_consumer_kit_management.py",
           "kind": "any"
         },
         {
@@ -10140,6 +10995,10 @@
         },
         {
           "path": "tests/test_hygiene_zizmor_surface.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_issue_title.py",
           "kind": "any"
         },
         {
@@ -10616,6 +11475,18 @@
         },
         {
           "path": "tests/test_suite_selection_workflow_reader.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_adoption.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_files.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_settings.py",
           "kind": "any"
         },
         {
@@ -11578,6 +12449,18 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_automation_additions.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_full_recording.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_invocations.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_action_pins.py",
             "kind": "any"
           },
@@ -11587,6 +12470,10 @@
           },
           {
             "path": "tests/test_ci_policy_auto_merge_caller.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_automation.py",
             "kind": "any"
           },
           {
@@ -11670,6 +12557,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_ci_policy_sync.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_ci_policy_tool_pins.py",
             "kind": "any"
           },
@@ -11686,10 +12577,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_automation_additions.py",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_auto_merge.py",
             "kind": "any"
           },
@@ -11699,10 +12586,6 @@
           },
           {
             "path": "tests/test_consumer_kit_fixed_callers.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_automation_full_recording.py",
             "kind": "any"
           },
           {
@@ -11723,6 +12606,10 @@
           },
           {
             "path": "tests/test_consumer_kit_installed_validation.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_consumer_kit_management.py",
             "kind": "any"
           },
           {
@@ -11819,6 +12706,10 @@
           },
           {
             "path": "tests/test_hygiene_zizmor_surface.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_issue_title.py",
             "kind": "any"
           },
           {
@@ -12055,6 +12946,18 @@
           },
           {
             "path": "tests/test_suite_selection_workflow_reader.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_adoption.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_files.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_settings.py",
             "kind": "any"
           },
           {
@@ -16605,18 +17508,25 @@
       "entry_selection": true,
       "paths": [
         ".github/ci-config.yml",
+        ".github/workflows/automation.yml",
         ".github/workflows/pipeline.yml",
         ".github/workflows/release.yml",
+        "actions/dependabot-auto-merge/auto_merge.py",
         "actions/dotnet-test/action.yml",
         "actions/dotnet-test/dotnet_test.py",
+        "actions/issue-title/issue_title.py",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/release.py",
         "actions/pipeline/schema/v1/base.json",
         "actions/pipeline/schema/v1/ci-config.schema.json",
+        "actions/pipeline/schema/v1/parts/additions.json",
         "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
         "actions/pipeline/schema/v1/parts/dotnet-test.json",
+        "actions/pipeline/schema/v1/parts/full-recording.json",
         "actions/pipeline/schema/v1/parts/github-release.json",
+        "actions/pipeline/schema/v1/parts/issue-title.json",
         "actions/pipeline/schema/v1/parts/python-test.json",
         "actions/pipeline/schema/v1/parts/python-verify.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -16632,6 +17542,7 @@
         "tests/ci_policy_support.py",
         "tests/consumer_checks_fixtures.py",
         "tests/consumer_kit_support.py",
+        "tests/dependabot_auto_merge_source.py",
         "tests/fixtures/custom/fail.sh",
         "tests/fixtures/dotnet_test/Greeting.Tests.csproj",
         "tests/fixtures/python_tests/pyproject.toml",
@@ -16657,9 +17568,13 @@
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -16684,9 +17599,13 @@
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -16708,6 +17627,16 @@
           "actions/pipeline/consumer_checks.py",
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/hygiene.py",
@@ -16715,6 +17644,8 @@
           "actions/repository-hygiene/link_check.py",
           "actions/repository-hygiene/package-ecosystems.json",
           "actions/repository-hygiene/pins.py",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
           "tests/pipeline_fixtures.py",
           "tests/test_pipeline_workflow.py",
           "tests/workflow_commands.py"
@@ -16745,9 +17676,13 @@
           "actions/pipeline/consumer_checks.py",
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -16766,9 +17701,13 @@
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -16787,9 +17726,13 @@
           "actions/pipeline/release.py",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -16803,10 +17746,32 @@
           "tests/workflow_commands.py"
         ],
         "tests/test_issue_title.py": [
+          "actions/issue-title/issue_title.py",
           "tests/test_issue_title.py"
         ],
         "tests/test_automation_invocations.py": [
-          "tests/test_automation_invocations.py"
+          ".github/ci-config.yml",
+          ".github/workflows/automation.yml",
+          "actions/dependabot-auto-merge/auto_merge.py",
+          "actions/issue-title/issue_title.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/dependabot_auto_merge_source.py",
+          "tests/pipeline_fixtures.py",
+          "tests/test_automation_invocations.py",
+          "tests/workflow_commands.py"
         ]
       },
       "directory_memberships": [
@@ -16824,6 +17789,10 @@
           "actions/pipeline/schema/v1",
           "actions/pipeline/schema/v1/parts"
         ],
+        "tests/test_pipeline_workflow.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
+        ],
         "tests/test_pipeline_dependabot.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
@@ -16833,6 +17802,10 @@
           "actions/pipeline/schema/v1/parts"
         ],
         "tests/test_pipeline_release.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
+        ],
+        "tests/test_automation_invocations.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
         ]
@@ -16861,6 +17834,10 @@
         {
           "path": "actions/dotnet-test/dotnet_test.so",
           "kind": "any"
+        },
+        {
+          "path": "actions/issue-title",
+          "kind": "directory"
         },
         {
           "path": "actions/pipeline",
@@ -16913,6 +17890,10 @@
         {
           "path": "actions/pipeline/release.so",
           "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1",
+          "kind": "directory"
         },
         {
           "path": "actions/python-tests/python_tests",
@@ -17083,6 +18064,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/dependabot_auto_merge_source",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/dependabot_auto_merge_source.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/dependabot_auto_merge_source.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/dependabot_auto_merge_source.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/fixtures/custom/absent.sh",
           "kind": "any"
         },
@@ -17116,6 +18113,38 @@
         },
         {
           "path": "tests/release_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_invocations",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_automation_invocations.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_invocations.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_automation_invocations.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_issue_title",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_issue_title.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_issue_title.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_issue_title.so",
           "kind": "any"
         },
         {
@@ -17842,6 +18871,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/pipeline_fixtures",
             "kind": "directory"
           },
@@ -18523,11 +19568,184 @@
             "path": "tests/workflow_commands.so",
             "kind": "any"
           }
+        ],
+        "tests/test_issue_title.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/issue-title",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_issue_title",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_issue_title.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_issue_title.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_issue_title.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_automation_invocations.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/dependabot_auto_merge_source",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/dependabot_auto_merge_source.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/dependabot_auto_merge_source.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/dependabot_auto_merge_source.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_invocations",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_automation_invocations.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_invocations.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_automation_invocations.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/workflow_commands.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.so",
+            "kind": "any"
+          }
         ]
       },
       "lookup_directories": [
         ".",
         "actions/dotnet-test",
+        "actions/issue-title",
         "actions/pipeline",
         "actions/python-tests",
         "actions/repository-hygiene",
@@ -18595,6 +19813,17 @@
           "actions/pipeline",
           "actions/repository-hygiene",
           "tests"
+        ],
+        "tests/test_issue_title.py": [
+          ".",
+          "actions/issue-title",
+          "tests"
+        ],
+        "tests/test_automation_invocations.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "tests"
         ]
       }
     },
@@ -18614,7 +19843,939 @@
       "setups": [
         "python"
       ],
-      "entry_selection": true
+      "entry_selection": true,
+      "paths": [
+        ".github/workflows/repository-hygiene.yml",
+        "actions/pipeline/consumer_checks.py",
+        "actions/pipeline/plan.py",
+        "actions/pipeline/schema/v1/base.json",
+        "actions/pipeline/schema/v1/parts/additions.json",
+        "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+        "actions/pipeline/schema/v1/parts/dotnet-test.json",
+        "actions/pipeline/schema/v1/parts/full-recording.json",
+        "actions/pipeline/schema/v1/parts/github-release.json",
+        "actions/pipeline/schema/v1/parts/issue-title.json",
+        "actions/pipeline/schema/v1/parts/python-test.json",
+        "actions/pipeline/schema/v1/parts/python-verify.json",
+        "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+        "actions/pipeline/schema/v1/setups.json",
+        "actions/repository-hygiene/dependabot_coverage.py",
+        "actions/repository-ruleset/ruleset-main-template.json",
+        "actions/sync/adoption.json",
+        "actions/sync/merge-settings.json",
+        "actions/sync/sync.py",
+        "tests/consumer_checks_fixtures.py",
+        "tests/consumer_kit_support.py",
+        "tests/pipeline_fixtures.py",
+        "tests/sync_fixtures.py",
+        "tests/test_pipeline_dependabot.py",
+        "tests/test_sync_adoption.py",
+        "tests/test_sync_files.py",
+        "tests/test_sync_settings.py"
+      ],
+      "entry_paths": {
+        "tests/test_sync_files.py": [
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-ruleset/ruleset-main-template.json",
+          "actions/sync/merge-settings.json",
+          "actions/sync/sync.py",
+          "tests/consumer_checks_fixtures.py",
+          "tests/consumer_kit_support.py",
+          "tests/pipeline_fixtures.py",
+          "tests/sync_fixtures.py",
+          "tests/test_pipeline_dependabot.py",
+          "tests/test_sync_files.py"
+        ],
+        "tests/test_sync_settings.py": [
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-ruleset/ruleset-main-template.json",
+          "actions/sync/merge-settings.json",
+          "actions/sync/sync.py",
+          "tests/consumer_checks_fixtures.py",
+          "tests/pipeline_fixtures.py",
+          "tests/sync_fixtures.py",
+          "tests/test_sync_settings.py"
+        ],
+        "tests/test_sync_adoption.py": [
+          ".github/workflows/repository-hygiene.yml",
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-ruleset/ruleset-main-template.json",
+          "actions/sync/adoption.json",
+          "actions/sync/merge-settings.json",
+          "actions/sync/sync.py",
+          "tests/consumer_checks_fixtures.py",
+          "tests/consumer_kit_support.py",
+          "tests/pipeline_fixtures.py",
+          "tests/sync_fixtures.py",
+          "tests/test_pipeline_dependabot.py",
+          "tests/test_sync_adoption.py"
+        ]
+      },
+      "directory_memberships": [
+        "actions/pipeline/schema",
+        "actions/pipeline/schema/v1/parts"
+      ],
+      "entry_directory_memberships": {
+        "tests/test_sync_adoption.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
+        ]
+      },
+      "existence_reads": [
+        {
+          "path": "actions",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/consumer_checks.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/plan.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/plan.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/repository-hygiene",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene/dependabot_coverage.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/sync/sync",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/sync/sync.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/sync.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/__init__.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_checks_fixtures",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/consumer_checks_fixtures.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_checks_fixtures.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_checks_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_kit_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/consumer_kit_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/consumer_kit_support.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/pipeline_fixtures",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/pipeline_fixtures.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/pipeline_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/sync_fixtures",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/sync_fixtures.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/sync_fixtures.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/sync_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_dependabot",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_pipeline_dependabot.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_dependabot.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_dependabot.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_adoption",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_sync_adoption.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_adoption.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_adoption.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_files",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_sync_files.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_files.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_files.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_settings",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_sync_settings.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_settings.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_sync_settings.so",
+          "kind": "any"
+        }
+      ],
+      "entry_existence_reads": {
+        "tests/test_sync_files.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/sync_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_files",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_sync_files.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_files.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_files.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_sync_settings.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/sync_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_settings",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_sync_settings.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_settings.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_settings.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_sync_adoption.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer_checks.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/sync/sync.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/sync.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_checks_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/consumer_kit_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/consumer_kit_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/sync_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/sync_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_dependabot.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_adoption",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_sync_adoption.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_adoption.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_sync_adoption.so",
+            "kind": "any"
+          }
+        ]
+      },
+      "lookup_directories": [
+        ".",
+        "actions/pipeline",
+        "actions/repository-hygiene",
+        "actions/sync",
+        "tests"
+      ],
+      "entry_lookup_directories": {
+        "tests/test_sync_files.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "actions/sync",
+          "tests"
+        ],
+        "tests/test_sync_settings.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "actions/sync",
+          "tests"
+        ],
+        "tests/test_sync_adoption.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "actions/sync",
+          "tests"
+        ]
+      }
     },
     {
       "name": "dotnet-test",
@@ -18707,6 +20868,7 @@
       "paths": [
         "actions/dependabot-auto-merge/auto_merge.py",
         "actions/dotnet-test/dotnet_test.py",
+        "actions/issue-title/issue_title.py",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/release.py",
@@ -18731,6 +20893,7 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
+        "actions/sync/sync.py",
         "docs/maintaining.md",
         "tests/hygiene_fixtures.py",
         "tests/test_python_floor.py"
@@ -18741,6 +20904,7 @@
         "actions/dependabot-auto-merge",
         "actions/dependabot-auto-merge/consumer-kit",
         "actions/dotnet-test",
+        "actions/issue-title",
         "actions/pipeline",
         "actions/pipeline/consumer-kit",
         "actions/pipeline/schema",
@@ -18758,7 +20922,9 @@
         "actions/repository-hygiene/consumer-kit",
         "actions/repository-ruleset",
         "actions/suite-selection",
-        "actions/suite-selection/consumer-kit"
+        "actions/suite-selection/consumer-kit",
+        "actions/sync",
+        "actions/sync/consumer-kit"
       ],
       "existence_reads": [
         {
@@ -18803,6 +20969,14 @@
         },
         {
           "path": "actions/dotnet-test/__init__.pyi",
+          "kind": "any"
+        },
+        {
+          "path": "actions/issue-title/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/issue-title/__init__.pyi",
           "kind": "any"
         },
         {
@@ -18895,6 +21069,18 @@
         },
         {
           "path": "actions/suite-selection/unrecorded",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync-stubs/__init__.pyi",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/__init__.pyi",
           "kind": "any"
         },
         {
@@ -19073,6 +21259,7 @@
       },
       "entry_selection": true,
       "paths": [
+        ".github/workflows/automation.yml",
         ".github/workflows/repository-hygiene.yml",
         ".github/workflows/update-publication-spec.yml",
         "actions/publication-checks/check-branch.cjs",
@@ -19138,6 +21325,7 @@
           "tests/test_publication_checks.py"
         ],
         "tests/test_publication_commits.py": [
+          ".github/workflows/automation.yml",
           "actions/publication-checks/check-commits.cjs",
           "actions/publication-checks/commitlint.config.cjs",
           "actions/publication-checks/package-lock.json",
@@ -20962,6 +23150,9 @@
       "tests"
     ],
     "actions/suite-selection": [
+      "tests"
+    ],
+    "actions/sync": [
       "tests"
     ]
   }
