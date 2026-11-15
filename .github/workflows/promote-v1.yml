@@ -1,9 +1,8 @@
-name: Promote v1 after a pins update
+name: Promote v1 after a read-class change
 
 on:
   push:
     branches: [main]
-    paths: [actions/repository-hygiene/pins.json]
 
 permissions: {}
 
@@ -14,13 +13,12 @@ concurrency:
 jobs:
   decide:
     runs-on: ubuntu-slim
-    timeout-minutes: 14
+    timeout-minutes: 5
     permissions:
-      actions: read
       contents: read
       pull-requests: read
     outputs:
-      move: ${{ steps.decision.outputs.move }}
+      candidate: ${{ steps.decision.outputs.candidate }}
       old: ${{ steps.decision.outputs.old }}
       new: ${{ steps.decision.outputs.new }}
     steps:
@@ -37,37 +35,104 @@ jobs:
           set -euo pipefail
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py read-tag --repository "$GITHUB_REPOSITORY" --output "$GITHUB_OUTPUT"
           number="$(gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT/pulls" --jq "[.[] | select(.merge_commit_sha == \"$COMMIT\")][0].number // empty")"
-          candidate=false
+          pins=false
           if [ -n "$number" ]; then
             gh api "repos/$GITHUB_REPOSITORY/pulls/$number" > "$RUNNER_TEMP/pull-request.json"
             case "$(git diff --name-only "$COMMIT^" "$COMMIT" | tr '\n' ' ')" in
-              "actions/repository-hygiene/pins.json ") candidate=true ;;
+              "actions/repository-hygiene/pins.json ") pins=true ;;
             esac
           fi
-          printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+          printf 'pins=%s\n' "$pins" >> "$GITHUB_OUTPUT"
       - name: Identify the updater App
-        if: steps.facts.outputs.candidate == 'true'
+        if: steps.facts.outputs.pins == 'true'
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
           private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
           permission-metadata: read
-      - name: Decide whether v1 moves after the commit's CI on main
+      - name: Decide by promotion class whether the candidate tag moves
         id: decision
         env:
-          GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ github.sha }}
           V1: ${{ steps.facts.outputs.v1 }}
           V1_OBJECT: ${{ steps.facts.outputs.v1_object }}
           APP_LOGIN: ${{ steps.app-token.outputs.app-slug && format('{0}[bot]', steps.app-token.outputs.app-slug) || '' }}
           OWNER: ${{ github.repository_owner }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py decide --commit "$COMMIT" --v1 "$V1" --v1-object "$V1_OBJECT" --pull-request "$RUNNER_TEMP/pull-request.json" --app-login "$APP_LOGIN" --owner "$OWNER" --repository "$GITHUB_REPOSITORY" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py decide --commit "$COMMIT" --v1 "$V1" --v1-object "$V1_OBJECT" --pull-request "$RUNNER_TEMP/pull-request.json" --app-login "$APP_LOGIN" --owner "$OWNER" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  candidate:
+    needs: decide
+    if: needs.decide.outputs.candidate == 'true'
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    environment: promote-v1
+    permissions:
+      contents: read
+    outputs:
+      proof-commit: ${{ steps.proof.outputs.proof_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Move the candidate tag
+        env:
+          DEPLOY_KEY: ${{ secrets.PROMOTE_V1_DEPLOY_KEY }}
+          NEW: ${{ needs.decide.outputs.new }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/promote-v1-key"
+          hosts="$RUNNER_TEMP/promote-v1-known-hosts"
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$DEPLOY_KEY" > "$key")
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$hosts"
+          export GIT_SSH_COMMAND="ssh -F /dev/null -i '$key' -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile='$hosts' -o StrictHostKeyChecking=yes"
+          git remote add promote "git@github.com:$GITHUB_REPOSITORY.git"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py candidate --remote promote --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Start the proof repository's run on the candidate tag
+        id: proof
+        env:
+          PROOF_KEY: ${{ secrets.PROOF_REPOSITORY_DEPLOY_KEY }}
+          NEW: ${{ needs.decide.outputs.new }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/proof-key"
+          hosts="$RUNNER_TEMP/proof-known-hosts"
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$PROOF_KEY" > "$key")
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$hosts"
+          export GIT_SSH_COMMAND="ssh -F /dev/null -i '$key' -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile='$hosts' -o StrictHostKeyChecking=yes"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py start-proof --candidate "$NEW" --work "$RUNNER_TEMP/proof-repository" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  await:
+    needs: [decide, candidate]
+    runs-on: ubuntu-slim
+    timeout-minutes: 14
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      move: ${{ steps.outcome.outputs.move }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Wait for the CI on main and the proof repository's run
+        id: outcome
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.decide.outputs.new }}
+          OLD: ${{ needs.decide.outputs.old }}
+          PROOF_COMMIT: ${{ needs.candidate.outputs.proof-commit }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py await --commit "$COMMIT" --old "$OLD" --proof-commit "$PROOF_COMMIT" --repository "$GITHUB_REPOSITORY" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   move:
-    needs: decide
-    if: needs.decide.outputs.move == 'true'
+    needs: [decide, await]
+    if: needs.await.outputs.move == 'true'
     runs-on: ubuntu-slim
+    timeout-minutes: 5
     environment: promote-v1
     permissions:
       contents: read

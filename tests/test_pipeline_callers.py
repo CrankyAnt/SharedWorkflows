@@ -4,9 +4,10 @@ configuration file."""
 
 from __future__ import annotations
 
+import json
 import unittest
 
-from tests.consumer_checks_fixtures import CONSUMER, SHARED, SYNC_BRANCH, WORKFLOWS, ConsumerFixture, template
+from tests.consumer_checks_fixtures import CALLERS, CONSUMER, SHARED, SYNC_BRANCH, WORKFLOWS, Checked, ConsumerFixture, template
 from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, write
 
 RULE = f"https://github.com/{SHARED}/blob/v1/catalogue.json"
@@ -309,6 +310,82 @@ class SharedRepositoryTests(ConsumerFixture):
         self.assertIn("This repository holds the shared parts", checked.summary)
         self.assertIn("nothing to check", checked.stdout)
         self.assertEqual([], self.api.requests)
+
+
+PROOF = "example-owner/proof"
+CANDIDATE = "v9-candidate"
+
+
+class ProofRepositoryTests(ConsumerFixture):
+    """The proof repository, which the record of the shared surface names: its callers equal the templates except that
+    they call the shared workflows at the candidate tag."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.surface = self.directory / "shared-surface.json"
+        self.surface.write_text(json.dumps({"proof_repository": PROOF, "candidate_tag": CANDIDATE}), encoding="utf-8")
+        self.at_candidate()
+
+    def at_candidate(self, names: tuple[str, ...] = CALLERS) -> None:
+        self.consumer({f"{WORKFLOWS}/{name}": template(name).replace("@v1\n", f"@{CANDIDATE}\n") for name in names})
+
+    def callers(self, repository: str = PROOF) -> Checked:
+        return self.check("callers", "--surface", str(self.surface), repository=repository)
+
+    def test_the_proof_repository_passes_with_callers_that_differ_from_the_templates_only_in_the_candidate_tag(self) -> None:
+        checked = self.callers()
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        self.assertIn(f"Every fixed caller equals its template, except that a caller calls the shared workflow at the candidate tag `{CANDIDATE}`, and", checked.summary)
+        self.assertEqual([], self.api.requests)
+
+    def test_a_caller_of_the_proof_repository_that_calls_at_v1_fails(self) -> None:
+        self.consumer({f"{WORKFLOWS}/ci.yml": template("ci.yml")})
+        checked = self.callers()
+        self.assertEqual(1, checked.status, checked.stdout)
+        self.assertIn(f"`{WORKFLOWS}/ci.yml` differs from its template at the candidate tag `{CANDIDATE}`; in the proof repository a fixed caller equals its template "
+                      "except for that tag.", checked.summary)
+        self.assertNotIn("sync pull request", checked.summary, "no sync reaches the proof repository")
+        self.assertIn(f"The proof kit holds its callers: https://github.com/{SHARED}/tree/v1/actions/pipeline/proof-kit", checked.summary)
+        self.assertEqual([], self.api.requests)
+
+    def test_any_other_difference_fails_in_the_proof_repository(self) -> None:
+        for name, text in (("a second change", template("ci.yml").replace("@v1\n", f"@{CANDIDATE}\n") + "# a local change\n"),
+                           ("another tag", template("ci.yml").replace("@v1\n", "@v2\n")),
+                           ("the tag on another line", template("ci.yml").replace("name: ci\n", f"name: ci@{CANDIDATE}\n"))):
+            with self.subTest(name=name):
+                self.at_candidate()
+                self.consumer({f"{WORKFLOWS}/ci.yml": text})
+                checked = self.callers()
+                self.assertEqual(1, checked.status, checked.stdout)
+                self.assertIn(f"`{WORKFLOWS}/ci.yml` differs from its template at the candidate tag", checked.summary)
+
+    def test_a_consumer_that_calls_at_the_candidate_tag_fails(self) -> None:
+        checked = self.callers(repository=CONSUMER)
+        self.assertEqual(1, checked.status, checked.stdout)
+        for name in CALLERS:
+            self.assertIn(f"`{WORKFLOWS}/{name}` differs from its template; a fixed caller equals its template byte for byte.", checked.summary)
+
+    def test_the_previous_version_at_the_candidate_tag_passes_for_one_month_in_the_proof_repository(self) -> None:
+        previous = self.previous("ci.yml", "2026-03-10")
+        self.consumer({f"{WORKFLOWS}/ci.yml": previous.replace("@v1\n", f"@{CANDIDATE}\n")})
+        self.assertEqual(0, self.check("callers", "--surface", str(self.surface), "--today", "2026-03-25", repository=PROOF).status)
+        self.assertEqual(0, self.check("callers", "--surface", str(self.surface), "--today", "2026-04-10", repository=PROOF).status)
+        self.assertEqual(1, self.check("callers", "--surface", str(self.surface), "--today", "2026-04-11", repository=PROOF).status)
+        self.consumer({f"{WORKFLOWS}/ci.yml": previous})
+        self.assertEqual(1, self.check("callers", "--surface", str(self.surface), "--today", "2026-03-25", repository=PROOF).status, "the previous version at v1 is no caller of the proof repository")
+
+    def test_a_record_of_the_shared_surface_that_cannot_be_read_cannot_be_used(self) -> None:
+        self.surface.write_text("{}", encoding="utf-8")
+        checked = self.callers()
+        self.assertEqual(2, checked.status)
+        self.assertIn("proof_repository", checked.stderr)
+        self.assertEqual(2, self.check("callers", "--surface", str(self.directory / "missing.json")).status)
+
+    def test_the_other_checks_run_in_the_proof_repository_as_in_a_consumer(self) -> None:
+        self.consumer({LOCAL: "name: Nightly report\n"})
+        checked = self.callers()
+        self.assertEqual(1, checked.status)
+        self.assertIn(f"`{LOCAL}` is neither a fixed caller nor registered", checked.summary)
 
 
 if __name__ == "__main__":

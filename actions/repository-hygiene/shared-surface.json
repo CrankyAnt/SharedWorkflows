@@ -1,6 +1,8 @@
 {
   "pins": "actions/repository-hygiene/pins.json",
   "updater_branch": "chore/update-ci-pins",
+  "candidate_tag": "v1-candidate",
+  "proof_repository": "CrankyAnt/SharedWorkflowsProof",
   "paths": [
     ".github/workflows/repository-hygiene.yml",
     ".github/workflows/dependabot-auto-merge.yml",
@@ -25,5 +27,37 @@
     "actions/issue-title",
     "actions/sync",
     "actions/repository-ruleset"
-  ]
+  ],
+  "classes": {
+    ".github/workflows/repository-hygiene.yml": "read",
+    ".github/workflows/dependabot-auto-merge.yml": "write",
+    ".github/workflows/suite-selection.yml": "read",
+    ".github/workflows/suite-verdict.yml": "read",
+    ".github/workflows/suite-jobs.yml": "write",
+    ".github/workflows/python-tests.yml": "read",
+    ".github/workflows/pipeline.yml": "read",
+    ".github/workflows/automation.yml": "write",
+    ".github/workflows/release.yml": "write",
+    ".github/workflows/sync.yml": "template",
+    "catalogue.json": "read",
+    "actions/publication-checks": "read",
+    "actions/repository-hygiene": "write",
+    "actions/repository-hygiene/consumer-kit": "template",
+    "actions/dependabot-auto-merge": "write",
+    "actions/dependabot-auto-merge/consumer-kit": "template",
+    "actions/suite-selection": "write",
+    "actions/suite-selection/consumer-kit": "template",
+    "actions/recording": "write",
+    "actions/python-language-step": "write",
+    "actions/python-language-step/consumer-kit": "template",
+    "actions/python-tests": "read",
+    "actions/python-tests/consumer-kit": "template",
+    "actions/pipeline": "write",
+    "actions/pipeline/consumer-kit": "template",
+    "actions/pipeline/consumer_checks.py": "template",
+    "actions/dotnet-test": "read",
+    "actions/issue-title": "write",
+    "actions/sync": "template",
+    "actions/repository-ruleset": "template"
+  }
 }

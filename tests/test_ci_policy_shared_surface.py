@@ -381,3 +381,141 @@ class SelectionConsumerKitPinSourceTests(unittest.TestCase):
     def test_a_template_without_a_pin_needs_no_pin_source(self) -> None:
         template = {"caller.yml": "jobs:\n  select:\n    uses: CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1\n"}
         self.assertEqual([], kit_pin_problems("No table.\n", template, {}))
+
+
+CLASSES = ("read", "write", "template")
+WRITE_GRANT = re.compile(r"(?m)^\s*(?:permission-)?[a-z-]+: write\s*(?:#.*)?$")
+
+
+def class_of(path: str, classes: dict[str, str]) -> str | None:
+    """The promotion class of a path: that of the longest recorded path that holds it."""
+    holders = [item for item in classes if path == item or path.startswith(item + "/")]
+    return classes[max(holders, key=len)] if holders else None
+
+
+def class_problems(surface_paths: list[str], pairs: list[tuple[str, object]]) -> list[str]:
+    """Each way the recorded promotion classes, as the pairs of the record's ``classes``, are out of step with the shared surface."""
+    names = [name for name, _ in pairs]
+    problems = [f"{path} is on the shared surface without a promotion class" for path in surface_paths if path not in names]
+    problems += [f"{name} has more than one promotion class" for name in sorted({name for name in names if names.count(name) > 1})]
+    problems += [f"{name} has a promotion class but is not on the shared surface" for name in names if not on_surface(name, surface_paths)]
+    problems += [f"{name} has the promotion class {value!r}, which is none of {', '.join(CLASSES)}" for name, value in pairs if value not in CLASSES]
+    return problems
+
+
+def write_class_problems(workflows: dict[str, str], classes: dict[str, str]) -> list[str]:
+    """Each shared workflow that grants a write permission, to a job or to an App token, and is in the read class, and
+    each recorded path in the read class at or below a part folder that a shared workflow outside the read class loads:
+    a path takes the highest class among the workflows that load it, whatever else loads it."""
+    shared = shared_workflows(workflows)
+    problems = [f"{path} grants a write permission but is in the read class" for path in shared
+                if WRITE_GRANT.search(workflows[path]) and class_of(path, classes) == "read"]
+    for path in shared:
+        loader = class_of(path, classes)
+        if loader in (None, "read"):
+            continue
+        for reference in sorted({value.removeprefix("$/") for value in uses_values(workflows[path], path) if value.startswith("$/")}):
+            held = [reference, *sorted(name for name in classes if name.startswith(reference + "/"))]
+            problems += [f"{name} is loaded by {path}, which is in the {loader} class, but is in the read class"
+                         for name in held if class_of(name, classes) == "read"]
+    return list(dict.fromkeys(problems))
+
+
+class PromotionClassTests(unittest.TestCase):
+    def setUp(self) -> None:
+        text = SURFACE.read_text(encoding="utf-8")
+        self.surface = json.loads(text)
+        self.pairs: list[tuple[str, object]] = []
+
+        def keep(pairs: list[tuple[str, object]]) -> dict:
+            if any(name == ".github/workflows/pipeline.yml" for name, _ in pairs):
+                self.pairs.extend(pairs)
+            return dict(pairs)
+
+        json.loads(text, object_pairs_hook=keep)
+        self.classes = self.surface["classes"]
+
+    def test_every_path_of_the_shared_surface_has_exactly_one_promotion_class(self) -> None:
+        self.assertEqual(sorted(self.classes), sorted(name for name, _ in self.pairs), "the record's classes were read as pairs")
+        self.assertEqual([], class_problems(self.surface["paths"], self.pairs))
+        tracked = tracked_files(REPOSITORY_ROOT, self.surface["paths"])
+        self.assertTrue(tracked)
+        for path in sorted(tracked):
+            with self.subTest(path=path):
+                self.assertIn(class_of(path, self.classes), CLASSES)
+
+    def test_a_path_without_a_class_fails_and_is_named(self) -> None:
+        surface_paths = [".github/workflows/shared.yml", "actions/part", "actions/new-part"]
+        pairs = [(".github/workflows/shared.yml", "read"), ("actions/part", "read"), ("actions/part/consumer-kit", "template")]
+        self.assertEqual(["actions/new-part is on the shared surface without a promotion class"], class_problems(surface_paths, pairs))
+        self.assertEqual([], class_problems(surface_paths, [*pairs, ("actions/new-part", "write")]))
+
+    def test_a_second_class_an_unknown_class_and_a_class_off_the_surface_fail_and_are_named(self) -> None:
+        surface_paths = [".github/workflows/shared.yml", "actions/part"]
+        pairs = [(".github/workflows/shared.yml", "read"), ("actions/part", "read")]
+        self.assertEqual(["actions/part has more than one promotion class"], class_problems(surface_paths, [*pairs, ("actions/part", "write")]))
+        self.assertEqual(["actions/part/x has the promotion class 'safe', which is none of read, write, template"], class_problems(surface_paths, [*pairs, ("actions/part/x", "safe")]))
+        self.assertEqual(["actions/elsewhere has a promotion class but is not on the shared surface"], class_problems(surface_paths, [*pairs, ("actions/elsewhere", "read")]))
+
+    def test_a_path_takes_the_class_of_the_longest_recorded_path_that_holds_it(self) -> None:
+        classes = {"actions/part": "read", "actions/part/consumer-kit": "template", "actions/part/write.py": "write"}
+        for path, expected in (("actions/part/plan.py", "read"), ("actions/part/consumer-kit/ci.yml", "template"), ("actions/part/write.py", "write"),
+                               ("actions/part/write.py.txt", "read"), ("actions/partial/x", None)):
+            with self.subTest(path=path):
+                self.assertEqual(expected, class_of(path, classes))
+
+    def test_no_shared_workflow_that_writes_and_no_step_that_a_workflow_outside_the_read_class_loads_is_in_the_read_class(self) -> None:
+        workflows = tracked_workflows(REPOSITORY_ROOT)
+        self.assertEqual([], write_class_problems(workflows, self.classes))
+        for path in (".github/workflows/automation.yml", ".github/workflows/release.yml", ".github/workflows/dependabot-auto-merge.yml"):
+            with self.subTest(path=path):
+                self.assertEqual("write", class_of(path, self.classes))
+        # The part folders that automation.yml and release.yml load beside the read workflows.
+        # The shared workflow that automation.yml calls beside the pipeline, and the step that it loads, follow it.
+        for path in ("actions/pipeline/plan.py", "actions/recording/recording.py", "actions/repository-hygiene/hygiene.py", "actions/suite-selection/suite_selection.py",
+                     ".github/workflows/suite-jobs.yml", "actions/python-language-step/python_language_step.py"):
+            with self.subTest(path=path):
+                self.assertEqual("write", class_of(path, self.classes))
+
+    def test_a_step_that_a_read_workflow_and_a_write_workflow_both_load_fails_in_the_read_class_and_is_named(self) -> None:
+        workflows = {".github/workflows/reads.yml": "on: workflow_call\njobs:\n  unit:\n    permissions:\n      contents: read\n    steps:\n      - uses: $/actions/both\n      - uses: $/actions/reading\n",
+                     ".github/workflows/writes.yml": "on: workflow_call\njobs:\n  unit:\n    permissions:\n      contents: write\n    steps:\n      - uses: $/actions/both\n      - uses: $/actions/own\n",
+                     ".github/workflows/mints.yml": "on: workflow_call\njobs:\n  unit:\n    steps:\n      - uses: actions/create-github-app-token@v3\n        with:\n          permission-contents: write\n"}
+        read = dict.fromkeys([*workflows, "actions/both", "actions/own", "actions/reading"], "read")
+        self.assertEqual([".github/workflows/writes.yml grants a write permission but is in the read class",
+                          ".github/workflows/mints.yml grants a write permission but is in the read class"], write_class_problems(workflows, read))
+        classed = {**read, ".github/workflows/writes.yml": "write", ".github/workflows/mints.yml": "template"}
+        self.assertEqual(["actions/both is loaded by .github/workflows/writes.yml, which is in the write class, but is in the read class",
+                          "actions/own is loaded by .github/workflows/writes.yml, which is in the write class, but is in the read class"], write_class_problems(workflows, classed))
+        self.assertEqual([], write_class_problems(workflows, {**classed, "actions/both": "write", "actions/own": "template"}), "a step that only a read workflow loads stays in the read class")
+
+    def test_a_shared_workflow_that_a_write_workflow_calls_fails_in_the_read_class_with_the_steps_it_loads(self) -> None:
+        workflows = {".github/workflows/writes.yml": "on: workflow_call\njobs:\n  called:\n    permissions:\n      contents: write\n    uses: $/.github/workflows/jobs.yml\n",
+                     ".github/workflows/jobs.yml": "on: workflow_call\njobs:\n  unit:\n    permissions:\n      contents: read\n    steps:\n      - uses: $/actions/step\n"}
+        classes = {".github/workflows/writes.yml": "write", ".github/workflows/jobs.yml": "read", "actions/step": "read"}
+        self.assertEqual([".github/workflows/jobs.yml is loaded by .github/workflows/writes.yml, which is in the write class, but is in the read class"],
+                         write_class_problems(workflows, classes))
+        self.assertEqual(["actions/step is loaded by .github/workflows/jobs.yml, which is in the write class, but is in the read class"],
+                         write_class_problems(workflows, {**classes, ".github/workflows/jobs.yml": "write"}))
+        self.assertEqual([], write_class_problems(workflows, {**classes, ".github/workflows/jobs.yml": "write", "actions/step": "write"}))
+
+    def test_a_read_class_path_inside_a_step_that_a_write_workflow_loads_fails_and_is_named(self) -> None:
+        workflows = {".github/workflows/writes.yml": "on: workflow_call\njobs:\n  unit:\n    permissions:\n      contents: write\n    steps:\n      - uses: $/actions/own\n"}
+        classes = {".github/workflows/writes.yml": "write", "actions/own": "write", "actions/own/kit": "template", "actions/own/data.json": "read"}
+        self.assertEqual(["actions/own/data.json is loaded by .github/workflows/writes.yml, which is in the write class, but is in the read class"],
+                         write_class_problems(workflows, classes))
+
+    def test_the_templates_the_sync_and_the_ruleset_template_are_in_the_template_class(self) -> None:
+        kits = sorted({path.rsplit("/consumer-kit/", 1)[0] + "/consumer-kit" for path in tracked_files(REPOSITORY_ROOT, ["actions/*/consumer-kit/*"])})
+        self.assertIn("actions/pipeline/consumer-kit", kits)
+        for path in (*kits, ".github/workflows/sync.yml", "actions/sync/sync.py", "actions/repository-ruleset/ruleset-main-template.json",
+                     "actions/pipeline/consumer_checks.py"):
+            with self.subTest(path=path):
+                self.assertEqual("template", class_of(path, self.classes))
+
+    def test_the_promotion_program_and_the_record_of_the_classes_are_outside_the_read_class(self) -> None:
+        for path in ("actions/repository-hygiene/promote_v1.py", "actions/repository-hygiene/shared-surface.json"):
+            with self.subTest(path=path):
+                self.assertEqual("write", class_of(path, self.classes))
+        self.assertEqual("write", class_of(self.surface["pins"], self.classes), "the automation workflow installs the pinned tools, so a pins update is a question")
+        self.assertEqual("read", class_of(".github/workflows/pipeline.yml", self.classes))

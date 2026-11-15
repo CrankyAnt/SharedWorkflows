@@ -36,7 +36,7 @@ Pull-request CI runs repository hygiene and selects affected tests through the v
 
 ## Publication
 
-The moving `v1` tag is the consumer channel. Its [promotion and rollback procedure](docs/maintaining.md#the-v1-channel) controls when changes reach consuming repositories, including the automatic promotion of qualifying pins-only updates.
+The moving `v1` tag is the consumer channel. Its [promotion and rollback procedure](docs/maintaining.md#the-v1-channel) controls when changes reach consuming repositories, including the automatic promotion of changes that stay in the read class and of reviewed pins updates.
 
 ## Documentation
 

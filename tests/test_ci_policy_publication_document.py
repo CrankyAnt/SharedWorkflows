@@ -22,7 +22,7 @@ class PublicationDocumentTests(unittest.TestCase):
         publication = PUBLICATION.read_text(encoding="utf-8")
         maintaining = publication.split("\n## Maintaining the shared parts\n", 1)[1].split("\n## ", 1)[0]
         overview = maintaining.split("\n### Recurring tasks\n", 1)[1].split("\n### ", 1)[0]
-        policy = {"Recurring tasks", "The v1 channel", "Who moves v1", "Automatic v1 move"}
+        policy = {"Recurring tasks", "The v1 channel", "Who moves v1", "Promotion classes", "Automatic v1 move"}
         tasks = [anchor(heading) for heading in re.findall(r"(?m)^####? (.+)$", maintaining) if heading not in policy]
         linked = re.findall(r"\]\(#([^)]+)\)", overview)
         self.assertEqual(sorted(tasks), sorted(linked), "the overview under Recurring tasks links each task section once")

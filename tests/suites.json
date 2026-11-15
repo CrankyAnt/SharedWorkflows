@@ -6170,7 +6170,8 @@
         "tests/test_consumer_kit_validation_workflow.py",
         "tests/test_consumer_kit_python_tests.py",
         "tests/test_consumer_kit_fixed_callers.py",
-        "tests/test_consumer_kit_management.py"
+        "tests/test_consumer_kit_management.py",
+        "tests/test_consumer_kit_proof.py"
       ],
       "command": [
         "python3",
@@ -6221,6 +6222,7 @@
         ".github/workflows/update-ci-pins.yml",
         ".github/workflows/update-publication-spec.yml",
         ".github/workflows/validate.yml",
+        "LICENSES/MIT.txt",
         "actions/dependabot-auto-merge/consumer-kit/README.md",
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
@@ -6228,10 +6230,37 @@
         "actions/pipeline/consumer-kit/automation.yml",
         "actions/pipeline/consumer-kit/ci.yml",
         "actions/pipeline/consumer-kit/docs/agents/ci.md",
+        "actions/pipeline/consumer-kit/fixed-callers.json",
         "actions/pipeline/consumer-kit/release.yml",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
+        "actions/pipeline/proof-kit/.github/ci-config.yml",
+        "actions/pipeline/proof-kit/.github/dependabot.yml",
+        "actions/pipeline/proof-kit/.github/workflows/automation.yml",
+        "actions/pipeline/proof-kit/.github/workflows/ci.yml",
+        "actions/pipeline/proof-kit/.github/workflows/release.yml",
+        "actions/pipeline/proof-kit/LICENSES/MIT.txt",
+        "actions/pipeline/proof-kit/REUSE.toml",
+        "actions/pipeline/proof-kit/docs/agents/ci.md",
+        "actions/pipeline/proof-kit/dotnet/Greeting.Tests.csproj",
+        "actions/pipeline/proof-kit/dotnet/Greeting.cs",
+        "actions/pipeline/proof-kit/dotnet/GreetingTests.cs",
+        "actions/pipeline/proof-kit/python/greeting.py",
+        "actions/pipeline/proof-kit/python/pyproject.toml",
+        "actions/pipeline/proof-kit/python/tests/test_greeting.py",
+        "actions/pipeline/schema/v1/base.json",
         "actions/pipeline/schema/v1/ci-config.schema.json",
+        "actions/pipeline/schema/v1/parts/additions.json",
+        "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+        "actions/pipeline/schema/v1/parts/dotnet-test.json",
+        "actions/pipeline/schema/v1/parts/full-recording.json",
+        "actions/pipeline/schema/v1/parts/github-release.json",
+        "actions/pipeline/schema/v1/parts/issue-title.json",
+        "actions/pipeline/schema/v1/parts/python-test.json",
+        "actions/pipeline/schema/v1/parts/python-verify.json",
+        "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+        "actions/pipeline/schema/v1/setups.json",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-tests/consumer-kit/README.md",
@@ -6246,6 +6275,7 @@
         "actions/repository-hygiene/package-ecosystems.json",
         "actions/repository-hygiene/pins.json",
         "actions/repository-hygiene/pins.py",
+        "actions/repository-hygiene/shared-surface.json",
         "actions/repository-hygiene/zizmor-policy.yml",
         "actions/repository-ruleset/README.md",
         "actions/suite-selection/ci_definition.py",
@@ -6288,6 +6318,7 @@
         "tests/test_consumer_kit_installed_validation.py",
         "tests/test_consumer_kit_management.py",
         "tests/test_consumer_kit_own_dependabot.py",
+        "tests/test_consumer_kit_proof.py",
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_python_tests.py",
         "tests/test_consumer_kit_templates.py",
@@ -6573,6 +6604,47 @@
           "actions/sync/sync.py",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_management.py"
+        ],
+        "tests/test_consumer_kit_proof.py": [
+          ".github/dependabot.yml",
+          "LICENSES/MIT.txt",
+          "actions/pipeline/consumer-kit/automation.yml",
+          "actions/pipeline/consumer-kit/ci.yml",
+          "actions/pipeline/consumer-kit/docs/agents/ci.md",
+          "actions/pipeline/consumer-kit/fixed-callers.json",
+          "actions/pipeline/consumer-kit/release.yml",
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/proof-kit/.github/ci-config.yml",
+          "actions/pipeline/proof-kit/.github/dependabot.yml",
+          "actions/pipeline/proof-kit/.github/workflows/automation.yml",
+          "actions/pipeline/proof-kit/.github/workflows/ci.yml",
+          "actions/pipeline/proof-kit/.github/workflows/release.yml",
+          "actions/pipeline/proof-kit/LICENSES/MIT.txt",
+          "actions/pipeline/proof-kit/REUSE.toml",
+          "actions/pipeline/proof-kit/docs/agents/ci.md",
+          "actions/pipeline/proof-kit/dotnet/Greeting.Tests.csproj",
+          "actions/pipeline/proof-kit/dotnet/Greeting.cs",
+          "actions/pipeline/proof-kit/dotnet/GreetingTests.cs",
+          "actions/pipeline/proof-kit/python/greeting.py",
+          "actions/pipeline/proof-kit/python/pyproject.toml",
+          "actions/pipeline/proof-kit/python/tests/test_greeting.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/shared-surface.json",
+          "tests/test_consumer_kit_proof.py"
         ]
       },
       "directory_memberships": [
@@ -6695,7 +6767,8 @@
         ],
         "tests/test_consumer_kit_management.py": [
           "actions/sync/consumer-kit"
-        ]
+        ],
+        "tests/test_consumer_kit_proof.py": []
       },
       "existence_reads": [
         {
@@ -9289,7 +9362,8 @@
             "path": "tests/test_consumer_kit_management.so",
             "kind": "any"
           }
-        ]
+        ],
+        "tests/test_consumer_kit_proof.py": []
       },
       "lookup_directories": [
         ".",
@@ -9369,7 +9443,8 @@
           "actions/repository-hygiene",
           "actions/sync",
           "tests"
-        ]
+        ],
+        "tests/test_consumer_kit_proof.py": []
       }
     },
     {

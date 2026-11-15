@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check what a consumer holds beside its configuration file; the pipeline's hygiene job runs one command per step.
 
-    python3 consumer_checks.py callers    [--kit DIR] [--today DATE] [common options]
+    python3 consumer_checks.py callers    [--kit DIR] [--today DATE] [--surface FILE] [common options]
     python3 consumer_checks.py register   [common options]
     python3 consumer_checks.py dependabot [--kit DIR] [common options]
 
@@ -17,6 +17,9 @@ below it a consumer records its own choices. Its previous version, ``previous/do
 same month. A kit without that template compares none. Every other workflow file under
 ``.github/workflows/`` must be registered under ``local-workflows`` in the configuration file. A caller or a pointer
 document that differs is reported with the consumer's open pull request on the sync's branch, which the record names.
+In the proof repository, which the record of the shared surface names with the candidate tag, a caller equals its template
+except that it calls the shared workflow at the candidate tag instead of ``v1``; no other repository may call at
+that tag.
 
 ``register`` asks GitHub for the issue that each entry of ``local-workflows`` names: a temporary entry names an issue
 of the repository, a permanent entry a closed one. A pull request is no issue. A temporary entry whose ``waits-for``
@@ -55,6 +58,8 @@ import plan  # noqa: E402
 
 KIT = PART_FOLDER / "consumer-kit"
 KIT_PATH = "actions/pipeline/consumer-kit"  # the kit's path in the repository of the shared parts
+PROOF_KIT_PATH = "actions/pipeline/proof-kit"
+SURFACE = PART_FOLDER.parent / "repository-hygiene" / "shared-surface.json"
 RECORD = "fixed-callers.json"
 CALLERS = ("ci.yml", "automation.yml", "release.yml")
 WORKFLOWS = ".github/workflows"
@@ -117,6 +122,26 @@ def read_record(kit: Path) -> tuple[dict[str, datetime.date], str]:
         except ValueError as error:
             raise KitError(f"{path}: previous names {name} with {date!r}: {error}") from error
     return promoted, branch
+
+
+def candidate_tag(surface: Path, repository: str) -> str | None:
+    """The candidate tag when ``repository`` is the proof repository that the record of the shared surface names; None in any other repository."""
+    try:
+        record = json.loads(surface.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise KitError(f"{surface}: {error}") from error
+    proof, tag = (record.get(key) if isinstance(record, dict) else None for key in ("proof_repository", "candidate_tag"))
+    if not isinstance(proof, str) or not proof or not isinstance(tag, str) or not tag:
+        raise KitError(f"{surface}: expected the keys proof_repository and candidate_tag")
+    return tag if repository == proof else None
+
+
+def at_candidate(template: bytes | None, shared: str, tag: str | None) -> bytes | None:
+    """The template as the proof repository holds it: its call of a shared workflow names the candidate tag instead of v1."""
+    if template is None or tag is None:
+        return template
+    call = re.compile(rb"(?m)^(\s*uses:\s*" + re.escape(shared.encode()) + rb"/\.github/workflows/[^@\s]+@)v1([ \t]*\r?)$")
+    return call.sub(lambda match: match.group(1) + tag.encode() + match.group(2), template)
 
 
 def fixed_part(document: bytes) -> bytes:
@@ -284,6 +309,7 @@ def run_callers(options: argparse.Namespace) -> int:
         return 0
     promoted, branch = read_record(kit)
     shared = shared_repository(kit)
+    tag = candidate_tag(Path(options.surface), options.repository)
     today = options.today or datetime.datetime.now(datetime.timezone.utc).date()
     findings, notes, differs = [], [], False
     pointer = read_bytes(kit / POINTER)
@@ -294,9 +320,11 @@ def run_callers(options: argparse.Namespace) -> int:
             raise KitError(f"{kit} holds no template {name}")
         # Of the pointer document, only the part up to and including the heading of the repository's choices is fixed.
         compared = fixed_part(held) if name == POINTER and held is not None else held
-        if compared == template:
+        # In the proof repository a caller calls its shared workflow at the candidate tag; the pointer document names no tag.
+        own_tag = None if name == POINTER else tag
+        if compared == at_candidate(template, shared, own_tag):
             continue
-        if name in promoted and compared == read_bytes(kit / "previous" / name):
+        if name in promoted and compared == at_candidate(read_bytes(kit / "previous" / name), shared, own_tag):
             until = a_month_after(promoted[name])
             if today <= until:
                 notes.append(Finding(f"`{path}` equals the previous version of its template, which passes until {until.isoformat()}; "
@@ -305,6 +333,9 @@ def run_callers(options: argparse.Namespace) -> int:
             findings.append(Finding(f"`{path}` equals the previous version of its template, which passed until {until.isoformat()}.", path))
         elif held is None:
             findings.append(Finding(f"`{path}` does not exist; every consumer holds this {'pointer document' if name == POINTER else 'fixed caller'}.", path))
+        elif name != POINTER and tag:
+            findings.append(Finding(f"`{path}` differs from its template at the candidate tag `{tag}`; in the proof repository a fixed caller equals its template "
+                                    "except for that tag.", path))
         elif name != POINTER:
             findings.append(Finding(f"`{path}` differs from its template; a fixed caller equals its template byte for byte.", path))
         elif template.endswith(CHOICES):
@@ -313,7 +344,9 @@ def run_callers(options: argparse.Namespace) -> int:
         else:
             findings.append(Finding(f"`{path}` differs from its template; the pointer document equals its template byte for byte.", path))
         differs = True
-    if differs:
+    if differs and tag:
+        findings.append(Finding(f"The proof kit holds its callers: https://github.com/{shared}/tree/v1/{PROOF_KIT_PATH}"))
+    elif differs:
         findings.append(Finding(sync_pointer(Api(options.api_url, options.repository, os.environ.get("GITHUB_TOKEN")), branch, shared)))
     configuration, reasons = read_configuration(root, Path(options.schemas))
     folder = root / WORKFLOWS
@@ -330,6 +363,8 @@ def run_callers(options: argparse.Namespace) -> int:
         if unregistered:
             findings.append(Finding(f"The decision rule in the catalogue says where its work belongs: {catalogue_url(shared)}"))
     fixed = "Every fixed caller equals its template" if pointer is None else "Every fixed caller and the pointer document equal their templates"
+    if tag:
+        fixed += f", except that a caller calls the shared workflow at the candidate tag `{tag}`"
     passed = [f"{fixed}, and every other workflow file is registered.", *[f"- `{path}` is registered." for path in registered]]
     return report(options, CALLERS_TITLE, findings, passed, notes)
 
@@ -460,6 +495,7 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--summary", help="the file that receives the Markdown summary")
         command.add_argument("--kit", default=str(KIT), help="the consumer kit with the templates and their record")
     commands.choices["callers"].add_argument("--today", type=datetime.date.fromisoformat, help="the date of the run as YYYY-MM-DD; the current date in UTC without it")
+    commands.choices["callers"].add_argument("--surface", default=str(SURFACE), help="the record of the shared surface, which names the proof repository and the candidate tag")
     return main_parser
 
 

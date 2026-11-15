@@ -28,7 +28,7 @@ Default to `merge`: the builder merges after independent receipt and the pre-mer
 
 - CI is the only gate. While building, run the entry files of the changed behaviour, as "Validation" in `docs/maintaining.md` states; no local copy of the suite selection runs before a push.
 - Additions that a pull request's recording check reports are applied to the suite list `tests/suites.json` in the same pull request.
-- Creating or moving `v1`, apart from the automatic move of `promote-v1.yml`, is a one-way action under `docs/agents/publication.md`.
+- Creating or moving `v1`, apart from the automatic move of `promote-v1.yml` for a change that stays in the read class, is a one-way action under `docs/agents/publication.md`.
 
 ## Gitleaks before a push
 
