@@ -85,7 +85,7 @@ LOGIN = r"@[^\s,]+"
 # " by ... in <address>", so a title that holds such words itself stays whole.
 CHANGE_LINE = re.compile(rf"\* (?P<title>.+) by (?P<authors>{LOGIN}(?:(?:, and |, | and | with ){LOGIN})*) in (?P<address>\S+)")
 CONTRIBUTOR_LINE = re.compile(rf"\* (?P<login>{LOGIN}) made their first contribution in (?P<address>\S+)")
-COMMIT_TYPE = re.compile(r"(?P<type>[A-Za-z]+)(?:\([^()]*\))?(?P<breaking>!)?:\s")
+COMMIT_TYPE = re.compile(r"(?P<type>[A-Za-z]+)(?:\([^()]*\))?(?P<breaking>!)?:")
 
 
 class ReleaseError(Exception):
@@ -124,7 +124,8 @@ def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
         raise NoRelease("the run is not for a tag")
     tag = ref.removeprefix(TAG_PREFIX)
     values, version = release_configuration(root, schemas)
-    if not any(plan.pattern_expression(pattern).fullmatch(tag) for pattern in values["tags"]):
+    patterns = [plan.pattern_expression(pattern) for pattern in values["tags"]]
+    if not any(expression.fullmatch(tag) for expression in patterns):
         raise NoRelease(f"the tag `{tag}` matches none of the configured patterns {quoted(values['tags'])}")
     problems = value_problems(values)
     if problems:
@@ -132,10 +133,9 @@ def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
     commit = verified_commit(root, tag, values["allowed-signers"], default_branch)
     if "notes" in values:
         tracked_notes(root, commit, values["notes"])
-    patterns = [plan.pattern_expression(pattern) for pattern in values["tags"]]
     return {
         "run": True,
-        "reason": f"the tag `{tag}` matches {quoted([pattern for pattern in values['tags'] if plan.pattern_expression(pattern).fullmatch(tag)][:1])} "
+        "reason": f"the tag `{tag}` matches {quoted([pattern for pattern, expression in zip(values['tags'], patterns) if expression.fullmatch(tag)][:1])} "
                   "and carries a valid signature of an allowed key",
         "tag": tag,
         "commit": commit,
@@ -390,10 +390,15 @@ def shown_title(title: str) -> bool:
     return not typed or typed["type"].lower() not in HIDDEN_TYPES or bool(typed["breaking"])
 
 
+def bot(login: str) -> bool:
+    """Whether the login is a bot's: one that ends in ``[bot]``."""
+    return login.lower().endswith("[bot]")
+
+
 def external(login: str, owner: str) -> bool:
     """Whether the author is an external contributor: not the owner, not a bot and not Copilot. Logins ignore case."""
     name = login.removeprefix("@").lower()
-    return name != owner.lower() and not name.endswith("[bot]") and name != "copilot"
+    return name != owner.lower() and not bot(name) and name != "copilot"
 
 
 def authors_text(logins: list[str]) -> str:
@@ -403,11 +408,11 @@ def authors_text(logins: list[str]) -> str:
 def filtered_entries(body: str, owner: str) -> tuple[list[tuple[str, str]], str | None]:
     """The lines of the generated body after the filter, each with its kind, and the line "Full Changelog"."""
     entries: list[tuple[str, str]] = []
-    full = None
+    full_changelog = None
     section = ""
     for line in body.replace("\r\n", "\n").split("\n"):
         if line.startswith(FULL_CHANGELOG):
-            full = line
+            full_changelog = line
         elif line.startswith("## "):
             section = line.strip()
             entries.append(("section", line))
@@ -420,16 +425,16 @@ def filtered_entries(body: str, owner: str) -> tuple[list[tuple[str, str]], str 
                 entries.append(("line", line))
         elif section != CONTRIBUTORS_HEADING and (change := CHANGE_LINE.fullmatch(line)):
             logins = re.findall(LOGIN, change["authors"])
-            if all(login.lower().endswith("[bot]") for login in logins) or not shown_title(change["title"]):
+            if all(bot(login) for login in logins) or not shown_title(change["title"]):
                 continue
             kept = [login for login in logins if external(login, owner)]
             entries.append(("change", f"* {change['title']}" + (f" by {authors_text(kept)}" if kept else "") + f" in {change['address']}"))
         else:
             entries.append(("line", line))
-    return entries, full
+    return entries, full_changelog
 
 
-def rendered(entries: list[tuple[str, str]], full: str | None, shown: int, shortened: str | None) -> str:
+def rendered(entries: list[tuple[str, str]], full_changelog: str | None, shown: int, notice: str | None) -> str:
     """The body with the first ``shown`` change lines, without the headings that hold no line, and with the sentence
     that the list is shortened and the line "Full Changelog" at the end."""
     kept: list[tuple[str, str]] = []
@@ -454,24 +459,24 @@ def rendered(entries: list[tuple[str, str]], full: str | None, shown: int, short
                 continue
         lines.append(text)
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip("\n")
-    tail = [part for part in (shortened, full) if part]
+    tail = [part for part in (notice, full_changelog) if part]
     return "\n\n".join(part for part in (text, *tail) if part)
 
 
 def release_body(generated: str, owner: str) -> str:
     """The body of the release from the list that GitHub generated: the filtered lines, or the sentence that no change is
     listed, shortened from the end of the list to the length that GitHub accepts."""
-    entries, full = filtered_entries(generated, owner)
+    entries, full_changelog = filtered_entries(generated, owner)
     total = sum(kind == "change" for kind, _ in entries)
     if total == 0:
-        return "\n\n".join(part for part in (NO_CHANGES, full) if part)
-    body = rendered(entries, full, total, None)
+        return "\n\n".join(part for part in (NO_CHANGES, full_changelog) if part)
+    body = rendered(entries, full_changelog, total, None)
     if len(body) <= NOTES_LIMIT:
         return body
 
     def shortened(shown: int) -> str:
         sentence = f"The list is shortened to its first {shown} of {total} changes to fit the length that GitHub accepts for a release."
-        return rendered(entries, full, shown, sentence)
+        return rendered(entries, full_changelog, shown, sentence)
 
     low, high = 0, total - 1  # the most change lines that fit lies in [low, high]
     while low < high:
@@ -517,7 +522,7 @@ def publish(part: dict, files: Path, repository: str, api_url: str, token: str |
         body = published_notes(repository_url, part["commit"], str(part["notes"]), token)
         source = f"The release notes are the file `{part['notes']}` of the tagged commit."
     else:
-        previous = previous_release(repository_url, part.get("earlier-tags") or [], token)
+        previous = previous_release(repository_url, part.get("earlier-tags", []), token)
         generated = generated_notes(repository_url, tag, part["commit"], previous, token)
         body = release_body(generated, repository_owner(repository_url, token))
         source = (f"The list of changes starts after the release of the tag `{previous}`." if previous

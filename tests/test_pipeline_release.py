@@ -387,7 +387,7 @@ class PublishTests(ReleaseFixture):
 
     def test_a_line_whose_title_has_a_hidden_type_without_a_breaking_mark_goes(self) -> None:
         hidden = ["docs: describe it", "style: format it", "refactor: move it", "test: cover it", "build: pin it", "ci: speed it up", "chore: tidy it",
-                  "chore(deps): bump it", "DOCS(guide): fix a word", "Ci: retry"]
+                  "chore(deps): bump it", "DOCS(guide): fix a word", "Ci: retry", "docs:no space after the colon"]
         generated = self.changes(f"* feat: keep me by @{OWNER} in {CHANGES}/pull/100", *[f"* {title} by @{OWNER} in {CHANGES}/pull/{number}" for number, title in enumerate(hidden)])
         self.assertEqual(self.changes(f"* feat: keep me in {CHANGES}/pull/100"), self.body(generated))
 
@@ -397,7 +397,7 @@ class PublishTests(ReleaseFixture):
         self.assertEqual(self.changes(*[f"* {title} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)]), self.body(generated))
 
     def test_a_line_whose_title_starts_with_no_conventional_commits_type_stays(self) -> None:
-        titles = ["Add a command", "deps: bump the parser", 'Revert "feat: add the export"', "docs:no space after the colon", "Update README.md"]
+        titles = ["Add a command", "deps: bump the parser", 'Revert "feat: add the export"', "Update README.md", "documentation: a word that is no type"]
         generated = self.changes(*[f"* {title} by @{OWNER} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)])
         self.assertEqual(self.changes(*[f"* {title} in {CHANGES}/pull/{number}" for number, title in enumerate(titles)]), self.body(generated))
 
