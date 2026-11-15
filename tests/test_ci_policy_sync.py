@@ -389,8 +389,9 @@ class RepositorySettingsTest(unittest.TestCase):
         self.ruleset_section = section(self.readme, "### Default-branch ruleset")
 
     def test_the_list_the_patch_command_and_the_read_back_command_state_every_field_of_the_sync_s_merge_settings(self) -> None:
-        self.assertEqual(8, len(self.settings))
+        self.assertEqual(9, len(self.settings))
         self.assertIs(True, self.settings["allow_auto_merge"])
+        self.assertIs(True, self.settings["delete_branch_on_merge"])
         self.assertEqual([], merge_settings_problems(self.merge, self.settings))
 
     def test_a_field_or_a_value_that_the_kit_misses_or_a_field_the_file_lacks_fails_and_names_the_field(self) -> None:
@@ -402,7 +403,12 @@ class RepositorySettingsTest(unittest.TestCase):
             (self.merge.replace(patch, patch.replace(" -F allow_auto_merge=true", "")), "allow_auto_merge: the PATCH command does not name it"),
             (self.merge.replace(patch, patch.replace("-f merge_commit_message=BLANK", "-f merge_commit_message=PR_BODY")), "merge_commit_message: the PATCH command gives PR_BODY, merge-settings.json BLANK"),
             (self.merge.replace(read_back, read_back.replace(", allow_auto_merge", "")), "allow_auto_merge: the read-back command does not name it"),
-            (self.merge.replace(patch, patch + " -F delete_branch_on_merge=true"), "delete_branch_on_merge: the PATCH command names it, but merge-settings.json has no such field"),
+            (re.sub(r"(?m)^- `delete_branch_on_merge` is .*\n", "", self.merge), "delete_branch_on_merge: the list does not name it"),
+            (self.merge.replace("- `delete_branch_on_merge` is `true`", "- `delete_branch_on_merge` is `false`"), "delete_branch_on_merge: the list gives false, merge-settings.json true"),
+            (self.merge.replace(patch, patch.replace(" -F delete_branch_on_merge=true", "")), "delete_branch_on_merge: the PATCH command does not name it"),
+            (self.merge.replace(patch, patch.replace("delete_branch_on_merge=true", "delete_branch_on_merge=false")), "delete_branch_on_merge: the PATCH command gives false, merge-settings.json true"),
+            (self.merge.replace(read_back, read_back.replace(", delete_branch_on_merge", "")), "delete_branch_on_merge: the read-back command does not name it"),
+            (self.merge.replace(patch, patch + " -F unexpected_setting=true"), "unexpected_setting: the PATCH command names it, but merge-settings.json has no such field"),
         ):
             with self.subTest(problem=problem):
                 self.assertIn(problem, merge_settings_problems(changed, self.settings))
@@ -413,6 +419,10 @@ class RepositorySettingsTest(unittest.TestCase):
         bullet = next(line for line in self.merge.splitlines() if line.startswith("- `allow_auto_merge`"))
         self.assertIn("sync pull request", bullet)
         self.assertIn("full recording", bullet)
+
+    def test_the_deletion_bullet_explains_which_branches_are_deleted(self) -> None:
+        bullet = next(line for line in self.merge.splitlines() if line.startswith("- `delete_branch_on_merge`"))
+        self.assertIn("automatically deletes the pull request's head branch after merge", bullet)
 
     def test_the_ruleset_section_names_the_check_that_the_sync_keeps_as_the_one_required_check(self) -> None:
         expected = sync_program.expected_ruleset(RULESET_TEMPLATE)
