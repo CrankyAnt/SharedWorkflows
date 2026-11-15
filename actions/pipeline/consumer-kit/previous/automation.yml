@@ -1,0 +1,40 @@
+name: Automation
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] the shared workflow checks out and runs no code of the pull request while it holds a write token
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    # Mondays at 03:17 UTC.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      part:
+        description: The part to start by hand
+        required: true
+        type: choice
+        options: [full-recording, additions]
+      run-id:
+        description: For additions, the id of the run whose recording check reported additions
+        required: false
+        type: string
+      verify-token:
+        description: For full-recording, mint the token of the updater App even without a change to propose, to verify its private key
+        required: false
+        type: boolean
+        default: false
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  automation:
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    secrets:
+      PUBLICATION_CHECKS_APP_PRIVATE_KEY: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1
