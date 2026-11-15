@@ -24,6 +24,8 @@ Consumer kits contain templates to copy into a consuming repository. The committ
 
 These links describe the current checkout. Use their `v1` versions when adopting a published part.
 
+- [Pipeline](actions/pipeline/consumer-kit/README.md): the fixed callers, the configuration file and the CI guide
+- [Sync](actions/sync/consumer-kit/README.md): the private management repository that keeps consumers on the fixed callers
 - [Repository hygiene](actions/repository-hygiene/consumer-kit/README.md), with the [ruleset template](actions/repository-ruleset/README.md) for the default branch
 - [Dependabot auto-merge](actions/dependabot-auto-merge/consumer-kit/README.md)
 - [Suite selection](actions/suite-selection/consumer-kit/README.md)
@@ -32,7 +34,7 @@ These links describe the current checkout. Use their `v1` versions when adopting
 
 ## Validation
 
-Pull-request CI runs repository hygiene and selects affected tests through the validation caller. The required checks are `hygiene / hygiene` and `validation / validation`. See the [test-suite guide](tests/README.md) for local entry-file commands and prerequisites, and [Validation](docs/maintaining.md#validation) for the completion procedure.
+Pull-request CI runs repository hygiene, the Python tests and, through the pipeline, the suite selection. The required checks are `hygiene / hygiene`, `tests / tests` and `ci / verdict`. See the [test-suite guide](tests/README.md) for local entry-file commands and prerequisites, and [Validation](docs/maintaining.md#validation) for the completion procedure.
 
 ## Publication
 
