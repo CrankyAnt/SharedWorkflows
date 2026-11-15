@@ -138,10 +138,10 @@ def expression_value(expression: str, context: dict) -> object:
     return either()
 
 
-# A ``v1-moved`` run: ``repository_dispatch`` without a ``client_payload``, on the default branch's tip.
-V1_MOVED_TIP = "c" * 40
-V1_MOVED_CONTEXT = {"github": {"event_name": "repository_dispatch", "sha": V1_MOVED_TIP, "ref_name": "main",
-                               "event": {"action": "v1-moved", "repository": {"default_branch": "main"}}}}
+# A dispatch run without a ``client_payload``: it runs on the default branch's tip.
+BARE_DISPATCH_TIP = "c" * 40
+BARE_DISPATCH_CONTEXT = {"github": {"event_name": "repository_dispatch", "sha": BARE_DISPATCH_TIP, "ref_name": "main",
+                                    "event": {"action": "dependabot-merged", "repository": {"default_branch": "main"}}}}
 
 
 def passed_list_steps(steps: list[dict], check_outcome: str, additions: str, keep_outcome: str = "success") -> list[str]:

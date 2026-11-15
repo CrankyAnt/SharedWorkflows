@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.ci_policy_support import V1_MOVED_CONTEXT, V1_MOVED_TIP, entry_pathspecs, expression_value, read_workflow, tracked_files
+from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, BARE_DISPATCH_TIP, entry_pathspecs, expression_value, read_workflow, tracked_files
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
@@ -95,21 +95,21 @@ class SharedWorkflowTests(unittest.TestCase):
                 options = suite_selection.parse_arguments(arguments)
                 self.assertEqual(("check-dispatch", "PAYLOAD", "BRANCH"), (options.command, options.sha, options.branch))
 
-    def test_a_v1_moved_run_checks_out_the_default_branch_s_tip_and_runs_the_push_lookup_on_it(self) -> None:
+    def test_a_dispatch_run_without_a_payload_checks_out_the_default_branch_s_tip_and_runs_the_push_lookup_on_it(self) -> None:
         _, selection = read_workflow(WORKFLOWS / "suite-selection.yml")
         steps = selection["jobs"]["select"]["steps"]
         checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
         self.assertEqual(1, len(checkouts))
-        self.assertEqual("", expression_value(checkouts[0]["with"]["ref"], V1_MOVED_CONTEXT), "an empty ref checks out github.sha")
+        self.assertEqual("", expression_value(checkouts[0]["with"]["ref"], BARE_DISPATCH_CONTEXT), "an empty ref checks out github.sha")
         named = {step.get("name"): step for step in steps}
-        self.assertFalse(expression_value(named["Check that the dispatched commit is on the default branch"]["if"], V1_MOVED_CONTEXT))
+        self.assertFalse(expression_value(named["Check that the dispatched commit is on the default branch"]["if"], BARE_DISPATCH_CONTEXT))
         lookup = named["Look up the tested tree of the pushed commit's pull request"]
-        self.assertTrue(expression_value(lookup["if"], V1_MOVED_CONTEXT))
-        self.assertEqual((V1_MOVED_TIP, ""), (expression_value(lookup["env"]["SHA"], V1_MOVED_CONTEXT), expression_value(lookup["env"]["BEFORE"], V1_MOVED_CONTEXT)))
+        self.assertTrue(expression_value(lookup["if"], BARE_DISPATCH_CONTEXT))
+        self.assertEqual((BARE_DISPATCH_TIP, ""), (expression_value(lookup["env"]["SHA"], BARE_DISPATCH_CONTEXT), expression_value(lookup["env"]["BEFORE"], BARE_DISPATCH_CONTEXT)))
         shared = named["Look up the digest of the last passed run on the base branch"]
-        self.assertEqual(("main", V1_MOVED_TIP), (expression_value(shared["env"]["BRANCH"], V1_MOVED_CONTEXT), expression_value(shared["env"]["PUSHED"], V1_MOVED_CONTEXT)))
+        self.assertEqual(("main", BARE_DISPATCH_TIP), (expression_value(shared["env"]["BRANCH"], BARE_DISPATCH_CONTEXT), expression_value(shared["env"]["PUSHED"], BARE_DISPATCH_CONTEXT)))
         select = named["Select the suites the changed files touch"]
-        self.assertEqual("repository_dispatch", expression_value(select["env"]["EVENT"], V1_MOVED_CONTEXT))
+        self.assertEqual("repository_dispatch", expression_value(select["env"]["EVENT"], BARE_DISPATCH_CONTEXT))
         self.assertIn('push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;', select["run"])
 
     def test_both_workflows_name_the_step_by_the_scripts_it_loads(self) -> None:

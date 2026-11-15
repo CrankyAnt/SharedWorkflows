@@ -7,7 +7,7 @@ import json
 import re
 import unittest
 from pathlib import Path
-from tests.ci_policy_support import V1_MOVED_CONTEXT, expression_value, read_workflow, verdict_runs
+from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, expression_value, read_workflow, verdict_runs
 from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml, read_yaml_text
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -45,9 +45,9 @@ class ValidationCallerTemplateTest(unittest.TestCase):
         self.text, self.caller = read_yaml(SELECTION_KIT / "validation.yml")
         self.jobs = self.caller["jobs"]
 
-    def test_runs_on_pull_request_on_push_to_the_default_branch_on_a_dependabot_merge_and_on_a_v1_move_without_a_path_filter(self) -> None:
+    def test_runs_on_pull_request_on_push_to_the_default_branch_and_on_a_dependabot_merge_without_a_path_filter(self) -> None:
         self.assertEqual({"pull_request": None, "push": {"branches": ["<default-branch>"]},
-                          "repository_dispatch": {"types": ["dependabot-merged", "v1-moved"]}}, self.caller["on"])
+                          "repository_dispatch": {"types": ["dependabot-merged"]}}, self.caller["on"], "no move of v1 sends an event")
         self.assertNotIn("paths:", self.text)
         self.assertNotIn("paths-ignore:", self.text)
 
@@ -194,10 +194,13 @@ class EarlierAdoptionSectionTest(unittest.TestCase):
                 with self.subTest(kit=kit.parent.name, template=template):
                     self.assertIn(f"]({template})", section)
 
-    def test_the_suite_selection_section_leads_an_earlier_caller_to_the_v1_moved_trigger(self) -> None:
-        section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
-        self.assertIn("`v1-moved`", section)
+    def test_the_suite_selection_section_lets_an_earlier_caller_drop_the_v1_moved_trigger(self) -> None:
+        readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
+        section = readme_section(readme, EARLIER_ADOPTION_HEADING)
+        self.assertIn("removes `v1-moved` from the `types` of its `repository_dispatch` trigger", section)
         self.assertIn("(#when-v1-moves)", section)
+        self.assertEqual(1, readme.count("`v1-moved`"), "only the earlier adoption still names the event")
+        self.assertIn("No move of `v1` sends the repository an event", readme_section(readme, "## When `v1` moves"))
 
     def test_the_earlier_adoption_carries_over_each_job_s_checkout_options_and_env_variables(self) -> None:
         section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
@@ -205,8 +208,8 @@ class EarlierAdoptionSectionTest(unittest.TestCase):
         self.assertIn("the variables in each job's `env`", section)
 
 
-class V1MovedRunTest(unittest.TestCase):
-    """A ``v1-moved`` run of the validation workflow template: ``repository_dispatch`` without a ``client_payload``."""
+class BareDispatchRunTest(unittest.TestCase):
+    """A run of the validation workflow template on a ``repository_dispatch`` without a ``client_payload``."""
 
     def test_every_checkout_takes_the_default_branch_s_tip(self) -> None:
         _, validation = read_workflow(SELECTION_KIT / "validation-workflow.yml")
@@ -214,7 +217,7 @@ class V1MovedRunTest(unittest.TestCase):
         self.assertGreaterEqual(len(checkouts), 2)
         for step in checkouts:
             with self.subTest(job=step.get("name")):
-                self.assertEqual("", expression_value(step["with"]["ref"], V1_MOVED_CONTEXT), "an empty ref checks out github.sha, the default branch's tip")
+                self.assertEqual("", expression_value(step["with"]["ref"], BARE_DISPATCH_CONTEXT), "an empty ref checks out github.sha, the default branch's tip")
 
     def test_the_expression_value_returns_operands_as_github_does(self) -> None:
         context = {"github": {"event_name": "repository_dispatch", "event": {"client_payload": {"sha": "abc"}}, "sha": "tip"}}

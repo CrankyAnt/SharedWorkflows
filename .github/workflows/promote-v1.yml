@@ -68,8 +68,9 @@ jobs:
     needs: decide
     if: needs.decide.outputs.move == 'true'
     runs-on: ubuntu-slim
+    environment: promote-v1
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,12 +78,16 @@ jobs:
           persist-credentials: false
       - name: Move v1 under a lease on its previous commit
         env:
-          GH_TOKEN: ${{ github.token }}
+          DEPLOY_KEY: ${{ secrets.PROMOTE_V1_DEPLOY_KEY }}
           OLD: ${{ needs.decide.outputs.old }}
           NEW: ${{ needs.decide.outputs.new }}
-          GIT_CONFIG_COUNT: "2"
-          GIT_CONFIG_KEY_0: credential.helper
-          GIT_CONFIG_VALUE_0: ""
-          GIT_CONFIG_KEY_1: credential.helper
-          GIT_CONFIG_VALUE_1: "!gh auth git-credential"
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py move --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/promote-v1-key"
+          hosts="$RUNNER_TEMP/promote-v1-known-hosts"
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$DEPLOY_KEY" > "$key")
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$hosts"
+          export GIT_SSH_COMMAND="ssh -F /dev/null -i '$key' -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile='$hosts' -o StrictHostKeyChecking=yes"
+          git remote add promote "git@github.com:$GITHUB_REPOSITORY.git"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py move --remote promote --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"
