@@ -1,5 +1,6 @@
 # Shared Workflows
 
+We test a fork PR
 Shared Workflows provides reusable GitHub Actions workflows, shared steps and tools for repository maintainers and their coding agents. Consumers use the shared parts at `v1` to check repository hygiene, merge qualifying Dependabot updates and run affected test suites.
 
 ## Scope and authority
