@@ -137,6 +137,12 @@ class RequestTests(CatalogueFixture):
         self.assertIn("docs/agents/triage-labels.md", requests["triage"])
         self.assertIn("closes the request", requests["closing"])
 
+    def test_the_label_s_description_fits_github_s_limit_and_its_colour_matches_the_kit(self) -> None:
+        requests = self.catalogue["requests"]
+        self.assertLessEqual(len(requests["label_description"]), 100)
+        kit = (REPOSITORY_ROOT / "actions/pipeline/consumer-kit/README.md").read_text(encoding="utf-8")
+        self.assertIn(f"| `shared-ci` | `{requests['label_colour']}` |", kit)
+
     def test_the_triage_states_the_part_s_final_name_and_the_entry_follows_it(self) -> None:
         requests = self.catalogue["requests"]
         self.assertIn("final name", requests["triage"])

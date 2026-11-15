@@ -642,7 +642,7 @@ A consumer calls the pipeline from the fixed caller `ci.yml`, one of the three [
 | Key | Holds |
 | --- | --- |
 | `decision_rule` | The four steps by which an agent places CI work, each with `step`, `when` and `then`, in the order in which they are tried. |
-| `requests` | The label `shared-ci`, where a request is filed, what it holds, how it is answered and who closes it. |
+| `requests` | The label `shared-ci` with the description and colour to create it with, where a request is filed, what it holds, how it is answered and who closes it. |
 | `local_workflows` | The temporary and the permanent entry of the register, and what the hygiene job checks of them, the switch-over check included. |
 | `routes` | What a consumer does where no run starts by itself, such as after a corrected title. |
 | `parts` | One entry per shared part, each with the same keys. |
