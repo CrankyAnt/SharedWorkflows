@@ -135,7 +135,7 @@
       "workflows": [],
       "steps": [],
       "required_checks": [],
-      "needs": "The pipeline, and parts.custom in .github/ci-config.yml with script, the path of a script of the repository that runs with Bash from the repository root and whose exit status is the job's result, and optionally setups, names from the known setups in actions/pipeline/schema/v1/setups.json that are installed in the listed order, paths, and request with waits-for, the number of the request issue in the repository and the part, or <part>.<setting>, that takes over the work of the script; the schema fragment actions/pipeline/schema/v1/parts/custom.json states every setting.",
+      "needs": "The pipeline, and parts.custom in .github/ci-config.yml with script, the path of a script of the repository that runs with Bash from the repository root and whose exit status is the job's result, and optionally setups, names from the known setups in actions/pipeline/schema/v1/setups.json that are installed in the listed order, paths, runner-label, the label of a GitHub-hosted runner, ubuntu-26.04 without it, and request with waits-for, the number of the request issue in the repository and the part, or <part>.<setting>, that takes over the work of the script; the schema fragment actions/pipeline/schema/v1/parts/custom.json states every setting.",
       "applies": "A repository with CI that no other part covers and for which read permission suffices, as steps 2 and 3 of the decision rule say; work that needs write permission, a secret or another trigger than a pull request or a push to main does not fit it.",
       "consumer_kit": null,
       "audience": "consumer"

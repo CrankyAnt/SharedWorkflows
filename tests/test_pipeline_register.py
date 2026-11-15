@@ -353,5 +353,23 @@ class FreeJobRequestTests(ConsumerFixture):
                 self.assertIn(reason, checked.summary)
 
 
+class RealSchemaSwitchOverTests(ConsumerFixture):
+    """The switch-over check on the real schema of this revision: work that waits for a setting of a real part."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = SCHEMAS
+        self.api.issue(12, "open")
+
+    def test_work_that_waits_for_the_runner_of_the_free_job_is_told_to_switch(self) -> None:
+        for settings in (f"local-workflows:\n  - workflow: {TEMPORARY}\n    request: 12\n    waits-for: custom.runner-label\n",
+                         "parts:\n  custom:\n    script: ci/check.sh\n    request: 12\n    waits-for: custom.runner-label\n"):
+            with self.subTest(settings=settings):
+                self.consumer({CONFIGURATION: f"version: 1\n{settings}"})
+                checked = self.check("register")
+                self.assertEqual(1, checked.status, checked.stdout)
+                self.assertIn("waits for the setting `runner-label` of the part `custom`, which exists now", checked.summary)
+
+
 if __name__ == "__main__":
     unittest.main()

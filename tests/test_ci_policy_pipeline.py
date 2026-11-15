@@ -270,7 +270,6 @@ class FreeJobTests(unittest.TestCase):
         self.plan = "fromJSON(needs.plan.outputs.plan).parts['custom']"
 
     def test_the_job_checks_out_the_repository_and_installs_the_named_setups_in_the_listed_order_before_the_script(self) -> None:
-        self.assertEqual("ubuntu-26.04", self.job["runs-on"])
         self.assertTrue(str(self.steps[0]["uses"]).startswith("actions/checkout@"))
         known = json.loads(SETUPS.read_text(encoding="utf-8"))
         self.assertEqual(sorted(SETUP_ACTIONS), sorted({setup["tool"] for setup in known.values()}), "every tool of a known setup has its action here")
@@ -286,11 +285,15 @@ class FreeJobTests(unittest.TestCase):
                 self.assertEqual({version_input: f"${{{{ {self.plan}.setups[{position}].version }}}}"}, step["with"], "the setup's version and no cache")
         self.assertEqual(len(SETUP_ACTIONS), len({str(step["uses"]) for step in installs}), "one pin per action")
 
-    def test_the_last_step_runs_the_configured_script_and_its_exit_status_is_the_job_s_result(self) -> None:
+    def test_the_job_runs_on_the_runner_that_the_configuration_names_and_on_ubuntu_without_one(self) -> None:
+        self.assertEqual(f"${{{{ {self.plan}.config['runner-label'] || 'ubuntu-26.04' }}}}", self.job["runs-on"])
+
+    def test_the_last_step_runs_the_configured_script_with_bash_on_every_runner_and_its_exit_status_is_the_job_s_result(self) -> None:
         step = self.steps[-1]
         self.assertEqual({"SCRIPT": f"${{{{ {self.plan}.config.script }}}}"}, step["env"])
         self.assertEqual('bash -- "$SCRIPT"', step["run"], "the script's path reaches the shell as a value, never as text of the command")
-        self.assertEqual(["env", "name", "run"], sorted(step))
+        self.assertEqual("bash", step["shell"], "on a Windows runner the default shell is pwsh, where $SCRIPT is no environment variable")
+        self.assertEqual(["env", "name", "run", "shell"], sorted(step))
         for holder in (self.job, *self.steps):
             self.assertNotIn("continue-on-error", holder)
         self.assertEqual([], [step for step in self.steps[1:] if "if" in step and "].tool ==" not in step["if"]])

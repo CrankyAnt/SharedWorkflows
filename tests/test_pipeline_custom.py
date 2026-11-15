@@ -74,6 +74,24 @@ class SetupTests(PipelineFixture):
                 self.assertEqual(1, outcome.status)
                 self.assertIn(problem, outcome.summary)
 
+    def test_the_free_job_may_name_the_github_hosted_runner_of_its_job(self) -> None:
+        for label in ("windows-2025", "macos-15", "ubuntu-26.04"):
+            with self.subTest(label=label):
+                self.commit({CONFIGURATION: configuration("[python-3.14]") + f"    runner-label: {label}\n"})
+                outcome = self.plan()
+                self.assertEqual(0, outcome.status, outcome.summary)
+                part = outcome.plan["parts"][CUSTOM]
+                self.assertEqual((True, {"setups": ["python-3.14"], "script": "ci/check.sh", "runner-label": label}), (part["run"], part["config"]))
+
+    def test_the_runner_of_the_free_job_is_one_github_hosted_label_and_no_other(self) -> None:
+        for value in ("self-hosted", "windows", "linux-arm64", "[windows-2025]", "[self-hosted, windows]", "''"):
+            with self.subTest(value=value):
+                self.commit({CONFIGURATION: configuration("[python-3.14]") + f"    runner-label: {value}\n"})
+                outcome = self.plan()
+                self.assertEqual(1, outcome.status, outcome.summary)
+                self.assertNotIn("plan", outcome.outputs)
+                self.assertIn("parts.custom.runner-label", outcome.summary)
+
     def test_a_free_job_without_setups_runs_its_script_with_no_setup(self) -> None:
         self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n"})
         outcome = self.plan()
@@ -122,6 +140,12 @@ class AssembledSetupTests(unittest.TestCase):
         self.assertEqual({"$ref": "#/$defs/setups"}, custom["properties"]["setups"])
         self.assertEqual({"$ref": "#/$defs/script"}, custom["properties"]["script"])
         self.assertEqual(["script"], custom["required"])
+
+    def test_the_assembled_schema_states_the_runner_of_the_free_job_and_its_default(self) -> None:
+        schema = json.loads((SCHEMAS / "v1" / "ci-config.schema.json").read_text(encoding="utf-8"))
+        runner = schema["properties"]["parts"]["properties"][CUSTOM]["properties"]["runner-label"]
+        self.assertEqual("#/$defs/runner-label", runner["$ref"])
+        self.assertIn("ubuntu-26.04", runner["description"], "the default for a reader of the schema")
 
 
 @unittest.skipUnless(shutil.which("bash"), "the job's command runs in Bash")
