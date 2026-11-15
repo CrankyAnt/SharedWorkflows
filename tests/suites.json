@@ -106,11 +106,13 @@
         "actions/pipeline/consumer-kit/README.md",
         "actions/pipeline/consumer-kit/automation.yml",
         "actions/pipeline/consumer-kit/ci.yml",
+        "actions/pipeline/consumer-kit/docs/agents/ci.md",
         "actions/pipeline/consumer-kit/fixed-callers.json",
         "actions/pipeline/consumer-kit/release.yml",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/release.py",
+        "actions/pipeline/schema/v1/base.json",
         "actions/pipeline/schema/v1/ci-config.schema.json",
         "actions/pipeline/schema/v1/parts/additions.json",
         "actions/pipeline/schema/v1/parts/custom.json",
@@ -177,6 +179,7 @@
         "actions/sync/merge-settings.json",
         "actions/sync/sync.py",
         "catalogue.json",
+        "docs/agents/issue-tracker.md",
         "docs/maintaining.md",
         "tests/ci_policy_support.py",
         "tests/fixtures/issue_title/categories.json",
@@ -252,6 +255,23 @@
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_auto_merge_caller.py"
         ],
+        "tests/test_ci_policy_catalogue.py": [
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "catalogue.json",
+          "docs/agents/issue-tracker.md",
+          "tests/ci_policy_support.py",
+          "tests/test_ci_policy_catalogue.py"
+        ],
         "tests/test_ci_policy_shared_surface.py": [
           ".github/workflows/apply-additions.yml",
           ".github/workflows/automation-caller.yml",
@@ -282,6 +302,7 @@
           "actions/pipeline/consumer-kit/README.md",
           "actions/pipeline/consumer-kit/automation.yml",
           "actions/pipeline/consumer-kit/ci.yml",
+          "actions/pipeline/consumer-kit/docs/agents/ci.md",
           "actions/pipeline/consumer-kit/release.yml",
           "actions/pipeline/schema/v1/ci-config.schema.json",
           "actions/python-language-step/consumer-kit/README.md",
@@ -741,9 +762,6 @@
           "tests/fixtures/issue_title/categories.json",
           "tests/test_ci_policy_automation.py"
         ],
-        "tests/test_ci_policy_catalogue.py": [
-          "tests/test_ci_policy_catalogue.py"
-        ],
         "tests/test_ci_policy_sync.py": [
           ".github/workflows/sync.yml",
           "actions/pipeline/consumer_checks.py",
@@ -765,10 +783,15 @@
       "directory_memberships": [
         ".github/workflows",
         ".github/workflows/**",
+        ".github/workflows/automation.yml/**",
         ".github/workflows/dependabot-auto-merge.yml/**",
+        ".github/workflows/pipeline.yml/**",
+        ".github/workflows/python-tests.yml/**",
+        ".github/workflows/release.yml/**",
         ".github/workflows/repository-hygiene.yml/**",
         ".github/workflows/suite-selection.yml/**",
         ".github/workflows/suite-verdict.yml/**",
+        ".github/workflows/sync.yml/**",
         "actions",
         "actions/dependabot-auto-merge",
         "actions/dependabot-auto-merge/**",
@@ -782,11 +805,27 @@
         "actions/pipeline/**",
         "actions/pipeline/consumer-kit",
         "actions/pipeline/consumer-kit/**",
+        "actions/pipeline/consumer-kit/docs",
+        "actions/pipeline/consumer-kit/docs/agents",
+        "actions/pipeline/consumer-kit/docs/agents/ci.md/**",
         "actions/pipeline/consumer-kit/previous/**",
+        "actions/pipeline/missing.json/**",
         "actions/pipeline/schema",
         "actions/pipeline/schema/v1",
+        "actions/pipeline/schema/v1/ci-config.schema.json/**",
         "actions/pipeline/schema/v1/parts",
         "actions/pipeline/schema/v1/parts/**",
+        "actions/pipeline/schema/v1/parts/additions.json/**",
+        "actions/pipeline/schema/v1/parts/custom.json/**",
+        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json/**",
+        "actions/pipeline/schema/v1/parts/dotnet-test.json/**",
+        "actions/pipeline/schema/v1/parts/full-recording.json/**",
+        "actions/pipeline/schema/v1/parts/github-release.json/**",
+        "actions/pipeline/schema/v1/parts/issue-title.json/**",
+        "actions/pipeline/schema/v1/parts/python-test.json/**",
+        "actions/pipeline/schema/v1/parts/python-verify.json/**",
+        "actions/pipeline/schema/v1/parts/repository-hygiene.json/**",
+        "actions/pipeline/schema/v1/setups.json/**",
         "actions/publication-checks",
         "actions/publication-checks/**",
         "actions/python-language-step",
@@ -826,6 +865,7 @@
         "tests/test_ci_policy_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
         "tests/test_ci_policy_automation.py/**",
+        "tests/test_ci_policy_catalogue.py/**",
         "tests/test_ci_policy_etw_consumer.py/**",
         "tests/test_ci_policy_fixed_callers.py/**",
         "tests/test_ci_policy_full_recording.py/**",
@@ -950,6 +990,52 @@
         "tests/test_ci_policy_action_pins.py": [
           ".github/workflows"
         ],
+        "tests/test_ci_policy_catalogue.py": [
+          ".github/workflows/automation.yml/**",
+          ".github/workflows/dependabot-auto-merge.yml/**",
+          ".github/workflows/pipeline.yml/**",
+          ".github/workflows/python-tests.yml/**",
+          ".github/workflows/release.yml/**",
+          ".github/workflows/repository-hygiene.yml/**",
+          ".github/workflows/suite-selection.yml/**",
+          ".github/workflows/suite-verdict.yml/**",
+          ".github/workflows/sync.yml/**",
+          "actions/dependabot-auto-merge/**",
+          "actions/dependabot-auto-merge/consumer-kit/**",
+          "actions/dotnet-test/**",
+          "actions/issue-title/**",
+          "actions/pipeline/**",
+          "actions/pipeline/consumer-kit/**",
+          "actions/pipeline/consumer-kit/docs/agents/ci.md/**",
+          "actions/pipeline/missing.json/**",
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/ci-config.schema.json/**",
+          "actions/pipeline/schema/v1/parts",
+          "actions/pipeline/schema/v1/parts/additions.json/**",
+          "actions/pipeline/schema/v1/parts/custom.json/**",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json/**",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json/**",
+          "actions/pipeline/schema/v1/parts/full-recording.json/**",
+          "actions/pipeline/schema/v1/parts/github-release.json/**",
+          "actions/pipeline/schema/v1/parts/issue-title.json/**",
+          "actions/pipeline/schema/v1/parts/python-test.json/**",
+          "actions/pipeline/schema/v1/parts/python-verify.json/**",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json/**",
+          "actions/pipeline/schema/v1/setups.json/**",
+          "actions/publication-checks/**",
+          "actions/python-language-step/**",
+          "actions/python-language-step/consumer-kit/**",
+          "actions/python-tests/**",
+          "actions/python-tests/consumer-kit/**",
+          "actions/recording/**",
+          "actions/repository-hygiene/**",
+          "actions/repository-hygiene/consumer-kit/**",
+          "actions/repository-ruleset/**",
+          "actions/suite-selection/**",
+          "actions/suite-selection/consumer-kit/**",
+          "actions/sync/**",
+          "actions/sync/consumer-kit/**"
+        ],
         "tests/test_ci_policy_shared_surface.py": [
           ".github/workflows/**",
           ".github/workflows/dependabot-auto-merge.yml/**",
@@ -989,6 +1075,7 @@
           "tests/test_ci_policy_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
           "tests/test_ci_policy_automation.py/**",
+          "tests/test_ci_policy_catalogue.py/**",
           "tests/test_ci_policy_etw_consumer.py/**",
           "tests/test_ci_policy_fixed_callers.py/**",
           "tests/test_ci_policy_full_recording.py/**",
@@ -1131,6 +1218,8 @@
           "actions/issue-title",
           "actions/pipeline",
           "actions/pipeline/consumer-kit",
+          "actions/pipeline/consumer-kit/docs",
+          "actions/pipeline/consumer-kit/docs/agents",
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1",
           "actions/pipeline/schema/v1/parts",
@@ -1208,6 +1297,10 @@
           "kind": "any"
         },
         {
+          "path": ".github/workflows/release.yml",
+          "kind": "any"
+        },
+        {
           "path": ".github/workflows/repository-hygiene.yml",
           "kind": "any"
         },
@@ -1260,6 +1353,18 @@
           "kind": "any"
         },
         {
+          "path": "actions/pipeline/consumer-kit/docs",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/consumer-kit/docs/agents",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/pipeline/consumer-kit/docs/agents/ci.md",
+          "kind": "any"
+        },
+        {
           "path": "actions/pipeline/consumer-kit/previous",
           "kind": "any"
         },
@@ -1277,6 +1382,10 @@
         },
         {
           "path": "actions/pipeline/consumer_checks.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/missing.json",
           "kind": "any"
         },
         {
@@ -1304,7 +1413,55 @@
           "kind": "directory"
         },
         {
+          "path": "actions/pipeline/schema/v1/ci-config.schema.json",
+          "kind": "any"
+        },
+        {
           "path": "actions/pipeline/schema/v1/parts",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/additions.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/custom.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/full-recording.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/github-release.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/issue-title.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/python-test.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/python-verify.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1/setups.json",
           "kind": "any"
         },
         {
@@ -1657,6 +1814,26 @@
         },
         {
           "path": "tests/test_ci_policy_automation.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_catalogue",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_catalogue.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_catalogue.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_catalogue.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_catalogue.so",
           "kind": "any"
         },
         {
@@ -2645,6 +2822,224 @@
             "kind": "any"
           }
         ],
+        "tests/test_ci_policy_catalogue.py": [
+          {
+            "path": ".github/workflows/automation.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/dependabot-auto-merge.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/pipeline.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/python-tests.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/release.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/repository-hygiene.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/suite-selection.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/suite-verdict.yml",
+            "kind": "any"
+          },
+          {
+            "path": ".github/workflows/sync.yml",
+            "kind": "any"
+          },
+          {
+            "path": "actions/dependabot-auto-merge",
+            "kind": "any"
+          },
+          {
+            "path": "actions/dependabot-auto-merge/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/dotnet-test",
+            "kind": "any"
+          },
+          {
+            "path": "actions/issue-title",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer-kit/docs/agents/ci.md",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/missing.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/ci-config.schema.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/additions.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/custom.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/dotnet-test.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/full-recording.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/github-release.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/issue-title.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/python-test.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/python-verify.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/setups.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/publication-checks",
+            "kind": "any"
+          },
+          {
+            "path": "actions/python-language-step",
+            "kind": "any"
+          },
+          {
+            "path": "actions/python-language-step/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/python-tests",
+            "kind": "any"
+          },
+          {
+            "path": "actions/python-tests/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/recording",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-ruleset",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_catalogue",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_catalogue.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_catalogue.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_catalogue.so",
+            "kind": "any"
+          }
+        ],
         "tests/test_ci_policy_shared_surface.py": [
           {
             "path": ".github/workflows",
@@ -2705,6 +3100,14 @@
           {
             "path": "actions/pipeline/consumer-kit",
             "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/consumer-kit/docs",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/consumer-kit/docs/agents",
+            "kind": "directory"
           },
           {
             "path": "actions/pipeline/schema",
@@ -3546,6 +3949,10 @@
           },
           {
             "path": "tests/test_ci_policy_automation.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_catalogue.py",
             "kind": "any"
           },
           {
@@ -4955,6 +5362,10 @@
           ".",
           "tests"
         ],
+        "tests/test_ci_policy_catalogue.py": [
+          ".",
+          "tests"
+        ],
         "tests/test_ci_policy_shared_surface.py": [
           ".",
           "tests"
@@ -5622,9 +6033,11 @@
         "actions/pipeline/consumer-kit/README.md",
         "actions/pipeline/consumer-kit/automation.yml",
         "actions/pipeline/consumer-kit/ci.yml",
+        "actions/pipeline/consumer-kit/docs/agents/ci.md",
         "actions/pipeline/consumer-kit/release.yml",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
+        "actions/pipeline/schema/v1/ci-config.schema.json",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-tests/consumer-kit/README.md",
@@ -5640,6 +6053,7 @@
         "actions/repository-hygiene/pins.json",
         "actions/repository-hygiene/pins.py",
         "actions/repository-hygiene/zizmor-policy.yml",
+        "actions/repository-ruleset/README.md",
         "actions/suite-selection/ci_definition.py",
         "actions/suite-selection/consumer-kit/README.md",
         "actions/suite-selection/consumer-kit/apply-additions.yml",
@@ -5937,11 +6351,14 @@
           "actions/pipeline/consumer-kit/README.md",
           "actions/pipeline/consumer-kit/automation.yml",
           "actions/pipeline/consumer-kit/ci.yml",
+          "actions/pipeline/consumer-kit/docs/agents/ci.md",
           "actions/pipeline/consumer-kit/release.yml",
+          "actions/pipeline/schema/v1/ci-config.schema.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/install_tools.py",
           "actions/repository-hygiene/pins.json",
           "actions/repository-hygiene/pins.py",
+          "actions/repository-ruleset/README.md",
           "catalogue.json",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_fixed_callers.py"
@@ -9876,6 +10293,7 @@
         "tests/test_ci_policy_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
         "tests/test_ci_policy_automation.py/**",
+        "tests/test_ci_policy_catalogue.py/**",
         "tests/test_ci_policy_etw_consumer.py/**",
         "tests/test_ci_policy_fixed_callers.py/**",
         "tests/test_ci_policy_full_recording.py/**",
@@ -10024,6 +10442,7 @@
           "tests/test_ci_policy_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
           "tests/test_ci_policy_automation.py/**",
+          "tests/test_ci_policy_catalogue.py/**",
           "tests/test_ci_policy_etw_consumer.py/**",
           "tests/test_ci_policy_fixed_callers.py/**",
           "tests/test_ci_policy_full_recording.py/**",
@@ -10752,6 +11171,10 @@
         },
         {
           "path": "tests/test_ci_policy_automation.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_catalogue.py",
           "kind": "any"
         },
         {
@@ -12479,6 +12902,10 @@
           },
           {
             "path": "tests/test_ci_policy_automation.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_catalogue.py",
             "kind": "any"
           },
           {
@@ -17520,6 +17947,11 @@
         "actions/dotnet-test/action.yml",
         "actions/dotnet-test/dotnet_test.py",
         "actions/issue-title/issue_title.py",
+        "actions/pipeline/consumer-kit/automation.yml",
+        "actions/pipeline/consumer-kit/ci.yml",
+        "actions/pipeline/consumer-kit/docs/agents/ci.md",
+        "actions/pipeline/consumer-kit/fixed-callers.json",
+        "actions/pipeline/consumer-kit/release.yml",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/release.py",
@@ -17656,6 +18088,11 @@
           "tests/workflow_commands.py"
         ],
         "tests/test_pipeline_callers.py": [
+          "actions/pipeline/consumer-kit/automation.yml",
+          "actions/pipeline/consumer-kit/ci.yml",
+          "actions/pipeline/consumer-kit/docs/agents/ci.md",
+          "actions/pipeline/consumer-kit/fixed-callers.json",
+          "actions/pipeline/consumer-kit/release.yml",
           "actions/pipeline/consumer_checks.py",
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
@@ -20912,6 +21349,8 @@
         "actions/issue-title",
         "actions/pipeline",
         "actions/pipeline/consumer-kit",
+        "actions/pipeline/consumer-kit/docs",
+        "actions/pipeline/consumer-kit/docs/agents",
         "actions/pipeline/schema",
         "actions/pipeline/schema/v1",
         "actions/pipeline/schema/v1/parts",
