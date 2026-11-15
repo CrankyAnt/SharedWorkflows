@@ -31,7 +31,7 @@
           }
         },
         "custom": {
-          "description": "The free job: runs a script of the repository after the setups that it names, with read permission only and without secrets, for CI that no other part covers. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\"}.",
+          "description": "The free job: runs a script of the repository after the setups that it names, with read permission only and without secrets, for CI that no other part covers. While the work waits for a shared part or for a setting of one, `request` and `waits-for` name the request and what it waits for, as a temporary entry of the local workflow register does, and repository hygiene reports when the part or the setting exists. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\", \"request\": 12, \"waits-for\": \"python-licences\"}.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -46,6 +46,14 @@
             },
             "paths": {
               "$ref": "#/$defs/paths"
+            },
+            "request": {
+              "description": "The number of the request issue in this repository for the shared part, or the setting of one, that takes over the work of the script. The schema accepts it alone; the register check of repository hygiene requires `waits-for` with it.",
+              "$ref": "#/$defs/request"
+            },
+            "waits-for": {
+              "description": "What the work of the script waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. The schema accepts it alone; the register check of repository hygiene requires `request` with it. Once the part exists at v1, or knows the setting, repository hygiene reports it, as it does for a temporary entry of the local workflow register. Invented examples: \"python-licences\", \"python-test.coverage\".",
+              "$ref": "#/$defs/waits-for"
             }
           }
         },
@@ -155,6 +163,10 @@
               "type": "string",
               "minLength": 1
             },
+            "notes": {
+              "description": "The path, relative to the repository root, of a tracked file whose content becomes the release notes, the body of the release. It is read at the commit that the verified tag names, so it is a tracked file of that commit and never a file that `script` writes, and it holds UTF-8 text of at most 125000 characters. Without it, the body is one fixed sentence that names the tag and its commit. Invented example: \"docs/release-notes.md\".",
+              "$ref": "#/$defs/relative-path"
+            },
             "script": {
               "$ref": "#/$defs/script"
             },
@@ -168,7 +180,7 @@
           }
         },
         "issue-title": {
-          "description": "Issue-title normalisation: gives an opened issue the title prefix of its category. `categories` names the repository's category file, a JSON object with the component categories under `product_categories` and the categories without components under `generic_forms`. Invented example: {\"categories\": \"intake/categories.json\"}.",
+          "description": "Issue-title normalisation: gives an opened issue the title prefix of its category. `categories` names the repository's category file, a JSON object with the component categories under `product_categories` and the categories without components under `generic_forms`; both are lists, a missing one counts as empty, and together they hold at least one item. An item of `generic_forms` is an object with `key` (the name of the category, unique across both lists), `title_prefix` (the prefix that an issue of the category gets) and `labels` (the labels of which one on an issue makes it an issue of the category). An item of `product_categories` is an object with `key`, `title_prefix` and `labels` as well, and with `source_directory` (the folder, relative to the repository root, whose direct subfolders are the components), `marker` (the file in a component's folder that makes it a component; it starts with `key: value` lines between two `---` lines), `dynamic_title_prefix` (the prefix of an issue about a component, with `{component}` for the component's name), `component_label` (the heading of the component field in the issue form) and `required_metadata` (the keys that every marker must hold). Each value is a non-empty string, except `labels` and `required_metadata`, which are lists of non-empty strings and may be empty; every key is required, and a key that is not named here is ignored. Invented example of the setting: {\"categories\": \"intake/categories.json\"}. Invented example of the category file: {\"product_categories\": [{\"key\": \"tool\", \"source_directory\": \"tools\", \"marker\": \"TOOL.md\", \"title_prefix\": \"[tool]\", \"dynamic_title_prefix\": \"[{component}]\", \"component_label\": \"Tool\", \"required_metadata\": [\"name\"], \"labels\": [\"category:tool\"]}], \"generic_forms\": [{\"key\": \"question\", \"title_prefix\": \"[question]\", \"labels\": [\"category:question\"]}]}.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -375,14 +387,10 @@
               "$ref": "#/$defs/workflow"
             },
             "request": {
-              "description": "The number of the request issue in this repository.",
-              "type": "integer",
-              "minimum": 1
+              "$ref": "#/$defs/request"
             },
             "waits-for": {
-              "description": "What the workflow waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. Invented examples: \"python-release\", \"python-test.coverage\".",
-              "type": "string",
-              "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*(\\.[a-z][a-z0-9]*(-[a-z0-9]+)*)?$"
+              "$ref": "#/$defs/waits-for"
             }
           }
         },
@@ -407,6 +415,16 @@
           }
         }
       ]
+    },
+    "request": {
+      "description": "The number of the request issue in this repository.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "waits-for": {
+      "description": "What the work waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. Invented examples: \"python-release\", \"python-test.coverage\".",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*(\\.[a-z][a-z0-9]*(-[a-z0-9]+)*)?$"
     },
     "workflow": {
       "description": "The path of the workflow file.",

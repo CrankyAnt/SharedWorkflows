@@ -1,5 +1,5 @@
 {
-  "description": "The free job: runs a script of the repository after the setups that it names, with read permission only and without secrets, for CI that no other part covers. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\"}.",
+  "description": "The free job: runs a script of the repository after the setups that it names, with read permission only and without secrets, for CI that no other part covers. While the work waits for a shared part or for a setting of one, `request` and `waits-for` name the request and what it waits for, as a temporary entry of the local workflow register does, and repository hygiene reports when the part or the setting exists. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\", \"request\": 12, \"waits-for\": \"python-licences\"}.",
   "configuration": {
     "type": "object",
     "additionalProperties": false,
@@ -7,7 +7,15 @@
     "properties": {
       "setups": {"$ref": "#/$defs/setups"},
       "script": {"$ref": "#/$defs/script"},
-      "paths": {"$ref": "#/$defs/paths"}
+      "paths": {"$ref": "#/$defs/paths"},
+      "request": {
+        "description": "The number of the request issue in this repository for the shared part, or the setting of one, that takes over the work of the script. The schema accepts it alone; the register check of repository hygiene requires `waits-for` with it.",
+        "$ref": "#/$defs/request"
+      },
+      "waits-for": {
+        "description": "What the work of the script waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. The schema accepts it alone; the register check of repository hygiene requires `request` with it. Once the part exists at v1, or knows the setting, repository hygiene reports it, as it does for a temporary entry of the local workflow register. Invented examples: \"python-licences\", \"python-test.coverage\".",
+        "$ref": "#/$defs/waits-for"
+      }
     }
   }
 }

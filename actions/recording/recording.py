@@ -2005,7 +2005,8 @@ def run_check(options: argparse.Namespace) -> int:
         print(f"Every recorded read of {len(recorded)} entry file{'' if len(recorded) == 1 else 's'} lies inside the stored lists.")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
-            route = additions_route(target.name, project.tracked, os.environ.get("GITHUB_RUN_ID"), os.environ.get("GITHUB_EVENT_NAME"))
+            route = additions_route(target.name, project.tracked, os.environ.get("GITHUB_RUN_ID"), os.environ.get("GITHUB_EVENT_NAME"),
+                                    holds_automation_caller(root))
             handle.write(check_summary(lines, len(recorded), route) + etw_summary(settings))
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
@@ -2017,21 +2018,48 @@ def run_check(options: argparse.Namespace) -> int:
 SHARED_PARTS_MARKER = "actions/recording/recording.py"
 
 
-def additions_route(file_name: str, tracked: Collection[str], run_id: str | None, event: str | None) -> str:
+# The fixed caller of the automation workflow in a consumer that adopted the pipeline, and the reference by which it calls that workflow.
+AUTOMATION_CALLER = ".github/workflows/automation.yml"
+AUTOMATION_CALL = re.compile(r"(?m)^\s*uses:\s*[^\s/#]+/[^\s/#]+/\.github/workflows/automation\.yml@\S+")
+
+
+def holds_automation_caller(root: Path) -> bool:
+    """Whether the repository's ``.github/workflows/automation.yml`` is the fixed caller: the file that calls the shared
+    automation workflow. A repository that runs the suite selection in its earlier form holds no such caller."""
+    try:
+        return AUTOMATION_CALL.search((root / AUTOMATION_CALLER).read_text(encoding="utf-8")) is not None
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def additions_route(file_name: str, tracked: Collection[str], run_id: str | None, event: str | None, automation: bool = True) -> str:
     """The sentence that sends the reader of a failed check to the route that applies its additions in this repository:
-    the maintenance documentation's in the repository of the shared parts, the consumer kit's in a consumer."""
-    kit = 'as the section "Additions" of the suite-selection consumer kit states'
+    the maintenance documentation's in the repository of the shared parts, and in a consumer the route of the form it
+    runs. ``automation`` says that the consumer holds the fixed caller ``automation.yml``, so the additions workflow is
+    the part ``additions`` of the automation workflow; without that caller the consumer runs the suite selection in its
+    earlier form, whose additions workflow is a workflow of its own, ``Apply recorded additions``."""
     if SHARED_PARTS_MARKER in tracked:
         return (f"Download the additions artifacts (`{file_name}` in each) and apply them to the suite list "
                 'as "Validation" in `docs/maintaining.md` states.')
+    if automation:
+        kit = 'as the section "Additions" of the suite-selection consumer kit states'
+        workflow = "the additions workflow, the part `additions` of the automation workflow,"
+        decides = "the run of `CI` on the new head decides"
+        run = f"`{run_id}`" if run_id else "of the pull request's failed `CI` run"
+        manual = (f"start the fixed caller `automation.yml` by hand with the part `additions` and the run id {run} "
+                  f"(`gh workflow run automation.yml -f part=additions -f run-id={run_id or '<run id>'}`)")
+    else:
+        kit = 'as the section "When a repository adopted it earlier" of the suite-selection consumer kit states for a repository that keeps that workflow'
+        workflow = "the additions workflow, the repository's own workflow `Apply recorded additions`,"
+        decides = "the validation of the new head decides"
+        run = f"`{run_id}`" if run_id else "of the pull request's validation run"
+        manual = f"start the workflow `Apply recorded additions` by hand with the run id {run}"
     if run_id and event != "pull_request":
         return (f"This {event} run belongs to no pull request, so the additions workflow cannot propose them; the run of a "
                 f"pull request that makes the same reads reports them again, and that pull request applies them {kit}.")
-    run = f"`{run_id}`" if run_id else "of the pull request's validation run"
-    return ("For a pull request from a branch of this repository, the additions workflow commits them onto its branch as the "
-            "GitHub App, and the validation of the new head decides. When it comments that it cannot, start the workflow "
-            f"`Apply recorded additions` with the run id {run} and merge the pull request it opens into this pull request's "
-            f"branch, {kit}.")
+    return (f"For a pull request from a branch of this repository, {workflow} commits them onto its branch as the GitHub App, "
+            f"and {decides}. When it comments that it cannot, {manual}, and merge the pull request it opens into this pull "
+            f"request's branch, {kit}.")
 
 
 def check_summary(lines: list[tuple[str, str]], count: int, route: str) -> str:

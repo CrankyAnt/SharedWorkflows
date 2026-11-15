@@ -158,6 +158,51 @@ class BuildPlanTests(ReleaseFixture):
         self.assertRegex(self.released(configuration())["title"], r"^v1\.0\.\d+$")
         self.assertRegex(self.released(configuration('    title: "Tool {version} ({tag})"\n'))["title"], r"^Tool 1\.0\.\d+ \(v1\.0\.\d+\)$")
 
+    def test_the_plan_names_the_file_of_the_release_notes_and_no_file_without_the_setting(self) -> None:
+        self.assertEqual("", self.released(configuration())["notes"])
+        self.commit({"docs/notes.md": "## Changes\n\nA fix.\n"})
+        part = self.released(configuration("    notes: docs/notes.md\n"))
+        self.assertEqual(("docs/notes.md", "docs/notes.md"), (part["notes"], part["config"]["notes"]))
+
+    def test_the_summary_of_the_plan_names_the_release_notes(self) -> None:
+        maintainer, line = self.key()
+        self.commit({CONFIGURATION: configuration("    notes: NOTES.md\n"), SIGNERS: line, "NOTES.md": "A fix.\n"})
+        self.publish_main()
+        self.tag("v1.0.0", key=maintainer)
+        self.assertIn("The release notes are the file `NOTES.md` of the tagged commit.", self.plan("refs/tags/v1.0.0").summary)
+
+    def test_release_notes_that_the_tagged_commit_does_not_hold_or_that_github_cannot_take_fail_the_plan(self) -> None:
+        maintainer, line = self.key()
+        self.commit({CONFIGURATION: configuration("    notes: docs/notes.md\n"), SIGNERS: line})
+        self.publish_main()
+        cases = {"v3.0.0": (lambda: None, "holds no file `docs/notes.md`; the release notes are a tracked file of that commit."),
+                 "v3.0.1": (lambda: (self.repository / "docs").mkdir() or (self.repository / "docs" / "notes.md").write_bytes(b"caf\xe9\n"), "is not UTF-8 text."),
+                 "v3.0.2": (lambda: (self.repository / "docs" / "notes.md").write_text("x" * 125001, encoding="utf-8"), "holds 125001 characters; a release takes at most 125000.")}
+        for tag, (prepare, reason) in cases.items():
+            with self.subTest(reason=reason):
+                prepare()
+                commit = self.commit({})
+                self.tag(tag, key=maintainer)
+                outcome = self.plan(f"refs/tags/{tag}")
+                self.assertEqual(1, outcome.status, outcome.summary)
+                self.assertNotIn("plan", outcome.outputs)
+                self.assertIn(f"`{commit}`", outcome.summary)
+                self.assertIn(reason, outcome.summary)
+        (self.repository / "docs" / "notes.md").write_text("é" * 125000, encoding="utf-8")
+        self.commit({})
+        self.tag("v3.0.3", key=maintainer)
+        self.assertEqual(0, self.plan("refs/tags/v3.0.3").status, "the limit counts characters, not bytes")
+
+    def test_release_notes_come_from_the_tagged_commit_and_not_from_a_later_one(self) -> None:
+        maintainer, line = self.key()
+        self.commit({CONFIGURATION: configuration("    notes: NOTES.md\n"), SIGNERS: line})
+        self.publish_main()
+        self.tag("v4.0.0", key=maintainer)
+        self.commit({"NOTES.md": "Written after the tag.\n"})
+        outcome = self.plan("refs/tags/v4.0.0")
+        self.assertEqual(1, outcome.status)
+        self.assertIn("holds no file `NOTES.md`", outcome.summary)
+
     def test_a_setting_of_the_script_s_job_without_a_script_and_two_files_of_one_name_fail_the_plan(self) -> None:
         for text, reason in ((configuration("    setups: [python-3.14]\n"), f"parts.{PART}.setups: names setups for `script`, which the part does not state"),
                              (configuration("    runner-label: windows-2025\n"), f"parts.{PART}.runner-label: names the runner of `script`, which the part does not state"),
@@ -165,6 +210,7 @@ class BuildPlanTests(ReleaseFixture):
                              (configuration("    runner-label: self-hosted\n    script: ci/build.sh\n"), f"parts.{PART}.runner-label: does not match the pattern"),
                              (configuration("    script: ../build.sh\n"), f"parts.{PART}.script: does not match the pattern"),
                              (configuration(files="[../tool.zip]"), f"parts.{PART}.files[0]: does not match the pattern"),
+                             (configuration("    notes: /etc/notes.md\n"), f"parts.{PART}.notes: does not match the pattern"),
                              (configuration(tags="[]"), f"parts.{PART}.tags: needs at least 1 item")):
             with self.subTest(reason=reason):
                 self.commit({CONFIGURATION: text})
@@ -187,6 +233,7 @@ class PublishTests(ReleaseFixture):
         self.files.mkdir()
         (self.files / "tool.zip").write_bytes(b"PK\x03\x04 the archive")
         (self.files / "manual.pdf").write_bytes(b"%PDF the manual")
+        self.github.hold_tag("v1.2.0", self.COMMIT)
 
     def publish(self, part: dict | None = None, start: bool = False) -> Outcome:
         document = {"parts": {PART: {"run": True, "reason": "x", "tag": "v1.2.0", "commit": self.COMMIT, "title": "Tool 1.2.0",
@@ -213,7 +260,8 @@ class PublishTests(ReleaseFixture):
         self.assertEqual(0, self.publish().status)
         steps = [(request.method, request.path.rsplit("/", 2)[-1] if "assets" in request.path else "", request.document.get("draft") if request.method != "GET" and "assets" not in request.path else None)
                  for request in self.github.requests]
-        self.assertEqual([("GET", "", None), ("POST", "", True), ("POST", "assets", None), ("POST", "assets", None), ("PATCH", "", False)], steps)
+        self.assertEqual([("GET", "", None), ("GET", "", None), ("GET", "", None), ("POST", "", True), ("POST", "assets", None), ("POST", "assets", None),
+                          ("GET", "", None), ("GET", "", None), ("PATCH", "", False)], steps)
 
     def test_every_request_carries_the_token_of_the_run_and_each_file_goes_up_as_bytes_under_its_file_name(self) -> None:
         self.assertEqual(0, self.publish().status)
@@ -245,6 +293,123 @@ class PublishTests(ReleaseFixture):
         self.assertEqual([True], [item["draft"] for item in self.github.releases.values()])
         self.assertIn("uploading `tool.zip` failed: HTTP 422", outcome.summary)
         self.assertIn("draft", outcome.summary)
+
+    def test_without_release_notes_the_body_is_the_fixed_sentence_and_no_file_is_read(self) -> None:
+        for part in ({}, {"notes": ""}):
+            with self.subTest(part=part):
+                self.github.releases.clear()
+                self.assertEqual(0, self.publish(part).status)
+                self.assertEqual(f"Published by the release part of the shared workflows from the signed tag `v1.2.0` at commit `{self.COMMIT}`.",
+                                 self.github.published[0]["body"])
+        self.assertEqual([], [request.path for request in self.github.requests if "/contents/" in request.path])
+
+    def test_the_named_file_at_the_verified_commit_becomes_the_release_notes(self) -> None:
+        notes = "## Changes\n\n- A fix, with an é.\n" + "A long line of the notes. " * 40 + "\n"
+        self.github.contents[(self.COMMIT, "docs/release notes.md")] = notes.encode("utf-8")
+        self.github.contents[("2" * 40, "docs/release notes.md")] = b"The notes of another commit.\n"
+        outcome = self.publish({"notes": "docs/release notes.md"})
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual(notes, self.github.published[0]["body"], "the body is the file's content and nothing else")
+        read = [request for request in self.github.requests if "/contents/" in request.path]
+        self.assertEqual([(f"/repos/{CONSUMER}/contents/docs/release%20notes.md", {"ref": [self.COMMIT]})], [(request.path, request.query) for request in read])
+        order = [request.path.removeprefix(f"/repos/{CONSUMER}/").split("/")[0] for request in self.github.requests[:5]]
+        self.assertEqual(["releases", "contents", "git", "git", "releases"], order, "the tag is still read last before the release is created")
+
+    def test_release_notes_that_cannot_be_read_publish_nothing_and_fail(self) -> None:
+        what = f"reading the release notes `NOTES.md` at commit `{self.COMMIT}` failed"
+        cases = {"absent": (None, f"{what}: the commit holds no such file."),
+                 "a folder": ([{"type": "file", "name": "inside.md"}], f"{what}: GitHub's answer holds no content of a file."),
+                 "too large for an answer with content": ({"type": "file", "encoding": "none", "content": ""}, f"{what}: GitHub's answer holds no content of a file."),
+                 "not UTF-8": (b"caf\xe9\n", f"the file `NOTES.md` of the release notes at commit `{self.COMMIT}` is not UTF-8 text."),
+                 "too long": (b"x" * 125001, "holds 125001 characters; a release takes at most 125000.")}
+        for name, (held, reason) in cases.items():
+            with self.subTest(notes=name):
+                self.github.contents = {} if held is None else {(self.COMMIT, "NOTES.md"): held}
+                outcome = self.publish({"notes": "NOTES.md"})
+                self.assertEqual(1, outcome.status)
+                self.assertEqual({}, self.github.releases, "no release is created, not even a draft")
+                self.assertIn(f"**Failed.** Nothing is published: {reason}" if name in ("absent", "a folder") else reason, outcome.summary)
+        self.github.contents = {}
+        self.github.refuse = {("GET", f"/repos/{CONSUMER}/contents/"): 403}
+        outcome = self.publish({"notes": "NOTES.md"})
+        self.assertEqual((1, {}), (outcome.status, self.github.releases))
+        self.assertIn(f"{what}: HTTP 403.", outcome.summary)
+
+    def test_the_tag_is_read_again_right_before_the_release_is_created(self) -> None:
+        self.assertEqual(0, self.publish().status)
+        requests = [(request.method, request.path.removeprefix(f"/repos/{CONSUMER}/")) for request in self.github.requests]
+        tag_object = self.github.tags["v1.2.0"]["sha"]
+        self.assertEqual([("GET", "releases/tags/v1.2.0"), ("GET", "git/ref/tags/v1.2.0"), ("GET", f"git/tags/{tag_object}"), ("POST", "releases")], requests[:4])
+
+    def test_a_tag_that_moved_after_its_signature_was_verified_publishes_nothing_and_fails(self) -> None:
+        moved = "2" * 40
+        for name, annotated in (("an annotated tag", True), ("a lightweight tag", False)):
+            with self.subTest(tag=name):
+                self.github.hold_tag("v1.2.0", moved, annotated)
+                outcome = self.publish()
+                self.assertEqual(1, outcome.status)
+                self.assertEqual({}, self.github.releases, "no release is created, not even a draft")
+                self.assertEqual([], [request for request in self.github.requests if request.method != "GET"])
+                self.assertIn(f"**Failed.** Nothing is published: the tag `v1.2.0` moved after its signature was verified: it names the commit `{moved}`, "
+                              f"not the commit `{self.COMMIT}` whose signature was verified.", outcome.summary)
+
+    def test_the_tag_is_read_once_more_right_before_the_request_that_publishes(self) -> None:
+        self.assertEqual(0, self.publish().status)
+        requests = [(request.method, request.path.removeprefix(f"/repos/{CONSUMER}/")) for request in self.github.requests]
+        tag_object = self.github.tags["v1.2.0"]["sha"]
+        self.assertEqual([("GET", "git/ref/tags/v1.2.0"), ("GET", f"git/tags/{tag_object}"), ("PATCH", "releases/1")], requests[-3:])
+
+    def test_a_tag_that_moves_after_the_draft_is_created_publishes_nothing_and_deletes_the_draft(self) -> None:
+        moved = "2" * 40
+        cases = {"moved": (lambda: self.github.hold_tag("v1.2.0", moved), f"the tag `v1.2.0` moved after its signature was verified: it names the commit `{moved}`"),
+                 "removed": (lambda: self.github.tags.pop("v1.2.0", None), "the tag `v1.2.0` no longer exists")}
+        for name, (change, reason) in cases.items():
+            with self.subTest(tag=name):
+                self.github.hold_tag("v1.2.0", self.COMMIT)
+                self.github.requests.clear()
+                self.github.after_upload = change
+                outcome = self.publish()
+                self.assertEqual(1, outcome.status)
+                self.assertEqual(({}, {}), (self.github.releases, self.github.assets), "the draft is gone, with the files it held")
+                writes = [(request.method, "assets" if "assets" in request.path else "release") for request in self.github.requests if request.method != "GET"]
+                self.assertEqual([("POST", "release"), ("POST", "assets"), ("POST", "assets"), ("DELETE", "release")], writes, "no request publishes the draft")
+                self.assertIn(f"**Failed.** Nothing is published: {reason}", outcome.summary)
+                self.assertIn("The draft of the release was deleted.", outcome.summary)
+
+    def test_a_draft_that_cannot_be_deleted_stays_unpublished_and_the_summary_says_so(self) -> None:
+        self.github.after_upload = lambda: self.github.hold_tag("v1.2.0", "2" * 40)
+        self.github.refuse[("DELETE", f"/repos/{CONSUMER}/releases/")] = 403
+        outcome = self.publish()
+        self.assertEqual(1, outcome.status)
+        self.assertEqual(([], [True]), (self.github.published, [item["draft"] for item in self.github.releases.values()]))
+        self.assertIn("The draft of the release could not be deleted (HTTP 403); it is not published, so remove it before this run publishes again.", outcome.summary)
+
+    def test_a_tag_that_was_removed_after_its_signature_was_verified_publishes_nothing_and_fails(self) -> None:
+        del self.github.tags["v1.2.0"]
+        outcome = self.publish()
+        self.assertEqual(1, outcome.status)
+        self.assertEqual({}, self.github.releases)
+        self.assertIn(f"the tag `v1.2.0` no longer exists; it named the commit `{self.COMMIT}` whose signature was verified.", outcome.summary)
+
+    def test_a_tag_that_cannot_be_read_publishes_nothing_and_fails(self) -> None:
+        for name, refuse, reason in (("the ref", ("GET", f"/repos/{CONSUMER}/git/ref/"), "reading the tag `v1.2.0` failed: HTTP 500."),
+                                     ("the tag object", ("GET", f"/repos/{CONSUMER}/git/tags/"), "reading the tag `v1.2.0` failed: HTTP 500.")):
+            with self.subTest(unreadable=name):
+                self.github.refuse = {refuse: 500}
+                outcome = self.publish()
+                self.assertEqual(1, outcome.status)
+                self.assertEqual({}, self.github.releases)
+                self.assertIn(reason, outcome.summary)
+        self.github.refuse = {}
+        self.github.tags["v1.2.0"] = {"type": "tree", "sha": "3" * 40}
+        outcome = self.publish()
+        self.assertEqual((1, {}), (outcome.status, self.github.releases))
+        self.assertIn("reading the tag `v1.2.0` failed: GitHub's answer names no commit.", outcome.summary)
+
+    def test_a_tag_with_a_slash_is_read_under_its_own_name(self) -> None:
+        self.github.hold_tag("release/1.2.0", self.COMMIT)
+        self.assertEqual(0, self.publish({"tag": "release/1.2.0"}).status)
+        self.assertIn(("GET", f"/repos/{CONSUMER}/git/ref/tags/release/1.2.0"), [(request.method, request.path) for request in self.github.requests])
 
     def test_a_plan_that_does_not_publish_is_refused(self) -> None:
         outcome = self.publish({"run": False})
@@ -334,6 +499,10 @@ class FixtureReleaseTests(ReleaseFixture):
                 self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         path = self.directory / "release-plan.json"
         path.write_text(planned.outputs["plan"], encoding="utf-8")
+        self.github.hold_tag(tag, git(self.repository, "rev-parse", f"refs/tags/{tag}^{{commit}}"))
+        if part["notes"]:  # GitHub holds the file as the tagged commit has it, whatever the job's script did to the working tree
+            shown = subprocess.run(["git", "-C", str(self.repository), "cat-file", "blob", f"{part['commit']}:{part['notes']}"], capture_output=True, check=True)
+            self.github.contents[(part["commit"], part["notes"])] = shown.stdout
         return planned, self.start_program("publish", "--plan", str(path), "--files", str(collected), "--repository", CONSUMER, "--api-url", self.github.url)
 
     def test_a_matching_tag_with_a_valid_signature_publishes_the_built_and_the_tracked_file(self) -> None:
@@ -349,6 +518,28 @@ class FixtureReleaseTests(ReleaseFixture):
         _, published = self.release_run("v1.4.0")
         self.assertEqual(0, published.status, published.stdout + published.stderr)
         self.assertEqual(b"built from 1.4.0\n", self.github.assets[self.github.published[0]["id"]]["tool.txt"])
+
+    def test_the_release_notes_are_the_tracked_file_of_the_tagged_commit_whatever_the_script_writes(self) -> None:
+        self.commit({"NOTES.md": "## 1.4.0\n\nThe tracked notes.\n", "ci/build-release.sh": "mkdir -p dist\necho built > dist/tool.txt\necho 'Notes of the script.' > NOTES.md\n",
+                     CONFIGURATION: configuration("    script: ci/build-release.sh\n    notes: NOTES.md\n", files="[dist/tool.txt]")})
+        self.tag("v1.4.0", key=self.maintainer)
+        self.commit({"NOTES.md": "Notes of a later commit.\n"})
+        planned, published = self.release_run("v1.4.0")
+        self.assertEqual((0, 0), (planned.status, published.status), published.stdout + published.stderr)
+        self.assertEqual("## 1.4.0\n\nThe tracked notes.\n", self.github.published[0]["body"])
+
+    def test_a_tag_that_is_moved_to_a_later_commit_while_the_run_collects_its_files_is_not_released(self) -> None:
+        self.tag("v1.4.0", key=self.maintainer)
+        verified = self.repository_head()
+        hold_tag = self.github.hold_tag
+        later = self.commit({"VERSION": "6.6.6\n"})
+        # The run finds the tag on GitHub where a push moved it after the plan verified its signature.
+        self.github.hold_tag = lambda tag, _commit: hold_tag(tag, later)
+        planned, published = self.release_run("v1.4.0")
+        self.assertEqual((0, 1), (planned.status, published.status), published.stdout + published.stderr)
+        self.assertEqual(verified, planned.part["commit"])
+        self.assertEqual({}, self.github.releases)
+        self.assertIn(f"the tag `v1.4.0` moved after its signature was verified: it names the commit `{later}`", published.summary)
 
     def test_a_tag_that_matches_no_pattern_and_a_matching_tag_without_a_valid_signature_reach_github_with_no_request(self) -> None:
         stranger, _ = self.key("stranger")

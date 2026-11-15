@@ -1,5 +1,5 @@
 {
-  "about": "The one entry to the shared CI of CrankyAnt/SharedWorkflows for an agent in a consumer. Read this file at the tag v1. decision_rule says where CI work belongs, requests how a consumer asks for shared CI, local_workflows what the register in the configuration file holds, routes what to do where no run starts by itself, and parts lists every shared part. A consumer holds the fixed callers unchanged, and the pointer document docs/agents/ci.md unchanged up to and including its heading Repository choices, below which it records the choices that no file states, and states every choice in its configuration file, .github/ci-config.yml, whose schema is actions/pipeline/schema/v1/ci-config.schema.json. Paths are paths in CrankyAnt/SharedWorkflows at v1. In an entry of parts, configuration is the schema fragment of the key that the entry's name is under parts in the configuration file, where the fragment describes every setting, or null for an entry that a repository adopts through its consumer kit and not through that key; workflows and steps are the shared workflows and shared steps that the entry runs, which the fixed callers or the templates of its consumer kit call as CrankyAnt/SharedWorkflows/.github/workflows/<workflow>@v1 and CrankyAnt/SharedWorkflows/actions/<part>@v1; required_checks are the checks that a consumer's default-branch ruleset requires for the entry, where the consumer kit of the pipeline leads to the ruleset template actions/repository-ruleset; consumer_kit is the folder whose README.md explains the entry to a consumer, with its templates where it has them, or null when the entry and its fragment say everything; audience is consumer, or management repository for an entry that no consumer adopts and that an agent in a consumer skips. A consumer applies shared parts and changes none of them.",
+  "about": "The one entry to the shared CI of CrankyAnt/SharedWorkflows for an agent in a consumer. Read this file at the tag v1. decision_rule says where CI work belongs, requests how a consumer asks for shared CI, local_workflows what the register in the configuration file holds, routes what to do where no run starts by itself, and parts lists every shared part. A consumer holds the fixed callers unchanged, and the CI guide docs/agents/ci.md unchanged up to and including its heading Repository choices, below which it records the choices that no file states, and states every choice in its configuration file, .github/ci-config.yml, whose schema is actions/pipeline/schema/v1/ci-config.schema.json. Paths are paths in CrankyAnt/SharedWorkflows at v1. In an entry of parts, configuration is the schema fragment of the key that the entry's name is under parts in the configuration file, where the fragment describes every setting, or null for an entry that a repository adopts through its consumer kit and not through that key; workflows and steps are the shared workflows and shared steps that the entry runs, which the fixed callers or the templates of its consumer kit call as CrankyAnt/SharedWorkflows/.github/workflows/<workflow>@v1 and CrankyAnt/SharedWorkflows/actions/<part>@v1; required_checks are the checks that a consumer's default-branch ruleset requires for the entry, where the consumer kit of the pipeline leads to the ruleset template actions/repository-ruleset; consumer_kit is the folder whose README.md explains the entry to a consumer, with its templates where it has them, or null when the entry and its fragment say everything; audience is consumer, or management repository for an entry that no consumer adopts and that an agent in a consumer skips. A consumer applies shared parts and changes none of them.",
   "decision_rule": {
     "about": "Where CI work of a consumer belongs: a check, a job or a workflow that the repository needs. Take the first step whose condition holds. No step asks whether another repository needs the same work, so no step needs a person's judgement. A part exists when parts holds an entry for the work, named <ecosystem>-<phase> with the phase verify, test, build, package, release or deploy, where the ecosystem is a language or, for a part without a language, the platform that the part serves, as in github-release; its inputs suffice when the settings in its schema fragment can state what the repository needs. Repository hygiene enforces the rule: a workflow file that is neither a fixed caller nor registered under local-workflows fails a pull request.",
     "steps": [
@@ -16,7 +16,7 @@
       {
         "step": 3,
         "when": "No part exists and read permission suffices for the work.",
-        "then": "Run the work in the free job, the part custom, and file a request."
+        "then": "Run the work in the free job, the part custom, file a request, and name the request and the proposed part under request and waits-for of parts.custom, as a temporary entry of local-workflows does; the switch-over check then reports when the part exists."
       },
       {
         "step": 4,
@@ -36,7 +36,7 @@
     "about": "The register local-workflows in .github/ci-config.yml holds one entry per workflow file under .github/workflows/ that is no fixed caller. A workflow file without an entry fails repository hygiene on a pull request.",
     "temporary": "A temporary entry holds workflow, request and waits-for: the path of the workflow file, the number of the request issue in the repository and the name of the part it waits for. For step 2 of the decision rule, where the part exists, waits-for is <part>.<setting>: the existing part and the setting that the part lacks. It is the entry of steps 2 and 4 of the decision rule.",
     "permanent": "A permanent entry holds workflow and declined-request: the path of the workflow file and the number of a closed request issue in the repository that was declined. A workflow becomes permanent only after its request was declined; until then its entry is temporary.",
-    "checks": "Repository hygiene reads each issue that an entry names with the token of the run: it is an issue of the repository and no pull request, and the one of a permanent entry is closed. When the part that a temporary entry waits for exists at v1, or the part's schema fragment there knows the setting that the entry waits for, a pull request whose author is not Dependabot fails with the instruction to switch the part on or state the setting, remove the temporary workflow with its entry and close the request; a pull request of Dependabot and a push get a notice and pass."
+    "checks": "Repository hygiene reads each issue that an entry names with the token of the run: it is an issue of the repository and no pull request, and the one of a permanent entry is closed. When the request of a temporary entry was closed as not planned, the request was declined: a pull request whose author is not Dependabot fails with the instruction to make the entry permanent, with declined-request and the request's number in place of request and waits-for; a pull request of Dependabot and a push get a notice and pass. When the part that a temporary entry waits for exists at v1, or the part's schema fragment there knows the setting that the entry waits for, a pull request whose author is not Dependabot fails with the instruction to switch the part on or state the setting, remove the temporary workflow with its entry and close the request; a pull request of Dependabot and a push get a notice and pass. The free job is checked the same way when parts.custom names request and waits-for, which come together: the request is an issue of the repository and no pull request, the switch-over check reports when the part exists or knows the setting, with the instruction to move the work out of the free job, remove the two settings and close the request, and a request that was closed as not planned leaves the free job without the two settings."
   },
   "routes": {
     "corrected_title": "The fixed caller ci.yml does not start on an edit of a pull request, so a corrected title or body starts no run. The title check and the reference check of repository hygiene read the current title and body from GitHub: after the correction, re-run the failed jobs of the pull request's run."
@@ -68,13 +68,13 @@
     },
     {
       "name": "Suite selection",
-      "purpose": "Runs only the test suites and entry files that a change can affect through the validation caller of an earlier consumer kit, which calls the selection and verdict workflows and reports one verdict as the required check; a repository adopts the suite selection through the part suite-selection.",
+      "purpose": "Runs only the test suites and entry files that a change can affect: in its current form as the part suite-selection of the pipeline, which the entry suite-selection describes and through which a repository adopts it, and in its earlier form, the form of a consumer that has not adopted the pipeline, through that consumer's own validation caller, which calls the selection and verdict workflows of this entry and reports one verdict as the required check.",
       "configuration": null,
       "workflows": [".github/workflows/suite-selection.yml", ".github/workflows/suite-verdict.yml"],
       "steps": ["actions/suite-selection", "actions/recording"],
       "required_checks": ["validation / validation"],
-      "needs": "The validation caller and the validation workflow that the repository installed from an earlier consumer kit, both registered under local-workflows in .github/ci-config.yml, and a suite list of its suites; validation / validation is its required check until the repository switches to the part suite-selection, whose result reports in ci / verdict.",
-      "applies": "A repository that adopted the suite selection from an earlier consumer kit and has not switched to the part suite-selection.",
+      "needs": "In the current form, what the entry suite-selection states. In the earlier form, the validation caller and the validation workflow that a consumer that has not adopted the pipeline holds, and a suite list of its suites; validation / validation is that consumer's required check until it adopts the pipeline and switches the part suite-selection on, whose result reports in ci / verdict.",
+      "applies": "The current form applies as the entry suite-selection says. The earlier form applies only to a consumer that has not adopted the pipeline and holds its validation caller already; no repository adopts the earlier form anew.",
       "consumer_kit": "actions/suite-selection/consumer-kit",
       "audience": "consumer"
     },
@@ -109,14 +109,14 @@
       "workflows": [".github/workflows/pipeline.yml", ".github/workflows/automation.yml", ".github/workflows/release.yml", ".github/workflows/suite-jobs.yml"],
       "steps": ["actions/pipeline"],
       "required_checks": ["ci / verdict"],
-      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, and the pointer document docs/agents/ci.md, equal to its template there up to and including the heading Repository choices; ci.yml calls the pipeline on pull requests, on pushes to main and on the dispatch dependabot-merged.",
+      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, and the CI guide docs/agents/ci.md, equal to its template there up to and including the heading Repository choices; ci.yml calls the pipeline on pull requests, on pushes to main and on the dispatch dependabot-merged.",
       "applies": "Every repository; until a repository holds the fixed callers, it adopts the other shared parts through their consumer kits.",
       "consumer_kit": "actions/pipeline/consumer-kit",
       "audience": "consumer"
     },
     {
       "name": "repository-hygiene",
-      "purpose": "The job of the pipeline that always runs and takes no settings: it checks the publication conventions and the credentials of every repository, the fixed callers, the pointer document, the generated Dependabot configuration and the local workflow register, and runs the shared checks that a change can affect, which are workflow validation, Dependabot coverage, relative Markdown links and REUSE.",
+      "purpose": "The job of the pipeline that always runs and takes no settings: it checks the publication conventions and the credentials of every repository, the fixed callers, the CI guide, the generated Dependabot configuration and the local workflow register, and runs the shared checks that a change can affect, which are workflow validation, Dependabot coverage, relative Markdown links and REUSE.",
       "configuration": "actions/pipeline/schema/v1/parts/repository-hygiene.json",
       "workflows": [],
       "steps": ["actions/repository-hygiene", "actions/publication-checks", "actions/pipeline"],
@@ -133,7 +133,7 @@
       "workflows": [],
       "steps": [],
       "required_checks": [],
-      "needs": "The pipeline, and parts.custom in .github/ci-config.yml with script, the path of a script of the repository that runs with Bash from the repository root and whose exit status is the job's result, and optionally setups, names from the known setups in actions/pipeline/schema/v1/setups.json that are installed in the listed order, and paths; the schema fragment actions/pipeline/schema/v1/parts/custom.json states every setting.",
+      "needs": "The pipeline, and parts.custom in .github/ci-config.yml with script, the path of a script of the repository that runs with Bash from the repository root and whose exit status is the job's result, and optionally setups, names from the known setups in actions/pipeline/schema/v1/setups.json that are installed in the listed order, paths, and request with waits-for, the number of the request issue in the repository and the part, or <part>.<setting>, that takes over the work of the script; the schema fragment actions/pipeline/schema/v1/parts/custom.json states every setting.",
       "applies": "A repository with CI that no other part covers and for which read permission suffices, as steps 2 and 3 of the decision rule say; work that needs write permission, a secret or another trigger than a pull request or a push to main does not fit it.",
       "consumer_kit": null,
       "audience": "consumer"
@@ -176,13 +176,13 @@
     },
     {
       "name": "suite-selection",
-      "purpose": "Runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, as the part suite-selection of the pipeline: a job that selects, the shared suite jobs that run the setups of the suite list and the selected entry files in Linux shards and one Windows job, and a job that stores the passed results of a pull request, with its result in the pipeline's verdict.",
+      "purpose": "The current form of the suite selection: runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, as the part suite-selection of the pipeline: a job that selects, the shared suite jobs that run the setups of the suite list and the selected entry files in Linux shards and one Windows job, and a job that stores the passed results of a pull request, with its result in the pipeline's verdict.",
       "configuration": "actions/pipeline/schema/v1/parts/suite-selection.json",
       "workflows": [],
       "steps": ["actions/suite-selection", "actions/recording", "actions/python-language-step"],
       "required_checks": [],
       "needs": "The pipeline, parts.suite-selection in .github/ci-config.yml with suites, the path of the suite list, and optionally language-steps, of which the schema fragment actions/pipeline/schema/v1/parts/suite-selection.json states every setting; a suite list that states the suites, each setup with its one script under setups and, where they differ from the defaults, the runner label and the fetch depth of each system's job under jobs; and for the full recording and the additions workflow a GitHub App that may push branches and open pull requests.",
-      "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs.",
+      "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs. A consumer that has not adopted the pipeline and runs the earlier form, which the entry Suite selection describes, switches to this part when it adopts the pipeline.",
       "consumer_kit": "actions/suite-selection/consumer-kit",
       "audience": "consumer"
     },
@@ -205,7 +205,7 @@
       "workflows": [".github/workflows/automation.yml"],
       "steps": ["actions/issue-title"],
       "required_checks": [],
-      "needs": "The fixed caller automation.yml, and parts.issue-title in .github/ci-config.yml with categories, the path of the repository's category file, a JSON object with the lists product_categories and generic_forms that the consumer kit describes; the schema fragment actions/pipeline/schema/v1/parts/issue-title.json states every setting.",
+      "needs": "The fixed caller automation.yml, and parts.issue-title in .github/ci-config.yml with categories, the path of the repository's category file, a JSON object with the lists product_categories and generic_forms; the schema fragment actions/pipeline/schema/v1/parts/issue-title.json states every setting, and its description states the keys of an item of each list with an example of the file, so the fragment says whether the part's input suffices.",
       "applies": "A repository whose issues carry a title prefix per category.",
       "consumer_kit": "actions/pipeline/consumer-kit",
       "audience": "consumer"
@@ -241,7 +241,7 @@
       "workflows": [".github/workflows/release.yml"],
       "steps": ["actions/pipeline"],
       "required_checks": [],
-      "needs": "The fixed caller release.yml, parts.github-release in .github/ci-config.yml with tags, the patterns of the tags that are released, allowed-signers, the path of the file with the SSH keys that may sign a release tag, which is read from the default branch, and files, the files to publish, and optionally title, script, setups and runner-label; the schema fragment actions/pipeline/schema/v1/parts/github-release.json states every setting.",
+      "needs": "The fixed caller release.yml, parts.github-release in .github/ci-config.yml with tags, the patterns of the tags that are released, allowed-signers, the path of the file with the SSH keys that may sign a release tag, which is read from the default branch, and files, the files to publish, and optionally title, notes, the tracked file whose content becomes the release notes, script, setups and runner-label; the schema fragment actions/pipeline/schema/v1/parts/github-release.json states every setting.",
       "applies": "A repository that publishes files as a GitHub release from signed tags.",
       "consumer_kit": "actions/pipeline/consumer-kit",
       "audience": "consumer"

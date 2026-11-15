@@ -29,6 +29,10 @@
         "type": "string",
         "minLength": 1
       },
+      "notes": {
+        "description": "The path, relative to the repository root, of a tracked file whose content becomes the release notes, the body of the release. It is read at the commit that the verified tag names, so it is a tracked file of that commit and never a file that `script` writes, and it holds UTF-8 text of at most 125000 characters. Without it, the body is one fixed sentence that names the tag and its commit. Invented example: \"docs/release-notes.md\".",
+        "$ref": "#/$defs/relative-path"
+      },
       "script": {"$ref": "#/$defs/script"},
       "setups": {"$ref": "#/$defs/setups"},
       "runner-label": {

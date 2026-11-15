@@ -59,7 +59,13 @@ This label belongs only to finding issues, which hold in-flow work found while a
 
 ### Requests for shared CI
 
-A request is an issue with the label `shared-ci` in a consumer, as the [catalogue](../../catalogue.json) tells an agent there under `requests`. No agent writes a request into this repository, so triage here also collects the open `shared-ci` issues from the owner's other repositories. It does so with the owner's own login, because a consumer can be private and no credential of this repository reaches it:
+A request is an issue with the label `shared-ci` in a consumer, as the [catalogue](../../catalogue.json) tells an agent there under `requests`. No agent writes a request into this repository, so triage here also collects the open `shared-ci` issues from the owner's other repositories. It does so with the owner's own login, because a consumer can be private and no credential of this repository reaches it. The search is the issue search of the GitHub integration, as [Tool routing](#tool-routing) says, for the open issues with the label `shared-ci` across the owner's repositories:
+
+```text
+is:issue is:open label:shared-ci user:CrankyAnt
+```
+
+Only when the integration is unavailable or lacks the issue search, the same query runs through `gh`, and triage reports the fallback:
 
 ```text
 gh search issues --owner CrankyAnt --label shared-ci --state open

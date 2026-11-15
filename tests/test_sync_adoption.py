@@ -8,7 +8,7 @@ import unittest
 
 from tests.consumer_checks_fixtures import CALLERS, SHARED, WORKFLOWS, template
 from tests.pipeline_fixtures import CONFIGURATION, SCHEMAS, plan_program
-from tests.sync_fixtures import CONSUMER, DEPENDABOT, OWNER_TOKEN, POINTER, POINTER_TEXT, REPOSITORY_ROOT, SyncFixture, sync_program
+from tests.sync_fixtures import CONSUMER, DEPENDABOT, OWNER_TOKEN, CI_GUIDE, CI_GUIDE_TEXT, REPOSITORY_ROOT, SyncFixture, sync_program
 from tests.test_pipeline_dependabot import GENERATED
 
 BRANCH = "chore/adopt-shared-pipeline"
@@ -32,7 +32,7 @@ BEFORE = {
 
 class AdoptionFixture(SyncFixture):
     def before(self, files: dict[str, str] | None = None):
-        """A repository that has not adopted the pipeline: no fixed caller, no pointer document, no configuration file."""
+        """A repository that has not adopted the pipeline: no fixed caller, no CI guide, no configuration file."""
         return self.api.repository(CONSUMER, dict(BEFORE if files is None else files), installed=False)
 
     def adopt(self):
@@ -40,14 +40,14 @@ class AdoptionFixture(SyncFixture):
 
 
 class AdoptedChoicesTests(AdoptionFixture):
-    def test_the_choices_that_a_repository_recorded_in_its_ci_guide_stay_below_the_pointer(self) -> None:
-        pointer = POINTER_TEXT + "\n## Repository choices\n"
-        (self.kit / POINTER).write_text(pointer, encoding="utf-8", newline="\n")
+    def test_the_choices_that_a_repository_recorded_in_its_ci_guide_stay_below_the_fixed_part(self) -> None:
+        template = CI_GUIDE_TEXT + "\n## Repository choices\n"
+        (self.kit / CI_GUIDE).write_text(template, encoding="utf-8", newline="\n")
         guide = "# CI\n\n## Principles\n\nThe guide before the adoption.\n\n## Repository choices\n\nThe ruleset keeps the merge queue.\n"
-        consumer = self.before({**BEFORE, POINTER: guide})
+        consumer = self.before({**BEFORE, CI_GUIDE: guide})
         adopted = self.adopt()
         self.assertEqual(0, adopted.status, adopted.stdout + adopted.stderr)
-        self.assertEqual(pointer + "\nThe ruleset keeps the merge queue.\n", consumer.files(BRANCH)[POINTER])
+        self.assertEqual(template + "\nThe ruleset keeps the merge queue.\n", consumer.files(BRANCH)[CI_GUIDE])
 
 
 class AdoptionTests(AdoptionFixture):
@@ -63,7 +63,7 @@ class AdoptionTests(AdoptionFixture):
         branch = consumer.files(BRANCH)
         for name in CALLERS:
             self.assertEqual(template(name), branch[f"{WORKFLOWS}/{name}"])
-        self.assertEqual(POINTER_TEXT, branch[POINTER])
+        self.assertEqual(CI_GUIDE_TEXT, branch[CI_GUIDE])
         self.assertEqual("version: 1\nparts:\n  fixture-test:\n    paths: [src/, tests/]\n    level: high\ndependabot:\n  github-actions: [/]\n  pip: [/, /tools/report]\n",
                          branch[CONFIGURATION])
         self.assertEqual(GENERATED, branch[DEPENDABOT])

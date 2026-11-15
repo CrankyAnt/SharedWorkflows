@@ -133,8 +133,20 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertIn("`lib/other.txt`", checked.stdout)
         summary = fixture.summary.read_text(encoding="utf-8")
         self.assertIn("| `a` | path `lib/other.txt` |", summary)
-        self.assertIn('section "Additions" of the suite-selection consumer kit', summary, "a consumer's route")
+        self.assertIn("the repository's own workflow `Apply recorded additions`", summary, "the route of a consumer without the fixed caller automation.yml")
+        self.assertNotIn("automation", summary)
         self.assertNotIn("actions/recording", summary, "no path into the tree of the shared parts")
+        # The same check in a consumer that holds the fixed caller of the automation workflow names that caller's route.
+        caller = fixture.root / ".github" / "workflows" / "automation.yml"
+        caller.parent.mkdir(parents=True)
+        caller.write_text("jobs:\n  automation:\n    uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1\n", encoding="utf-8")
+        fixture.summary.unlink()
+        self.assertEqual(1, fixture.check().returncode)
+        summary = fixture.summary.read_text(encoding="utf-8")
+        self.assertIn("the part `additions` of the automation workflow", summary)
+        self.assertIn('section "Additions" of the suite-selection consumer kit', summary)
+        self.assertNotIn("Apply recorded additions", summary)
+        caller.unlink()
         applied = fixture.apply()
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual(["lib/data.txt", "lib/gone.txt", "lib/other.txt", "tests/a.py"], fixture.suite("a")["paths"])
@@ -370,36 +382,70 @@ class VforkChildWorkingDirectoryTests(unittest.TestCase):
 
 
 class CheckSummaryRouteTests(unittest.TestCase):
-    """The route that the job summary of a failed check names: the consumer kit's in a consumer, the maintenance
-    documentation's in the repository of the shared parts."""
+    """The route that the job summary of a failed check names: the consumer kit's in a consumer, for the form of the
+    suite selection that the consumer runs, and the maintenance documentation's in the repository of the shared parts."""
 
     LINES = [("`a`", "path `lib/other.txt`")]
     CONSUMER = frozenset({"src/app.py", ".github/suites.json"})
+    FIXED_CALLER = "jobs:\n  automation:\n    uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1\n"
 
-    def summary(self, tracked: frozenset[str], run_id: str | None, event: str | None) -> str:
+    def summary(self, tracked: frozenset[str], run_id: str | None, event: str | None, automation: bool = True) -> str:
         recording = load_recording()
-        return recording.check_summary(self.LINES, 1, recording.additions_route("additions.json", tracked, run_id, event))
+        return recording.check_summary(self.LINES, 1, recording.additions_route("additions.json", tracked, run_id, event, automation))
 
-    def test_a_consumer_pull_request_run_is_sent_to_the_kit_s_workflow_with_its_run_id_and_no_path_into_the_shared_tree(self) -> None:
+    def test_a_consumer_of_the_pipeline_is_sent_to_the_additions_part_of_the_automation_workflow_with_its_run_id(self) -> None:
         summary = self.summary(self.CONSUMER, "123456789", "pull_request")
-        self.assertIn("the additions workflow commits them onto its branch as the GitHub App", summary)
-        self.assertIn("When it comments that it cannot, start the workflow `Apply recorded additions` with the run id `123456789`", summary)
+        self.assertIn("the additions workflow, the part `additions` of the automation workflow, commits them onto its branch as the GitHub App, "
+                      "and the run of `CI` on the new head decides.", summary)
+        self.assertIn("When it comments that it cannot, start the fixed caller `automation.yml` by hand with the part `additions` and the run id `123456789` "
+                      "(`gh workflow run automation.yml -f part=additions -f run-id=123456789`), and merge the pull request it opens", summary)
+        self.assertNotIn("Apply recorded additions", summary, "a consumer of the pipeline holds no workflow of that name")
+        self.assertNotIn("validation", summary, "a consumer of the pipeline has no validation run: its run is the run of `CI`")
         self.assertIn('section "Additions" of the suite-selection consumer kit', summary)
         self.assertIn("| `a` | path `lib/other.txt` |", summary)
         for text in ("actions/", "docs/maintaining.md", "CrankyAnt/SharedWorkflows", "recording.py"):
             self.assertNotIn(text, summary)
 
+    def test_a_consumer_of_the_earlier_form_is_sent_to_its_own_additions_workflow_and_never_to_the_automation_caller(self) -> None:
+        summary = self.summary(self.CONSUMER, "123456789", "pull_request", automation=False)
+        self.assertIn("the additions workflow, the repository's own workflow `Apply recorded additions`, commits them onto its branch as the GitHub App, "
+                      "and the validation of the new head decides.", summary)
+        self.assertIn("When it comments that it cannot, start the workflow `Apply recorded additions` by hand with the run id `123456789`, and merge the pull request it opens",
+                      summary)
+        self.assertIn('section "When a repository adopted it earlier" of the suite-selection consumer kit', summary)
+        for text in ("automation.yml", "part=additions", "automation workflow", "actions/", "docs/maintaining.md", "CrankyAnt/SharedWorkflows"):
+            self.assertNotIn(text, summary)
+
     def test_a_consumer_run_of_no_pull_request_is_not_sent_to_a_workflow_that_refuses_it(self) -> None:
         for event in ("push", "repository_dispatch"):
-            with self.subTest(event=event):
-                summary = self.summary(self.CONSUMER, "55", event)
-                self.assertNotIn("Start the workflow", summary)
-                self.assertIn(f"This {event} run belongs to no pull request", summary)
-                self.assertIn('section "Additions" of the suite-selection consumer kit', summary)
-                self.assertNotIn("actions/", summary)
+            for automation, section in ((True, "Additions"), (False, "When a repository adopted it earlier")):
+                with self.subTest(event=event, automation=automation):
+                    summary = self.summary(self.CONSUMER, "55", event, automation)
+                    self.assertNotIn("start the", summary)
+                    self.assertIn(f"This {event} run belongs to no pull request", summary)
+                    self.assertIn(f'section "{section}" of the suite-selection consumer kit', summary)
+                    self.assertNotIn("actions/", summary)
 
     def test_a_consumer_check_outside_a_run_names_the_pull_request_s_run_without_a_number(self) -> None:
-        self.assertIn("with the run id of the pull request's validation run", self.summary(self.CONSUMER, None, None))
+        self.assertIn("and the run id of the pull request's failed `CI` run (`gh workflow run automation.yml -f part=additions -f run-id=<run id>`)",
+                      self.summary(self.CONSUMER, None, None))
+        self.assertIn("by hand with the run id of the pull request's validation run, and merge", self.summary(self.CONSUMER, None, None, automation=False))
+
+    def test_the_form_is_read_from_the_repository_s_automation_caller(self) -> None:
+        recording = load_recording()
+        cases = {"the fixed caller": (self.FIXED_CALLER, True),
+                 "the fixed caller at another ref": (self.FIXED_CALLER.replace("@v1", "@v1-candidate"), True),
+                 "no file": (None, False),
+                 "a workflow of the repository's own under that name": ("jobs:\n  nightly:\n    runs-on: ubuntu-26.04\n    steps:\n      - run: make report\n", False),
+                 "a caller of another shared workflow": (self.FIXED_CALLER.replace("automation.yml@", "pipeline.yml@"), False),
+                 "a comment that names the call": ("# uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1\njobs: {}\n", False)}
+        for name, (text, expected) in cases.items():
+            with self.subTest(file=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if text is not None:
+                    (root / ".github" / "workflows").mkdir(parents=True)
+                    (root / ".github" / "workflows" / "automation.yml").write_text(text, encoding="utf-8")
+                self.assertEqual(expected, recording.holds_automation_caller(root))
 
     def test_the_repository_of_the_shared_parts_is_sent_to_validation_in_its_maintenance_documentation(self) -> None:
         for event in ("pull_request", "push"):

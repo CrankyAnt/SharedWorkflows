@@ -1,4 +1,4 @@
-"""The sync's file comparison: a consumer whose fixed callers, pointer document or generated Dependabot configuration
+"""The sync's file comparison: a consumer whose fixed callers, CI guide or generated Dependabot configuration
 differ from the templates gets one pull request with auto-merge, and a consumer that matches gets nothing."""
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ import unittest
 
 from tests.consumer_checks_fixtures import SHARED, SYNC_BRANCH, WORKFLOWS, template
 from tests.pipeline_fixtures import CONFIGURATION, write
-from tests.sync_fixtures import APP_TOKEN, CONSUMER, DEPENDABOT, MANAGEMENT, OTHER, POINTER, POINTER_TEXT, SyncFixture
+from tests.sync_fixtures import APP_TOKEN, CONSUMER, DEPENDABOT, MANAGEMENT, OTHER, CI_GUIDE, CI_GUIDE_TEXT, SyncFixture
 from tests.test_pipeline_dependabot import GENERATED, STATED
 
 CI = f"{WORKFLOWS}/ci.yml"
@@ -15,7 +15,7 @@ CI = f"{WORKFLOWS}/ci.yml"
 
 class FileDifferenceTests(SyncFixture):
     def test_a_consumer_whose_fixed_files_differ_gets_one_pull_request_with_the_templates_content_and_auto_merge(self) -> None:
-        consumer = self.consumer({CI: template("ci.yml", " changed locally"), f"{WORKFLOWS}/release.yml": None, POINTER: "# CI\n\nOur own rules.\n",
+        consumer = self.consumer({CI: template("ci.yml", " changed locally"), f"{WORKFLOWS}/release.yml": None, CI_GUIDE: "# CI\n\nOur own rules.\n",
                                   "src/code.txt": "the repository's own work\n"})
         synced = self.start()
         self.assertEqual(0, synced.status, synced.stdout + synced.stderr)
@@ -25,12 +25,12 @@ class FileDifferenceTests(SyncFixture):
         self.assertEqual({"merge_method": "squash"}, pull["auto_merge"])
         self.assertRegex(pull["title"], r"^chore: \S")
         branch = consumer.files(SYNC_BRANCH)
-        self.assertEqual({**consumer.files(), CI: template("ci.yml"), f"{WORKFLOWS}/release.yml": template("release.yml"), POINTER: POINTER_TEXT}, branch)
+        self.assertEqual({**consumer.files(), CI: template("ci.yml"), f"{WORKFLOWS}/release.yml": template("release.yml"), CI_GUIDE: CI_GUIDE_TEXT}, branch)
         self.assertEqual("the repository's own work\n", branch["src/code.txt"])
         self.assertEqual([consumer.refs["heads/main"]], consumer.commits[consumer.refs[f"heads/{SYNC_BRANCH}"]]["parents"])
         self.assertIn(f"`{CONSUMER}`", synced.summary)
         self.assertIn(pull["html_url"], synced.summary)
-        for path in (CI, f"{WORKFLOWS}/release.yml", POINTER):
+        for path in (CI, f"{WORKFLOWS}/release.yml", CI_GUIDE):
             self.assertIn(f"`{path}`", synced.summary)
         self.assertTrue(all(item.token == APP_TOKEN for item in self.api.writes))
 
@@ -96,38 +96,38 @@ class FileDifferenceTests(SyncFixture):
 
 
 class RepositoryChoicesTests(SyncFixture):
-    """A template of the pointer document that ends with the heading ``## Repository choices`` is compared up to and
+    """A template of the CI guide that ends with the heading ``## Repository choices`` is compared up to and
     including that heading, and what a consumer recorded below it stays."""
 
-    TEMPLATE = POINTER_TEXT + "\n## Repository choices\n"
+    TEMPLATE = CI_GUIDE_TEXT + "\n## Repository choices\n"
     CHOICES = "\nThe ruleset keeps the merge queue, because releases are batched.\n"
 
     def setUp(self) -> None:
         super().setUp()
-        write(self.kit, POINTER, self.TEMPLATE)
+        write(self.kit, CI_GUIDE, self.TEMPLATE)
 
     def test_a_consumer_with_choices_below_the_heading_matches(self) -> None:
-        self.consumer({POINTER: self.TEMPLATE + self.CHOICES})
+        self.consumer({CI_GUIDE: self.TEMPLATE + self.CHOICES})
         synced = self.run_sync()
         self.assertEqual(0, synced.status, synced.stderr)
         self.assertEqual([], self.api.writes)
 
     def test_a_change_above_the_heading_is_replaced_and_the_choices_below_it_stay(self) -> None:
-        consumer = self.consumer({POINTER: self.TEMPLATE.replace("every rule", "some rules") + self.CHOICES})
+        consumer = self.consumer({CI_GUIDE: self.TEMPLATE.replace("every rule", "some rules") + self.CHOICES})
         synced = self.run_sync()
         self.assertEqual(0, synced.status, synced.stderr)
         self.assertEqual(1, len(consumer.pulls))
-        self.assertEqual(self.TEMPLATE + self.CHOICES, consumer.files(SYNC_BRANCH)[POINTER])
+        self.assertEqual(self.TEMPLATE + self.CHOICES, consumer.files(SYNC_BRANCH)[CI_GUIDE])
 
     def test_a_document_without_the_heading_becomes_the_template(self) -> None:
-        consumer = self.consumer({POINTER: "# CI\n\nOur own rules.\n"})
+        consumer = self.consumer({CI_GUIDE: "# CI\n\nOur own rules.\n"})
         self.assertEqual(0, self.run_sync().status)
-        self.assertEqual(self.TEMPLATE, consumer.files(SYNC_BRANCH)[POINTER])
+        self.assertEqual(self.TEMPLATE, consumer.files(SYNC_BRANCH)[CI_GUIDE])
 
     def test_a_missing_document_becomes_the_template(self) -> None:
-        consumer = self.consumer({POINTER: None})
+        consumer = self.consumer({CI_GUIDE: None})
         self.assertEqual(0, self.run_sync().status)
-        self.assertEqual(self.TEMPLATE, consumer.files(SYNC_BRANCH)[POINTER])
+        self.assertEqual(self.TEMPLATE, consumer.files(SYNC_BRANCH)[CI_GUIDE])
 
 
 class GeneratedDependabotTests(SyncFixture):

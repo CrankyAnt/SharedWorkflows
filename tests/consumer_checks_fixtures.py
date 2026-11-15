@@ -84,8 +84,9 @@ class GitHubStandIn:
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
-    def issue(self, number: int, state: str = "open", pull_request: bool = False) -> None:
-        self.issues[number] = {"state": state, **({"pull_request": {"url": "x"}} if pull_request else {})}
+    def issue(self, number: int, state: str = "open", pull_request: bool = False, reason: str | None = None) -> None:
+        """An issue of the consumer; ``reason`` is GitHub's ``state_reason``, such as ``not_planned`` for a closed one."""
+        self.issues[number] = {"state": state, "state_reason": reason, **({"pull_request": {"url": "x"}} if pull_request else {})}
 
     def sync_pull_request(self, number: int, branch: str = SYNC_BRANCH) -> str:
         url = f"https://github.example/{CONSUMER}/pull/{number}"

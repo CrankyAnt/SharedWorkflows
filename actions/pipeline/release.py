@@ -14,12 +14,20 @@ file that does not match its schema; the summary says why.
 
 The output ``plan`` is one JSON document with the part under ``parts``: ``run`` and ``reason``, and for a run that
 publishes ``tag``, ``commit`` (the commit that the verified tag names, which the later jobs check out), ``title``,
-``config``, ``script`` (the hook, empty without one), ``runner``, ``setups`` (the tool and the version of each named
+``config``, ``script`` (the hook, empty without one), ``notes`` (the file of the release notes, empty without one), ``runner``, ``setups`` (the tool and the version of each named
 setup, in the listed order) and ``files`` (the files to publish, one per line).
+
+``notes`` of the part names a tracked file whose content becomes the release notes, the body of the release. ``plan``
+fails when the commit that the verified tag names holds no such file, or one that is not UTF-8 text of at most
+125000 characters, and ``publish`` reads the file from GitHub at that commit, so a script of the repository cannot
+change it. Without ``notes`` the body is one fixed sentence that names the tag and its commit.
 
 ``publish`` reads that document from a file and publishes the release through the GitHub API with ``GITHUB_TOKEN``: it
 creates a draft for the tag, uploads each file of ``files`` from the folder under its file name, and then publishes the
-draft. It fails, and publishes nothing, when a file is missing or a release of the tag exists.
+draft. It fails, and publishes nothing, when a file is missing or a release of the tag exists. It reads the tag from
+GitHub again twice: right before it creates the draft, and right before the request that publishes the draft, after
+the uploads. A tag that no longer names ``commit``, the commit whose signature ``plan`` verified, or that no longer
+exists, fails the command and publishes nothing; at the second reading the command also deletes the draft.
 
 The exit code is 0 when the command passed, 1 when it failed and 2 when an input cannot be read.
 """
@@ -27,8 +35,11 @@ The exit code is 0 when the command passed, 1 when it failed and 2 when an input
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -44,14 +55,16 @@ PART = "github-release"
 TAG_PREFIX = "refs/tags/"
 DEFAULT_RUNNER = "ubuntu-26.04"
 API_TIMEOUT = 60
+NOTES_LIMIT = 125000  # the characters that GitHub accepts as the body of a release
+TAG_DEPTH = 8  # how many tag objects a tag may chain before it names its commit
 
 
 class ReleaseError(Exception):
     """The run cannot publish and fails; the message says why."""
 
 
-class Nothing(Exception):
-    """The run is no release: it publishes nothing and passes; the message says why."""
+class NoRelease(Exception):
+    """The outcome "no release for this ref": the run publishes nothing and passes; the message says why."""
 
 
 # --- the plan -------------------------------------------------------------------------------------------------------
@@ -61,14 +74,14 @@ def release_configuration(root: Path, schemas: Path) -> tuple[dict, plan.SchemaV
     """The values of the part in the configuration file of the checkout, with the schema version that the file matches."""
     path = root / plan.CONFIGURATION
     if not path.is_file():
-        raise Nothing(f"`{plan.CONFIGURATION}` does not exist")
+        raise NoRelease(f"`{plan.CONFIGURATION}` does not exist")
     try:
         configuration, version = plan.checked_configuration(path.read_text(encoding="utf-8"), plan.schema_versions(schemas))
     except plan.PlanError as error:
         raise ReleaseError(f"`{plan.CONFIGURATION}` cannot be used:\n" + "\n".join(f"- {line}" for line in str(error).splitlines())) from error
     parts = plan.stated_parts(configuration)
     if PART not in parts:
-        raise Nothing(f"`{plan.CONFIGURATION}` does not switch the part `{PART}` on")
+        raise NoRelease(f"`{plan.CONFIGURATION}` does not switch the part `{PART}` on")
     return parts[PART], version
 
 
@@ -77,17 +90,19 @@ def quoted(items: list[str]) -> str:
 
 
 def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
-    """The decision for a run that publishes; Nothing for a run that is no release and ReleaseError for one that fails."""
+    """The decision for a run that publishes; NoRelease for a run that is no release and ReleaseError for one that fails."""
     if not ref.startswith(TAG_PREFIX) or len(ref) == len(TAG_PREFIX):
-        raise Nothing("the run is not for a tag")
+        raise NoRelease("the run is not for a tag")
     tag = ref.removeprefix(TAG_PREFIX)
     values, version = release_configuration(root, schemas)
     if not any(plan.pattern_expression(pattern).fullmatch(tag) for pattern in values["tags"]):
-        raise Nothing(f"the tag `{tag}` matches none of the configured patterns {quoted(values['tags'])}")
+        raise NoRelease(f"the tag `{tag}` matches none of the configured patterns {quoted(values['tags'])}")
     problems = value_problems(values)
     if problems:
         raise ReleaseError(f"`{plan.CONFIGURATION}` cannot be used:\n" + "\n".join(f"- {line}" for line in problems))
     commit = verified_commit(root, tag, values["allowed-signers"], default_branch)
+    if "notes" in values:
+        tracked_notes(root, commit, values["notes"])
     return {
         "run": True,
         "reason": f"the tag `{tag}` matches {quoted([pattern for pattern in values['tags'] if plan.pattern_expression(pattern).fullmatch(tag)][:1])} "
@@ -97,6 +112,7 @@ def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
         "title": values.get("title", "{tag}").replace("{tag}", tag).replace("{version}", tag.removeprefix("v")),
         "config": values,
         "script": values.get("script", ""),
+        "notes": values.get("notes", ""),
         "runner": values.get("runner-label", DEFAULT_RUNNER),
         "setups": [version.setups[setup] for setup in values.get("setups", [])],
         "files": "\n".join(values["files"]),
@@ -150,6 +166,25 @@ def verified_commit(root: Path, tag: str, signers: str, default_branch: str) -> 
     return commit.stdout.strip()
 
 
+def notes_text(data: bytes, path: str, commit: str) -> str:
+    """The release notes that the file holds; a ReleaseError when GitHub cannot take them as the body of a release."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ReleaseError(f"the file `{path}` of the release notes at commit `{commit}` is not UTF-8 text.") from error
+    if len(text) > NOTES_LIMIT:
+        raise ReleaseError(f"the file `{path}` of the release notes at commit `{commit}` holds {len(text)} characters; a release takes at most {NOTES_LIMIT}.")
+    return text
+
+
+def tracked_notes(root: Path, commit: str, path: str) -> str:
+    """The release notes in the tracked file of the commit; a ReleaseError when the commit holds no such file."""
+    shown = subprocess.run(["git", "-C", str(root), "cat-file", "blob", f"{commit}:{path}"], capture_output=True, check=False)
+    if shown.returncode != 0:
+        raise ReleaseError(f"parts.{PART}.notes: the commit `{commit}` that the tag names holds no file `{path}`; the release notes are a tracked file of that commit.")
+    return notes_text(shown.stdout, path, commit)
+
+
 def append(path: str | None, text: str) -> None:
     plan.append(path, text)
 
@@ -158,10 +193,10 @@ def run_plan(options: argparse.Namespace) -> int:
     title = "## Release"
     try:
         decision = make_plan(Path(options.root), Path(options.schemas), options.ref, options.default_branch)
-    except Nothing as nothing:
-        print(f"Nothing is published: {nothing}.")
-        append(options.github_output, "plan=" + json.dumps({"parts": {PART: {"run": False, "reason": str(nothing)}}}, separators=(",", ":")) + "\n")
-        append(options.summary, f"{title}\n\nNothing is published: {nothing}.\n")
+    except NoRelease as no_release:
+        print(f"Nothing is published: {no_release}.")
+        append(options.github_output, "plan=" + json.dumps({"parts": {PART: {"run": False, "reason": str(no_release)}}}, separators=(",", ":")) + "\n")
+        append(options.summary, f"{title}\n\nNothing is published: {no_release}.\n")
         return 0
     except ReleaseError as error:
         print(f"The release failed: {error}")
@@ -174,7 +209,8 @@ def run_plan(options: argparse.Namespace) -> int:
     append(options.github_output, "plan=" + json.dumps({"parts": {PART: decision}}, separators=(",", ":")) + "\n")
     lines = [title, "", f"The tag `{decision['tag']}` is released at commit `{decision['commit']}`: {decision['reason']}.", "",
              "The script `" + decision["script"] + "` writes the files on `" + decision["runner"] + "`." if decision["script"]
-             else "The files are tracked files of the tagged commit.", "", *[f"- `{path}`" for path in decision["config"]["files"]]]
+             else "The files are tracked files of the tagged commit.", "", *[f"- `{path}`" for path in decision["config"]["files"]],
+             *(["", f"The release notes are the file `{decision['notes']}` of the tagged commit."] if decision["notes"] else [])]
     append(options.summary, "\n".join(lines) + "\n")
     return 0
 
@@ -211,6 +247,65 @@ def step(what: str, method: str, url: str, token: str | None, body: bytes | None
     return document
 
 
+def tag_commit(repository_url: str, tag: str, token: str | None) -> str | None:
+    """The commit that the tag names on GitHub at this moment; None when the repository holds no such tag."""
+    what = f"reading the tag `{tag}`"
+    try:
+        status, document = request("GET", f"{repository_url}/git/ref/tags/{urllib.parse.quote(tag, safe='/')}", token)
+    except ReleaseError as error:
+        raise ReleaseError(f"{what} failed: {error}.") from error
+    if status == 404:
+        return None
+    for _ in range(TAG_DEPTH):
+        target = document.get("object") if isinstance(document, dict) else None
+        if not isinstance(target, dict) or not isinstance(target.get("sha"), str) or target.get("type") not in ("commit", "tag"):
+            break
+        if target["type"] == "commit":
+            return target["sha"]
+        document = step(what, "GET", f"{repository_url}/git/tags/{target['sha']}", token)
+    raise ReleaseError(f"{what} failed: GitHub's answer names no commit.")
+
+
+def check_tag(repository_url: str, tag: str, commit: str, token: str | None) -> None:
+    """Fail unless the tag still names the commit whose signature the plan verified."""
+    held = tag_commit(repository_url, tag, token)
+    verified = f"the commit `{commit}` whose signature was verified"
+    again = "A run for the tag as it is now verifies its signature again."
+    if held is None:
+        raise ReleaseError(f"the tag `{tag}` no longer exists; it named {verified}. {again}")
+    if held != commit:
+        raise ReleaseError(f"the tag `{tag}` moved after its signature was verified: it names the commit `{held}`, not {verified}. {again}")
+
+
+def published_notes(repository_url: str, commit: str, path: str, token: str | None) -> str:
+    """The release notes in the file that the repository holds at the commit, read from GitHub."""
+    what = f"reading the release notes `{path}` at commit `{commit}`"
+    try:
+        status, document = request("GET", f"{repository_url}/contents/{urllib.parse.quote(path, safe='/')}?{urllib.parse.urlencode({'ref': commit})}", token)
+    except ReleaseError as error:
+        raise ReleaseError(f"{what} failed: {error}.") from error
+    if status == 404:
+        raise ReleaseError(f"{what} failed: the commit holds no such file.")
+    if not isinstance(document, dict) or document.get("type") != "file" or document.get("encoding") != "base64" or not isinstance(document.get("content"), str):
+        raise ReleaseError(f"{what} failed: GitHub's answer holds no content of a file.")
+    try:
+        data = base64.b64decode(document["content"], validate=False)
+    except (binascii.Error, ValueError) as error:
+        raise ReleaseError(f"{what} failed: GitHub's answer holds no content of a file.") from error
+    return notes_text(data, path, commit)
+
+
+def delete_draft(draft_url: str, token: str | None) -> str:
+    """Delete the draft of a release that must not be published, with its uploaded files; the sentence that says what became of it."""
+    try:
+        status, _ = request("DELETE", draft_url, token)
+    except ReleaseError as error:
+        return f"The draft of the release could not be deleted ({error}); it is not published, so remove it before this run publishes again."
+    if status == 404:
+        return "The draft of the release no longer exists."
+    return "The draft of the release was deleted."
+
+
 def publish(part: dict, files: Path, repository: str, api_url: str, token: str | None) -> tuple[str, list[str]]:
     """Publish the release of the plan's tag with its files; the address of the release and the names of its files."""
     tag = part["tag"]
@@ -219,24 +314,37 @@ def publish(part: dict, files: Path, repository: str, api_url: str, token: str |
     for path, held in collected.items():
         if not held.is_file():
             raise ReleaseError(f"the file `{path}` is not among the collected files.")
-    releases = f"{api_url.rstrip('/')}/repos/{repository}/releases"
+    repository_url = f"{api_url.rstrip('/')}/repos/{repository}"
+    releases = f"{repository_url}/releases"
     try:
         status, _ = request("GET", f"{releases}/tags/{urllib.parse.quote(tag, safe='')}", token)
     except ReleaseError as error:
         raise ReleaseError(f"looking up the release of the tag `{tag}` failed: {error}.") from error
     if status != 404:
         raise ReleaseError(f"a release of the tag `{tag}` exists. A release is published once; remove it before this run publishes again.")
-    body = f"Published by the release part of the shared workflows from the signed tag `{tag}` at commit `{part['commit']}`."
+    if part.get("notes"):
+        body = published_notes(repository_url, part["commit"], str(part["notes"]), token)
+    else:
+        body = f"Published by the release part of the shared workflows from the signed tag `{tag}` at commit `{part['commit']}`."
+    check_tag(repository_url, tag, part["commit"], token)
     draft = step(f"creating the release of the tag `{tag}`", "POST", releases, token,
                  json.dumps({"tag_name": tag, "name": part.get("title") or tag, "body": body, "draft": True}).encode("utf-8"))
     if not isinstance(draft, dict) or not isinstance(draft.get("upload_url"), str) or "id" not in draft:
         raise ReleaseError(f"creating the release of the tag `{tag}` failed: GitHub's answer names no release.")
-    upload = draft["upload_url"].split("{", 1)[0]
+    upload, draft_id = draft["upload_url"].split("{", 1)[0], draft["id"]
     kept = "The release stays a draft, which is not published; remove it before this run publishes again."
     try:
         for held in collected.values():
             step(f"uploading `{held.name}`", "POST", f"{upload}?{urllib.parse.urlencode({'name': held.name})}", token, held.read_bytes(), "application/octet-stream")
-        published = step(f"publishing the release of the tag `{tag}`", "PATCH", f"{releases}/{draft['id']}", token, json.dumps({"draft": False}).encode("utf-8"))
+    except ReleaseError as error:
+        raise ReleaseError(f"{error} {kept}") from error
+    try:
+        # The uploads take time: the tag is read once more, right before the request that publishes.
+        check_tag(repository_url, tag, part["commit"], token)
+    except ReleaseError as error:
+        raise ReleaseError(f"{error} {delete_draft(f'{releases}/{draft_id}', token)}") from error
+    try:
+        published = step(f"publishing the release of the tag `{tag}`", "PATCH", f"{releases}/{draft_id}", token, json.dumps({"draft": False}).encode("utf-8"))
     except ReleaseError as error:
         raise ReleaseError(f"{error} {kept}") from error
     address = published.get("html_url") if isinstance(published, dict) else None

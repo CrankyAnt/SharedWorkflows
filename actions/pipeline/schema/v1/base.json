@@ -72,8 +72,8 @@
           "required": ["workflow", "request", "waits-for"],
           "properties": {
             "workflow": {"$ref": "#/$defs/workflow"},
-            "request": {"description": "The number of the request issue in this repository.", "type": "integer", "minimum": 1},
-            "waits-for": {"description": "What the workflow waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. Invented examples: \"python-release\", \"python-test.coverage\".", "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*(\\.[a-z][a-z0-9]*(-[a-z0-9]+)*)?$"}
+            "request": {"$ref": "#/$defs/request"},
+            "waits-for": {"$ref": "#/$defs/waits-for"}
           }
         },
         {
@@ -88,6 +88,16 @@
           }
         }
       ]
+    },
+    "request": {
+      "description": "The number of the request issue in this repository.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "waits-for": {
+      "description": "What the work waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. Invented examples: \"python-release\", \"python-test.coverage\".",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*(\\.[a-z][a-z0-9]*(-[a-z0-9]+)*)?$"
     },
     "workflow": {
       "description": "The path of the workflow file.",

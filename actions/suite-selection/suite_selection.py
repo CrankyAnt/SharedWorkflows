@@ -73,7 +73,8 @@ SCRIPT_SUFFIXES = (".py", ".sh", ".ps1")  # a setup script runs on the job's Pyt
 SETUP_KEYS = frozenset({"script", "recorded", "tool", "version", "version-file"})
 JOB_DEFAULTS = {"linux": {"runner": "ubuntu-26.04", "fetch-depth": 1}, "windows": {"runner": "windows-2025", "fetch-depth": 1}}
 VERSION_FILE = re.compile(r"^[^#]+#(/[^/]+)+$")
-RUNNER_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# A label of one GitHub-hosted runner, as the definition runner-label of the pipeline's schema has it: no suite job runs on a self-hosted runner.
+RUNNER_LABEL = re.compile(r"^(ubuntu|windows|macos)-[A-Za-z0-9][A-Za-z0-9.-]*$")
 # The union of sys.stdlib_module_names over the Python versions that the shared CI supports.
 STANDARD_LIBRARY = Path(__file__).resolve().parent.parent / "recording" / "stdlib_module_names.json"
 
@@ -530,8 +531,8 @@ def _jobs(value, location: str) -> tuple[tuple[str, tuple[tuple[str, object], ..
         unknown = set(item) - set(JOB_DEFAULTS[name])
         if unknown:
             raise SuiteListError(f"{where}: unknown keys {', '.join(sorted(unknown))}")
-        if "runner" in item and (not isinstance(item["runner"], str) or not RUNNER_LABEL.match(item["runner"])):
-            raise SuiteListError(f"{where}: runner must be a runner label")
+        if "runner" in item and (not isinstance(item["runner"], str) or not RUNNER_LABEL.fullmatch(item["runner"])):
+            raise SuiteListError(f"{where}: runner must be a label of a GitHub-hosted runner of the ubuntu-, windows- or macos- family, such as ubuntu-26.04")
         depth = item.get("fetch-depth", 0)
         if not isinstance(depth, int) or isinstance(depth, bool) or depth < 0:
             raise SuiteListError(f"{where}: fetch-depth must be a whole number of 0 or more")

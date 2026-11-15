@@ -100,7 +100,7 @@ class ProofKitProjectTests(unittest.TestCase):
                           "docs/agents/ci.md", "dotnet/Greeting.Tests.csproj", "dotnet/Greeting.cs", "dotnet/GreetingTests.cs",
                           "python/greeting.py", "python/pyproject.toml", "python/tests/test_greeting.py"], kit_files())
 
-    def test_the_pointer_document_equals_its_template(self) -> None:
+    def test_the_ci_guide_equals_its_template(self) -> None:
         self.assertEqual((TEMPLATES / "docs" / "agents" / "ci.md").read_bytes(), (KIT / "docs" / "agents" / "ci.md").read_bytes())
 
     def test_the_dependabot_entries_of_this_repository_cover_the_kit_s_projects(self) -> None:

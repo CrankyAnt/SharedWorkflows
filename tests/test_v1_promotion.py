@@ -850,6 +850,104 @@ class ToolDocumentTests(unittest.TestCase):
             parser.parse_args(tokens)
 
 
+# GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
+GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+KEY_VARIABLE = "FIXTURE_DEPLOY_KEY"
+KEY_TEXT = "-----BEGIN FIXTURE KEY-----\nno key\n-----END FIXTURE KEY-----"
+
+
+class DeployKeyTests(unittest.TestCase):
+    """``--deploy-key`` names the variable that holds the key; every push of the subcommand then goes over SSH with that
+    key alone and a pinned host key, and nothing of it outlives the subcommand."""
+
+    PUSHES = {"candidate": ("push_candidate", (True, "moved\n"), ["candidate", "--new", "a" * 40]),
+              "start-proof": ("start_proof", "b" * 40, ["start-proof", "--candidate", "a" * 40, "--work", "work"]),
+              "move": ("move", (True, "moved\n"), ["move", "--old", "a" * 40, "--new", "b" * 40])}
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        (self.root / "surface.json").write_text(json.dumps(SURFACE), encoding="utf-8")
+        self.seen: dict = {}
+        self.result: object = None
+
+    def push(self, *_arguments: object) -> object:
+        """Stands in for the function that pushes, and records what a Git command would find at that moment."""
+        command = shlex.split(os.environ["GIT_SSH_COMMAND"])
+        key = Path(command[command.index("-i") + 1])
+        hosts = Path(next(word for word in command if word.startswith("UserKnownHostsFile=")).split("=", 1)[1])
+        self.seen = {"command": command, "key": key, "hosts": hosts, "key text": key.read_bytes(), "hosts text": hosts.read_bytes(),
+                     "mode": key.stat().st_mode & 0o777, "variable": os.environ.get(KEY_VARIABLE)}
+        return self.result
+
+    def run_push(self, subcommand: str, environment: dict[str, str]) -> int:
+        function, self.result, arguments = self.PUSHES[subcommand]
+        surface = [] if subcommand == "move" else ["--surface", str(self.root / "surface.json")]
+        self.output = io.StringIO()
+        with mock.patch.dict(os.environ, {"RUNNER_TEMP": str(self.root), **environment}), mock.patch.object(promote, function, side_effect=self.push), \
+                contextlib.redirect_stdout(self.output):
+            os.environ.pop("GIT_SSH_COMMAND", None)
+            code = promote.main([*arguments, "--deploy-key", KEY_VARIABLE, *surface])
+            self.after = dict(os.environ)
+        return code
+
+    def test_each_push_runs_with_the_named_key_alone_and_the_pinned_host_key(self) -> None:
+        self.assertEqual(GITHUB_HOST_KEY, promote.GITHUB_HOST_KEY)
+        for subcommand in self.PUSHES:
+            with self.subTest(subcommand=subcommand):
+                self.assertEqual(0, self.run_push(subcommand, {KEY_VARIABLE: KEY_TEXT}))
+                key, hosts = self.seen["key"], self.seen["hosts"]
+                self.assertEqual(["ssh", "-F", "/dev/null", "-i", key.as_posix(), "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none",
+                                  "-o", f"UserKnownHostsFile={hosts.as_posix()}", "-o", "StrictHostKeyChecking=yes"], self.seen["command"],
+                                 "no configuration file, no agent and no other identity; an unknown host key ends the connection")
+                self.assertEqual((KEY_TEXT + "\n").encode(), self.seen["key text"])
+                self.assertEqual((GITHUB_HOST_KEY + "\n").encode(), self.seen["hosts text"], "github.com is the only host, under its pinned key")
+                self.assertIsNone(self.seen["variable"], "no command that the program starts holds the key in its environment")
+                self.assertEqual(self.root, key.parent.parent, "the key lies under the runner's temporary directory")
+                if os.name == "posix":
+                    self.assertEqual(0o600, self.seen["mode"], "the key file is readable by the job's user only")
+                self.assertFalse(key.parent.exists(), "the key file is removed when the subcommand ends")
+                self.assertNotIn("GIT_SSH_COMMAND", self.after)
+                self.assertEqual(KEY_TEXT, self.after[KEY_VARIABLE])
+                self.assertNotIn("FIXTURE KEY", self.output.getvalue(), "the key is never printed")
+
+    def test_two_keys_of_one_job_lie_in_two_files(self) -> None:
+        self.run_push("candidate", {KEY_VARIABLE: KEY_TEXT})
+        first = self.seen["key"]
+        self.run_push("start-proof", {KEY_VARIABLE: KEY_TEXT})
+        self.assertNotEqual(first, self.seen["key"])
+
+    def test_the_key_file_is_removed_when_the_push_raises(self) -> None:
+        def refuse(*_arguments: object) -> object:
+            self.push()
+            raise OSError("the fixture push broke")
+        with mock.patch.dict(os.environ, {"RUNNER_TEMP": str(self.root), KEY_VARIABLE: KEY_TEXT}), mock.patch.object(promote, "move", side_effect=refuse):
+            os.environ.pop("GIT_SSH_COMMAND", None)
+            with self.assertRaises(OSError):
+                promote.main(["move", "--old", "a" * 40, "--new", "b" * 40, "--deploy-key", KEY_VARIABLE])
+        self.assertFalse(self.seen["key"].parent.exists())
+
+    def test_a_variable_without_a_key_stops_the_subcommand_before_any_push(self) -> None:
+        for name, environment in (("unset", {}), ("empty", {KEY_VARIABLE: ""}), ("blank", {KEY_VARIABLE: " \n"})):
+            with self.subTest(variable=name):
+                self.seen = {}
+                with mock.patch.dict(os.environ):
+                    os.environ.pop(KEY_VARIABLE, None)
+                    self.assertEqual(1, self.run_push("move", environment))
+                self.assertEqual({}, self.seen, "nothing was pushed")
+                self.assertEqual(f"move stopped: the environment variable {KEY_VARIABLE} holds no deploy key.\n", self.output.getvalue())
+
+    def test_without_the_option_git_keeps_its_own_environment(self) -> None:
+        def moved(*_arguments: object) -> tuple[bool, str]:
+            self.seen = {"command": os.environ["GIT_SSH_COMMAND"]}
+            return True, "moved\n"
+        with mock.patch.dict(os.environ, {"GIT_SSH_COMMAND": "ssh -o Fixture=yes"}), mock.patch.object(promote, "move", side_effect=moved), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, promote.main(["move", "--old", "a" * 40, "--new", "b" * 40]))
+        self.assertEqual("ssh -o Fixture=yes", self.seen["command"])
+
+
 class WorkflowInvocationTests(unittest.TestCase):
     def test_the_promotion_workflow_invokes_the_script_with_subcommands_and_options_it_accepts(self) -> None:
         invocations = script_invocations(REPOSITORY_ROOT / ".github" / "workflows" / "promote-v1.yml", "promote_v1.py")

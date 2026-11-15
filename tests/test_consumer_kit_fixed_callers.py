@@ -13,7 +13,7 @@ from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 KIT = REPOSITORY_ROOT / "actions" / "pipeline" / "consumer-kit"
 TEMPLATES = ("ci.yml", "automation.yml", "release.yml")
-POINTER = "docs/agents/ci.md"
+CI_GUIDE = "docs/agents/ci.md"
 AT_V1 = "https://github.com/CrankyAnt/SharedWorkflows/blob/v1/"
 # What only this repository has, and what a template that a repository fills in would hold.
 NOT_FIXED = re.compile(r"\$/|<[a-z-]+>|@[0-9a-f]{40}")
@@ -85,11 +85,11 @@ class FixedCallerReadmeTest(unittest.TestCase):
                 self.assertIn(text, self.readme)
 
 
-class PointerDocumentTemplateTest(unittest.TestCase):
+class CiGuideTemplateTest(unittest.TestCase):
     """The template of a consumer's ``docs/agents/ci.md``: a fixed pointer to the catalogue at v1."""
 
     def setUp(self) -> None:
-        self.template = (KIT / POINTER).read_text(encoding="utf-8")
+        self.template = (KIT / CI_GUIDE).read_text(encoding="utf-8")
         self.readme = (KIT / "README.md").read_text(encoding="utf-8")
 
     def test_the_template_points_to_the_catalogue_and_the_schema_at_v1_and_names_the_configuration_file(self) -> None:
@@ -121,10 +121,10 @@ class PointerDocumentTemplateTest(unittest.TestCase):
         ruleset = (REPOSITORY_ROOT / "actions" / "repository-ruleset" / "README.md").read_text(encoding="utf-8")
         self.assertIn("under `## Repository choices` in the repository's `docs/agents/ci.md`", ruleset, "the ruleset README sends a deviation there")
 
-    def test_the_readme_says_that_a_consumer_holds_the_pointer_document_unchanged(self) -> None:
-        self.assertIn(f"[{POINTER}]({POINTER})", self.readme)
-        self.assertIn("## The pointer document", self.readme)
-        self.assertIn("| Pointer document |", self.readme)
+    def test_the_readme_says_that_a_consumer_holds_the_ci_guide_unchanged(self) -> None:
+        self.assertIn(f"[{CI_GUIDE}]({CI_GUIDE})", self.readme)
+        self.assertIn("## The CI guide", self.readme)
+        self.assertIn("| CI guide |", self.readme)
 
 
 class RequestReadmeTest(unittest.TestCase):

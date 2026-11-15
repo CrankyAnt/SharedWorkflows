@@ -82,28 +82,14 @@ jobs:
           NEW: ${{ needs.decide.outputs.new }}
         run: |
           set -euo pipefail
-          key="$RUNNER_TEMP/promote-v1-key"
-          hosts="$RUNNER_TEMP/promote-v1-known-hosts"
-          trap 'rm -f "$key"' EXIT
-          (umask 077 && printf '%s\n' "$DEPLOY_KEY" > "$key")
-          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$hosts"
-          export GIT_SSH_COMMAND="ssh -F /dev/null -i '$key' -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile='$hosts' -o StrictHostKeyChecking=yes"
           git remote add promote "git@github.com:$GITHUB_REPOSITORY.git"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py candidate --remote promote --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py candidate --deploy-key DEPLOY_KEY --remote promote --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"
       - name: Start the proof repository's run on the candidate tag
         id: proof
         env:
           PROOF_KEY: ${{ secrets.PROOF_REPOSITORY_DEPLOY_KEY }}
           NEW: ${{ needs.decide.outputs.new }}
-        run: |
-          set -euo pipefail
-          key="$RUNNER_TEMP/proof-key"
-          hosts="$RUNNER_TEMP/proof-known-hosts"
-          trap 'rm -f "$key"' EXIT
-          (umask 077 && printf '%s\n' "$PROOF_KEY" > "$key")
-          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$hosts"
-          export GIT_SSH_COMMAND="ssh -F /dev/null -i '$key' -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile='$hosts' -o StrictHostKeyChecking=yes"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py start-proof --candidate "$NEW" --work "$RUNNER_TEMP/proof-repository" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py start-proof --deploy-key PROOF_KEY --candidate "$NEW" --work "$RUNNER_TEMP/proof-repository" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   await:
     needs: [decide, candidate]
@@ -148,11 +134,5 @@ jobs:
           NEW: ${{ needs.decide.outputs.new }}
         run: |
           set -euo pipefail
-          key="$RUNNER_TEMP/promote-v1-key"
-          hosts="$RUNNER_TEMP/promote-v1-known-hosts"
-          trap 'rm -f "$key"' EXIT
-          (umask 077 && printf '%s\n' "$DEPLOY_KEY" > "$key")
-          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$hosts"
-          export GIT_SSH_COMMAND="ssh -F /dev/null -i '$key' -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile='$hosts' -o StrictHostKeyChecking=yes"
           git remote add promote "git@github.com:$GITHUB_REPOSITORY.git"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py move --remote promote --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py move --deploy-key DEPLOY_KEY --remote promote --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"

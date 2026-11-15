@@ -1,6 +1,6 @@
 # Pipeline
 
-The consumer kit of the pipeline, a shared part of the [catalogue](../../../catalogue.json). A repository holds three fixed callers and the pointer document `docs/agents/ci.md`, copied from this kit, and one configuration file, `.github/ci-config.yml`. The callers hold no choice of the repository: every choice is in the configuration file.
+The consumer kit of the pipeline, a shared part of the [catalogue](../../../catalogue.json). A repository holds three fixed callers and the CI guide `docs/agents/ci.md`, copied from this kit, and one configuration file, `.github/ci-config.yml`. The callers hold no choice of the repository: every choice is in the configuration file.
 
 ## The fixed callers
 
@@ -20,7 +20,7 @@ Each caller sets `permissions: {}` at the top, holds one job named after its fil
 
 No caller starts on `pull_request_target`, and none inherits secrets.
 
-## The pointer document
+## The CI guide
 
 Copy [docs/agents/ci.md](docs/agents/ci.md) to `docs/agents/ci.md`. It points to the catalogue and the schema of the configuration file at `v1`, holds no rule of its own and ends with the heading `## Repository choices`. Up to and including that heading it is equal byte for byte in every repository, as a fixed caller is. Below the heading the repository records, each with its reason, the choices that no file states, such as a deviation of its ruleset from the [ruleset template](../../repository-ruleset/README.md). A choice that a shared part reads is a value in the configuration file, and work that no shared part covers follows the decision rule in the catalogue; neither goes below the heading.
 
@@ -104,10 +104,11 @@ parts:
 | `setups` | Optional, with `script`. The known setups that are installed before the script, in the listed order. |
 | `runner-label` | Optional, with `script`. The label of the GitHub-hosted runner of the script's job; `ubuntu-26.04` without it. |
 | `title` | Optional. The title of the release, in which `{tag}` stands for the tag and `{version}` for the tag without a leading `v`; the tag without it. |
+| `notes` | Optional. A tracked file whose content becomes the release notes, such as `docs/release-notes.md`. It is read at the commit that the tag names, so `script` cannot write it, and it holds UTF-8 text of at most 125000 characters. Without it, the release notes are one fixed sentence that names the tag and its commit. |
 
 A release tag is an annotated tag with an SSH signature, made with `git tag -s` and `gpg.format` set to `ssh`. A matching tag that is not annotated, carries no signature or carries one of a key that the file on `main` does not hold publishes nothing and fails the run, with the reason in the job summary of the job `plan`.
 
-For a tag that passes, the files are collected at the commit that the tag names, their build provenance is attested in a repository that is not private, and the release is created under the tag with the files. A tag that already has a release fails the run and changes nothing. Without the part in the configuration file, a pushed tag publishes nothing and the run passes.
+For a tag that passes, the files are collected at the commit that the tag names, their build provenance is attested in a repository that is not private, and the release is created under the tag with the files. A tag that already has a release fails the run and changes nothing, and so does a tag that was moved or removed after its signature was verified: the release is created only while the tag still names the verified commit. Without the part in the configuration file, a pushed tag publishes nothing and the run passes.
 
 ## What repository hygiene checks in these files
 
@@ -116,10 +117,10 @@ Repository hygiene runs in every run of the pipeline and checks the files of thi
 | Check | Fails when |
 | --- | --- |
 | Fixed callers | a fixed caller is missing or differs from its template |
-| Pointer document | `docs/agents/ci.md` is missing or differs from its template up to and including the heading `## Repository choices` |
+| CI guide | `docs/agents/ci.md` is missing or differs from its template up to and including the heading `## Repository choices` |
 | Local workflows | a workflow file under `.github/workflows/` is no fixed caller and has no entry under `local-workflows` |
-| Register | a temporary entry names a `request` that is no issue of the repository, or a permanent entry names a `declined-request` that is no closed issue of the repository; a pull request is no issue |
-| Switch-over | the part that a temporary entry names under `waits-for` exists at `v1`, or for `<part>.<setting>` the part knows that setting there: switch the part on under `parts` or state the setting, remove the workflow with its entry, and close the request |
+| Register | a temporary entry names a `request` that is no issue of the repository, or a permanent entry names a `declined-request` that is no closed issue of the repository; a pull request is no issue; a temporary entry names a `request` that was closed as not planned, so the entry becomes permanent; `parts.custom` names `request` or `waits-for` without the other, or a `request` that is no issue of the repository or was closed as not planned |
+| Switch-over | the part that a temporary entry, or the free job under `parts.custom`, names under `waits-for` exists at `v1`, or for `<part>.<setting>` the part knows that setting there: switch the part on under `parts` or state the setting, remove the workflow with its entry, and close the request |
 | Dependabot configuration | `.github/dependabot.yml` differs from the file generated from `dependabot`, or exists while the configuration file states no ecosystems |
 
 The generated `.github/dependabot.yml` holds one `updates` entry per ecosystem and directory, in the order of the configuration file, each with a weekly schedule, a cooldown of seven days and one group for minor and patch updates. The entry of `github-actions` ignores `CrankyAnt/SharedWorkflows`, which the callers follow at `v1`. When the check fails, the job summary holds the expected content of the file.
@@ -130,7 +131,7 @@ A workflow that fails the local-workflows check follows the decision rule in the
 
 ## Requests for shared CI
 
-A request asks for a shared part, for an input that an existing part lacks, or for the repair of a fault of a shared part, as steps 2 to 4 of the decision rule in the [catalogue](../../../catalogue.json) say. It is an issue in the repository itself with the label `shared-ci`; an agent in the repository writes nothing into `CrankyAnt/SharedWorkflows`. A request for a new part proposes the part's name, `<ecosystem>-<phase>`, where the ecosystem is a language or the platform that the part serves, as in `github-release`. A temporary entry of the register names the part under `waits-for`. A request for an input names the existing part and proposes the name of the setting, and its temporary entry names both as `<part>.<setting>`.
+A request asks for a shared part, for an input that an existing part lacks, or for the repair of a fault of a shared part, as steps 2 to 4 of the decision rule in the [catalogue](../../../catalogue.json) say. It is an issue in the repository itself with the label `shared-ci`; an agent in the repository writes nothing into `CrankyAnt/SharedWorkflows`. A request for a new part proposes the part's name, `<ecosystem>-<phase>`, where the ecosystem is a language or the platform that the part serves, as in `github-release`. A temporary entry of the register names the part under `waits-for`, and so does the free job that carries the work meanwhile: `request` and `waits-for` under `parts.custom` hold the number of the request and the name of the part. A request for an input names the existing part and proposes the name of the setting, and its temporary entry names both as `<part>.<setting>`.
 
 The repository's own triage leaves a request alone. The repository creates the label `shared-ci` and adds this vocabulary entry to its `docs/agents/triage-labels.md`:
 
@@ -164,7 +165,7 @@ A change to a template reaches a repository through a pull request that replaces
 | [automation.yml](automation.yml) | `.github/workflows/automation.yml` |
 | [release.yml](release.yml) | `.github/workflows/release.yml` |
 
-Nothing of the installed caller carries over. The pointer document follows its template, [docs/agents/ci.md](docs/agents/ci.md), the same way, up to and including its heading `## Repository choices`; what the repository recorded below that heading carries over. After the move of `v1` that changes a template, a caller or a pointer document that equals the previous version of that template passes for one month, with a notice in the job summary. After that month a pull request fails on it, with a link to the repository's open pull request that brings the fixed callers up to date; a pull request of `dependabot[bot]` still passes with a notice.
+Nothing of the installed caller carries over. The CI guide follows its template, [docs/agents/ci.md](docs/agents/ci.md), the same way, up to and including its heading `## Repository choices`; what the repository recorded below that heading carries over. After the move of `v1` that changes a template, a caller or a CI guide that equals the previous version of that template passes for one month, with a notice in the job summary. After that month a pull request fails on it, with a link to the repository's open pull request that brings the fixed callers up to date; a pull request of `dependabot[bot]` still passes with a notice.
 
 ## When `v1` moves
 

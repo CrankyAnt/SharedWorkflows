@@ -3,6 +3,7 @@ program of the part ``github-release``."""
 
 from __future__ import annotations
 
+import base64
 import http.server
 import io
 import json
@@ -14,8 +15,9 @@ import threading
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 from unittest import mock
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, SCHEMAS, PipelineFixture, git, read_outputs
 
@@ -67,9 +69,13 @@ class GitHubStandIn:
 
     def __init__(self) -> None:
         self.releases: dict[int, dict] = {}
+        self.tags: dict[str, dict] = {}  # tag -> the object its ref holds: {"type": "commit" or "tag", "sha": ...}
+        self.tag_objects: dict[str, dict] = {}  # SHA of a tag object -> the object it names
+        self.contents: dict[tuple[str, str], object] = {}  # (commit, path) -> the bytes of the file there, or the document that answers
         self.assets: dict[int, dict[str, bytes]] = {}
         self.requests: list[Request] = []
         self.refuse: dict[tuple[str, str], int] = {}  # (method, start of the path) -> status
+        self.after_upload: Callable[[], None] | None = None  # what happens in the repository once a file of a draft is uploaded
         stand_in = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -91,6 +97,21 @@ class GitHubStandIn:
                         return self.answer(status, {"message": "refused"})
                 prefix = f"/repos/{CONSUMER}/releases"
                 upload = f"/upload/repos/{CONSUMER}/releases/"
+                refs, objects, contents = f"/repos/{CONSUMER}/git/ref/tags/", f"/repos/{CONSUMER}/git/tags/", f"/repos/{CONSUMER}/contents/"
+                if self.command == "GET" and address.path.startswith(contents):
+                    path = unquote(address.path.removeprefix(contents))
+                    held = stand_in.contents.get((request.query.get("ref", [""])[0], path))
+                    if isinstance(held, bytes):
+                        encoded = base64.encodebytes(held).decode("ascii")  # in lines of 76 characters, as GitHub answers
+                        return self.answer(200, {"type": "file", "path": path, "encoding": "base64", "content": encoded})
+                    return self.answer(200, held) if held is not None else self.answer(404, {"message": "Not Found"})
+                if self.command == "GET" and address.path.startswith(refs):
+                    tag = address.path.removeprefix(refs)
+                    held = stand_in.tags.get(tag)
+                    return self.answer(200, {"ref": f"refs/tags/{tag}", "object": held}) if held else self.answer(404, {"message": "Not Found"})
+                if self.command == "GET" and address.path.startswith(objects):
+                    named = stand_in.tag_objects.get(address.path.removeprefix(objects))
+                    return self.answer(200, {"object": named}) if named else self.answer(404, {"message": "Not Found"})
                 if self.command == "GET" and address.path.startswith(prefix + "/tags/"):
                     tag = address.path.removeprefix(prefix + "/tags/")
                     found = [item for item in stand_in.releases.values() if item["tag_name"] == tag and not item["draft"]]
@@ -105,14 +126,25 @@ class GitHubStandIn:
                     number = int(address.path.removeprefix(upload).split("/")[0])
                     name = request.query["name"][0]
                     stand_in.assets[number][name] = body
+                    if stand_in.after_upload is not None:
+                        stand_in.after_upload()
                     return self.answer(201, {"name": name, "size": len(body)})
                 if self.command == "PATCH" and address.path.startswith(prefix + "/"):
                     number = int(address.path.removeprefix(prefix + "/"))
                     stand_in.releases[number].update(request.document)
                     return self.answer(200, stand_in.releases[number])
+                if self.command == "DELETE" and address.path.startswith(prefix + "/"):
+                    number = int(address.path.removeprefix(prefix + "/"))
+                    if stand_in.releases.pop(number, None) is None:
+                        return self.answer(404, {"message": "Not Found"})
+                    del stand_in.assets[number]
+                    self.send_response(204)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return None
                 return self.answer(404, {"message": "Not Found"})
 
-            do_GET = do_POST = do_PATCH = handle_request
+            do_GET = do_POST = do_PATCH = do_DELETE = handle_request
 
             def log_message(self, *arguments) -> None:
                 pass
@@ -124,6 +156,15 @@ class GitHubStandIn:
     def close(self) -> None:
         self.server.shutdown()
         self.server.server_close()
+
+    def hold_tag(self, tag: str, commit: str, annotated: bool = True) -> None:
+        """Let the repository hold the tag on the commit: through a tag object of its own, or as a lightweight tag."""
+        if not annotated:
+            self.tags[tag] = {"type": "commit", "sha": commit}
+            return
+        tag_object = f"{len(self.tag_objects) + 10:040x}"
+        self.tags[tag] = {"type": "tag", "sha": tag_object}
+        self.tag_objects[tag_object] = {"type": "commit", "sha": commit}
 
     @property
     def published(self) -> list[dict]:

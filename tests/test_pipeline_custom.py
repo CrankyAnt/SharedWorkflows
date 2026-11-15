@@ -55,6 +55,25 @@ class SetupTests(PipelineFixture):
                 self.assertEqual((True, {"setups": names, "script": "ci/check.sh"}), (part["run"], part["config"]))
                 self.assertEqual(expected, part["setups"])
 
+    def test_the_free_job_may_name_its_request_and_what_it_waits_for_as_a_temporary_entry_does(self) -> None:
+        fragment = json.loads((SCHEMAS / "v1" / "parts" / "custom.json").read_text(encoding="utf-8"))["configuration"]
+        self.assertEqual(["script"], fragment["required"], "a free job without a request states neither setting")
+        self.assertEqual(("#/$defs/request", "#/$defs/waits-for"), (fragment["properties"]["request"]["$ref"], fragment["properties"]["waits-for"]["$ref"]),
+                         "the definitions of a temporary entry of the register")
+        for waits_for in ("python-licences", "python-test.coverage"):
+            with self.subTest(waits_for=waits_for):
+                self.commit({CONFIGURATION: f"version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    request: 12\n    waits-for: {waits_for}\n"})
+                outcome = self.plan()
+                self.assertEqual(0, outcome.status, outcome.summary)
+                part = outcome.plan["parts"][CUSTOM]
+                self.assertEqual((True, {"script": "ci/check.sh", "request": 12, "waits-for": waits_for}), (part["run"], part["config"]))
+        for settings, problem in (("    request: twelve\n    waits-for: python-licences\n", "parts.custom.request"), ("    request: 12\n    waits-for: Python Licences\n", "parts.custom.waits-for")):
+            with self.subTest(problem=problem):
+                self.commit({CONFIGURATION: f"version: 1\nparts:\n  custom:\n    script: ci/check.sh\n{settings}"})
+                outcome = self.plan()
+                self.assertEqual(1, outcome.status)
+                self.assertIn(problem, outcome.summary)
+
     def test_a_free_job_without_setups_runs_its_script_with_no_setup(self) -> None:
         self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n"})
         outcome = self.plan()

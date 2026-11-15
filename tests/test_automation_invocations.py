@@ -6,7 +6,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 from tests.dependabot_auto_merge_source import auto_merge
 from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT, PipelineFixture, plan_program
@@ -45,6 +47,63 @@ class InvocationTests(unittest.TestCase):
         (tokens,) = script_invocations(WORKFLOW, "issue_title.py")
         options = issue_title_program().parser().parse_args(tokens)
         self.assertEqual(("x", ".", "x", True), (options.event, options.root, options.categories, options.apply))
+
+
+class CategoryFileDescriptionTests(unittest.TestCase):
+    """The fragment of ``issue-title`` describes the category file, so that an agent in a consumer can tell from the
+    schema alone whether the part's input suffices."""
+
+    EXAMPLE = "Invented example of the category file: "
+
+    def setUp(self) -> None:
+        self.description = json.loads((plan_program.SCHEMAS / "v1" / "parts" / "issue-title.json").read_text(encoding="utf-8"))["description"]
+        self.program = issue_title_program()
+
+    def example(self) -> dict:
+        self.assertEqual(1, self.description.count(self.EXAMPLE))
+        text = self.description.split(self.EXAMPLE, 1)[1]
+        self.assertTrue(text.endswith("}."), "the example closes the description")
+        return json.loads(text[:-1])
+
+    def load(self, document: dict):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "categories.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            return self.program.load_categories(path)
+
+    def test_the_program_reads_the_example_of_the_description(self) -> None:
+        component, generic = self.load(self.example())
+        self.assertEqual(("tool", True, "tools", "TOOL.md", "[{component}]", "Tool", ("name",), ("category:tool",)),
+                         (component.key, component.has_components, component.source_directory, component.marker, component.dynamic_title_prefix,
+                          component.component_label, component.required_metadata, component.labels))
+        self.assertEqual(("question", False, "[question]", ("category:question",)), (generic.key, generic.has_components, generic.title_prefix, generic.labels))
+
+    def test_the_description_names_every_key_of_an_item_and_the_program_requires_each(self) -> None:
+        example = self.example()
+        for name, item in (("product_categories", example["product_categories"][0]), ("generic_forms", example["generic_forms"][0])):
+            self.assertIn(f"`{name}`", self.description)
+            for key in item:
+                with self.subTest(list=name, key=key):
+                    self.assertIn(f"`{key}`", self.description)
+                    without = {**example, name: [{other: value for other, value in item.items() if other != key}]}
+                    with self.assertRaises(self.program.CategoryError):
+                        self.load(without)
+
+    def test_the_description_states_the_forms_that_the_program_accepts_and_refuses(self) -> None:
+        example = self.example()
+        generic = example["generic_forms"][0]
+        for text in ("a missing one counts as empty", "together they hold at least one item", "unique across both lists", "lists of non-empty strings and may be empty",
+                     "a key that is not named here is ignored", "with `{component}` for the component's name"):
+            with self.subTest(text=text):
+                self.assertIn(text, self.description)
+        self.assertEqual(1, len(self.load({"generic_forms": [{**generic, "labels": [], "form": "question.yml"}]})), "an empty list of labels and another key")
+        for name, document in (("no item", {"product_categories": [], "generic_forms": []}),
+                               ("a key that two categories share", {**example, "generic_forms": [{**generic, "key": "tool"}]}),
+                               ("an empty string", {"generic_forms": [{**generic, "title_prefix": " "}]}),
+                               ("labels that are no list", {"generic_forms": [{**generic, "labels": "category:question"}]}),
+                               ("a prefix without the component", {**example, "product_categories": [{**example["product_categories"][0], "dynamic_title_prefix": "[tool]"}]})):
+            with self.subTest(refused=name), self.assertRaises(self.program.CategoryError):
+                self.load(document)
 
 
 class PlanOfTheWorkflowTests(PipelineFixture):

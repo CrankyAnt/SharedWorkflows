@@ -284,5 +284,16 @@ class LegacyRegistrationTest(ConsumerFixture):
             self.assertIn(f"`{path}` is neither a fixed caller nor registered under `local-workflows`", checked.summary)
 
 
+class RunnerLabelPatternTests(unittest.TestCase):
+    """A runner label means the same in the suite list and in the configuration file: the pattern of ``jobs`` in the
+    suite list is the pattern of the definition ``runner-label`` of the pipeline's schema."""
+
+    def test_the_suite_list_and_the_schema_accept_the_same_runner_labels(self) -> None:
+        base = json.loads((REPOSITORY_ROOT / "actions" / "pipeline" / "schema" / "v1" / "base.json").read_text(encoding="utf-8"))
+        import suite_selection  # the folder of the suite selection is on the module path, as for ci_definition
+
+        self.assertEqual(base["$defs"]["runner-label"]["pattern"], suite_selection.RUNNER_LABEL.pattern)
+
+
 if __name__ == "__main__":
     unittest.main()

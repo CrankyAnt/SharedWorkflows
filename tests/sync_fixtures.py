@@ -32,8 +32,8 @@ OWNER = "example-owner"
 CONSUMER = f"{OWNER}/consumer"
 OTHER = f"{OWNER}/other-consumer"
 MANAGEMENT = f"{OWNER}/management"
-POINTER = "docs/agents/ci.md"
-POINTER_TEXT = f"# CI\n\nThe catalogue of {SHARED} at v1 holds every rule.\n"
+CI_GUIDE = "docs/agents/ci.md"
+CI_GUIDE_TEXT = f"# CI\n\nThe catalogue of {SHARED} at v1 holds every rule.\n"
 DEPENDABOT = ".github/dependabot.yml"
 APP_TOKEN = "token-of-the-app"
 OWNER_TOKEN = "token-of-the-owner"
@@ -305,10 +305,10 @@ class Synced:
 
 
 def consumer_files() -> dict[str, str]:
-    """The files of a consumer that matches the fixture kit: the three fixed callers, the pointer document and the
+    """The files of a consumer that matches the fixture kit: the three fixed callers, the CI guide and the
     smallest configuration file."""
     files = {f"{WORKFLOWS}/{name}": template(name) for name in CALLERS}
-    files.update({POINTER: POINTER_TEXT, CONFIGURATION: "version: 1\n"})
+    files.update({CI_GUIDE: CI_GUIDE_TEXT, CONFIGURATION: "version: 1\n"})
     return files
 
 
@@ -320,7 +320,7 @@ class SyncFixture(PipelineFixture):
         self.kit = self.directory / "kit"
         for name in CALLERS:
             write(self.kit, name, template(name))
-        write(self.kit, POINTER, POINTER_TEXT)
+        write(self.kit, CI_GUIDE, CI_GUIDE_TEXT)
         write(self.kit, "fixed-callers.json", json.dumps({"previous": {}, "sync-branch": SYNC_BRANCH}))
         self.adoption = self.directory / "adoption.json"
         self.adoption.write_text(json.dumps({"shared-workflows": {"fixture-floor.yml": "fixture-floor", "fixture-test.yml": "fixture-test",

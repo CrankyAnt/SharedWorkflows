@@ -63,6 +63,19 @@ class SetupDataTests(unittest.TestCase):
         self.assertEqual(parsed.job("linux"), {"runner": "ubuntu-26.04", "fetch-depth": 0})
         self.assertEqual(parsed.job("windows"), {"runner": "windows-2025", "fetch-depth": 1})
 
+    def test_a_runner_label_is_one_of_the_github_hosted_families(self) -> None:
+        for label in ("ubuntu-26.04", "ubuntu-24.04-arm", "ubuntu-slim", "windows-2025", "windows-11-arm", "macos-26", "macos-15-intel"):
+            with self.subTest(accepted=label):
+                self.assertEqual(label, parse(document(jobs={"linux": {"runner": label}})).job("linux")["runner"])
+        message = "runner must be a label of a GitHub-hosted runner of the ubuntu-, windows- or macos- family, such as ubuntu-26.04"
+        for label in ("self-hosted", "linux", "ubuntu", "ubuntu-", "Ubuntu-26.04", "my-ubuntu-26.04", "ubuntu_26.04", "ubuntu-26.04 self-hosted", "ubuntu-26.04\nself-hosted", "ubuntu-26.04\n",
+                      "${{ inputs.runner }}", "gpu-runner", ["ubuntu-26.04"], 26):
+            for system in ("linux", "windows"):
+                with self.subTest(refused=label, system=system):
+                    with self.assertRaises(suite_selection.SuiteListError) as raised:
+                        parse(document(jobs={system: {"runner": label}}))
+                    self.assertIn(f"jobs ({system}): {message}", str(raised.exception))
+
     def test_invalid_setups_and_jobs_fail_and_name_the_setup(self) -> None:
         def setups(**changed) -> dict:
             return document(setups=SETUPS | changed)
@@ -87,7 +100,7 @@ class SetupDataTests(unittest.TestCase):
              "suites[1] (unit): entry_setups (checks/test_b.py) names the setup linter, which setups lacks"),
             (document(jobs={"macos": {}}), "jobs: macos must be one of linux, windows"),
             (document(jobs={"linux": {"image": "x"}}), "jobs (linux): unknown keys image"),
-            (document(jobs={"linux": {"runner": ""}}), "jobs (linux): runner must be a runner label"),
+            (document(jobs={"linux": {"runner": ""}}), "jobs (linux): runner must be a label of a GitHub-hosted runner of the ubuntu-, windows- or macos- family, such as ubuntu-26.04"),
             (document(jobs={"linux": {"fetch-depth": -1}}), "jobs (linux): fetch-depth must be a whole number of 0 or more"),
         ):
             with self.subTest(message=message):

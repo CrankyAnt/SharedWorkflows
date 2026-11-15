@@ -4,12 +4,13 @@ and a run of the proof repository on the candidate tag, and by hand for every ot
     python3 promote_v1.py read-tag --repository OWNER/NAME [--output GITHUB_OUTPUT]
     python3 promote_v1.py decide --commit SHA --v1 SHA [--v1-object SHA] [--pull-request FILE] [--app-login LOGIN] [--owner LOGIN]
                                  [--repository-root DIR] [--surface shared-surface.json] [--output GITHUB_OUTPUT] [--summary FILE]
-    python3 promote_v1.py candidate --new SHA [--remote origin] [--repository-root DIR] [--surface shared-surface.json] [--summary FILE]
-    python3 promote_v1.py start-proof --candidate SHA --work DIR [--proof-remote REMOTE] [--kit DIR] [--surface shared-surface.json]
-                                      [--output GITHUB_OUTPUT] [--summary FILE]
+    python3 promote_v1.py candidate --new SHA [--deploy-key VARIABLE] [--remote origin] [--repository-root DIR] [--surface shared-surface.json]
+                                    [--summary FILE]
+    python3 promote_v1.py start-proof --candidate SHA --work DIR [--deploy-key VARIABLE] [--proof-remote REMOTE] [--kit DIR]
+                                      [--surface shared-surface.json] [--output GITHUB_OUTPUT] [--summary FILE]
     python3 promote_v1.py await  --commit SHA --old OBJECT --proof-commit SHA --repository OWNER/NAME [--surface shared-surface.json]
                                  [--output GITHUB_OUTPUT] [--summary FILE]
-    python3 promote_v1.py move   --old SHA --new SHA [--remote origin] [--repository-root DIR] [--summary FILE]
+    python3 promote_v1.py move   --old SHA --new SHA [--deploy-key VARIABLE] [--remote origin] [--repository-root DIR] [--summary FILE]
     python3 promote_v1.py prepare [--commit SHA] [--remote origin] [--repository-root DIR]
     python3 promote_v1.py promote --old OBJECT --new SHA [--remote origin] [--repository-root DIR]
 
@@ -43,6 +44,11 @@ holds no credentials, and writes ``v1`` and ``v1_object`` as outputs, both empty
 tag, the tag object for an annotated one); ``move`` pushes with ``--force-with-lease`` on that object, so a tag that
 moved after the decision read it rejects the push.
 
+``candidate``, ``start-proof`` and ``move`` push over SSH. ``--deploy-key`` names the environment variable that holds the
+private deploy key of the push: for the length of the subcommand the key lies in a file that only the user of the
+process reads, Git offers that key and no other identity, and it accepts ``github.com`` only under the host key pinned
+here, :data:`GITHUB_HOST_KEY`. Without the option, Git pushes with what its environment gives it.
+
 ``prepare`` and ``promote`` carry every manual move of ``v1``: ``prepare`` reports the facts of the move, the
 promotion class of every changed file among them, and prints the question for the user with the ``promote`` command
 below it, or refuses, and ``promote`` pushes the tag after a yes. Right after a move that changes the template class,
@@ -56,17 +62,19 @@ what ``promote`` does.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
 import shlex
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Iterator, Mapping
 
 SURFACE_PATH = Path(__file__).resolve().parent / "shared-surface.json"
 TAG = "refs/tags/v1"
@@ -88,6 +96,8 @@ PROOF_PIPELINE = ".github/workflows/pipeline.yml"
 PROOF = "the proof repository's run"
 UNBOUND = "unbound"
 PROOF_IDENTITY = ("-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com", "-c", "commit.gpgsign=false")
+# GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
+GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 MANAGEMENT_KEY = "sharedworkflows.managementRepository"
 NO_MANAGEMENT = f"not started: this checkout names no management repository (`git config {MANAGEMENT_KEY} <owner>/<name>`)"
 SYNC_WORKFLOW = "sync.yml"
@@ -155,6 +165,40 @@ class Outcome:
         if self.move:
             return f"## v1 promotion\n\n`v1` moves from `{self.old}` to `{self.new}`: {self.reason}\n"
         return f"## v1 promotion\n\n`v1` stays at `{self.old or 'no v1 tag'}`: {self.reason} A manual promotion is needed for this commit.\n"
+
+
+class DeployKeyError(RuntimeError):
+    """The environment variable that ``--deploy-key`` names holds no key."""
+
+
+@contextlib.contextmanager
+def deploy_key(variable: str) -> Iterator[None]:
+    """Let every Git command that this process starts inside the block reach ``github.com`` over SSH with the deploy key
+    that the environment variable ``variable`` holds, with no other identity and only under :data:`GITHUB_HOST_KEY`.
+
+    The key lies in a file that only the user of this process reads and that the end of the block removes. Inside the
+    block the variable itself is unset, so no command that this process starts holds the key in its environment.
+    """
+    value = os.environ.get(variable, "")
+    if not value.strip():
+        raise DeployKeyError(f"the environment variable {variable} holds no deploy key.")
+    before = os.environ.get("GIT_SSH_COMMAND")
+    with tempfile.TemporaryDirectory(prefix="promote-v1-", dir=os.environ.get("RUNNER_TEMP") or None) as directory:
+        key, hosts = Path(directory) / "key", Path(directory) / "known-hosts"
+        with os.fdopen(os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as handle:
+            handle.write(value.rstrip("\n").encode("utf-8") + b"\n")
+        hosts.write_bytes(f"{GITHUB_HOST_KEY}\n".encode("ascii"))
+        os.environ["GIT_SSH_COMMAND"] = shlex.join(["ssh", "-F", "/dev/null", "-i", key.as_posix(), "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none",
+                                                    "-o", f"UserKnownHostsFile={hosts.as_posix()}", "-o", "StrictHostKeyChecking=yes"])
+        del os.environ[variable]
+        try:
+            yield
+        finally:
+            os.environ[variable] = value
+            if before is None:
+                del os.environ["GIT_SSH_COMMAND"]
+            else:
+                os.environ["GIT_SSH_COMMAND"] = before
 
 
 def git(root: Path, *arguments: str) -> str:
@@ -730,13 +774,16 @@ def build_parser() -> argparse.ArgumentParser:
     decide_parser.add_argument("--surface", type=Path, default=SURFACE_PATH)
     decide_parser.add_argument("--output", type=Path)
     decide_parser.add_argument("--summary", type=Path)
+    key_help = "the environment variable that holds the private deploy key of the push; the push then goes over SSH with that key alone"
     candidate_parser = subcommands.add_parser("candidate", help="move the candidate tag to the commit")
+    candidate_parser.add_argument("--deploy-key", default="", metavar="VARIABLE", help=key_help)
     candidate_parser.add_argument("--repository-root", type=Path, default=Path("."))
     candidate_parser.add_argument("--remote", default="origin")
     candidate_parser.add_argument("--new", required=True)
     candidate_parser.add_argument("--surface", type=Path, default=SURFACE_PATH)
     candidate_parser.add_argument("--summary", type=Path)
     proof_parser = subcommands.add_parser("start-proof", help="give the proof repository the proof kit in one commit, which starts its run on the candidate tag")
+    proof_parser.add_argument("--deploy-key", default="", metavar="VARIABLE", help=key_help)
     proof_parser.add_argument("--proof-remote", default="", help="the Git remote of the proof repository; over SSH to the repository that the surface names without it")
     proof_parser.add_argument("--surface", type=Path, default=SURFACE_PATH)
     proof_parser.add_argument("--candidate", required=True, help="the commit the candidate tag names")
@@ -753,6 +800,7 @@ def build_parser() -> argparse.ArgumentParser:
     await_parser.add_argument("--output", type=Path)
     await_parser.add_argument("--summary", type=Path)
     move_parser = subcommands.add_parser("move")
+    move_parser.add_argument("--deploy-key", default="", metavar="VARIABLE", help=key_help)
     move_parser.add_argument("--repository-root", type=Path, default=Path("."))
     move_parser.add_argument("--remote", default="origin")
     move_parser.add_argument("--old", required=True)
@@ -796,8 +844,20 @@ def manual_move(arguments: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    arguments = parser.parse_args(argv)
+    arguments = build_parser().parse_args(argv)
+    variable = getattr(arguments, "deploy_key", "")
+    if not variable:
+        return run(arguments)
+    try:
+        with deploy_key(variable):
+            return run(arguments)
+    except DeployKeyError as error:
+        print(f"{arguments.command} stopped: {error}")
+        return 1
+
+
+def run(arguments: argparse.Namespace) -> int:
+    """The subcommand that the command line names."""
     if arguments.command == "read-tag":
         v1, v1_object = read_tag(arguments.repository, fetch)
         print(f"v1 names {v1} (tag object {v1_object})." if v1 else "no v1 tag exists yet.")

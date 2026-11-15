@@ -9,12 +9,12 @@
     common options: [--api-url URL] [--kit DIR] [--schemas DIR] [--ruleset FILE] [--merge-settings FILE]
                     [--summary FILE] [--now TIME]
 
-``sync`` compares, for every repository it reaches, the fixed callers and the pointer document with their templates in
+``sync`` compares, for every repository it reaches, the fixed callers and the CI guide with their templates in
 the consumer kit, ``.github/dependabot.yml`` with the file generated from the configuration file, the default-branch
 ruleset with the ruleset template and the merge settings with ``merge-settings.json``. For file differences it opens one
 pull request on the sync's branch, which the kit's record names, requests auto-merge and stops: it waits for nothing.
 A pull request that is already open keeps its number; its branch moves when the files it should hold changed. Of the
-pointer document only the part up to and including the heading ``## Repository choices``, which closes its template, is
+CI guide only the part up to and including the heading ``## Repository choices``, which closes its template, is
 compared and replaced: what a repository recorded below that heading stays.
 
 Without ``--local`` the sync runs with the installation token of the sync App in ``GH_TOKEN`` and reaches the
@@ -27,7 +27,7 @@ a request get one issue ever, a settings difference gets none while an issue wit
 With ``--local`` the sync runs with the owner's own token in ``GH_TOKEN`` on the repositories that ``--repository``
 names, and corrects each settings difference as well.
 
-``adopt`` makes the adoption pull request of one repository in the local mode: the fixed callers, the pointer document,
+``adopt`` makes the adoption pull request of one repository in the local mode: the fixed callers, the CI guide,
 a configuration file derived from the repository's workflows and its Dependabot configuration, and the generated
 Dependabot configuration. A workflow whose every job calls a shared workflow that ``adoption.json`` maps to a part of
 the pipeline leaves the repository, and its part is switched on with the inputs that are settings of the part. The
@@ -70,8 +70,7 @@ KIT = PIPELINE / "consumer-kit"
 RULESET = PART_FOLDER.parent / "repository-ruleset" / "ruleset-main-template.json"
 MERGE_SETTINGS = PART_FOLDER / "merge-settings.json"
 ADOPTION = PART_FOLDER / "adoption.json"
-POINTER = "docs/agents/ci.md"  # the pointer document: its template is this path in the kit, when the kit holds it
-WORKFLOWS = consumer_checks.WORKFLOWS
+CI_GUIDE, WORKFLOWS = consumer_checks.CI_GUIDE, consumer_checks.WORKFLOWS
 DEPENDABOT_FILE, DEPENDABOT_OTHER_NAME = consumer_checks.DEPENDABOT_FILE, consumer_checks.DEPENDABOT_OTHER_NAME
 REQUIRED_CHECK = "ci / verdict"
 REQUEST_LABEL = "shared-ci"
@@ -214,9 +213,9 @@ def read_templates(options: argparse.Namespace) -> Templates:
         if content is None:
             raise SetupError(f"{kit} holds no template {name}")
         fixed[f"{WORKFLOWS}/{name}"] = content
-    pointer = consumer_checks.read_bytes(kit / POINTER)
-    if pointer is not None:
-        fixed[POINTER] = pointer
+    guide = consumer_checks.read_bytes(kit / CI_GUIDE)
+    if guide is not None:
+        fixed[CI_GUIDE] = guide
     return Templates(fixed, branch, shared, versions, expected_ruleset(Path(options.ruleset)), read_json(Path(options.merge_settings), "the merge settings"))
 
 
@@ -319,10 +318,10 @@ def file_changes(api: Api, repository: str, default: str, templates: Templates, 
     changes: dict[str, bytes | None] = {}
     for path, content in templates.fixed.items():
         held = api.file(repository, path, default)
-        if path == POINTER:
+        if path == CI_GUIDE:
             # Only the part up to and including the heading of the repository's choices is fixed; what follows it stays.
             if held is None or consumer_checks.fixed_part(held) != content:
-                changes[path] = consumer_checks.pointer_for(content, held)
+                changes[path] = consumer_checks.ci_guide_for(content, held)
         elif held != content:
             changes[path] = content
     held, other = api.file(repository, DEPENDABOT_FILE, default), api.file(repository, DEPENDABOT_OTHER_NAME, default)
@@ -347,7 +346,7 @@ def file_changes(api: Api, repository: str, default: str, templates: Templates, 
 def sync_body(changes: dict[str, bytes | None], shared: str) -> str:
     lines = [f"The sync of `{shared}` brings these files in line with their templates at `v1` and with the configuration file:", ""]
     lines += [f"- `{path}`{' (removed)' if content is None else ''}" for path, content in sorted(changes.items())]
-    lines += ["", "The fixed callers and the pointer document equal their templates byte for byte in every repository; "
+    lines += ["", "The fixed callers and the CI guide equal their templates byte for byte in every repository; "
               f"`{DEPENDABOT_FILE}` is generated from `dependabot` in `{plan.CONFIGURATION}`. This pull request merges itself once its required checks pass."]
     return "\n".join(lines) + "\n"
 
@@ -697,8 +696,8 @@ def run_adopt(options: argparse.Namespace) -> int:
     if read_back != document:
         raise SyncError("the derived configuration file does not read back as it was derived")
     changes: dict[str, bytes | None] = {**templates.fixed, plan.CONFIGURATION: text.encode("utf-8"), **{path: None for path in replaced}}
-    if POINTER in templates.fixed:
-        changes[POINTER] = consumer_checks.pointer_for(templates.fixed[POINTER], api.file(repository, POINTER, default))
+    if CI_GUIDE in templates.fixed:
+        changes[CI_GUIDE] = consumer_checks.ci_guide_for(templates.fixed[CI_GUIDE], api.file(repository, CI_GUIDE, default))
     if ecosystems:
         changes[DEPENDABOT_FILE] = consumer_checks.dependabot_text(ecosystems, templates.shared).encode("utf-8")
         changes.update({DEPENDABOT_OTHER_NAME: None} if files[DEPENDABOT_OTHER_NAME] is not None else {})
@@ -712,7 +711,7 @@ def run_adopt(options: argparse.Namespace) -> int:
                *[f"`{path}` leaves the repository: its part replaces it." for path in replaced]]
     missing = notes or ["Nothing: every workflow and every Dependabot entry is carried over."]
     body = "\n".join([f"The repository adopts the shared pipeline of `{templates.shared}`: the fixed callers"
-                      f"{', the pointer document' if POINTER in templates.fixed else ''} and the configuration file `{plan.CONFIGURATION}`.", "",
+                      f"{', the CI guide' if CI_GUIDE in templates.fixed else ''} and the configuration file `{plan.CONFIGURATION}`.", "",
                       "## Derived", "", *[f"- {line}" for line in derived], "", "## Not derived", "", *[f"- {line}" for line in missing], "",
                       f"After the merge, the default-branch ruleset requires `{REQUIRED_CHECK}`; the sync's local mode sets it."]) + "\n"
     pull = propose(api, repository, default, ADOPTION_BRANCH, changes, ADOPTION_TITLE, body)
