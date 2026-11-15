@@ -52,7 +52,7 @@ jobs:
   custom:
     needs: plan
     if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].run }}
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config['runner-label'] || 'ubuntu-26.04' }}
     permissions:
       contents: read
     concurrency:
@@ -125,6 +125,7 @@ jobs:
         with:
           dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].version }}
       - name: Run the script of the repository
+        shell: bash
         env:
           SCRIPT: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config.script }}
         run: bash -- "$SCRIPT"
