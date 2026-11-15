@@ -1,0 +1,40 @@
+{
+  "description": "The Python language checks of one or more projects, each project in a job of its own: ruff check, mypy where the project configures it, and optionally ruff format --check, on the Python version the project names. Invented example: {\"projects\": [{\"python-version\": \"3.13\", \"working-directory\": \"backend\", \"install\": \"dev\"}], \"paths\": [\"backend/\"]}.",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["projects"],
+    "properties": {
+      "projects": {
+        "description": "The projects that are checked, one job per project; the smallest form is one project that names its python-version.",
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["python-version"],
+          "properties": {
+            "python-version": {
+              "description": "The Python version, 3.11 or newer, that actions/setup-python installs as the job's own Python.",
+              "$ref": "#/$defs/python-version"
+            },
+            "working-directory": {
+              "description": "The project's directory, relative to the repository root, from which the dependencies install and the checks run, and in which mypy's configuration is looked for. Without it, the repository root.",
+              "$ref": "#/$defs/relative-path"
+            },
+            "install": {
+              "description": "What pip installs before the checks, so that mypy sees the project's packages: a requirements file ending in .txt (pip install -r) or an extra of the project (pip install \".[<extra>]\"), both from working-directory. Without it, nothing is installed.",
+              "$ref": "#/$defs/python-install"
+            },
+            "format-check": {
+              "description": "Also run ruff format --check. Without it, false.",
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "paths": {"$ref": "#/$defs/paths"}
+    }
+  }
+}

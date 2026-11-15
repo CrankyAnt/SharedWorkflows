@@ -4,7 +4,10 @@
 ``base`` writes the job's environment before its first setup. ``start`` prepares the output directory of one job's
 recording on that environment; on Windows it also starts a live Kernel-File ETW session that the committed consumer in
 ``etw-consumer/build`` reads into one neutral event file. ``provide`` records what a setup gives the entry files that
-state it, and installs the lookup report into the site directory of a set-up Python interpreter. ``exec`` runs one setup
+state it, and installs the lookup report into the site directory of a set-up Python interpreter. ``setups`` runs the
+setups of a job that the suite list states as data, each with its one script: before ``start`` those that run outside the
+recording, after it the others under the recording, in the suite list's order, and then provides what each script
+stated. ``exec`` runs one setup
 or one entry file under the recording: on Linux under ``strace -f --seccomp-bpf`` with the mid trace set, or the wide
 trace set in the full-recording mode; on Windows as its own process, whose reads ``check`` attributes by process id. An
 entry file runs in the job's environment before its setups, with only what its stated setups provide. Every Python
@@ -26,6 +29,8 @@ the commands.
     python3 recording.py exec [--output <directory>] --setup <name> -- <command> ...
     python3 recording.py exec [--output <directory>] --entry <file> --suites <suite list> [--root <repository>] [--suite <name>] -- <command> ...
     python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ...
+    python3 recording.py setups [--output <directory>] --suites <suite list> [--root <repository>] [--work <directory>] --phase before|recorded
+                                [--setup <name>] ... [--tool <tool>=<path>] ...
     python3 recording.py check [--output <directory>] --suites <suite list> [--root <repository>] [--summary <file>]
     python3 recording.py keep --additions <additions> <passed list>
     python3 recording.py apply [--root <repository>] [--suites <suite list>] [--keep-lists <selection> | --keep-all-lists] <additions or results> ...
@@ -335,19 +340,112 @@ def write_provision(output: Path, setup: str, provision: dict) -> None:
 def run_provide(options: argparse.Namespace) -> int:
     output = output_directory(options.output)
     read_settings(output)
-    provision = provisions(output).get(options.setup) or no_provision()
-    for path in options.path:
+    provide(output, options.setup, options.path, options.variable, options.python)
+    return 0
+
+
+def provide(output: Path, setup: str, paths: list[str], variables: list[str], interpreters: list[str]) -> None:
+    """Record what a setup installed in this job provides: its tool directories, its variables and, for each Python
+    interpreter, the lookup report in its site directory."""
+    provision = provisions(output).get(setup) or no_provision()
+    for path in paths:
         if not os.path.isabs(path) or not os.path.isdir(path):
-            raise RecordingError(f"the tool directory {path} of the setup {options.setup} is missing or not absolute")
+            raise RecordingError(f"the tool directory {path} of the setup {setup} is missing or not absolute")
         provision["paths"] = add_unique(provision["paths"], [path])
-    for item in options.variable:
+    for item in variables:
         name, separator, value = item.partition("=")
         if not name or not separator:
-            raise RecordingError(f"--variable takes <name>=<value>, not {item}")
+            raise RecordingError(f"a variable of the setup {setup} takes <name>=<value>, not {item}")
         provision["variables"][name] = value
-    for interpreter in options.python:
+    for interpreter in interpreters:
         install_lookup_report(interpreter)
-    write_provision(output, options.setup, provision)
+    write_provision(output, setup, provision)
+
+
+# --- the setups that the suite list states as data ------------------------------------------------------------
+
+
+SCRIPT_RUNNERS = {".sh": ("bash",), ".ps1": ("pwsh", "-NoProfile", "-NonInteractive", "-File")}
+PROVISIONS = {"path": "path=<directory>", "variable": "variable=<name>=<value>", "python": "python=<interpreter>"}
+
+
+def script_command(script: str) -> list[str]:
+    """The command that runs a setup script: the job's own Python for ``.py``, Bash for ``.sh``, PowerShell for ``.ps1``."""
+    return [*SCRIPT_RUNNERS.get(Path(script).suffix, (sys.executable,)), script]
+
+
+def stated_provisions(file: Path, setup: str) -> tuple[list[str], list[str], list[str]]:
+    """The tool directories, variables and Python interpreters that a setup script wrote to its provisions file."""
+    found: dict[str, list[str]] = {key: [] for key in PROVISIONS}
+    for line in file.read_text(encoding="utf-8-sig").splitlines():
+        key, separator, value = line.strip().partition("=")
+        if not line.strip():
+            continue
+        if not separator or key not in found or not value:
+            forms = list(PROVISIONS.values())
+            raise RecordingError(f"the setup {setup} states `{line.strip()}`; a line is {', '.join(forms[:-1])} or {forms[-1]}")
+        found[key].append(value)
+    return found["path"], found["variable"], found["python"]
+
+
+def default_work() -> Path:
+    temporary = os.environ.get("RUNNER_TEMP")
+    if not temporary:
+        raise RecordingError("name the directory of the setups with --work; RUNNER_TEMP is not set")
+    return Path(temporary) / "setups"
+
+
+def run_setups(options: argparse.Namespace) -> int:
+    """Run the setups that the job names, as the suite list defines them and in its order: with ``--phase before`` those
+    that run before the recording starts, outside it; with ``--phase recorded``, after ``start``, the others under the
+    recording, and then record what every setup of the job provides."""
+    root = options.root.resolve()
+    suite_list = suite_selection.load_suite_list(options.suites)
+    undefined = [name for name in options.setup if name not in suite_list.setups_by_name]
+    if undefined:
+        raise RecordingError(f"the suite list {options.suites} defines no setup {undefined[0]}; state it under setups with its script")
+    work = (options.work or default_work()).resolve()
+    tools = dict(item.partition("=")[::2] for item in options.tool)
+    recorded_phase = options.phase == "recorded"
+    output = output_directory(options.output) if recorded_phase else None
+    if output is not None:
+        read_settings(output)
+    setups = [setup for setup in suite_list.setups or () if setup.name in options.setup]
+    for setup in setups:
+        provisions_file = work / f"{setup.name}.provides"
+        if setup.recorded != recorded_phase:
+            if recorded_phase and not provisions_file.is_file():
+                raise RecordingError(f"the setup {setup.name} runs before the recording starts: run setups --phase before ahead of start")
+            continue
+        if setup.tool is not None and not tools.get(setup.tool):
+            raise RecordingError(f"the setup {setup.name} names the tool {setup.tool}, which this job did not install")
+        directory = work / setup.name
+        directory.mkdir(parents=True, exist_ok=True)
+        provisions_file.write_text("", encoding="utf-8")
+        given = {"SETUP_NAME": setup.name, "SETUP_DIRECTORY": str(directory), "SETUP_PROVIDES": str(provisions_file)}
+        if setup.tool is not None:
+            given["SETUP_TOOL"] = tools[setup.tool]
+        command = script_command(setup.script)
+        kept = {name: os.environ.get(name) for name in (*given, "SETUP_TOOL")}
+        os.environ.pop("SETUP_TOOL", None)
+        os.environ.update(given)
+        try:
+            if setup.recorded:
+                code = run_exec(argparse.Namespace(output=options.output, setup=setup.name, entry=None, suite=None, suites=None, root=root,
+                                                   arguments=command, directory=root))
+            else:
+                code = subprocess.run(command, cwd=root, check=False).returncode
+        finally:
+            for name, value in kept.items():
+                os.environ.pop(name, None)
+                if value is not None:
+                    os.environ[name] = value
+        if code != 0:
+            print(f"the setup {setup.name} failed with exit code {code}", file=sys.stderr)
+            return code
+    if output is not None:
+        for setup in setups:
+            provide(output, setup.name, *stated_provisions(work / f"{setup.name}.provides", setup.name))
     return 0
 
 
@@ -420,7 +518,8 @@ def run_exec(options: argparse.Namespace) -> int:
         environment = dict(base, TMPDIR=str(temporary))
     started = time.perf_counter()
     log = bytearray()
-    with subprocess.Popen(recorder + command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=environment) as process:
+    with subprocess.Popen(recorder + command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=environment,
+                          cwd=getattr(options, "directory", None)) as process:
         assert process.stdout is not None
         for chunk in iter(lambda: process.stdout.read1(65536), b""):
             sys.stdout.buffer.write(chunk)
@@ -436,7 +535,8 @@ def run_exec(options: argparse.Namespace) -> int:
     record = {"unit": unit, "kind": "setup" if options.setup else "entry", "name": options.setup or normalize_entry(options.entry),
               "suite": options.suite, "command": command, "exit_code": code, "seconds": round(seconds, 3), "skipped": skipped,
               "incomplete_report": incomplete,
-              "trace": trace.name, "lookups": lookups.name, "temporary": str(temporary), "cache": str(cache), "cwd": os.getcwd()}
+              "trace": trace.name, "lookups": lookups.name, "temporary": str(temporary), "cache": str(cache),
+              "cwd": str(getattr(options, "directory", None) or os.getcwd())}
     if "job" in settings:
         record["job"] = settings["job"]
     if etw:
@@ -1905,7 +2005,8 @@ def run_check(options: argparse.Namespace) -> int:
         print(f"Every recorded read of {len(recorded)} entry file{'' if len(recorded) == 1 else 's'} lies inside the stored lists.")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
-            route = additions_route(target.name, project.tracked, os.environ.get("GITHUB_RUN_ID"), os.environ.get("GITHUB_EVENT_NAME"))
+            route = additions_route(target.name, project.tracked, os.environ.get("GITHUB_RUN_ID"), os.environ.get("GITHUB_EVENT_NAME"),
+                                    holds_automation_caller(root))
             handle.write(check_summary(lines, len(recorded), route) + etw_summary(settings))
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
@@ -1917,21 +2018,48 @@ def run_check(options: argparse.Namespace) -> int:
 SHARED_PARTS_MARKER = "actions/recording/recording.py"
 
 
-def additions_route(file_name: str, tracked: Collection[str], run_id: str | None, event: str | None) -> str:
+# The fixed caller of the automation workflow in a consumer that adopted the pipeline, and the reference by which it calls that workflow.
+AUTOMATION_CALLER = ".github/workflows/automation.yml"
+AUTOMATION_CALL = re.compile(r"(?m)^\s*uses:\s*[^\s/#]+/[^\s/#]+/\.github/workflows/automation\.yml@\S+")
+
+
+def holds_automation_caller(root: Path) -> bool:
+    """Whether the repository's ``.github/workflows/automation.yml`` is the fixed caller: the file that calls the shared
+    automation workflow. A repository that runs the suite selection in its earlier form holds no such caller."""
+    try:
+        return AUTOMATION_CALL.search((root / AUTOMATION_CALLER).read_text(encoding="utf-8")) is not None
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def additions_route(file_name: str, tracked: Collection[str], run_id: str | None, event: str | None, automation: bool = True) -> str:
     """The sentence that sends the reader of a failed check to the route that applies its additions in this repository:
-    the maintenance documentation's in the repository of the shared parts, the consumer kit's in a consumer."""
-    kit = 'as the section "Additions" of the suite-selection consumer kit states'
+    the maintenance documentation's in the repository of the shared parts, and in a consumer the route of the form it
+    runs. ``automation`` says that the consumer holds the fixed caller ``automation.yml``, so the additions workflow is
+    the part ``additions`` of the automation workflow; without that caller the consumer runs the suite selection in its
+    earlier form, whose additions workflow is a workflow of its own, ``Apply recorded additions``."""
     if SHARED_PARTS_MARKER in tracked:
         return (f"Download the additions artifacts (`{file_name}` in each) and apply them to the suite list "
                 'as "Validation" in `docs/maintaining.md` states.')
+    if automation:
+        kit = 'as the section "Additions" of the suite-selection consumer kit states'
+        workflow = "the additions workflow, the part `additions` of the automation workflow,"
+        decides = "the run of `CI` on the new head decides"
+        run = f"`{run_id}`" if run_id else "of the pull request's failed `CI` run"
+        manual = (f"start the fixed caller `automation.yml` by hand with the part `additions` and the run id {run} "
+                  f"(`gh workflow run automation.yml -f part=additions -f run-id={run_id or '<run id>'}`)")
+    else:
+        kit = 'as the section "When a repository adopted it earlier" of the suite-selection consumer kit states for a repository that keeps that workflow'
+        workflow = "the additions workflow, the repository's own workflow `Apply recorded additions`,"
+        decides = "the validation of the new head decides"
+        run = f"`{run_id}`" if run_id else "of the pull request's validation run"
+        manual = f"start the workflow `Apply recorded additions` by hand with the run id {run}"
     if run_id and event != "pull_request":
         return (f"This {event} run belongs to no pull request, so the additions workflow cannot propose them; the run of a "
                 f"pull request that makes the same reads reports them again, and that pull request applies them {kit}.")
-    run = f"`{run_id}`" if run_id else "of the pull request's validation run"
-    return ("For a pull request from a branch of this repository, the additions workflow commits them onto its branch as the "
-            "GitHub App, and the validation of the new head decides. When it comments that it cannot, start the workflow "
-            f"`Apply recorded additions` with the run id {run} and merge the pull request it opens into this pull request's "
-            f"branch, {kit}.")
+    return (f"For a pull request from a branch of this repository, {workflow} commits them onto its branch as the GitHub App, "
+            f"and {decides}. When it comments that it cannot, {manual}, and merge the pull request it opens into this pull "
+            f"request's branch, {kit}.")
 
 
 def check_summary(lines: list[tuple[str, str]], count: int, route: str) -> str:
@@ -2188,9 +2316,8 @@ def run_apply(options: argparse.Namespace) -> int:
     for item in items.values():
         join_entry_lists(item)
         canonical_order(item)
-    document = {"always": list(raw.always), "suites": [items[suite.name] for suite in raw.suites]}
-    if lookups:
-        document["module_lookups"] = {directory: sorted(lookups[directory]) for directory in sorted(lookups)}
+    document = suite_selection.suite_list_document(raw, [items[suite.name] for suite in raw.suites],
+                                                   {directory: sorted(lookups[directory]) for directory in sorted(lookups)})
     rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list(json.dumps(document), str(suites_path)))
     if rendered != text:
         suites_path.write_text(rendered, encoding="utf-8", newline="\n")
@@ -2404,19 +2531,30 @@ def loaded_modules(script: Path) -> list[Path]:
     return [Path(path) for path in recording_modules.loaded_modules(script.as_posix(), read, [folder.as_posix() for folder in MODULE_PATH])]
 
 
+SUITE_JOBS = SHARED_FOLDER.parent / ".github" / "workflows" / "suite-jobs.yml"  # the shared workflow that runs the entry files
+
+
 def shared_files() -> list[Path]:
     """The files of the shared digest: every file of the recording step's folder, its action and the committed ETW
-    consumer with its build included, and every module outside it that the recording step loads."""
+    consumer with its build included, every module outside it that the recording step loads, and the shared workflow of
+    the suite jobs, whose steps run a consumer's setups and entry files."""
     folder = Path(__file__).resolve().parent
     files = {path for path in folder.rglob("*") if path.is_file() and "__pycache__" not in path.relative_to(folder).parts}
     files.update(loaded_modules(Path(__file__).resolve()))
+    if SUITE_JOBS.is_file():
+        files.add(SUITE_JOBS)
     return sorted(files)
+
+
+def shared_name(path: Path) -> str:
+    """The name of a shared file in the digest: its path from the folder of the shared parts, with ``/`` separators."""
+    return Path(os.path.relpath(path, SHARED_FOLDER)).as_posix()
 
 
 def shared_digest() -> str:
     """The SHA-256 over the path and the SHA-256 of the content of every shared file, in the code-point order of the
     paths: a Windows path sorts case-insensitively, so ``Path`` order differs between the platforms."""
-    names = {path.relative_to(SHARED_FOLDER).as_posix(): path for path in shared_files()}
+    names = {shared_name(path): path for path in shared_files()}
     lines = "".join(f"{hashlib.sha256(names[name].read_bytes()).hexdigest()}  {name}\n" for name in sorted(names))
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
@@ -2468,6 +2606,17 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     providing.add_argument("--variable", action="append", default=[], help="<name>=<value> of a variable that the setup sets (repeatable)")
     providing.add_argument("--python", action="append", default=[], help="a Python interpreter of the setup, into whose site directory "
                            "the lookup report is installed (repeatable)")
+    setting = commands.add_parser("setups", help="run the setups of this job that the suite list states as data")
+    setting.add_argument("--output", type=Path)
+    setting.add_argument("--suites", type=Path, required=True, help="the suite list, whose setups name their scripts")
+    setting.add_argument("--root", type=Path, default=Path("."), help="the repository root, from which the scripts run "
+                         "(default: the working directory)")
+    setting.add_argument("--work", type=Path, help="the directory that holds a directory per setup (default: $RUNNER_TEMP/setups)")
+    setting.add_argument("--phase", choices=("before", "recorded"), required=True, help="before: the setups that run before start, "
+                         "outside the recording; recorded: after start, the setups under the recording and what every setup provides")
+    setting.add_argument("--setup", action="append", default=[], help="a setup of this job (repeatable)")
+    setting.add_argument("--tool", action="append", default=[], help="<tool>=<path> of a tool that the job installed for its "
+                         "setups: the interpreter of python, the directory of node's programs, the root of dotnet (repeatable)")
     checking = commands.add_parser("check", help="compare the recording with the suite list")
     checking.add_argument("--output", type=Path)
     checking.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")
@@ -2503,7 +2652,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
-    handlers = {"base": run_base, "start": run_start, "exec": run_exec, "provide": run_provide, "check": run_check, "keep": run_keep, "apply": run_apply, "digest": run_digest}
+    handlers = {"base": run_base, "start": run_start, "exec": run_exec, "provide": run_provide, "setups": run_setups, "check": run_check, "keep": run_keep, "apply": run_apply, "digest": run_digest}
     try:
         return handlers[options.command](options)
     except (RecordingError, suite_selection.SuiteListError, OSError) as error:

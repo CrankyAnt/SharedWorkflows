@@ -15,7 +15,8 @@ from pathlib import Path
 
 from tests.ci_policy_support import REPOSITORY_ROOT, read_workflow
 
-FULL_RECORDING = REPOSITORY_ROOT / ".github" / "workflows" / "full-recording.yml"
+FULL_RECORDING = REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml"
+CLOSE = "full-recording-close"
 APPLY_STEP = "Join the results, apply the removals and write the duration estimates"
 RECORDING_PART = REPOSITORY_ROOT / "actions" / "recording"
 SELECTION_PART = REPOSITORY_ROOT / "actions" / "suite-selection"
@@ -52,7 +53,8 @@ class ClosingRunTests(unittest.TestCase):
 
     def setUp(self) -> None:
         _, workflow = read_workflow(FULL_RECORDING)
-        self.steps = workflow["jobs"]["close"]["steps"]
+        self.steps = workflow["jobs"][CLOSE]["steps"]
+        self.job_env = workflow["jobs"][CLOSE]["env"]
         self.base = Path(tempfile.mkdtemp(prefix="full-recording-close-"))
         self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
         self.origin = self.base / "origin.git"
@@ -105,12 +107,13 @@ class ClosingRunTests(unittest.TestCase):
     def start_step(self, name: str, work: Path, selection: Path = SELECTION_PART) -> subprocess.CompletedProcess[str]:
         item = named(self.steps, name)
         values = {"steps.recording.outputs.path": str(RECORDING_PART), "steps.selection.outputs.path": str(selection),
-                  "github.sha": self.a, "runner.temp": str(self.runner_temp), "steps.app-token.outputs.token": "app-token"}
+                  "github.sha": self.a, "runner.temp": str(self.runner_temp), "steps.app-token.outputs.token": "app-token",
+                  "needs.full-recording.outputs.suites": "tests/suites.json", "needs.full-recording.outputs.validation-workflow": ".github/workflows/validate.yml"}
         environment = {**os.environ, "GITHUB_SERVER_URL": "https://github.example", "GITHUB_REPOSITORY": "owner/repository",
                        "GITHUB_RUN_ID": "9", "GITHUB_STEP_SUMMARY": str(self.summary), "GITHUB_OUTPUT": str(self.base / "output"),
                        "RUNNER_TEMP": str(self.runner_temp),
                        **{key: re.sub(r"\$\{\{\s*([\w.-]+)\s*\}\}", lambda found: values[found[1]], str(value))
-                          for key, value in item.get("env", {}).items()}}
+                          for key, value in {**self.job_env, **item.get("env", {})}.items()}}
         return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", item["run"]], cwd=work, env=environment, capture_output=True, text=True)
 
     def run_step(self, name: str, work: Path, selection: Path = SELECTION_PART) -> subprocess.CompletedProcess[str]:

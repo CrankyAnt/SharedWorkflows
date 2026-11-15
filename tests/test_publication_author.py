@@ -45,7 +45,7 @@ class PublicationAuthorTests(BranchCheckMixin, PublicationFixture):
                     result = subprocess.run(["node", str(decision)], capture_output=True, text=True, env=environment)
                     self.assertEqual(0, result.returncode, result.stdout + result.stderr)
                     self.assertEqual(f"skip={expected_skip}\n", output.read_text(encoding="utf-8"))
-                    for check in ["branch", "commits", "pull request title"]:
+                    for check in ["branch", "commits", "pull request title", "repository reference"]:
                         self.assertIn(f"{'Skipping' if expected_skip == 'true' else 'Running'} {check} check", result.stdout)
                     self.assertIn(f"PR author {author}", result.stdout)
                     if expected_skip == "false":

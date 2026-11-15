@@ -1,0 +1,619 @@
+name: Pipeline
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  plan:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+      concurrency: ${{ steps.plan.outputs.concurrency }}
+    steps:
+      - name: Load the plan program from this workflow revision
+        id: resources
+        uses: $/actions/pipeline
+      - name: Load the dispatch check from this workflow revision
+        id: selection
+        uses: $/actions/suite-selection
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        id: dispatch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
+      - name: Check the configuration file and decide which parts run
+        id: plan
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'repository_dispatch' && github.event.client_payload.sha) || github.sha }}
+          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
+          WORKFLOW: ${{ github.workflow }}
+          EVENT: ${{ github.event_name }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # A dependabot-merged run is a push of the dispatched commit: its base is that commit's first parent.
+          if [ "$EVENT" = repository_dispatch ]; then BASE="$(git rev-parse --verify --quiet "$HEAD^" || true)"; fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . --base "$BASE" --head "$HEAD" --compare "$COMPARE" --workflow "$WORKFLOW" --event "$EVENT" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  custom:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].run }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['custom'].group }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['custom']['cancel-in-progress'] == true }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          persist-credentials: false
+      # One place per known setup, each with one step per tool, so that any list of setups installs in its listed order.
+      - name: Set up Python for setup 1
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].version }}
+      - name: Set up .NET for setup 1
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].version }}
+      - name: Set up Python for setup 2
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].version }}
+      - name: Set up .NET for setup 2
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].version }}
+      - name: Set up Python for setup 3
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].version }}
+      - name: Set up .NET for setup 3
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].version }}
+      - name: Set up Python for setup 4
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].version }}
+      - name: Set up .NET for setup 4
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].version }}
+      - name: Set up Python for setup 5
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].version }}
+      - name: Set up .NET for setup 5
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].version }}
+      - name: Set up Python for setup 6
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].version }}
+      - name: Set up .NET for setup 6
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].version }}
+      - name: Run the script of the repository
+        env:
+          SCRIPT: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config.script }}
+        run: bash -- "$SCRIPT"
+
+  dotnet-test:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['dotnet-test'].run }}
+    name: dotnet-test (${{ matrix.project['project'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.plan).parts['dotnet-test'].config['projects'] }}
+    runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['dotnet-test'].group }}-${{ strategy.job-index }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['dotnet-test']['cancel-in-progress'] == true }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          persist-credentials: false
+      - name: Set up the .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ matrix.project['sdk-version'] }}
+      - name: Build the project and run its tests
+        uses: $/actions/dotnet-test
+        with:
+          project: ${{ matrix.project['project'] }}
+
+  python-test:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['python-test'].run }}
+    name: python-test (${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.plan).parts['python-test'].config['projects'] }}
+    runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-test'].group }}-${{ strategy.job-index }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-test']['cancel-in-progress'] == true }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Load the script of Python tests from this workflow revision
+        id: resources
+        uses: $/actions/python-tests
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.project['python-version'] }}
+      - name: Install the dependencies
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          WORKING_DIRECTORY: ${{ matrix.project['working-directory'] || '.' }}
+          INSTALL: ${{ matrix.project['install'] }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" install --root "$WORKING_DIRECTORY" --install="$INSTALL"
+      - name: Run the tests
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          WORKING_DIRECTORY: ${{ matrix.project['working-directory'] || '.' }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" test --root "$WORKING_DIRECTORY"
+
+  python-verify:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['python-verify'].run }}
+    name: python-verify (${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.plan).parts['python-verify'].config['projects'] }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-verify'].group }}-${{ strategy.job-index }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-verify']['cancel-in-progress'] == true }}
+    steps:
+      - name: Load the installation script from this workflow revision
+        id: resources
+        uses: $/actions/python-tests
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.project['python-version'] }}
+      - name: Install the dependencies
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          WORKING_DIRECTORY: ${{ matrix.project['working-directory'] || '.' }}
+          INSTALL: ${{ matrix.project['install'] }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/python_tests.py" install --root "$WORKING_DIRECTORY" --install="$INSTALL"
+      - name: Run the Python language step
+        uses: $/actions/python-language-step
+        with:
+          root: ${{ matrix.project['working-directory'] || '.' }}
+          format-check: ${{ matrix.project['format-check'] == true }}
+
+  repository-hygiene:
+    needs: plan
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['repository-hygiene'].group || format('repository-hygiene-run-{0}', github.run_id) }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['repository-hygiene']['cancel-in-progress'] == true }}
+    steps:
+      - name: Load resources from this workflow revision
+        id: resources
+        uses: $/actions/repository-hygiene
+      - name: Load the push lookup from this workflow revision
+        id: selection
+        uses: $/actions/suite-selection
+      - name: Load the fixed callers and the schema from this workflow revision
+        id: pipeline
+        uses: $/actions/pipeline
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        id: dispatch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
+      - name: Look up the tested tree of the pushed commit's pull request
+        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Decide which checks the changed files can affect
+        id: changes
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
+        run: |
+          case "$EVENT" in
+            push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
+          esac
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --markdown-definition ".github/workflows/pipeline.yml#step:links" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Decide whether the PR author skips the convention checks
+        id: author-decision
+        if: github.event_name == 'pull_request'
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          node <<'EOF'
+          const fs = require("node:fs");
+          const author = process.env.PR_AUTHOR ?? "";
+          const skip = author === "dependabot[bot]" || author === "renovate[bot]";
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `skip=${skip}\n`);
+          for (const check of ["branch", "commits", "pull request title", "repository reference"]) {
+            console.log(skip ? `Skipping ${check} check for bot PR author ${author}.` : `Running ${check} check for PR author ${author}.`);
+          }
+          EOF
+      - name: Load the convention checks from this workflow revision
+        id: conventions
+        if: steps.author-decision.outputs.skip == 'false'
+        uses: $/actions/publication-checks
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.author-decision.outputs.skip == 'false'
+        with:
+          node-version: ${{ steps.resources.outputs.node-version }}
+          package-manager-cache: false
+      - name: Check the pull request branch
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
+      - name: Install the locked commitlint toolchain
+        id: commitlint
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        working-directory: ${{ runner.temp }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          npm_config_update_notifier: "false"
+        run: |
+          tool_directory="$RUNNER_TEMP/publication-checks-tools"
+          mkdir -p "$tool_directory"
+          cp "$CONVENTIONS_PATH/package.json" "$CONVENTIONS_PATH/package-lock.json" "$CONVENTIONS_PATH/commitlint.config.cjs" "$tool_directory/"
+          npm ci --ignore-scripts --no-audit --no-fund --userconfig /dev/null --prefix "$tool_directory"
+      - name: Check every pull request commit
+        if: ${{ !cancelled() && steps.commitlint.outcome == 'success' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COMMITLINT_CLI: ${{ runner.temp }}/publication-checks-tools/node_modules/@commitlint/cli/lib/cli.js
+          COMMITLINT_CONFIG: ${{ runner.temp }}/publication-checks-tools/commitlint.config.cjs
+        run: node "$CONVENTIONS_PATH/check-commits.cjs" "$BASE_SHA" "$HEAD_SHA"
+      - name: Check the pull request title
+        id: title
+        if: ${{ !cancelled() && steps.commitlint.outcome == 'success' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMITLINT_CONTEXT: pull-request-title
+          COMMITLINT_CLI: ${{ runner.temp }}/publication-checks-tools/node_modules/@commitlint/cli/lib/cli.js
+          COMMITLINT_CONFIG: ${{ runner.temp }}/publication-checks-tools/commitlint.config.cjs
+        run: |
+          set -euo pipefail
+          # The title as it is now, not as the event recorded it: a re-run after a corrected title checks the new one.
+          title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .title)"
+          printf '%s\n' "$title" |
+            node "$COMMITLINT_CLI" --config "$COMMITLINT_CONFIG" --cwd "$GITHUB_WORKSPACE" --verbose
+      - name: Check the references to repositories of the owner
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
+      - name: Fixed callers and local workflows
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" callers --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Issues of the local workflow register
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" register --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Generated Dependabot configuration
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" dependabot --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Dependabot coverage of tracked package files
+        id: coverage
+        if: ${{ !cancelled() && steps.changes.outputs.packages == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" coverage
+      - name: Relative links in tracked Markdown
+        id: links
+        if: ${{ !cancelled() && steps.changes.outputs.markdown == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --summary "$GITHUB_STEP_SUMMARY"
+      - name: Install the pinned tools and verify their checksums
+        id: install
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          ACTIONLINT: ${{ steps.changes.outputs.actionlint }}
+          ZIZMOR: ${{ steps.changes.outputs.zizmor }}
+          REUSE: ${{ steps.changes.outputs.reuse }}
+        run: |
+          tools="--tool gitleaks"
+          if [ "$ACTIONLINT" = "true" ]; then tools="$tools --tool actionlint --tool shellcheck"; fi
+          if [ "$ZIZMOR" = "true" ]; then tools="$tools --tool zizmor"; fi
+          if [ "$REUSE" = "true" ]; then tools="$tools --tool reuse"; fi
+          # shellcheck disable=SC2086 # $tools holds separate --tool options
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" $tools
+      - name: actionlint with the pinned ShellCheck
+        id: actionlint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.actionlint == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" actionlint --tools "$HYGIENE_TOOLS"
+      - name: zizmor over workflows and action definitions
+        id: zizmor
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.zizmor == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" zizmor --tools "$HYGIENE_TOOLS" --persona ""
+      - name: REUSE licence assignments
+        id: reuse
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.reuse == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" reuse --tools "$HYGIENE_TOOLS"
+      - name: Gitleaks over all reachable history
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
+        run: |
+          config=""
+          baseline=""
+          if [ -f .gitleaks.toml ]; then config=".gitleaks.toml"; fi
+          if [ -f .gitleaks-baseline.json ]; then baseline=".gitleaks-baseline.json"; fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" gitleaks --tools "$HYGIENE_TOOLS" --config "$config" --baseline "$baseline"
+
+  suite-selection:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].run }}
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection'].group }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection']['cancel-in-progress'] == true }}
+    outputs:
+      suites: ${{ steps.select.outputs.suites }}
+      entries: ${{ steps.select.outputs.entries }}
+      shards: ${{ steps.select.outputs.shards }}
+      windows: ${{ steps.select.outputs.windows }}
+      jobs: ${{ steps.select.outputs.jobs }}
+      language-steps: ${{ steps.select.outputs.language-steps }}
+      units: ${{ steps.select.outputs.units }}
+      reused: ${{ steps.select.outputs.reused }}
+      shared-digest: ${{ steps.digest.outputs.shared-digest }}
+      identical: ${{ steps.select.outputs.identical }}
+    steps:
+      - name: Load the scripts of the suite selection from this workflow revision
+        id: resources
+        uses: $/actions/suite-selection
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
+      - name: Look up the tested tree of the pushed commit's pull request
+        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Load the shared recording step from this workflow revision
+        id: recording
+        uses: $/actions/recording
+      - name: Take the digest of the shared recording step
+        id: digest
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
+      - name: Look up the digest of the last passed run on the base branch
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          DIGEST: ${{ steps.digest.outputs.shared-digest }}
+          BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PUSHED: ${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && (github.event.client_payload.sha || github.sha) || '' }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore the passed results of the pull request
+        if: github.event_name == 'pull_request' && github.run_attempt == 1
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/suite-results/record.json
+          key: suite-results-${{ github.event.pull_request.number }}-run-lookup-${{ github.run_id }}
+          restore-keys: suite-results-${{ github.event.pull_request.number }}-run-
+      - name: Select the suites the changed files touch
+        id: select
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config.suites }}
+          LANGUAGE_STEPS: ${{ join(fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config['language-steps'] || fromJSON('[]'), ' ') }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set --
+          for step in $LANGUAGE_STEPS; do set -- "$@" --language-step "$step"; done
+          case "$EVENT" in
+            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            pull_request) set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT" ;;
+            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct ;;
+          esac
+          set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  # The suite jobs are the one reusable workflow that the pipeline calls: the full recording of automation.yml runs the
+  # same jobs, so their steps stand once.
+  suite-selection-jobs:
+    needs: [plan, suite-selection]
+    if: ${{ (needs.suite-selection.outputs.shards != '' && needs.suite-selection.outputs.shards != '[]') || needs.suite-selection.outputs.windows != '' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection'].group }}-jobs
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection']['cancel-in-progress'] == true }}
+    uses: $/.github/workflows/suite-jobs.yml
+    with:
+      suites: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config.suites }}
+      shards: ${{ needs.suite-selection.outputs.shards }}
+      windows: ${{ needs.suite-selection.outputs.windows }}
+      jobs: ${{ needs.suite-selection.outputs.jobs }}
+      language-steps: ${{ needs.suite-selection.outputs.language-steps }}
+      shared-digest: ${{ needs.suite-selection.outputs.shared-digest }}
+
+  suite-selection-results:
+    needs: [suite-selection, suite-selection-jobs]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.suite-selection.result == 'success' }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - name: Load the scripts of the suite selection from this workflow revision
+        id: resources
+        uses: $/actions/suite-selection
+      - name: Download the entry files that passed in the run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: suite-results-*
+          path: ${{ runner.temp }}/suite-results/passed
+      - name: Write the record of the passed results
+        id: store
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" store --needs "$RUNNER_TEMP/needs.json" --selection-job suite-selection --passed "$RUNNER_TEMP/suite-results/passed" --run-id "$RUN_ID" --output "$RUNNER_TEMP/suite-results/record.json" --github-output "$GITHUB_OUTPUT"
+      - name: Store the passed results in the pull request's cache
+        if: steps.store.outputs.stored == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/suite-results/record.json
+          key: suite-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}
+
+  verdict:
+    needs: [plan, custom, dotnet-test, python-test, python-verify, repository-hygiene, suite-selection, suite-selection-jobs, suite-selection-results]
+    if: always()
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - name: Load the plan program from this workflow revision
+        id: resources
+        uses: $/actions/pipeline
+      - name: Decide the verdict from the plan and the results of the parts
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" verdict --needs "$RUNNER_TEMP/needs.json" --summary "$GITHUB_STEP_SUMMARY"

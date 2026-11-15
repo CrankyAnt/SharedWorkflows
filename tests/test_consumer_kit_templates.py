@@ -1,5 +1,5 @@
-"""The validation caller template and the other templates of the consumer kit of the suite selection, and the
-section of every consumer kit for a repository that adopted its part earlier."""
+"""The consumer kit of the suite selection holds no workflow template, its README names the switch and the suite list of
+the part, and the section of every consumer kit for a repository that adopted its part earlier."""
 
 from __future__ import annotations
 
@@ -7,15 +7,13 @@ import json
 import re
 import unittest
 from pathlib import Path
-from tests.ci_policy_support import V1_MOVED_CONTEXT, expression_value, read_workflow, verdict_runs
-from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_no_step, read_yaml, read_yaml_text
+from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, expression_value, read_workflow
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
-KIT_TEMPLATES = ("validation.yml", "validation-workflow.yml", "full-recording.yml", "apply-additions.yml")
-# What only this repository has: its suite list and tests, its own validation workflow, a local-path call of a shared
-# workflow or step, and a resolved action pin in place of `<pin>`.
-THIS_REPOSITORY_ONLY = re.compile(r"tests/|validate\.yml|\$/actions/|\$/\.github/workflows/(?:suite-selection|suite-verdict|repository-hygiene)\.yml|@[0-9a-f]{40}")
+# What only this repository has: its suite list and tests, its own validation files, a local-path call of a shared
+# workflow or step, and a resolved action pin in place of `<pin>`. A consumer reads the README at `v1`.
+THIS_REPOSITORY_ONLY = re.compile(r"tests/|validate\.yml|maintaining\.md|\$/|@[0-9a-f]{40}")
 EARLIER_ADOPTION_HEADING = "## When a repository adopted it earlier"
 
 
@@ -26,127 +24,73 @@ def readme_section(readme: str, heading: str) -> str:
     return readme[start:] if end == -1 else readme[start:end]
 
 
-class SelectionConsumerKitTemplatesTest(unittest.TestCase):
-    def test_the_kit_holds_its_four_templates(self) -> None:
-        for template in KIT_TEMPLATES:
-            with self.subTest(template=template):
-                self.assertTrue((SELECTION_KIT / template).is_file())
-
-    def test_the_kit_templates_carry_nothing_that_exists_only_in_this_repository(self) -> None:
-        for template in KIT_TEMPLATES:
-            with self.subTest(template=template):
-                self.assertEqual([], THIS_REPOSITORY_ONLY.findall((SELECTION_KIT / template).read_text(encoding="utf-8")))
-
-
-class ValidationCallerTemplateTest(unittest.TestCase):
-    """The caller of the suite selection: the selection job, one job per validation workflow and the verdict job."""
-
-    def setUp(self) -> None:
-        self.text, self.caller = read_yaml(SELECTION_KIT / "validation.yml")
-        self.jobs = self.caller["jobs"]
-
-    def test_runs_on_pull_request_on_push_to_the_default_branch_on_a_dependabot_merge_and_on_a_v1_move_without_a_path_filter(self) -> None:
-        self.assertEqual({"pull_request": None, "push": {"branches": ["<default-branch>"]},
-                          "repository_dispatch": {"types": ["dependabot-merged", "v1-moved"]}}, self.caller["on"])
-        self.assertNotIn("paths:", self.text)
-        self.assertNotIn("paths-ignore:", self.text)
-
-    def test_select_and_validation_call_the_shared_workflows_at_v1_with_read_rights_only(self) -> None:
-        self.assertEqual({}, self.caller["permissions"])
-        self.assertEqual("CrankyAnt/SharedWorkflows/.github/workflows/suite-selection.yml@v1", self.jobs["select"]["uses"])
-        self.assertEqual({"suites": ".github/suites.json", "language-steps": "python", "runner-labels": "<runner-labels>",
-                          "setup-versions": "<setup-versions>"}, self.jobs["select"]["with"])
-        self.assertEqual("CrankyAnt/SharedWorkflows/.github/workflows/suite-verdict.yml@v1", self.jobs["validation"]["uses"])
-        self.assertEqual({"needs": "${{ toJSON(needs) }}"}, self.jobs["validation"]["with"])
-        self.assertEqual({"actions": "read", "contents": "read", "pull-requests": "read"}, self.jobs["select"]["permissions"])
-        for name, job in self.jobs.items():
-            if name != "select":
-                with self.subTest(job=name):
-                    self.assertEqual({"contents": "read"}, job["permissions"])
-        assert_caller_passes_no_secrets_and_runs_no_step(self, self.text)
-
-    def test_a_pull_request_run_is_cancelled_by_a_newer_head_and_push_and_dispatch_runs_never(self) -> None:
-        self.assertEqual({
-            "group": "${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}",
-            "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
-        }, self.caller["concurrency"])
-
-    def test_validation_needs_every_other_job_and_runs_under_always_but_on_a_push_of_a_tested_tree(self) -> None:
-        self.assertEqual(sorted(name for name in self.jobs if name != "validation"), sorted(self.jobs["validation"]["needs"]))
-        condition = self.jobs["validation"]["if"]
-        self.assertFalse(verdict_runs(condition, "success", "true"), "a passed select of a tested tree skips the verdict")
-        for result, identical in (("success", ""), ("failure", "true"), ("failure", ""), ("cancelled", "true"), ("skipped", "")):
-            with self.subTest(select=result, identical=identical):
-                self.assertTrue(verdict_runs(condition, result, identical))
-        self.assertEqual(list(self.jobs)[0], "select")
-        self.assertEqual(list(self.jobs)[-1], "validation")
-
-    def test_the_one_validation_job_needs_select_and_passes_the_shards_and_the_windows_job_to_a_local_workflow(self) -> None:
-        validation_jobs = {name: job for name, job in self.jobs.items() if name not in ("select", "validation")}
-        self.assertEqual(["<validation-workflow>"], list(validation_jobs))
-        for name, job in validation_jobs.items():
-            with self.subTest(job=name):
-                self.assertEqual("select", job["needs"])
-                self.assertTrue(job["uses"].startswith("$/.github/workflows/"), job["uses"])
-                self.assertEqual({"shards": "${{ needs.select.outputs.shards }}", "windows": "${{ needs.select.outputs.windows }}",
-                                  "language-steps": "${{ needs.select.outputs.language-steps }}",
-                                  "shared-digest": "${{ needs.select.outputs.shared-digest }}"}, job["with"])
-                self.assertNotIn("if", job, "the validation workflow gates its own jobs")
-        self.assertEqual(["select", "<validation-workflow>"], self.jobs["validation"]["needs"])
-
-    def test_the_validation_job_passes_exactly_the_inputs_that_the_validation_workflow_template_declares(self) -> None:
-        _, workflow = read_workflow(SELECTION_KIT / "validation-workflow.yml")
-        self.assertEqual(set(workflow["on"]["workflow_call"]["inputs"]), set(self.jobs["<validation-workflow>"]["with"]))
-
-    def test_each_validation_job_id_is_its_workflow_s_file_name_without_the_extension(self) -> None:
-        """The job id rule: the check of a validation workflow is `<file name> / <job>`."""
-        validation_jobs = {name: job for name, job in self.jobs.items() if name not in ("select", "validation")}
-        self.assertTrue(validation_jobs)
-        for name, job in validation_jobs.items():
-            with self.subTest(job=name):
-                self.assertEqual(f"$/.github/workflows/{name}.yml", job["uses"])
-        self.assertNotIn("<job>", self.text, "the one placeholder of a validation job is the workflow's file name")
-        filled = self.text.replace("<validation-workflow>", "tests")
-        _, caller = read_yaml_text(filled)
-        self.assertEqual("$/.github/workflows/tests.yml", caller["jobs"]["tests"]["uses"])
-        self.assertEqual(["select", "tests"], caller["jobs"]["validation"]["needs"])
-
-
-class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
-    """The kit holds the sharded form of the validation workflow alone, and its README and an ADR describe it."""
+class SelectionConsumerKitTest(unittest.TestCase):
+    """The kit is a README alone: the suite selection is a part that the repository switches on, and the shared workflows
+    it calls are not templates of the kit."""
 
     def setUp(self) -> None:
         self.readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
-        self.section = readme_section(self.readme, "## The validation workflow")
 
-    def test_no_template_of_the_kit_gates_on_a_suite_or_reads_the_per_suite_inputs(self) -> None:
-        for template in KIT_TEMPLATES:
-            with self.subTest(template=template):
-                text = (SELECTION_KIT / template).read_text(encoding="utf-8")
-                for per_suite in ("inputs.suites", "inputs.entries", "outputs.suites", "outputs.entries", "<suite>", "<entry-files>"):
-                    self.assertNotIn(per_suite, text)
+    def test_the_kit_holds_no_workflow_template(self) -> None:
+        self.assertEqual([], sorted(path.name for path in SELECTION_KIT.iterdir() if path.suffix in (".yml", ".yaml")))
+        self.assertTrue((SELECTION_KIT / "README.md").is_file())
 
-    def test_the_readme_describes_the_sharded_form_only(self) -> None:
-        for per_suite in ("<suite>", "<job>", "<entry-files>", "<windows-suite>", "passed.jsonl", "fromJSON(inputs.suites)",
-                          "fromJSON(inputs.entries)", "suite-results-<job>", "one per validation workflow"):
-            with self.subTest(absent=per_suite):
-                self.assertNotIn(per_suite, self.readme)
-        for placeholder in ("`<name>`", "`<linux-runner>`", "`<windows-job>`", "`<windows-runner>`", "`<python-version>`", "`<setup>`", "`<pin>`"):
-            with self.subTest(placeholder=placeholder):
-                self.assertIn(placeholder, self.section)
-        for text in ("contains(matrix.shard.setups, '<setup>')", "contains(fromJSON(env.SETUPS), '<setup>')", "two at a time",
-                     "log group", "`Check the recording against the suite list`", "matrix.shard.shard == 1",
-                     "`suite-results-shard-<number>`", "`suite-results-windows`", "one after another"):
+    def test_the_readme_names_the_part_and_the_suite_list_keys_of_the_switch(self) -> None:
+        self.assertIn("\n  suite-selection:\n    suites: .github/suites.json\n    language-steps: [python]\n", self.readme)
+        self.assertIn("`suite-selection`", self.readme)
+        for key in ("`jobs`", "`setups`"):
+            with self.subTest(key=key):
+                self.assertIn(key, readme_section(self.readme, "## The suite list"))
+        self.assertIn('"jobs": {', self.readme)
+        self.assertIn('"setups": {', self.readme)
+
+    def test_the_readme_names_the_checks_and_the_one_required_check(self) -> None:
+        for check in ("`ci / suite-selection`", "`ci / suite-selection-jobs / shard <n>`", "`ci / suite-selection-jobs / windows`",
+                      "`ci / suite-selection-results`", "`ci / verdict`"):
+            with self.subTest(check=check):
+                self.assertIn(check, self.readme)
+        self.assertIn("the one required check: it fails", self.readme)
+
+    def test_the_readme_names_nothing_that_exists_only_in_this_repository(self) -> None:
+        self.assertEqual([], THIS_REPOSITORY_ONLY.findall(self.readme))
+
+
+class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
+    """The README describes the suite jobs of the shared workflow `suite-jobs.yml` and their checks; the earlier form of
+    the validation workflow is named nowhere but in the section for a repository that adopted it earlier."""
+
+    def setUp(self) -> None:
+        self.readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
+        self.section = readme_section(self.readme, "## The suite jobs")
+
+    def test_the_readme_describes_the_suite_jobs_of_the_shared_workflow_only(self) -> None:
+        for earlier in ("<suite>", "<job>", "<entry-files>", "<windows-suite>", "passed.jsonl", "fromJSON(inputs.suites)",
+                        "fromJSON(inputs.entries)", "suite-results-<job>", "one per validation workflow", "`validation.yml` caller"):
+            with self.subTest(absent=earlier):
+                self.assertNotIn(earlier, self.readme.split(EARLIER_ADOPTION_HEADING)[0])
+
+    def test_the_suite_jobs_run_their_steps_in_the_order_of_the_shared_workflow(self) -> None:
+        steps = ["the checkout", "the recording step", "the tools that the job's setups name", "the setups with `recorded: false`",
+                 "the start of the recording", "the other setups", "the entry files", "the check of the recording",
+                 "on Linux shard 1, the Python language step", "on a pull request, the list of the entry files that passed"]
+        positions = [self.section.index(step) for step in steps]
+        self.assertEqual(sorted(positions), positions)
+        for text in ("two at a time", "one after another", "log group", "`suite-jobs.yml`", "`shard <n>`"):
             with self.subTest(text=text):
                 self.assertIn(text, self.section)
 
-    def test_the_readme_names_the_one_linux_runner_label_the_check_names_and_that_a_step_change_runs_every_suite(self) -> None:
-        self.assertIn("all on one runner label", self.section)
-        self.assertIn("the runner label that `runner-labels` gives for `linux`", self.section)
-        self.assertIn("`<file name> / shard <number>`", self.readme)
-        self.assertIn("`<file name> / <windows-job>`", self.readme)
-        self.assertIn("none of them is a required check", self.readme)
-        self.assertIn("a change to one of its steps runs every suite", self.section)
+    def test_the_jobs_and_checks_table_names_the_check_of_each_job(self) -> None:
+        jobs_and_checks = readme_section(self.readme, "## Jobs and checks")
+        self.assertIn("| `ci / suite-selection` |", jobs_and_checks)
+        self.assertIn("| `ci / verdict` |", jobs_and_checks)
+        self.assertIn("a skipped job is a suite that the selection did not run", jobs_and_checks)
+
+    def test_a_change_to_the_shared_suite_jobs_runs_every_suite_through_the_shared_digest(self) -> None:
+        selection = readme_section(self.readme, "## What selects a suite")
+        self.assertIn("a change of the shared suite jobs or of the shared recording step", selection)
+        self.assertIn("every suite runs once", selection)
+        self.assertIn("a changed setup definition", selection)
+        self.assertIn("a changed `jobs` entry runs the entry files of its system", selection)
 
     def test_an_adr_records_the_shards_on_one_linux_runner_label_and_that_a_step_change_runs_every_suite(self) -> None:
         records = [path for path in (REPOSITORY_ROOT / "docs" / "adr").glob("*.md") if "timed shards" in path.read_text(encoding="utf-8")]
@@ -155,24 +99,34 @@ class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
         self.assertIn("one runner label", text)
         self.assertIn("therefore runs every suite", text)
 
-    def test_a_checkout_keeps_the_repository_s_own_options(self) -> None:
-        self.assertIn("keeps the repository's own options beside these two", self.section)
-        self.assertIn("`fetch-depth: 0`", self.section)
+    def test_the_checkout_takes_the_suite_list_s_fetch_depth_and_no_other_option_of_the_repository(self) -> None:
+        jobs = readme_section(self.readme, "## The suite list")
+        self.assertIn("the `fetch-depth` of its checkout", jobs)
+        self.assertIn("Use `0` for the whole history", jobs)
 
-    def test_setups_route_a_runner_context_value_past_the_job_s_env(self) -> None:
-        # A job's `env` does not allow the `runner` context, and a variable of the step that runs exec never reaches
-        # the entry files.
-        section = readme_section(self.readme, "## Setups")
-        self.assertNotIn("a variable that an entry file needs and no setup provides belongs in the job's `env`", section)
-        self.assertIn("goes in the job's `env`", section)
+
+class SetupsDocumentationTest(unittest.TestCase):
+    def test_setups_name_the_environment_a_script_gets_and_the_provision_lines(self) -> None:
+        section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), "## Setups")
+        for text in ("`SETUP_NAME`", "`SETUP_DIRECTORY`", "`SETUP_PROVIDES`", "`SETUP_TOOL`", "`path=<directory>`",
+                     "`variable=<name>=<value>`", "`python=<interpreter>`", "`$GITHUB_PATH`", "`$GITHUB_ENV`"):
+            with self.subTest(text=text):
+                self.assertIn(text, section)
+
+    def test_variables_reach_an_entry_file_only_through_the_runner_context_or_a_variable_line(self) -> None:
+        # The suite jobs have no `env` of the repository's own; a `runner` value that an entry file needs under its own
+        # name is the job's default environment variable, and no other value reaches it but a setup's `variable=` line.
+        section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), "## Setups")
+        self.assertIn("no `env` of the repository's own", section)
         self.assertIn("`RUNNER_TEMP`", section)
-        self.assertIn("`provide --variable`", section)
-        self.assertIn("A variable of the step that runs the entry files does not reach them", section)
+        self.assertIn("`variable=`", section)
         self.assertIn("no other value replaces them", section)
+        self.assertIn("`exec --entry` fails when the job did not install a setup that the entry file states", section)
 
 
 class EarlierAdoptionSectionTest(unittest.TestCase):
-    """Every consumer kit leads a repository that adopted the part earlier onto the kit's current templates."""
+    """Every consumer kit leads a repository that adopted the part earlier onto the kit's current templates; a kit without
+    templates leads it onto its switch and links no template."""
 
     def setUp(self) -> None:
         catalogue = json.loads((REPOSITORY_ROOT / "catalogue.json").read_text(encoding="utf-8"))
@@ -185,36 +139,50 @@ class EarlierAdoptionSectionTest(unittest.TestCase):
                 readme = (kit / "README.md").read_text(encoding="utf-8")
                 self.assertEqual(1, readme.count(EARLIER_ADOPTION_HEADING + "\n"))
 
-    def test_the_section_links_every_template_of_its_kit(self) -> None:
+    def test_the_section_links_every_template_of_its_kit_and_a_kit_without_templates_links_none(self) -> None:
         for kit in self.kits:
             templates = sorted(path.name for path in kit.glob("*.yml"))
-            self.assertTrue(templates)
             section = readme_section((kit / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
+            if not templates:
+                with self.subTest(kit=kit.parent.name):
+                    self.assertEqual([], re.findall(r"\]\(([^)]*\.ya?ml)\)", section))
             for template in templates:
                 with self.subTest(kit=kit.parent.name, template=template):
                     self.assertIn(f"]({template})", section)
 
-    def test_the_suite_selection_section_leads_an_earlier_caller_to_the_v1_moved_trigger(self) -> None:
-        section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
-        self.assertIn("`v1-moved`", section)
+    def test_the_suite_selection_section_lets_an_earlier_caller_drop_the_v1_moved_trigger(self) -> None:
+        readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
+        section = readme_section(readme, EARLIER_ADOPTION_HEADING)
+        self.assertIn("removes `v1-moved` from the `types` of its `repository_dispatch` trigger", section)
         self.assertIn("(#when-v1-moves)", section)
+        self.assertEqual(1, readme.count("`v1-moved`"), "only the earlier adoption still names the event")
+        self.assertIn("No move of `v1` sends the repository an event", readme_section(readme, "## When `v1` moves"))
 
-    def test_the_earlier_adoption_carries_over_each_job_s_checkout_options_and_env_variables(self) -> None:
+    def test_the_earlier_adoption_registers_both_files_or_switches_and_names_the_required_check(self) -> None:
         section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
-        self.assertIn("the checkout options of each job, in the validation workflow and in the full recording", section)
-        self.assertIn("the variables in each job's `env`", section)
+        for text in ("`validation.yml`", "`local-workflows`", "../../pipeline/consumer-kit/README.md#the-configuration-file",
+                     "`suite-selection`", "`setups`", "`jobs`", "`validation / validation`", "`ci / verdict`",
+                     "a question to the user", "it removes `validation.yml` and its validation workflow"):
+            with self.subTest(text=text):
+                self.assertIn(text, section)
+        self.assertNotIn("](validation.yml)", section, "the kit holds no template of the earlier form")
+
+    def test_the_earlier_adoption_keeps_the_full_recording_of_an_earlier_kit_on_the_switch(self) -> None:
+        section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
+        self.assertIn("`full-recording.yml` or `apply-additions.yml`", section)
+        self.assertIn("shared steps that it calls stay at `v1`", section)
 
 
-class V1MovedRunTest(unittest.TestCase):
-    """A ``v1-moved`` run of the validation workflow template: ``repository_dispatch`` without a ``client_payload``."""
+class BareDispatchRunTest(unittest.TestCase):
+    """The shared suite jobs run on a ``repository_dispatch`` without a ``client_payload``."""
 
     def test_every_checkout_takes_the_default_branch_s_tip(self) -> None:
-        _, validation = read_workflow(SELECTION_KIT / "validation-workflow.yml")
-        checkouts = [step for job in validation["jobs"].values() for step in job.get("steps", []) if str(step.get("uses", "")).startswith("actions/checkout@")]
+        _, suite_jobs = read_workflow(REPOSITORY_ROOT / ".github" / "workflows" / "suite-jobs.yml")
+        checkouts = [step for job in suite_jobs["jobs"].values() for step in job.get("steps", []) if str(step.get("uses", "")).startswith("actions/checkout@")]
         self.assertGreaterEqual(len(checkouts), 2)
         for step in checkouts:
             with self.subTest(job=step.get("name")):
-                self.assertEqual("", expression_value(step["with"]["ref"], V1_MOVED_CONTEXT), "an empty ref checks out github.sha, the default branch's tip")
+                self.assertEqual("", expression_value(step["with"]["ref"], BARE_DISPATCH_CONTEXT), "an empty ref checks out github.sha, the default branch's tip")
 
     def test_the_expression_value_returns_operands_as_github_does(self) -> None:
         context = {"github": {"event_name": "repository_dispatch", "event": {"client_payload": {"sha": "abc"}}, "sha": "tip"}}

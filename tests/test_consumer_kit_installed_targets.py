@@ -8,10 +8,9 @@ from tests.consumer_kit_support import read_yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 HYGIENE_KIT = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "consumer-kit"
-AUTO_MERGE_KIT = REPOSITORY_ROOT / "actions" / "dependabot-auto-merge" / "consumer-kit"
 
 OWN_WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
-CALLER_TEMPLATES = {"repository-hygiene.yml": HYGIENE_KIT, "dependabot-auto-merge.yml": AUTO_MERGE_KIT}
+CALLER_TEMPLATES = {"repository-hygiene.yml": HYGIENE_KIT}
 
 
 def template_job(template: str) -> dict:

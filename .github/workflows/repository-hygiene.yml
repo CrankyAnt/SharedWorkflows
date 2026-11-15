@@ -105,7 +105,7 @@ jobs:
           const author = process.env.PR_AUTHOR ?? "";
           const skip = author === "dependabot[bot]" || author === "renovate[bot]";
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `skip=${skip}\n`);
-          for (const check of ["branch", "commits", "pull request title"]) {
+          for (const check of ["branch", "commits", "pull request title", "repository reference"]) {
             console.log(skip ? `Skipping ${check} check for bot PR author ${author}.` : `Running ${check} check for PR author ${author}.`);
           }
           EOF
@@ -155,6 +155,14 @@ jobs:
         run: |
           printf '%s\n' "$PR_TITLE" |
             node "$COMMITLINT_CLI" --config "$COMMITLINT_CONFIG" --cwd "$GITHUB_WORKSPACE" --verbose
+      - name: Check the references to repositories of the owner
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
       - name: Dependabot coverage of tracked package files
         id: coverage
         if: ${{ !cancelled() && steps.changes.outputs.packages == 'true' }}

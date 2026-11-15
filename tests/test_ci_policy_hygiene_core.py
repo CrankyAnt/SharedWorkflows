@@ -29,7 +29,9 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertEqual({"actions": "read", "contents": "read", "pull-requests": "read"}, document["jobs"]["hygiene"]["permissions"])
         self.assertNotIn("write", workflow)
         self.assertNotIn("secrets", workflow)
-        self.assertEqual(1, workflow.count("${{ github.token }}"), "only the push lookup reads the API")
+        self.assertEqual(2, workflow.count("${{ github.token }}"), "only the push lookup and the reference check read the API")
+        self.assertEqual(["Look up the tested tree of the pushed commit's pull request", "Check the references to repositories of the owner"],
+                         [step["name"] for step in document["jobs"]["hygiene"]["steps"] if "GITHUB_TOKEN" in step.get("env", {})])
         self.assertIn("uses: $/actions/repository-hygiene", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("persist-credentials: false", workflow)
@@ -121,6 +123,7 @@ class HygieneCoreTests(unittest.TestCase):
             ("Install the locked commitlint toolchain", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Check every pull request commit", "${{ !cancelled() && steps.commitlint.outcome == 'success' }}"),
             ("Check the pull request title", "${{ !cancelled() && steps.commitlint.outcome == 'success' }}"),
+            ("Check the references to repositories of the owner", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Install the pinned tools and verify their checksums", "${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}"),
             ("Gitleaks over all reachable history", "${{ !cancelled() && steps.install.outcome == 'success' }}"),
         ):
@@ -149,6 +152,19 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertIn("      - name: Check the pull request branch\n        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}\n", workflow)
         for step_name in ("Check every pull request commit", "Check the pull request title"):
             self.assertIn(f"      - name: {step_name}\n        if: ${{{{ !cancelled() && steps.commitlint.outcome == 'success' }}}}\n", workflow)
+
+    def test_the_reference_check_reads_the_current_pull_request_with_the_job_s_token_and_gets_no_text_in_its_environment(self) -> None:
+        _, document = read_workflow(WORKFLOW)
+        step = next(step for step in document["jobs"]["hygiene"]["steps"] if step.get("name") == "Check the references to repositories of the owner")
+        self.assertEqual('node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"', step["run"])
+        # The log of a step shows its environment, so the script reads the title and the body itself, through the API, as
+        # they are now; the environment holds the token for that read, which the log masks, and no text.
+        self.assertEqual({
+            "CONVENTIONS_PATH": "${{ steps.conventions.outputs.path }}",
+            "GITHUB_TOKEN": "${{ github.token }}",
+            "BASE_SHA": "${{ github.event.pull_request.base.sha }}",
+            "HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
+        }, step["env"])
 
     def test_the_hygiene_workflow_runs_each_check_only_when_the_change_can_affect_it(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")

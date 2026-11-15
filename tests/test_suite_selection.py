@@ -58,7 +58,7 @@ class SuiteListTests(unittest.TestCase):
             ({"always": [], "suites": [{"name": "a", "entries": ["x.py"],
                                         "extra_directory_memberships": [""]}]}, "(a): extra_directory_memberships[1]"),
             ({"always": [], "suites": [{"name": "a", "entries": ["x.py"], "paths": []}] * 2}, "duplicate suite name a"),
-            ({"suites": []}, "the keys always and suites, and optionally module_lookups"),
+            ({"suites": []}, "the keys always and suites, and optionally jobs, setups and module_lookups"),
             ({"always": [], "suites": [], "module_lookups": {"tests": "helper"}}, "module_lookups (tests)"),
             ({"always": [], "suites": [{"name": "a", "entries": ["x.py"], "entry_lookup_directories": {"x.py": ["tests"]}}]},
              "entry_lookup_directories needs entry_selection"),

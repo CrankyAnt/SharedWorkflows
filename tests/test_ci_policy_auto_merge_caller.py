@@ -11,9 +11,9 @@ from tests.ci_policy_support import REPOSITORY_ROOT, flow_items
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 CALLER = WORKFLOWS / "dependabot-auto-merge-caller.yml"
-# The workflows of the checks that the default-branch ruleset requires: hygiene / hygiene, the verdict of validate.yml and
-# tests / tests of the Python-tests caller.
-REQUIRED_CHECK_WORKFLOWS = ("repository-hygiene-caller.yml", "validate.yml", "python-tests-caller.yml")
+# The workflows of the checks that the default-branch ruleset requires: hygiene / hygiene, the verdict of the pipeline,
+# which carries the result of the suites, and tests / tests of the Python-tests caller.
+REQUIRED_CHECK_WORKFLOWS = ("repository-hygiene-caller.yml", "ci.yml", "python-tests-caller.yml")
 
 
 class AutoMergeCallerTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class RulesetTemplateTests(unittest.TestCase):
         template = json.loads((REPOSITORY_ROOT / "actions" / "repository-ruleset" / "ruleset-main-template.json").read_text(encoding="utf-8"))
         rule = next(rule for rule in template["rules"] if rule["type"] == "required_status_checks")
         self.assertEqual([{"context": "hygiene / hygiene", "integration_id": 15368}, {"context": "validation / validation", "integration_id": 15368},
-                          {"context": "tests / tests", "integration_id": 15368}], rule["parameters"]["required_status_checks"])
+                          {"context": "tests / tests", "integration_id": 15368}, {"context": "ci / verdict", "integration_id": 15368}], rule["parameters"]["required_status_checks"])
         catalogue = json.loads((REPOSITORY_ROOT / "catalogue.json").read_text(encoding="utf-8"))
         self.assertEqual([check for part in catalogue["parts"] for check in part["required_checks"]],
                          [item["context"] for item in rule["parameters"]["required_status_checks"]])

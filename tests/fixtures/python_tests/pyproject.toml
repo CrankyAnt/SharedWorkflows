@@ -19,3 +19,7 @@ testpaths = ["tests"]
 
 [tool.ruff.lint]
 select = ["E", "F"]
+
+[tool.mypy]
+files = ["greeting.py"]
+strict = true

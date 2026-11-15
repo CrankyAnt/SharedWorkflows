@@ -1,0 +1,312 @@
+name: Suite jobs
+
+on:
+  workflow_call:
+    inputs:
+      suites:
+        description: The suite list, relative to the repository root; it states the setups of the entry files as data.
+        type: string
+        required: true
+      shards:
+        description: The output shards of select, one JSON list with one object per Linux shard; empty or [] when nothing runs on Linux.
+        type: string
+        required: false
+        default: ''
+      windows:
+        description: The output windows of select, one JSON object with the entry files of the Windows job; empty when none is selected.
+        type: string
+        required: false
+        default: ''
+      jobs:
+        description: The output jobs of select, one JSON object with the runner label and the fetch depth of each system's job.
+        type: string
+        required: true
+      language-steps:
+        description: The output language-steps of select, one JSON object with run or skip per language step; empty without one.
+        type: string
+        required: false
+        default: ''
+      shared-digest:
+        description: The digest of the shared recording step that select took; each job fails when its own differs. Empty for no check.
+        type: string
+        required: false
+        default: ''
+      full:
+        description: The full-recording mode, which records every entry file under the wide trace set and uploads the results for apply.
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+jobs:
+  linux:
+    if: inputs.shards != '' && inputs.shards != '[]'
+    name: shard ${{ matrix.shard.shard }}
+    runs-on: ${{ fromJSON(inputs.jobs).linux.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    env:
+      SHARD: ${{ toJSON(matrix.shard) }}
+      SUITES: ${{ inputs.suites }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: ${{ fromJSON(inputs.jobs).linux['fetch-depth'] }}
+          persist-credentials: false
+      - id: recording
+        uses: $/actions/recording
+        with:
+          digest: ${{ inputs.shared-digest }}
+      # The tools that the shard's setups name, each installed by its pinned action outside the recording.
+      - id: python
+        if: matrix.shard.tools.python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.shard.tools.python }}
+          update-environment: false
+      - if: matrix.shard.tools.node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.shard.tools.node }}
+          package-manager-cache: false
+      - if: matrix.shard.tools.dotnet
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/tools/dotnet
+        with:
+          dotnet-version: ${{ matrix.shard.tools.dotnet }}
+      - name: Run the setups that start before the recording
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          SETUPS: ${{ join(matrix.shard.setups, ' ') }}
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+          NODE: ${{ matrix.shard.tools.node }}
+          DOTNET: ${{ matrix.shard.tools.dotnet }}
+        run: |
+          set -euo pipefail
+          # One option per line, for this step and for the setups under the recording.
+          options="$RUNNER_TEMP/setup-options.txt"
+          : > "$options"
+          for setup in $SETUPS; do printf '%s\n' --setup "$setup" >> "$options"; done
+          if [ -n "$PYTHON_PATH" ]; then printf '%s\n' --tool "python=$PYTHON_PATH" >> "$options"; fi
+          if [ -n "$NODE" ]; then printf '%s\n' --tool "node=$(dirname "$(command -v node)")" >> "$options"; fi
+          if [ -n "$DOTNET" ]; then printf '%s\n' --tool "dotnet=$DOTNET_ROOT" >> "$options"; fi
+          mapfile -t setups < "$options"
+          python3 "$RECORDING/recording.py" setups --suites "$SUITES" --phase before "${setups[@]}"
+      - name: Start the recording
+        id: start
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          FULL: ${{ inputs.full }}
+          JOB: shard-${{ matrix.shard.shard }}
+        run: |
+          set -euo pipefail
+          if [ "$FULL" = true ]; then set -- --full --job "$JOB"; else set --; fi
+          python3 "$RECORDING/recording.py" start "$@"
+      - name: Run the setups under the recording and provide what every setup gives
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          set -euo pipefail
+          mapfile -t setups < "$RUNNER_TEMP/setup-options.txt"
+          python3 "$RECORDING/recording.py" setups --suites "$SUITES" --phase recorded "${setups[@]}"
+      - name: Run the shard's entry files under the recording, two at a time
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          set -uo pipefail
+          export LOGS="$RUNNER_TEMP/entry-logs"
+          mkdir -p "$LOGS"
+          # Each entry file's log and status are named after its position in the shard, which no other entry file of the
+          # shard shares, also when two paths flatten alike or one entry file runs for two suites.
+          # shellcheck disable=SC2329 # xargs invokes run_entry through bash -c
+          run_entry() {
+            local index suite entry command
+            index="$(jq -r .index <<<"$1")"
+            suite="$(jq -r .suite <<<"$1")"
+            entry="$(jq -r .entry <<<"$1")"
+            mapfile -t command < <(jq -r '.command[]' <<<"$1")
+            python3 "$RECORDING/recording.py" exec --entry "$entry" --suites "$SUITES" --suite "$suite" -- "${command[@]}" "$entry" > "$LOGS/$index.log" 2>&1
+            echo "$?" > "$LOGS/$index.status"
+            echo "$entry ($suite) exited with $(cat "$LOGS/$index.status")"
+          }
+          export -f run_entry
+          # shellcheck disable=SC2016 # the inner script expands $1 itself
+          jq -c '.entries | to_entries[] | .value + {index: .key}' <<<"$SHARD" | xargs -d '\n' -r -n 1 -P 2 bash -c 'run_entry "$1"' _
+          failed=0
+          while IFS=$'\t' read -r index suite entry; do
+            echo "::group::$entry ($suite)"
+            cat "$LOGS/$index.log"
+            echo "::endgroup::"
+            if [[ "$(cat "$LOGS/$index.status" 2>/dev/null)" != 0 ]]; then
+              echo "::error::$entry ($suite) failed"
+              failed=1
+            fi
+          done < <(jq -r '.entries | to_entries[] | [(.key | tostring), .value.suite, .value.entry] | @tsv' <<<"$SHARD")
+          exit "$failed"
+      - name: Check the recording against the suite list
+        id: check
+        if: ${{ !cancelled() && steps.start.outcome == 'success' }}
+        uses: $/actions/recording
+        with:
+          check: "true"
+          suites: ${{ inputs.suites }}
+          artifact-name: ${{ inputs.full && 'full-recording' || 'recording-additions' }}-shard-${{ matrix.shard.shard }}
+      - name: Run the Python language step outside the recording
+        if: ${{ !cancelled() && !inputs.full && matrix.shard.shard == 1 && inputs.language-steps != '' && fromJSON(inputs.language-steps).python == 'run' }}
+        uses: $/actions/python-language-step
+      - name: List the entry files that passed
+        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '') }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/suite-results"
+          while IFS=$'\t' read -r index suite entry; do
+            if [[ "$(cat "$RUNNER_TEMP/entry-logs/$index.status" 2>/dev/null)" == 0 ]]; then
+              jq -n --arg suite "$suite" --arg entry "$entry" '{suite: $suite, entry: $entry}'
+            fi
+          done < <(jq -r '.entries | to_entries[] | [(.key | tostring), .value.suite, .value.entry] | @tsv' <<<"$SHARD") | jq -s . > "$RUNNER_TEMP/suite-results/passed.json"
+      - name: Leave the entry files with additions out of the passed list
+        id: keep
+        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          ADDITIONS: ${{ steps.check.outputs.additions }}
+        run: python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"
+      - name: Upload the entry files that passed
+        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: suite-results-shard-${{ matrix.shard.shard }}
+          path: ${{ runner.temp }}/suite-results/passed.json
+          retention-days: 1
+          if-no-files-found: error
+
+  windows:
+    if: inputs.windows != ''
+    runs-on: ${{ fromJSON(inputs.jobs).windows.runner }}
+    permissions:
+      contents: read
+    env:
+      WINDOWS: ${{ inputs.windows }}
+      SUITES: ${{ inputs.suites }}
+      TOOLS: ${{ inputs.windows != '' && toJSON(fromJSON(inputs.windows).tools) || '{}' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
+          fetch-depth: ${{ fromJSON(inputs.jobs).windows['fetch-depth'] }}
+          persist-credentials: false
+      - id: recording
+        uses: $/actions/recording
+        with:
+          digest: ${{ inputs.shared-digest }}
+      # The tools that the job's setups name, each installed by its pinned action outside the recording.
+      - id: python
+        if: fromJSON(env.TOOLS).python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(env.TOOLS).python }}
+          update-environment: false
+      - if: fromJSON(env.TOOLS).node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ fromJSON(env.TOOLS).node }}
+          package-manager-cache: false
+      - if: fromJSON(env.TOOLS).dotnet
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}\tools\dotnet
+        with:
+          dotnet-version: ${{ fromJSON(env.TOOLS).dotnet }}
+      - name: Run the setups that start before the recording
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: |
+          # One option per line, for this step and for the setups under the recording.
+          $job = $env:WINDOWS | ConvertFrom-Json
+          $tools = $env:TOOLS | ConvertFrom-Json
+          $options = @()
+          foreach ($setup in @($job.setups)) { $options += @('--setup', $setup) }
+          if ($env:PYTHON_PATH) { $options += @('--tool', "python=$env:PYTHON_PATH") }
+          if ($tools.node) { $options += @('--tool', "node=$(Split-Path -Parent (Get-Command node).Source)") }
+          if ($tools.dotnet) { $options += @('--tool', "dotnet=$env:DOTNET_ROOT") }
+          Set-Content -Path "$env:RUNNER_TEMP\setup-options.txt" -Value $options -Encoding utf8
+          python "$env:RECORDING\recording.py" setups --suites $env:SUITES --phase before @options
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Start the recording
+        id: start
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          FULL: ${{ inputs.full }}
+        run: |
+          $mode = @()
+          if ($env:FULL -eq 'true') { $mode = @('--full', '--job', 'windows') }
+          python "$env:RECORDING\recording.py" start @mode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the setups under the recording and provide what every setup gives
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          $options = @(Get-Content -Path "$env:RUNNER_TEMP\setup-options.txt" -Encoding utf8)
+          python "$env:RECORDING\recording.py" setups --suites $env:SUITES --phase recorded @options
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the selected Windows entry files under the recording
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: |
+          $job = $env:WINDOWS | ConvertFrom-Json
+          $failed = @()
+          $passed = @()
+          foreach ($item in $job.entries) {
+            $command = @($item.command)
+            Write-Output "::group::$($item.entry)"
+            python "$env:RECORDING\recording.py" exec --entry $item.entry --suites $env:SUITES --suite $item.suite -- @command $item.entry
+            $status = $LASTEXITCODE
+            Write-Output "::endgroup::"
+            if ($status -ne 0) {
+              Write-Output "::error::$($item.entry) exited with $status"
+              $failed += $item.entry
+            } else {
+              $passed += [ordered]@{ suite = $item.suite; entry = $item.entry }
+            }
+          }
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\suite-results" | Out-Null
+          ConvertTo-Json -InputObject @($passed) -Depth 3 | Set-Content -Path "$env:RUNNER_TEMP\suite-results\passed.json" -Encoding utf8
+          if ($failed) { exit 1 }
+      - name: Check the recording against the suite list
+        id: check
+        if: ${{ !cancelled() && steps.start.outcome == 'success' }}
+        uses: $/actions/recording
+        with:
+          check: "true"
+          suites: ${{ inputs.suites }}
+          artifact-name: ${{ inputs.full && 'full-recording' || 'recording-additions' }}-windows
+      - name: Leave the entry files with additions out of the passed list
+        id: keep
+        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
+        shell: pwsh
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          ADDITIONS: ${{ steps.check.outputs.additions }}
+        run: |
+          python "$env:RECORDING\recording.py" keep --additions "$env:ADDITIONS" "$env:RUNNER_TEMP\suite-results\passed.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload the entry files that passed
+        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: suite-results-windows
+          path: ${{ runner.temp }}/suite-results/passed.json
+          retention-days: 1
+          if-no-files-found: error

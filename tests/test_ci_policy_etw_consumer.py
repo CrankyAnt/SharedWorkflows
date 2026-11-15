@@ -47,13 +47,13 @@ def committed() -> tuple[str, str]:
 
 
 class EtwConsumerCheckTests(unittest.TestCase):
-    def test_the_check_runs_as_a_windows_suite_of_the_validation_workflow(self) -> None:
+    def test_the_check_runs_as_a_windows_suite_with_the_sdk_that_the_consumer_s_global_json_pins(self) -> None:
         suites = json.loads((REPOSITORY_ROOT / "tests" / "suites.json").read_text(encoding="utf-8"))["suites"]
         suite = next(suite for suite in suites if suite["name"] == "etw-consumer-build")
         self.assertEqual(("windows", ["tests/test_etw_consumer_build.py"]), (suite["os"], suite["entries"]))
         self.assertIn("dotnet", suite["setups"])
-        validate = (WORKFLOWS / "validate.yml").read_text(encoding="utf-8")
-        self.assertIn("global-json-file: actions/recording/etw-consumer/global.json", validate)
+        setup = json.loads((REPOSITORY_ROOT / "tests" / "suites.json").read_text(encoding="utf-8"))["setups"]["dotnet"]
+        self.assertEqual(("dotnet", "actions/recording/etw-consumer/global.json#/sdk/version"), (setup["tool"], setup["version-file"]))
 
     def test_only_the_rebuild_workflow_runs_the_build_command_once_in_its_build_job(self) -> None:
         for workflow in sorted(WORKFLOWS.glob("*.yml")):
@@ -96,9 +96,9 @@ class RebuildWorkflowTests(unittest.TestCase):
     def job_text(self, name: str) -> str:
         return re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  \S|\Z)", self.text)[1]  # type: ignore[index]
 
-    def test_it_runs_after_each_completed_validate_run_and_never_cancels_a_run(self) -> None:
-        self.assertEqual("Validate", read_workflow(WORKFLOWS / "validate.yml")[1]["name"])
-        self.assertEqual({"workflow_run": {"workflows": "[Validate]", "types": "[completed]"}}, self.workflow["on"])
+    def test_it_runs_after_each_completed_run_of_the_pipeline_caller_and_never_cancels_a_run(self) -> None:
+        self.assertEqual("CI", read_workflow(WORKFLOWS / "ci.yml")[1]["name"], "the workflow whose run reports the suites and uploads their additions")
+        self.assertEqual({"workflow_run": {"workflows": "[CI]", "types": "[completed]"}}, self.workflow["on"])
         self.assertEqual({"group": "${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}", "cancel-in-progress": "false"},
                          self.workflow["concurrency"])
         self.assertIn("\npermissions: {}\n\n", self.text)
@@ -169,7 +169,7 @@ class RebuildWorkflowTests(unittest.TestCase):
                           "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "HEAD_MESSAGE": "${{ github.event.workflow_run.head_commit.message }}",
                           "RUN_ID": "${{ github.event.workflow_run.id }}", "RUN_URL": "${{ github.event.workflow_run.html_url }}",
                           "WORKFLOW_RUN_URL": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}, step["env"])
-        for check in ('[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]', '[[ "$RUN_ID" =~ ^[0-9]+$ ]]', "gh workflow run apply-additions.yml -f run-id=%s"):
+        for check in ('[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]', '[[ "$RUN_ID" =~ ^[0-9]+$ ]]', "gh workflow run automation-caller.yml -f part=additions -f run-id=%s"):
             with self.subTest(check=check):
                 self.assertIn(check, step["run"])
         # It comments only when the condition, evaluated again, finds that the rebuild acts on the run.

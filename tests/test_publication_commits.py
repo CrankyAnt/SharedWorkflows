@@ -9,7 +9,7 @@ from tests.publication_commitlint import CommitlintMixin
 from tests.publication_fixtures import PublicationFixture, REPOSITORY_ROOT
 
 RESOURCE_DIRECTORY = REPOSITORY_ROOT / "actions" / "publication-checks"
-APPLY_ADDITIONS = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit" / "apply-additions.yml"
+AUTOMATION = REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml"
 
 
 class PublicationCommitlintTests(CommitlintMixin, PublicationFixture):
@@ -28,8 +28,8 @@ class PublicationCommitlintTests(CommitlintMixin, PublicationFixture):
 
     def test_the_app_commit_of_the_additions_workflow_is_a_conventional_commit(self) -> None:
         self._prepare_toolchain()
-        _, template = read_workflow(APPLY_ADDITIONS)
-        subject = template["jobs"]["apply"]["env"]["SUBJECT"].replace("${{ inputs.run-id || github.event.workflow_run.id }}", "18234567890")
+        _, workflow = read_workflow(AUTOMATION)
+        subject = workflow["jobs"]["additions"]["env"]["SUBJECT"].replace("${{ github.event.inputs.run-id || github.event.workflow_run.id }}", "18234567890")
         self.assertEqual("chore: apply the recorded additions of run 18234567890", subject)
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory) / "repository"

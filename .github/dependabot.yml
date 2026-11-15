@@ -50,3 +50,33 @@ updates:
       minor-and-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+  - package-ecosystem: nuget
+    directory: /tests/fixtures/dotnet_test
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: pip
+    directory: /actions/pipeline/proof-kit/python
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: nuget
+    directory: /actions/pipeline/proof-kit/dotnet
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

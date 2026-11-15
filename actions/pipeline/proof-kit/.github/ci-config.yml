@@ -1,0 +1,19 @@
+version: 1
+parts:
+  python-verify:
+    projects:
+      - python-version: "3.14"
+        working-directory: python
+        format-check: true
+  python-test:
+    projects:
+      - python-version: "3.14"
+        working-directory: python
+        install: dev
+  dotnet-test:
+    projects:
+      - sdk-version: "10.0.x"
+        project: dotnet/Greeting.Tests.csproj
+dependabot:
+  pip: ["/python"]
+  nuget: ["/dotnet"]

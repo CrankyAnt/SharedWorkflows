@@ -4,7 +4,7 @@ Shared Workflows provides reusable GitHub Actions workflows, shared steps and to
 
 ## Scope and authority
 
-This repository owns the shared implementations and their consumer kits. Each consuming repository owns its caller workflows, test suites, configuration and repository settings. The [catalogue](catalogue.json) describes which shared parts apply and what each requires.
+This repository owns the shared implementations and their consumer kits. Each consuming repository owns its caller workflows, test suites, configuration and repository settings. The [catalogue](catalogue.json) holds the rule that says where CI work belongs, and describes which shared parts apply and what each requires.
 
 ## Start here
 
@@ -36,7 +36,7 @@ Pull-request CI runs repository hygiene and selects affected tests through the v
 
 ## Publication
 
-The moving `v1` tag is the consumer channel. Its [promotion and rollback procedure](docs/maintaining.md#the-v1-channel) controls when changes reach consuming repositories, including the automatic promotion of qualifying pins-only updates.
+The moving `v1` tag is the consumer channel. Its [promotion and rollback procedure](docs/maintaining.md#the-v1-channel) controls when changes reach consuming repositories, including the automatic promotion of changes that stay in the read class and of reviewed pins updates.
 
 ## Documentation
 

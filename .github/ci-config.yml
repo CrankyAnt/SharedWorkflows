@@ -1,0 +1,51 @@
+version: 1
+parts:
+  custom:
+    setups: [python-3.14]
+    script: tests/fixtures/custom/pass.sh
+  python-verify:
+    projects:
+      - python-version: "3.14"
+        working-directory: tests/fixtures/python_tests
+        format-check: true
+    paths:
+      - tests/fixtures/python_tests/
+      - actions/python-language-step/
+      - actions/python-tests/
+      - actions/repository-hygiene/
+      - actions/pipeline/
+      - .github/workflows/pipeline.yml
+      - .github/workflows/ci.yml
+  python-test:
+    projects:
+      - python-version: "3.14"
+        working-directory: tests/fixtures/python_tests
+        install: dev
+    paths:
+      - tests/fixtures/python_tests/
+      - actions/python-tests/
+      - actions/pipeline/
+      - .github/workflows/pipeline.yml
+      - .github/workflows/ci.yml
+  dotnet-test:
+    projects:
+      - sdk-version: "10.0.x"
+        project: tests/fixtures/dotnet_test/Greeting.Tests.csproj
+    paths:
+      - tests/fixtures/dotnet_test/
+      - actions/dotnet-test/
+      - actions/pipeline/
+      - .github/workflows/pipeline.yml
+      - .github/workflows/ci.yml
+  suite-selection:
+    suites: tests/suites.json
+    language-steps: [python]
+  dependabot-auto-merge:
+    suites: tests/suites.json
+  issue-title:
+    categories: tests/fixtures/issue_title/categories.json
+  additions:
+    suites: tests/suites.json
+  full-recording:
+    suites: tests/suites.json
+    validation-workflow: .github/workflows/ci.yml

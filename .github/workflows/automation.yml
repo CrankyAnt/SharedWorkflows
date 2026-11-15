@@ -1,0 +1,657 @@
+name: Automation
+
+on:
+  workflow_call:
+    secrets:
+      PUBLICATION_CHECKS_APP_PRIVATE_KEY:
+        description: The private key of the updater App, with which the additions workflow and the full recording commit and propose
+        required: false
+
+permissions: {}
+
+jobs:
+  # Every caller trigger starts a run in every repository, so each job states the events it has work on as a job-level
+  # condition: on any other event it is skipped without a runner. The plan runs when one of the parts could have work.
+  plan:
+    if: ${{ ((github.event_name == 'workflow_dispatch' && github.event.inputs.part == 'additions') || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository)) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.actor.login == 'dependabot[bot]' || (github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && startsWith(github.event.workflow_run.head_branch, 'dependabot/')))) || (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.part == 'full-recording')) || (github.event_name == 'issues' && github.event.action == 'opened') }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - name: Load the plan program from this workflow revision
+        id: resources
+        uses: $/actions/pipeline
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/ci-config.yml
+          sparse-checkout-cone-mode: false
+      - name: Check the configuration file and decide which parts are switched on
+        id: plan
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          WORKFLOW: ${{ github.workflow }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . --shared-workflow automation.yml --workflow "$WORKFLOW" --event "$EVENT" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  dependabot-auto-merge:
+    needs: plan
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.actor.login == 'dependabot[bot]' || (github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && startsWith(github.event.workflow_run.head_branch, 'dependabot/')))) && fromJSON(needs.plan.outputs.plan).parts['dependabot-auto-merge'].run }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Load resources from this workflow revision
+        id: resources
+        uses: $/actions/dependabot-auto-merge
+      # No pull request event reaches the caller, so this run also disables an auto-merge that a pull request still has.
+      - name: Decide, merge once the required checks have passed and disable an auto-merge the pull request still has
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['dependabot-auto-merge'].config.suites }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH" --disable-auto-merge
+
+  issue-title:
+    needs: plan
+    if: ${{ (github.event_name == 'issues' && github.event.action == 'opened') && fromJSON(needs.plan.outputs.plan).parts['issue-title'].run }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Load resources from this workflow revision
+        id: resources
+        uses: $/actions/issue-title
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Give the opened issue the title prefix of its category
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          CATEGORIES: ${{ fromJSON(needs.plan.outputs.plan).parts['issue-title'].config.categories }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/issue_title.py" --event "$GITHUB_EVENT_PATH" --root . --categories "$CATEGORIES" --apply
+
+  additions:
+    needs: plan
+    if: ${{ ((github.event_name == 'workflow_dispatch' && github.event.inputs.part == 'additions') || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository)) && fromJSON(needs.plan.outputs.plan).parts['additions'].run }}
+    runs-on: ubuntu-slim
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: ${{ github.workflow }}-additions-${{ github.event.inputs.run-id || format('branch-{0}', github.event.workflow_run.head_branch) }}
+      cancel-in-progress: false
+    outputs:
+      pull-request: ${{ steps.run.outputs.pull-request }}
+      reason: ${{ steps.reason.outputs.reason }}
+    env:
+      RUN_ID: ${{ github.event.inputs.run-id || github.event.workflow_run.id }}
+      PROPOSAL_BRANCH: chore/apply-recorded-additions-${{ github.event.inputs.run-id }}
+      SUBJECT: "chore: apply the recorded additions of run ${{ github.event.inputs.run-id || github.event.workflow_run.id }}"
+      SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['additions'].config.suites }}
+    steps:
+      - id: run
+        name: Find the run, its pull request and its additions artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::The run id must be a number: the id in the address of the validation run, .../actions/runs/<run id>."
+            exit 1
+          fi
+          # One field per line, so that an empty field keeps its place.
+          if ! fields="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.event, (.head_repository.full_name // ""), .head_branch, .head_sha, (.pull_requests[0].number // ""), ((.head_commit.message // "") | split("\n")[0])')"; then
+            echo "::error::Run $RUN_ID of $GITHUB_REPOSITORY could not be read; start the workflow with the id of a run of this repository."
+            exit 1
+          fi
+          mapfile -t field <<<"$fields"
+          event="${field[0]:-}" head_repository="${field[1]:-}" head_branch="${field[2]:-}" head_sha="${field[3]:-}" pull_request="${field[4]:-}" subject="${field[5]:-}"
+          if [ "$head_repository" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::Run $RUN_ID comes from a pull request whose head branch lies in the fork ${head_repository:-a deleted repository}; the App proposes only onto a branch of $GITHUB_REPOSITORY."
+            exit 1
+          fi
+          # A run's pull_requests lists a pull request only while its head is the run's; the run's branch is what counts.
+          if [ "$event" != pull_request ]; then
+            echo "::error::Run $RUN_ID ran on the event $event and belongs to no pull request; the workflow proposes additions only onto the branch of the pull request that reported them."
+            exit 1
+          fi
+          artifacts="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select((.name | startswith("recording-additions-")) and (.expired | not)) | .name')"
+          if [ -z "$artifacts" ] && [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            echo "Run $RUN_ID uploaded no recording-additions-* artifact: its recording checks reported no additions; nothing to apply." >> "$GITHUB_STEP_SUMMARY"
+            echo "apply=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$artifacts" ]; then
+            echo "::error::Run $RUN_ID has no recording-additions-* artifact: its recording checks reported no additions, or the artifacts expired; a new run of the pull request uploads them again."
+            exit 1
+          fi
+          ref="$head_branch"
+          if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The run's head $head_sha is no commit id."; exit 1; }
+            ref="$head_sha"
+            # The pull request whose head is still the run's; a moved head or a closed pull request ends the workflow quietly.
+            pull_request="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$GITHUB_REPOSITORY_OWNER:$head_branch" \
+              --jq "[.[] | select(.head.sha == \"$head_sha\")][0].number // empty")"
+            if [ -z "$pull_request" ]; then
+              echo "No open pull request has the head $head_sha of $head_branch: the branch moved since run $RUN_ID or its pull request closed; nothing to apply." >> "$GITHUB_STEP_SUMMARY"
+              echo "apply=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "pull-request=$pull_request" >> "$GITHUB_OUTPUT"
+            # Begin: the condition under which the rebuild workflow acts on the run, equal in rebuild-etw-consumer.yml and automation.yml.
+            rebuild=false
+            rebuild_pull_request=""
+            if [[ "$head_branch" != dependabot/* ]]; then
+              rebuild_reason="the branch $head_branch is no Dependabot branch"
+            elif [ "$subject" = "chore: rebuild the ETW consumer" ]; then
+              # At most one rebuild per push: a failed run on the rebuild workflow's own commit gets no rebuild.
+              rebuild_reason="the head commit $head_sha carries the subject \"$subject\" of the rebuild workflow's own commit, and each push gets at most one rebuild"
+            else
+              rebuild_pull_request="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$GITHUB_REPOSITORY_OWNER:$head_branch" \
+                --jq "[.[] | select(.user.login == \"dependabot[bot]\" and .head.sha == \"$head_sha\")][0].number // empty")"
+              if [ -z "$rebuild_pull_request" ]; then
+                rebuild_reason="no open pull request by dependabot[bot] has the head $head_sha of $head_branch"
+              else
+                files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$rebuild_pull_request/files" --jq '.[].filename')"
+                source="$(awk '/^actions\/recording\/etw-consumer\// && !/^actions\/recording\/etw-consumer\/build\//' <<<"$files")"
+                if [ -n "$source" ]; then
+                  rebuild=true
+                  rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes the source of the ETW consumer: ${source//$'\n'/, }"
+                else
+                  rebuild_reason="the pull request #$rebuild_pull_request by dependabot[bot] changes no source of the ETW consumer"
+                fi
+              fi
+            fi
+            # End: the condition under which the rebuild workflow acts on the run.
+            if [ "$rebuild" = true ]; then
+              echo "The rebuild workflow acts on run $RUN_ID, since $rebuild_reason; its rebuild commit carries the run's additions, so this workflow commits nothing and does not comment on #$pull_request." >> "$GITHUB_STEP_SUMMARY"
+              echo "apply=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # At most one automatic round per push: a failed run on the App's own additions commit applies nothing.
+            bound='^(chore: apply the recorded additions of run [0-9]+|chore: rebuild the ETW consumer)$'
+            if [[ "$subject" =~ $bound ]]; then
+              echo "The head commit $head_sha of run $RUN_ID carries the subject \"$subject\" of applied additions; the workflow applies one round per push and comments on #$pull_request." >> "$GITHUB_STEP_SUMMARY"
+              printf 'apply=false\nbound=true\n' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "Run $RUN_ID of the pull request ${pull_request:+#$pull_request }on $head_branch uploaded:"
+          echo "$artifacts"
+          {
+            echo "apply=true"
+            echo "ref=$ref"
+            echo "head-branch=$head_branch"
+            echo "head-sha=$head_sha"
+            echo "pull-request=$pull_request"
+          } >> "$GITHUB_OUTPUT"
+      - id: checkout
+        if: steps.run.outputs.apply == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.run.outputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+      - id: additions
+        if: steps.run.outputs.apply == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: recording-additions-*
+          path: ${{ runner.temp }}/additions
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+      - id: recording
+        if: steps.run.outputs.apply == 'true'
+        uses: $/actions/recording
+      - id: apply
+        name: Apply every additions artifact of the run
+        if: steps.run.outputs.apply == 'true'
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          PULL_REQUEST: ${{ steps.run.outputs.pull-request }}
+          HEAD_BRANCH: ${{ steps.run.outputs.head-branch }}
+          REPORT: ${{ runner.temp }}/apply-additions-report.md
+        run: |
+          set -euo pipefail
+          shopt -s globstar
+          printf 'The recorded additions of run %s/%s/actions/runs/%s, for the pull request %son %s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$RUN_ID" "${PULL_REQUEST:+#$PULL_REQUEST }" "$HEAD_BRANCH" > "$REPORT"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/additions/**/additions.json | sed 's/^/- /' >> "$REPORT"
+      - id: changes
+        name: Find whether the suite list changed
+        if: steps.run.outputs.apply == 'true'
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+              echo "Applying the additions of run $RUN_ID changes nothing in the suite list; nothing is committed." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Applying the additions of run $RUN_ID changes nothing in the suite list; no pull request opens." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check the changed files
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git diff --name-only | while IFS= read -r path; do
+            if [ "$path" != "$SUITES" ]; then echo "Unexpected changed file: $path" >&2; exit 1; fi
+          done
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Configure the GitHub App identity
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          app_id="$(gh api "users/$APP_LOGIN" --jq .id)"
+          git config user.name "$APP_LOGIN"
+          git config user.email "$app_id+$APP_LOGIN@users.noreply.github.com"
+      - name: Commit the applied additions
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git add -- "$SUITES"
+          git diff --cached --check
+          if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            # Dependabot keeps rebasing its pull request over a commit whose message holds [dependabot skip].
+            git commit -m "$SUBJECT" -m "[dependabot skip]"
+          else
+            git switch -c "$PROPOSAL_BRANCH"
+            git commit -m "$SUBJECT"
+          fi
+      - id: hygiene
+        if: steps.changes.outputs.changed == 'true'
+        uses: $/actions/repository-hygiene
+        with:
+          include-node-version: "false"
+      - name: Install the pinned Gitleaks
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          HYGIENE: ${{ steps.hygiene.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$HYGIENE/install_tools.py" --pins "$HYGIENE/pins.json" --platform linux-x64 --tool gitleaks --destination "$RUNNER_TEMP/hygiene-tools"
+      - name: Scan the commit before pushing
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --prune origin
+          options=()
+          if [ -f .gitleaks.toml ]; then options+=(--config .gitleaks.toml); fi
+          if [ -f .gitleaks-baseline.json ]; then options+=(--baseline-path .gitleaks-baseline.json); fi
+          "$RUNNER_TEMP/hygiene-tools/gitleaks" git "${options[@]}" --log-opts="HEAD --not --remotes=origin" --redact --no-banner --no-color
+      - name: Push the applied additions to the pull request's branch
+        id: push-branch
+        if: steps.changes.outputs.changed == 'true' && github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_BRANCH: ${{ steps.run.outputs.head-branch }}
+          HEAD_SHA: ${{ steps.run.outputs.head-sha }}
+        run: |
+          set -euo pipefail
+          open="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f "head=$GITHUB_REPOSITORY_OWNER:$HEAD_BRANCH" \
+            --jq "[.[] | select(.head.sha == \"$HEAD_SHA\")][0].number // empty")"
+          if [ -z "$open" ]; then
+            echo "No open pull request has the head $HEAD_SHA of $HEAD_BRANCH any more; nothing is pushed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # The lease on the run's head: a branch that moved since the run is not pushed to, and its own run decides.
+          if ! git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push --force-with-lease="refs/heads/$HEAD_BRANCH:$HEAD_SHA" origin "HEAD:refs/heads/$HEAD_BRANCH"; then
+            remote="$(git -c credential.helper= -c 'credential.helper=!gh auth git-credential' ls-remote origin "refs/heads/$HEAD_BRANCH" | cut -f1)"
+            if [ "$remote" != "$HEAD_SHA" ]; then
+              echo "The branch $HEAD_BRANCH moved from $HEAD_SHA to ${remote:-nothing}; nothing is pushed, and its own run decides." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "Committed the applied additions of run $RUN_ID onto $HEAD_BRANCH as $(git rev-parse HEAD), for #$open." >> "$GITHUB_STEP_SUMMARY"
+      - name: Push the proposal branch
+        id: push
+        if: steps.changes.outputs.changed == 'true' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="$PROPOSAL_BRANCH"
+          if git -c credential.helper= -c 'credential.helper=!gh auth git-credential' ls-remote --exit-code --heads origin "refs/heads/$branch" > /dev/null; then
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            remote_tip="$(git rev-parse --verify "refs/remotes/origin/$branch")"
+          else
+            remote_tip=""
+          fi
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push --force-with-lease="refs/heads/$branch:$remote_tip" origin "HEAD:refs/heads/$branch"
+      - name: Create or update the proposal pull request
+        id: pull-request
+        if: steps.changes.outputs.changed == 'true' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_BRANCH: ${{ steps.run.outputs.head-branch }}
+          REPORT: ${{ runner.temp }}/apply-additions-report.md
+        run: |
+          set -euo pipefail
+          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$PROPOSAL_BRANCH" --base "$HEAD_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -n "$url" ]; then
+            gh pr edit "$url" --title "$SUBJECT" --body-file "$REPORT"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$HEAD_BRANCH" --head "$PROPOSAL_BRANCH" --title "$SUBJECT" --body-file "$REPORT"
+          fi
+          echo "Proposed the applied additions of run $RUN_ID onto $HEAD_BRANCH from $PROPOSAL_BRANCH." >> "$GITHUB_STEP_SUMMARY"
+      - id: stopped
+        name: Name the App setting this run would need
+        if: ${{ failure() && (steps.app-token.outcome == 'failure' || steps.push-branch.outcome == 'failure' || steps.push.outcome == 'failure' || steps.pull-request.outcome == 'failure') }}
+        run: |
+          echo "::error::The updater App could not commit or propose the applied additions: it needs Contents and Pull requests read and write, the repository variable PUBLICATION_CHECKS_APP_CLIENT_ID and the repository secret PUBLICATION_CHECKS_APP_PRIVATE_KEY, and a rule of the target branch may refuse its push."
+          exit 1
+      - id: reason
+        name: Name the reason for a comment on the pull request
+        if: always() && github.event_name == 'workflow_run'
+        env:
+          BOUND: ${{ steps.run.outputs.bound }}
+          APPLIED: ${{ steps.apply.outcome }}
+          CHANGED: ${{ steps.changes.outputs.changed }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$BOUND" = true ]; then
+            reason=bound
+          elif [ "$APPLIED" = success ] && [ "$JOB_STATUS" = failure ]; then
+            reason=failed
+          elif [ "$CHANGED" = false ]; then
+            reason=unchanged
+          else
+            reason=""
+          fi
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+  additions-comment:
+    needs: additions
+    if: always() && needs.additions.outputs.reason != ''
+    runs-on: ubuntu-slim
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment on the pull request with the reason and the manual route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ needs.additions.outputs.pull-request }}
+          REASON: ${{ needs.additions.outputs.reason }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$PULL_REQUEST" =~ ^[0-9]+$ ]] || { echo "::error::The pull request number $PULL_REQUEST is no number."; exit 1; }
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::The run id $RUN_ID is no number."; exit 1; }
+          case "$REASON" in
+            bound) why="the run's head commit already carries additions that the App applied, and the workflow applies one round per push." ;;
+            unchanged) why="applying them leaves the suite list unchanged." ;;
+            failed) why="a step after applying them failed; [the workflow run]($WORKFLOW_RUN_URL) names it." ;;
+            *) echo "::error::Unknown reason $REASON."; exit 1 ;;
+          esac
+          # The caller's file, which a start by hand names: the workflow reference without its repository and its ref.
+          caller="${GITHUB_WORKFLOW_REF%@*}"
+          caller="${caller##*/}"
+          body="$RUNNER_TEMP/apply-additions-comment.md"
+          fence="$(printf '\140\140\140')"
+          {
+            printf 'The additions workflow did not commit the recorded additions of [run %s](%s) onto this branch: %s\n\n' "$RUN_ID" "$RUN_URL" "$why"
+            printf 'Apply them by hand from the default branch:\n\n%ssh\ngh workflow run %s -f part=additions -f run-id=%s\n%s\n\n' "$fence" "$caller" "$RUN_ID" "$fence"
+            printf 'The workflow then opens a pull request onto this branch whose only change is the suite list; merge it once its checks pass.\n'
+          } > "$body"
+          gh pr comment "$PULL_REQUEST" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+
+  full-recording:
+    needs: plan
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.part == 'full-recording')) && fromJSON(needs.plan.outputs.plan).parts['full-recording'].run }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.week.outputs.run }}
+      suites: ${{ fromJSON(needs.plan.outputs.plan).parts['full-recording'].config.suites }}
+      validation-workflow: ${{ fromJSON(needs.plan.outputs.plan).parts['full-recording'].config.validation-workflow }}
+      shards: ${{ steps.select.outputs.shards }}
+      windows: ${{ steps.select.outputs.windows }}
+      jobs: ${{ steps.select.outputs.jobs }}
+    steps:
+      - id: week
+        name: Record every two weeks on the schedule and always when started by hand
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != schedule ] || [ $((10#$(date -u +%V) % 2)) -eq 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "An odd ISO week: the full recording runs next week." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.week.outputs.run == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - id: selection
+        if: steps.week.outputs.run == 'true'
+        uses: $/actions/suite-selection
+      - id: select
+        name: Shard every entry file for the full recording
+        if: steps.week.outputs.run == 'true'
+        env:
+          SELECTION: ${{ steps.selection.outputs.path }}
+          SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['full-recording'].config.suites }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --full --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  # The suite jobs are the one reusable workflow that this workflow calls: the pipeline runs the same jobs on a pull
+  # request and a push, so their steps stand once. The suite list gives the setups, the runner labels and the fetch depth.
+  full-recording-jobs:
+    needs: full-recording
+    if: needs.full-recording.outputs.run == 'true'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/suite-jobs.yml
+    with:
+      suites: ${{ needs.full-recording.outputs.suites }}
+      shards: ${{ needs.full-recording.outputs.shards }}
+      windows: ${{ needs.full-recording.outputs.windows }}
+      jobs: ${{ needs.full-recording.outputs.jobs }}
+      full: true
+
+  full-recording-close:
+    needs: [full-recording, full-recording-jobs]
+    if: ${{ !cancelled() && needs.full-recording.outputs.run == 'true' }}
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ github.workflow }}-full-recording-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      SUITES: ${{ needs.full-recording.outputs.suites }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref_name == github.event.repository.default_branch && github.event.repository.default_branch || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: full-recording-*
+          path: ${{ runner.temp }}/full-recording
+      - id: recording
+        uses: $/actions/recording
+      - id: selection
+        uses: $/actions/suite-selection
+      - name: Join the results, apply the removals and write the duration estimates
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+          SELECTION: ${{ steps.selection.outputs.path }}
+          RECORDED: ${{ github.sha }}
+          VALIDATION_WORKFLOW: ${{ needs.full-recording.outputs.validation-workflow }}
+          REPORT: ${{ runner.temp }}/full-recording-report.md
+        run: |
+          set -euo pipefail
+          shopt -s globstar
+          printf 'The full recording of run %s/%s/actions/runs/%s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$REPORT"
+          # On the default branch the checkout is its tip; when that moved past the recorded commit, the entry files that
+          # the change selects keep their stored reads, and all of them when the change cannot be selected.
+          set --
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$RECORDED" ]; then
+            printf 'The default branch moved from %s to %s during the run; the lists apply to %s.\n\n' "$RECORDED" "$head" "$head" >> "$REPORT"
+            if PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --base "$RECORDED" --head "$head" --compare direct --workflow "$VALIDATION_WORKFLOW" --json-output "$RUNNER_TEMP/moved-selection.txt" >&2; then
+              set -- --keep-lists "$RUNNER_TEMP/moved-selection.txt"
+            else
+              printf 'The change could not be selected, so every entry file keeps its stored reads.\n\n' >> "$REPORT"
+              set -- --keep-all-lists
+            fi
+          fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" "$@" --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/full-recording/**/full-recording.json | sed 's/^/- /' >> "$REPORT"
+      - id: changes
+        name: Find whether the stored lists changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: full-recording-joined
+          path: |
+            ${{ needs.full-recording.outputs.suites }}
+            ${{ runner.temp }}/full-recording-report.md
+          if-no-files-found: error
+      - name: Check the changed files
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        run: |
+          set -euo pipefail
+          git diff --name-only | while IFS= read -r path; do
+            if [ "$path" != "$SUITES" ]; then echo "Unexpected changed file: $path" >&2; exit 1; fi
+          done
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        if: (steps.changes.outputs.changed == 'true' || github.event.inputs.verify-token == 'true') && github.ref_name == github.event.repository.default_branch
+        with:
+          client-id: ${{ vars.PUBLICATION_CHECKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Report the token verification
+        id: verified
+        if: ${{ !cancelled() && github.event.inputs.verify-token == 'true' && github.ref_name == github.event.repository.default_branch }}
+        env:
+          OUTCOME: ${{ steps.app-token.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$OUTCOME" = success ]; then
+            echo "Token verification: the updater App minted its token with the repository's private key." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif [ "$OUTCOME" = failure ]; then
+            message="Token verification: the updater App could not mint its token; the repository secret does not hold a valid private key."
+          else
+            message="Token verification: the token step did not run, so this run verifies nothing; start another."
+          fi
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+      - name: Configure the GitHub App identity
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          app_id="$(gh api "users/$APP_LOGIN" --jq .id)"
+          git config user.name "$APP_LOGIN"
+          git config user.email "$app_id+$APP_LOGIN@users.noreply.github.com"
+      - name: Commit the recorded lists
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        run: |
+          set -euo pipefail
+          git add -- "$SUITES"
+          git diff --cached --check
+          git commit -m "chore: update the recorded path lists"
+      - id: hygiene
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        uses: $/actions/repository-hygiene
+        with:
+          include-node-version: "false"
+      - name: Install the pinned Gitleaks
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          HYGIENE: ${{ steps.hygiene.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$HYGIENE/install_tools.py" --pins "$HYGIENE/pins.json" --platform linux-x64 --tool gitleaks --destination "$RUNNER_TEMP/hygiene-tools"
+      - name: Scan the commit before pushing
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --prune origin
+          options=()
+          if [ -f .gitleaks.toml ]; then options+=(--config .gitleaks.toml); fi
+          if [ -f .gitleaks-baseline.json ]; then options+=(--baseline-path .gitleaks-baseline.json); fi
+          "$RUNNER_TEMP/hygiene-tools/gitleaks" git "${options[@]}" --log-opts="HEAD --not --remotes=origin" --redact --no-banner --no-color
+      - name: Push the review branch
+        id: push
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-recorded-lists"
+          if git -c credential.helper= -c 'credential.helper=!gh auth git-credential' ls-remote --exit-code --heads origin "refs/heads/$branch" > /dev/null; then
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            remote_tip="$(git rev-parse --verify "refs/remotes/origin/$branch")"
+          else
+            remote_tip=""
+          fi
+          git switch -C "$branch"
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push --force-with-lease="refs/heads/$branch:$remote_tip" origin "HEAD:refs/heads/$branch"
+      - name: Create or update the review pull request
+        id: pull-request
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          branch="chore/update-recorded-lists"
+          title="chore: update the recorded path lists"
+          url="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --base "$DEFAULT_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -n "$url" ]; then
+            gh pr edit "$url" --title "$title" --body-file "$RUNNER_TEMP/full-recording-report.md"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$DEFAULT_BRANCH" --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/full-recording-report.md"
+          fi
+      - name: Let the review pull request merge itself once its required checks have passed
+        id: auto-merge
+        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Bound to the pushed commit: a head that moved since the push does not merge on this request.
+          gh pr merge "chore/update-recorded-lists" --repo "$GITHUB_REPOSITORY" --auto --squash --match-head-commit "$(git rev-parse HEAD)"
+      - id: stopped
+        name: Name the App setting this run would need
+        if: ${{ failure() && (steps.app-token.outcome == 'failure' || steps.push.outcome == 'failure' || steps.pull-request.outcome == 'failure' || steps.auto-merge.outcome == 'failure') }}
+        run: |
+          echo "::error::The updater App could not propose the recorded lists, or could not let their pull request merge itself, with its existing installation and credentials and the repository's settings: auto-merge needs the repository setting that allows it. Any App or repository setting is a question to the user; the joined result is the artifact full-recording-joined."
+          exit 1

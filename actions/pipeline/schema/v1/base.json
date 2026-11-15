@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The configuration file .github/ci-config.yml, version 1",
+  "description": "Switches shared parts of the pipeline on with their values and registers the repository's local workflows. A part runs when it is stated under parts; a part that is not stated is switched off. The smallest valid file is the line `version: 1`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "description": "The schema version of this file. The pipeline reads the current version and the one before it.",
+      "const": 1
+    },
+    "parts": {
+      "description": "The shared parts that are switched on, each under its name with its values. A part without values is stated as `<part>: {}`.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "dependabot": {
+      "description": "The repository's Dependabot ecosystems, each under its name with the directories of its package files; a directory starts with `/`. `.github/dependabot.yml` is generated from it, one entry per ecosystem and directory in this order, and repository hygiene fails while the file differs. Without ecosystems the repository holds no Dependabot configuration. Invented example: {\"github-actions\": [\"/\"], \"pip\": [\"/\", \"/tools/report\"]}.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"type": "string", "pattern": "^/"}
+      }
+    },
+    "local-workflows": {
+      "description": "The register of the repository's workflows that are no fixed caller: one entry per workflow file.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/local-workflow"}
+    }
+  },
+  "$defs": {
+    "paths": {
+      "description": "The part runs only when a changed path matches one of these patterns, when its own configuration changed, or when the changed files are unknown. A pattern is a path relative to the repository root with `/` separators: one that ends in `/` matches everything under that folder, `*` matches within one path segment, `?` matches one character of a segment, `**` matches any number of segments, and any other pattern matches that one path. Invented example: [\"src/\", \"tests/**/*.py\", \"pyproject.toml\"].",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "setup": {
+      "description": "The name of a setup that the pipeline knows: the tool and the version that a job installs before it runs code of the repository. The known setups are the names in setups.json beside this schema.",
+      "type": "string"
+    },
+    "setups": {
+      "description": "The setups that a job installs, in the listed order, before it runs code of the repository; a later setup of the same tool is the one that its command names. An empty list installs nothing. Invented example: [\"dotnet-10\", \"python-3.14\"].",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/setup"}
+    },
+    "script": {
+      "description": "The path of a script of the repository, relative to the repository root, that a job runs with Bash from the repository root. Its exit status decides the job's result. A job that runs it has read permission only and receives no secret. Invented example: \"ci/check-licences.sh\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))"
+    },
+    "file": {
+      "description": "The path of a file of the repository, relative to the repository root, with `/` separators. Invented example: \"ci/suites.json\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))"
+    },
+    "local-workflow": {
+      "oneOf": [
+        {
+          "title": "a temporary entry (workflow, request, waits-for)",
+          "description": "A workflow that stays local until the shared part it waits for exists, or until the part knows the setting it waits for. Invented example: {\"workflow\": \".github/workflows/nightly-report.yml\", \"request\": 12, \"waits-for\": \"python-release\"}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workflow", "request", "waits-for"],
+          "properties": {
+            "workflow": {"$ref": "#/$defs/workflow"},
+            "request": {"$ref": "#/$defs/request"},
+            "waits-for": {"$ref": "#/$defs/waits-for"}
+          }
+        },
+        {
+          "title": "a permanent entry (workflow, declined-request)",
+          "description": "A workflow that stays local because its request was declined. Invented example: {\"workflow\": \".github/workflows/weekly-monitor.yml\", \"declined-request\": 15}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workflow", "declined-request"],
+          "properties": {
+            "workflow": {"$ref": "#/$defs/workflow"},
+            "declined-request": {"description": "The number of the closed request issue in this repository that was declined.", "type": "integer", "minimum": 1}
+          }
+        }
+      ]
+    },
+    "request": {
+      "description": "The number of the request issue in this repository.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "waits-for": {
+      "description": "What the work waits for: the name of a shared part that does not exist yet, or `<part>.<setting>` for a setting that an existing shared part lacks. Invented examples: \"python-release\", \"python-test.coverage\".",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*(\\.[a-z][a-z0-9]*(-[a-z0-9]+)*)?$"
+    },
+    "workflow": {
+      "description": "The path of the workflow file.",
+      "type": "string",
+      "pattern": "^\\.github/workflows/[^/]+\\.ya?ml$"
+    },
+    "relative-path": {
+      "description": "A path relative to the repository root with `/` separators, without a `..` segment and without a leading `/` or `-`. Invented example: \"services/api\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![-/])(?!(.*/)?\\.\\.(/|$)).+$"
+    },
+    "runner-label": {
+      "description": "The label of one GitHub-hosted runner, of the ubuntu-, windows- or macos- family, such as \"windows-2025\"; no other label, so that no job runs on a self-hosted runner.",
+      "type": "string",
+      "pattern": "^(ubuntu|windows|macos)-[A-Za-z0-9][A-Za-z0-9.-]*$"
+    },
+    "dotnet-sdk-version": {
+      "description": "A .NET SDK version as a quoted string: one SDK (\"10.0.403\"), the newest patch of a feature band (\"10.0.4xx\"), of a minor version (\"10.0.x\") or of a major version (\"10.x\").",
+      "type": "string",
+      "pattern": "^[0-9]+\\.(x|[0-9]+\\.(x|[0-9]+|[0-9]xx))$"
+    },
+    "python-version": {
+      "description": "A Python version, 3.11 or newer, as a minor version (\"3.13\") or one patch of it (\"3.13.2\").",
+      "type": "string",
+      "pattern": "^3\\.(1[1-9]|[2-9][0-9])(\\.[0-9]+)?$"
+    },
+    "python-install": {
+      "description": "A requirements file ending in .txt, as a path relative to the project's directory, or the name of an extra of the project. Invented examples: \"requirements-dev.txt\", \"dev\".",
+      "type": "string",
+      "pattern": "^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?|(?![-/])[A-Za-z0-9._/-]+\\.txt)$"
+    }
+  }
+}

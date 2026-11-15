@@ -1,0 +1,16 @@
+{
+  "description": "The additions workflow: after a failed pull-request run that reported recorded additions, commits them to the suite list on the pull request's branch, once per push, as the updater App. `suites` names the suite list. Invented example: {\"suites\": \"ci/suites.json\"}.",
+  "workflow": "automation.yml",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "suites"
+    ],
+    "properties": {
+      "suites": {
+        "$ref": "#/$defs/file"
+      }
+    }
+  }
+}

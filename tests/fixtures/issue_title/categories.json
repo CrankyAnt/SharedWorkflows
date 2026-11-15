@@ -1,0 +1,10 @@
+{
+  "product_categories": [],
+  "generic_forms": [
+    {
+      "key": "fixture-form",
+      "title_prefix": "[fixture-form]",
+      "labels": ["fixture:issue-title"]
+    }
+  ]
+}

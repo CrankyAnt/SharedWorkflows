@@ -1,0 +1,16 @@
+{
+  "description": "Issue-title normalisation: gives an opened issue the title prefix of its category. `categories` names the repository's category file, a JSON object with the component categories under `product_categories` and the categories without components under `generic_forms`; both are lists, a missing one counts as empty, and together they hold at least one item. An item of `generic_forms` is an object with `key` (the name of the category, unique across both lists), `title_prefix` (the prefix that an issue of the category gets) and `labels` (the labels of which one on an issue makes it an issue of the category). An item of `product_categories` is an object with `key`, `title_prefix` and `labels` as well, and with `source_directory` (the folder, relative to the repository root, whose direct subfolders are the components), `marker` (the file in a component's folder that makes it a component; it starts with `key: value` lines between two `---` lines), `dynamic_title_prefix` (the prefix of an issue about a component, with `{component}` for the component's name), `component_label` (the heading of the component field in the issue form) and `required_metadata` (the keys that every marker must hold). Each value is a non-empty string, except `labels` and `required_metadata`, which are lists of non-empty strings and may be empty; every key is required, and a key that is not named here is ignored. Invented example of the setting: {\"categories\": \"intake/categories.json\"}. Invented example of the category file: {\"product_categories\": [{\"key\": \"tool\", \"source_directory\": \"tools\", \"marker\": \"TOOL.md\", \"title_prefix\": \"[tool]\", \"dynamic_title_prefix\": \"[{component}]\", \"component_label\": \"Tool\", \"required_metadata\": [\"name\"], \"labels\": [\"category:tool\"]}], \"generic_forms\": [{\"key\": \"question\", \"title_prefix\": \"[question]\", \"labels\": [\"category:question\"]}]}.",
+  "workflow": "automation.yml",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "categories"
+    ],
+    "properties": {
+      "categories": {
+        "$ref": "#/$defs/file"
+      }
+    }
+  }
+}

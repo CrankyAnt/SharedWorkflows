@@ -19,7 +19,8 @@ the file format, the rules and the commands.
     python suite_selection.py lookup --root <repository> --sha <commit> --before <commit> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
     python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> \\
         [--default-branch <default branch>] [--pushed <commit>] --workflow "$GITHUB_WORKFLOW_REF" --output <file>
-    python suite_selection.py store --needs <needs context as JSON> --passed <directory> --run-id <id> --output <record file>
+    python suite_selection.py store --needs <needs context as JSON> [--selection-job <job>] --passed <directory> --run-id <id> \\
+        --output <record file>
     python suite_selection.py check-dispatch --root <repository> --sha <client_payload.sha> --branch <default branch>
 
 ``lookup``, ``shared-lookup``, ``store`` and the reuse of passed results live in ``reuse.py``.
@@ -66,6 +67,14 @@ SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_select
                         "entry_extra_paths", "directory_memberships", "entry_directory_memberships", "existence_reads", "entry_existence_reads",
                         "extra_directory_memberships", "extra_existence_reads", "lookup_directories", "entry_lookup_directories",
                         "os", "command", "setups", "entry_setups", "entry_durations"})
+TOP_LEVEL_KEYS = ("always", "jobs", "setups", "suites", "module_lookups")
+TOOLS = ("python", "node", "dotnet")  # the tools that a suite job installs with its pinned action, outside the recording
+SCRIPT_SUFFIXES = (".py", ".sh", ".ps1")  # a setup script runs on the job's Python, in Bash or in PowerShell
+SETUP_KEYS = frozenset({"script", "recorded", "tool", "version", "version-file"})
+JOB_DEFAULTS = {"linux": {"runner": "ubuntu-26.04", "fetch-depth": 1}, "windows": {"runner": "windows-2025", "fetch-depth": 1}}
+VERSION_FILE = re.compile(r"^[^#]+#(/[^/]+)+$")
+# A label of one GitHub-hosted runner, as the definition runner-label of the pipeline's schema has it: no suite job runs on a self-hosted runner.
+RUNNER_LABEL = re.compile(r"^(ubuntu|windows|macos)-[A-Za-z0-9][A-Za-z0-9.-]*$")
 # The union of sys.stdlib_module_names over the Python versions that the shared CI supports.
 STANDARD_LIBRARY = Path(__file__).resolve().parent.parent / "recording" / "stdlib_module_names.json"
 
@@ -210,10 +219,59 @@ def _with_extra[T](own: tuple[T, ...], extra: tuple[T, ...]) -> tuple[T, ...]:
 
 
 @dataclass(frozen=True)
+class Setup:
+    """A setup as the suite list states it: its one script, whether the script runs under the recording, and the tool
+    that the suite job installs for it with a pinned action before the recording starts."""
+
+    name: str
+    script: str
+    recorded: bool = True  # False: the script runs before the recording starts, outside it
+    tool: str | None = None
+    version: str | None = None
+    version_file: str | None = None  # <JSON file>#/<key>/<key>: the tracked file and the place in it that hold the version
+
+    def entry(self) -> dict:
+        """The setup's JSON entry as the suite list states it."""
+        item: dict = {"script": self.script}
+        if not self.recorded:
+            item["recorded"] = False
+        if self.tool is not None:
+            item["tool"] = self.tool
+        if self.version is not None:
+            item["version"] = self.version
+        if self.version_file is not None:
+            item["version-file"] = self.version_file
+        return item
+
+    @property
+    def files(self) -> tuple[str, ...]:
+        """The tracked files that decide what the setup installs: its script and the file that holds its tool's version."""
+        return (self.script,) + ((self.version_file.split("#", 1)[0],) if self.version_file is not None else ())
+
+
+@dataclass(frozen=True)
 class SuiteList:
     always: tuple[str, ...]
     suites: tuple[Suite, ...]
     module_lookups: tuple[tuple[str, tuple[str, ...]], ...] = ()  # per checkout directory, the module lookups of every entry file
+    setups: tuple[Setup, ...] | None = None  # the setups as data, in the order they run; None when the suite list states none
+    jobs: tuple[tuple[str, tuple[tuple[str, object], ...]], ...] = ()  # per operating system, what the suite list states of its job
+
+    @functools.cached_property
+    def setups_by_name(self) -> dict[str, Setup]:
+        return {setup.name: setup for setup in self.setups or ()}
+
+    def job(self, operating_system: str) -> dict:
+        """The runner label and the fetch depth of the checkout of one system's suite job, with the defaults of what the
+        suite list leaves out."""
+        return JOB_DEFAULTS[operating_system] | dict(dict(self.jobs).get(operating_system, ()))
+
+    def setup_files(self, suite: Suite, entry: str | None) -> tuple[str, ...]:
+        """The files of the setups that an entry file states, or with None of those that any entry file of the suite
+        states: their content decides what the entry file runs with, so the entry file reads them."""
+        entries = suite.entries if entry is None or not suite.entry_selection else (entry,)
+        names = dict.fromkeys(setup for item in entries for setup in suite.setups_of(item))
+        return tuple(dict.fromkeys(file for name in names if name in self.setups_by_name for file in self.setups_by_name[name].files))
 
     @functools.cached_property
     def lookups_by_directory(self) -> dict[str, tuple[str, ...]]:
@@ -335,8 +393,10 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
         raw = json.loads(text)
     except json.JSONDecodeError as error:
         raise SuiteListError(f"{source} is not valid JSON: {error}") from error
-    if not isinstance(raw, dict) or not {"always", "suites"} <= set(raw) <= {"always", "suites", "module_lookups"}:
-        raise SuiteListError(f"{source} must be an object with the keys always and suites, and optionally module_lookups")
+    if not isinstance(raw, dict) or not {"always", "suites"} <= set(raw) <= set(TOP_LEVEL_KEYS):
+        raise SuiteListError(f"{source} must be an object with the keys always and suites, and optionally jobs, setups and module_lookups")
+    job_data = _jobs(raw["jobs"], f"{source}: jobs") if "jobs" in raw else ()
+    setup_data = _setups(raw["setups"], f"{source}: setups") if "setups" in raw else None
     always = _strings(raw["always"], f"{source}: always")
     module_lookups = _module_lookups(raw.get("module_lookups", {}), f"{source}: module_lookups")
     if not isinstance(raw["suites"], list):
@@ -404,7 +464,103 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
             suites.append(Suite(name, entries, paths=_strings(item["paths"], f"{location} ({name}): paths"), entry_paths=entry_paths, **common))
         else:
             suites.append(Suite(name, entries, **common))
-    return SuiteList(always, tuple(suites), module_lookups)
+    if setup_data is not None:
+        defined = {setup.name for setup in setup_data}
+        for index, suite in enumerate(suites, start=1):
+            stated = [("setups", name) for name in suite.setups or ()]
+            stated += [(f"entry_setups ({entry})", name) for entry, names in suite.entry_setups for name in names]
+            for key, name in stated:
+                if name not in defined:
+                    raise SuiteListError(f"{source}: suites[{index}] ({suite.name}): {key} names the setup {name}, which setups lacks")
+    return SuiteList(always, tuple(suites), module_lookups, setup_data, job_data)
+
+
+def _setups(value, location: str) -> tuple[Setup, ...]:
+    """The setups of a suite list, in the order it states them."""
+    if not isinstance(value, dict):
+        raise SuiteListError(f"{location} must be an object with one setup per name")
+    setups: list[Setup] = []
+    versions: dict[str, tuple[str, str]] = {}  # per tool, the version that the first setup naming it gives, with that setup
+    for name, item in value.items():
+        if not NAME_PATTERN.match(name):
+            raise SuiteListError(f"{location}: the name {name} must be lowercase letters, digits and hyphens")
+        where = f"{location} ({name})"
+        if not isinstance(item, dict):
+            raise SuiteListError(f"{where} must be an object")
+        unknown = set(item) - SETUP_KEYS
+        if unknown:
+            raise SuiteListError(f"{where}: unknown keys {', '.join(sorted(unknown))}")
+        script = item.get("script")
+        if not isinstance(script, str) or not script.endswith(SCRIPT_SUFFIXES) or script.startswith(("/", "../", "./")) or "\\" in script:
+            raise SuiteListError(f"{where}: script must be a repository path that ends in {', '.join(SCRIPT_SUFFIXES[:-1])} or {SCRIPT_SUFFIXES[-1]}")
+        recorded = item.get("recorded", True)
+        if not isinstance(recorded, bool):
+            raise SuiteListError(f"{where}: recorded must be true or false")
+        tool, version, version_file = item.get("tool"), item.get("version"), item.get("version-file")
+        if tool is None and (version is not None or version_file is not None):
+            raise SuiteListError(f"{where}: version and version-file go with tool")
+        if tool is not None:
+            if tool not in TOOLS:
+                raise SuiteListError(f"{where}: tool must be one of {', '.join(TOOLS)}")
+            if (version is None) == (version_file is None):
+                raise SuiteListError(f"{where}: a tool needs either version or version-file")
+            if version is not None and (not isinstance(version, str) or not version):
+                raise SuiteListError(f"{where}: version must be a non-empty string")
+            if version_file is not None and (not isinstance(version_file, str) or not VERSION_FILE.match(version_file)):
+                raise SuiteListError(f"{where}: version-file must be <JSON file>#/<key>/<key>")
+            given = version if version is not None else f"from {version_file}"
+            first, owner = versions.setdefault(tool, (given, name))
+            if first != given:
+                raise SuiteListError(f"{where}: the tool {tool} has the version {given}, but the setup {owner} gives it {first}; "
+                                     "a suite list holds one version per tool")
+        setups.append(Setup(name, script, recorded, tool, version, version_file))
+    return tuple(setups)
+
+
+def _jobs(value, location: str) -> tuple[tuple[str, tuple[tuple[str, object], ...]], ...]:
+    """What the suite list states of the suite job of each operating system: its runner label and its fetch depth."""
+    if not isinstance(value, dict):
+        raise SuiteListError(f"{location} must be an object with one job per operating system")
+    jobs = []
+    for name, item in value.items():
+        if name not in OPERATING_SYSTEMS:
+            raise SuiteListError(f"{location}: {name} must be one of {', '.join(OPERATING_SYSTEMS)}")
+        where = f"{location} ({name})"
+        if not isinstance(item, dict):
+            raise SuiteListError(f"{where} must be an object")
+        unknown = set(item) - set(JOB_DEFAULTS[name])
+        if unknown:
+            raise SuiteListError(f"{where}: unknown keys {', '.join(sorted(unknown))}")
+        if "runner" in item and (not isinstance(item["runner"], str) or not RUNNER_LABEL.fullmatch(item["runner"])):
+            raise SuiteListError(f"{where}: runner must be a label of a GitHub-hosted runner of the ubuntu-, windows- or macos- family, such as ubuntu-26.04")
+        depth = item.get("fetch-depth", 0)
+        if not isinstance(depth, int) or isinstance(depth, bool) or depth < 0:
+            raise SuiteListError(f"{where}: fetch-depth must be a whole number of 0 or more")
+        jobs.append((name, tuple(item.items())))
+    return tuple(jobs)
+
+
+def tool_versions(suite_list: SuiteList, root: Path) -> dict[str, str]:
+    """The version of each tool that a setup of the suite list names, read from its version file where it names one."""
+    versions: dict[str, str] = {}
+    for setup in suite_list.setups or ():
+        if setup.tool is None or setup.tool in versions:
+            continue
+        if setup.version is not None:
+            versions[setup.tool] = setup.version
+            continue
+        file, _, pointer = (setup.version_file or "").partition("#")
+        where = f"setups ({setup.name})"
+        try:
+            value = json.loads((root / file).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise SuiteListError(f"{where}: {file} cannot be read as JSON: {error}") from error
+        for key in pointer.strip("/").split("/"):
+            value = value.get(key) if isinstance(value, dict) else None
+        if not isinstance(value, str) or not value:
+            raise SuiteListError(f"{where}: {file} holds no text at {pointer}")
+        versions[setup.tool] = value
+    return versions
 
 
 def _module_lookups(value, location: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -436,10 +592,21 @@ def load_suite_list(path: Path) -> SuiteList:
 
 def render_suite_list(suite_list: SuiteList) -> str:
     """The suite list as JSON text, one path per line, with a trailing newline."""
-    document: dict = {"always": list(suite_list.always), "suites": [suite.entry() for suite in suite_list.suites]}
-    if suite_list.module_lookups:
-        document["module_lookups"] = {directory: list(names) for directory, names in suite_list.module_lookups}
-    return json.dumps(document, indent=2) + "\n"
+    return json.dumps(suite_list_document(suite_list, [suite.entry() for suite in suite_list.suites],
+                                          {directory: list(names) for directory, names in suite_list.module_lookups}), indent=2) + "\n"
+
+
+def suite_list_document(suite_list: SuiteList, suites: list[dict], module_lookups: dict[str, list[str]]) -> dict:
+    """The JSON document of a suite list with the given suite entries and module lookups, its keys in their fixed order."""
+    document: dict = {"always": list(suite_list.always)}
+    if suite_list.jobs:
+        document["jobs"] = {name: dict(item) for name, item in suite_list.jobs}
+    if suite_list.setups is not None:
+        document["setups"] = {setup.name: setup.entry() for setup in suite_list.setups}
+    document["suites"] = suites
+    if module_lookups:
+        document["module_lookups"] = module_lookups
+    return document
 
 
 def expand_entries(entries: tuple[str, ...], tracked: set[str], location: str) -> tuple[str, ...]:
@@ -463,7 +630,11 @@ def resolve_entries(suite_list: SuiteList, tracked: set[str], source: str = "the
     for index, suite in enumerate(suite_list.suites, start=1):
         entries = expand_entries(suite.entries, tracked, f"{source}: suites[{index}] ({suite.name})")
         suites.append(dataclasses.replace(suite, entries=entries))
-    return SuiteList(suite_list.always, tuple(suites), suite_list.module_lookups)
+    for setup in suite_list.setups or ():
+        for file, what in zip(setup.files, ("script", "version file")):
+            if file not in tracked:
+                raise SuiteListError(f"{source}: setups ({setup.name}): the {what} {file} is no tracked file")
+    return dataclasses.replace(suite_list, suites=tuple(suites))
 
 
 def module_name(name: str) -> str:
@@ -711,7 +882,10 @@ def bases(suite_list: SuiteList) -> tuple[Basis, ...]:
     result = []
     for suite in suite_list.suites:
         if suite.paths is not None:
-            result.append(Basis(suite, suite.patterns_of(None), None, entry_patterns=suite.per_entry(suite.patterns_of),
+            def patterns(entry: str | None, suite: Suite = suite) -> tuple[str, ...]:
+                return _with_extra(suite.patterns_of(entry), suite_list.setup_files(suite, entry))
+
+            result.append(Basis(suite, patterns(None), None, entry_patterns=suite.per_entry(patterns),
                                 directory_memberships=suite.memberships_of(None),
                                 entry_memberships=suite.per_entry(suite.memberships_of),
                                 existence_reads=suite.existence_reads_of(None),
@@ -1082,12 +1256,18 @@ def assign_shards(units: list[tuple[Suite, str, float]], bound: float = SHARD_BO
     return []
 
 
-def shard_document(units: list[tuple[Suite, str, float]], estimate: float) -> dict:
-    """The estimate, the setups and the entry files with their suite's command of one job."""
+def shard_document(units: list[tuple[Suite, str, float]], estimate: float, suite_list: SuiteList | None = None,
+                   tools: dict[str, str] | None = None) -> dict:
+    """The estimate, the setups and the entry files with their suite's command of one job; for a suite list that states
+    its setups as data, also the tools that the job's setups name, each with its version from ``tools``."""
     setups: list[str] = []
     for suite, entry, _ in units:
         setups += [setup for setup in suite.setups_of(entry) if setup not in setups]
-    return {"estimate": estimate, "setups": setups,
+    named = {}
+    if suite_list is not None and suite_list.setups is not None:
+        stated = [suite_list.setups_by_name[setup].tool for setup in setups]
+        named = {"tools": {tool: (tools or {})[tool] for tool in dict.fromkeys(stated) if tool is not None}}
+    return {"estimate": estimate, "setups": setups, **named,
             "entries": [{"suite": suite.name, "entry": entry, "command": list(suite.command) if suite.command is not None else None}
                         for suite, entry, _ in units]}
 
@@ -1115,22 +1295,23 @@ def selected_units(selection: Selection, suite_list: SuiteList, operating_system
     return units
 
 
-def shards_json(selection: Selection, suite_list: SuiteList, steps: dict[str, str], full: bool = False) -> str:
+def shards_json(selection: Selection, suite_list: SuiteList, steps: dict[str, str], full: bool = False,
+                tools: dict[str, str] | None = None) -> str:
     """The Linux shard matrix as a JSON list on one line; one shard without suites when only a language step runs. The
     full recording counts each estimate under the wide set and bounds each shard by ``FULL_SHARD_BOUND``."""
     units = selected_units(selection, suite_list, "linux", full_recording_scale("linux") if full else 1.0)
-    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard]))
+    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard]), suite_list, tools)
               for shard in assign_shards(units, FULL_SHARD_BOUND if full else SHARD_BOUND)]
     if not shards and "run" in steps.values():
-        shards = [shard_document([], 0.0)]
+        shards = [shard_document([], 0.0, suite_list, tools)]
     return json.dumps([{"shard": number, **shard} for number, shard in enumerate(shards, start=1)], separators=(",", ":"))
 
 
-def windows_json(selection: Selection, suite_list: SuiteList, full: bool = False) -> str:
+def windows_json(selection: Selection, suite_list: SuiteList, full: bool = False, tools: dict[str, str] | None = None) -> str:
     """The selected Windows entry files as one job's JSON object on one line, or empty when none is selected. The job
     runs its entry files one after another, so its estimate is the sum of their estimates."""
     units = selected_units(selection, suite_list, "windows", full_recording_scale("windows") if full else 1.0)
-    return json.dumps(shard_document(units, sum(estimate for _, _, estimate in units)), separators=(",", ":")) if units else ""
+    return json.dumps(shard_document(units, sum(estimate for _, _, estimate in units), suite_list, tools), separators=(",", ":")) if units else ""
 
 
 # --- the push lookup and the reuse of passed results ------------------------------------------------------
@@ -1397,6 +1578,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     shared_parser.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     storing = commands.add_parser("store", help="write the record of the passed results of a run")
     storing.add_argument("--needs", type=Path, required=True, help="a file with the closing job's needs context as JSON")
+    storing.add_argument("--selection-job", default=SELECTION_JOB, help="the job of the needs context that ran select (default: select)")
     storing.add_argument("--passed", type=Path, required=True, help="a directory with the passed entry files of each job")
     storing.add_argument("--run-id", type=int, required=True, help="github.run_id")
     storing.add_argument("--output", type=Path, required=True, help="write the record to this file")
@@ -1477,6 +1659,13 @@ def run_select(options: argparse.Namespace) -> int:
     running = reused = None
     if options.results is not None:
         labels, versions = _pairs(options.runner_label, "--runner-label"), _pairs(options.setup_version, "--setup-version")
+        if suite_list.setups is not None or suite_list.jobs:
+            # The suite list states its jobs and setups as data: the key holds each job and each setup as stated, with
+            # the version of its tool.
+            tools = tool_versions(suite_list, root)
+            labels = {name: json.dumps(suite_list.job(name), sort_keys=True) for name in OPERATING_SYSTEMS} | labels
+            versions = {setup.name: json.dumps(setup.entry() | {"installed": tools.get(setup.tool or "")}, sort_keys=True)
+                        for setup in suite_list.setups or ()} | versions
         with record_errors() as reuse:
             tree = reuse.Tree(reuse.tree_entries(root), matches)
             units = reuse_units(selection, suite_list, tree, versions, labels, shared_lookup.digest if shared_lookup is not None else "",
@@ -1660,8 +1849,10 @@ def write_selection(options: argparse.Namespace, suite_list: SuiteList, selectio
                 steps = language_steps(options.language_step, selection, changed)
             if options.language_step:
                 handle.write(f"language-steps={json.dumps(steps, separators=(',', ':'))}\n")
-            handle.write(f"shards={shards_json(selection, suite_list, steps, full)}\n")
-            handle.write(f"windows={windows_json(selection, suite_list, full)}\n")
+            tools = tool_versions(suite_list, options.root.resolve())
+            handle.write(f"shards={shards_json(selection, suite_list, steps, full, tools)}\n")
+            handle.write(f"windows={windows_json(selection, suite_list, full, tools)}\n")
+            handle.write(f"jobs={json.dumps({name: suite_list.job(name) for name in OPERATING_SYSTEMS}, separators=(',', ':'))}\n")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
             handle.write(summary_markdown(selection, changed))
@@ -1700,7 +1891,8 @@ def run_store(options: argparse.Namespace) -> int:
     import reuse
 
     try:
-        record = reuse.store(parse_needs(options.needs.read_text(encoding="utf-8")), reuse.passed_entries(options.passed), options.run_id)
+        record = reuse.store(parse_needs(options.needs.read_text(encoding="utf-8")), reuse.passed_entries(options.passed), options.run_id,
+                             options.selection_job)
     except reuse.RecordError as error:
         raise SuiteListError(str(error)) from error
     if record is None:

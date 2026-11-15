@@ -621,6 +621,71 @@ class WorkflowRunTests(unittest.TestCase):
         self.assertIn("the open pull requests could not be read", result.summary)
 
 
+ENABLED = {"merge_method": "squash"}
+
+
+def disabling_run(github: FakeGitHub) -> auto_merge.Result:
+    (result,) = auto_merge.run_workflow_run(github, REPOSITORY, BRANCH, disable=True)
+    return result
+
+
+class WorkflowRunDisableTests(unittest.TestCase):
+    """A completed run with the disabling asked for, as a caller without a pull request event asks: a pull request that
+    does not merge on its own loses an auto-merge it still has."""
+
+    def test_a_commit_that_dependabot_did_not_make_disables_the_auto_merge_that_the_pull_request_still_has(self) -> None:
+        github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(sha=FIRST), commit("someone", "fix: adjust")])
+        result = disabling_run(github)
+        self.assertEqual(0, result.exit_code, result.summary)
+        self.assertEqual([("disable_auto_merge", URL)], mutations(github))
+        self.assertIn("**Decision:** manual", result.summary)
+        self.assertIn("**Action:** auto-merge disabled; nothing merged and nothing dispatched.", result.summary)
+
+    def test_every_decision_that_is_not_automatic_disables_it(self) -> None:
+        major = message("- dependency-name: lodash", "  dependency-version: 2.0.0", f"  update-type: {MAJOR}")
+        for name, github, code in (("a major update", FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(text=major)]), 0),
+                                   ("no ruleset", FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), rules=[]), 1),
+                                   ("unverified metadata", FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(verified=False)]), 1)):
+            with self.subTest(case=name):
+                result = disabling_run(github)
+                self.assertEqual(code, result.exit_code, result.summary)
+                self.assertEqual([("disable_auto_merge", URL)], mutations(github))
+
+    def test_a_pull_request_without_auto_merge_gets_no_request(self) -> None:
+        github = FakeGitHub(commits=[commit(sha=FIRST), commit("someone", "fix: adjust")])
+        result = disabling_run(github)
+        self.assertEqual([], mutations(github))
+        self.assertIn("**Action:** nothing to disable; nothing merged and nothing dispatched.", result.summary)
+
+    def test_an_automatic_decision_merges_and_disables_nothing(self) -> None:
+        github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED))
+        result = disabling_run(github)
+        self.assertEqual(0, result.exit_code, result.summary)
+        self.assertEqual(["merge", "dispatch"], [call[0] for call in mutations(github)])
+
+    def test_without_the_request_to_disable_a_completed_run_leaves_the_auto_merge_as_it_is(self) -> None:
+        github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(sha=FIRST), commit("someone", "fix: adjust")])
+        result = merge_run(github)
+        self.assertEqual([], mutations(github), "the merge job of dependabot-auto-merge.yml may not write pull requests")
+        self.assertIn("**Action:** nothing merged and nothing dispatched.", result.summary)
+
+    def test_a_refused_disabling_fails_the_run_and_names_it(self) -> None:
+        github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(sha=FIRST), commit("someone", "fix: adjust")],
+                            failures=("disable_auto_merge",))
+        result = disabling_run(github)
+        self.assertEqual(1, result.exit_code)
+        self.assertIn("auto-merge could not be disabled: disable_auto_merge failed: HTTP 500", result.summary)
+
+    def test_the_command_line_asks_for_the_disabling_with_its_option(self) -> None:
+        for option, expected in ((["--disable-auto-merge"], [("disable_auto_merge", URL)]), ([], [])):
+            with self.subTest(option=option):
+                github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(sha=FIRST), commit("someone", "fix: adjust")])
+                with mock.patch.object(auto_merge, "GitHub", lambda: github), contextlib.redirect_stdout(io.StringIO()):
+                    code = auto_merge.main(["--repository", REPOSITORY, "workflow-run", "--head-branch", BRANCH, *option])
+                self.assertEqual(0, code)
+                self.assertEqual(expected, mutations(github))
+
+
 class CommandLineTests(unittest.TestCase):
     def test_the_gh_client_issues_the_documented_commands(self) -> None:
         issued: list[list[str]] = []

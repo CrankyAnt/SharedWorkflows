@@ -2,7 +2,7 @@
 
 **Repository visibility:** public
 
-**Tracked or shared surfaces:** the tracked files, the tag `v1`, and the issues, pull requests and comments of `CrankyAnt/SharedWorkflows`
+**Tracked or shared surfaces:** the tracked files, the tags `v1` and `v1-candidate`, the issues, pull requests and comments of `CrankyAnt/SharedWorkflows`, and the proof repository, whose content the automatic move pushes from `actions/pipeline/proof-kit`
 
 **Local-only surface:** `.docs/`
 
@@ -13,8 +13,10 @@
 **One-way actions that require a user question:**
 
 - Destructive or hard-to-reverse operations.
-- Creating, moving or rolling back `v1`, the promotion by hand of `docs/maintaining.md` included; the automatic move of `promote-v1.yml` after a pins-only commit is not one.
-- Changing repository settings, rulesets, the GitHub App, its installation, or the repository variable and secret it uses.
+- Creating, moving or rolling back `v1` by hand, as `docs/maintaining.md` says: every promotion that changes the write class or the template class of the shared surface, every rollback, the first creation and every move that changes a check name. A promotion by hand that changes the template class also starts the sync in the management repository; the answer to the question covers that start.
+- The automatic move of `promote-v1.yml` is not one: it moves `v1` only to a commit on `main` whose changes compared with `v1` stay in the read class, after the commit's CI on `main` and the proof repository's run on the candidate tag passed. A merged Dependabot pull request moves `v1` only that way. One commit outside the read class moves the same way: a pins-only pull request that the updater App opened from `chore/update-ci-pins` and the repository owner merged.
+- Changing the promotion class of a path in `actions/repository-hygiene/shared-surface.json` to the read class.
+- Changing repository settings, rulesets, deploy keys, environments and their secrets, the GitHub App, its installation, or the repository variable and secret it uses, in this repository and in the proof repository.
 
 **Standalone PR merge:** squash merge
 

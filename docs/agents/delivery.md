@@ -28,7 +28,8 @@ Default to `merge`: the builder merges after independent receipt and the pre-mer
 
 - CI is the only gate. While building, run the entry files of the changed behaviour, as "Validation" in `docs/maintaining.md` states; no local copy of the suite selection runs before a push.
 - Additions that a pull request's recording check reports are applied to the suite list `tests/suites.json` in the same pull request.
-- Creating or moving `v1`, apart from the automatic move of `promote-v1.yml`, is a one-way action under `docs/agents/publication.md`.
+- Creating or moving `v1`, apart from the automatic move of `promote-v1.yml` for a change that stays in the read class, is a one-way action under `docs/agents/publication.md`.
+- A delivery that merges a change to `main` which does not promote automatically, one that changes the write class or the template class of the shared surface, ends only after the promotion preparation. The agent whose delivery made the merge waits for the commit's CI on `main`, runs `python3 actions/repository-hygiene/promote_v1.py prepare`, and puts the question that it prints to the user, as "Promote v1 by hand" in `docs/maintaining.md` states; after a yes it runs the printed `promote` command. When `prepare` refuses, the agent reports the refusal with its reason to the user in place of the question. No such change stays on `main` unpromoted without that question or that report.
 
 ## Gitleaks before a push
 

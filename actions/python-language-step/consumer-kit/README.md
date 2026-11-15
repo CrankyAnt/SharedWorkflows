@@ -40,6 +40,8 @@ Without `root`, the step checks the repository root.
 
 ## How a validation workflow calls it
 
+A repository that runs the suite selection as the part `suite-selection` of the pipeline installs no step: it names `python` under `language-steps` of that part in `.github/ci-config.yml`, and the first Linux shard of the shared suite jobs runs the step after the recording's check, with its result in `ci / verdict`. The rest of this section is for a repository whose own validation workflow, from an earlier kit of the suite selection, holds the step.
+
 Add the step of [python-language-step.yml](python-language-step.yml) to the shard job of the repository's validation workflow, after the step that checks the recording. The job installs Python before the step, and the step runs outside the suite recording, so its reads join no suite's path list.
 
 The step runs under `if: ${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}`. The validation workflow takes the input `language-steps` (`type: string`, `required: false`), which the validation caller passes from the `language-steps` output of the shared `suite-selection.yml`; the caller names the step there with `language-steps: python`. That output holds `run` when a changed file is a Python file or Python configuration. In the shard job the condition also holds `matrix.shard.shard == 1`, so shard 1 alone runs the step; the suite selection gives one shard without entry files when only the step is selected.
