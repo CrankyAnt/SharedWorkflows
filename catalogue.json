@@ -27,6 +27,8 @@
   },
   "requests": {
     "label": "shared-ci",
+    "label_description": "Request for shared CI: a shared part, a missing input or a shared part's fault",
+    "label_colour": "bfd4f2",
     "where": "A request is an issue in the consumer's own repository with the label shared-ci. An agent in a consumer writes nothing into CrankyAnt/SharedWorkflows.",
     "content": "The work that the repository needs, and the part or the input that is missing; a request for a new part proposes its name, <ecosystem>-<phase>, and a request for an input names the existing part and proposes the name of the setting, as <part>.<setting>; a temporary entry names the same under waits-for. A fault of a shared part that the repository cannot fix in its own files is a request too.",
     "triage": "The repository's own triage skips a request: shared-ci is another workflow's vocabulary, which docs/agents/triage-labels.md of the consumer records as the consumer kit of the pipeline states. The triage of CrankyAnt/SharedWorkflows collects the open requests and answers each: with a public issue in general terms, to which the request then links, or by declining it. The triage states the final name of the part, and for a missing input the final name of the setting, in a comment on the request: keep waits-for equal to them, or the switch-over check never finds the part or the setting.",
