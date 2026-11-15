@@ -148,6 +148,14 @@ _Avoid_: Shared CI digest, recording hash
 The comparison of every reachable consumer's fixed callers, CI guide, generated Dependabot configuration and settings with the templates at `v1`, which proposes the files that differ and reports the settings that differ.
 _Avoid_: Drift fix, rollout, propagation
 
+**Sync pull request**:
+The pull request that the sync opens in a consumer with the templates' content of the files that differ, set to merge itself once its checks pass.
+_Avoid_: Drift pull request, update pull request
+
+**Local mode**:
+The sync run with the owner's own login on the maintainer's machine, which also corrects settings that differ and makes a consumer's adoption pull request.
+_Avoid_: Manual sync, admin mode
+
 **Sync App**:
 The GitHub App whose installation token the sync uses in the management repository, installed on the consumers it keeps equal and never on Shared Workflows.
 _Avoid_: Updater App, bot
