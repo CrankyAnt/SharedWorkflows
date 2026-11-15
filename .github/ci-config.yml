@@ -37,6 +37,15 @@ parts:
       - actions/pipeline/
       - .github/workflows/pipeline.yml
       - .github/workflows/ci.yml
+  node-test:
+    projects:
+      - working-directory: tests/fixtures/node_test
+    paths:
+      - tests/fixtures/node_test/
+      - actions/node-test/
+      - actions/pipeline/
+      - .github/workflows/pipeline.yml
+      - .github/workflows/ci.yml
   suite-selection:
     suites: tests/suites.json
     language-steps: [python]

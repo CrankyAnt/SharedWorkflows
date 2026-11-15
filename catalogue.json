@@ -177,6 +177,18 @@
       "audience": "consumer"
     },
     {
+      "name": "node-test",
+      "purpose": "A job of the pipeline per configured Node project that installs the Node version of the project's .nvmrc and the npm version of its packageManager, or keeps the npm of that Node, and runs npm ci, npm run build when the project defines the script build, and npm test.",
+      "configuration": "actions/pipeline/schema/v1/parts/node-test.json",
+      "workflows": [],
+      "steps": ["actions/node-test"],
+      "required_checks": [],
+      "needs": "The pipeline, a Node project with a package.json that defines the script test, a package-lock.json that npm ci installs from and a .nvmrc that names its Node version, which the job compares with node --version when it is an exact version, an optional packageManager in package.json that names an exact npm version as npm@<major>.<minor>.<patch>, optionally with a Corepack hash that the job does not verify, and parts.node-test in .github/ci-config.yml with projects, a list of one or more projects that each name working-directory and optionally runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/node-test.json states every setting.",
+      "applies": "A repository with a Node project whose tests run with npm and that runs the pipeline.",
+      "consumer_kit": null,
+      "audience": "consumer"
+    },
+    {
       "name": "suite-selection",
       "purpose": "The current form of the suite selection: runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, as the part suite-selection of the pipeline: a job that selects, the shared suite jobs that run the setups of the suite list and the selected entry files in Linux shards and one Windows job, and a job that stores the passed results of a pull request, with its result in the pipeline's verdict.",
       "configuration": "actions/pipeline/schema/v1/parts/suite-selection.json",

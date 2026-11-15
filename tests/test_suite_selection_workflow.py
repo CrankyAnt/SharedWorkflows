@@ -21,7 +21,8 @@ DEFINITION_FILES = ("tests/suites.json", "tests/setups/python.py", "tests/setups
                     ".github/workflows/ci.yml", ".github/workflows/pipeline.yml", ".github/workflows/suite-jobs.yml",
                     "actions/suite-selection/action.yml", "actions/recording/action.yml", "actions/python-language-step/action.yml",
                     "actions/pipeline/action.yml", "actions/repository-hygiene/action.yml", "actions/publication-checks/action.yml",
-                    "actions/python-tests/action.yml", "actions/dotnet-test/action.yml")
+                    "actions/python-tests/action.yml", "actions/dotnet-test/action.yml",
+                    "actions/node-test/action.yml")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "actions/suite-selection"))
 
 from reuse import DIGEST_STEP  # noqa: E402

@@ -151,6 +151,8 @@
         "actions/dotnet-test/dotnet_test.py",
         "actions/issue-title/action.yml",
         "actions/issue-title/issue_title.py",
+        "actions/node-test/action.yml",
+        "actions/node-test/node_test.py",
         "actions/pipeline/action.yml",
         "actions/pipeline/consumer-kit/README.md",
         "actions/pipeline/consumer-kit/automation.yml",
@@ -174,6 +176,7 @@
         "actions/pipeline/schema/v1/parts/full-recording.json",
         "actions/pipeline/schema/v1/parts/github-release.json",
         "actions/pipeline/schema/v1/parts/issue-title.json",
+        "actions/pipeline/schema/v1/parts/node-test.json",
         "actions/pipeline/schema/v1/parts/python-test.json",
         "actions/pipeline/schema/v1/parts/python-verify.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -340,6 +343,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -648,6 +652,8 @@
           "actions/dotnet-test/dotnet_test.py",
           "actions/issue-title/action.yml",
           "actions/issue-title/issue_title.py",
+          "actions/node-test/action.yml",
+          "actions/node-test/node_test.py",
           "actions/pipeline/action.yml",
           "actions/pipeline/consumer_checks.py",
           "actions/pipeline/plan.py",
@@ -768,6 +774,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -819,7 +826,9 @@
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
           "actions/dotnet-test/action.yml",
+          "actions/node-test/action.yml",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/python-language-step/action.yml",
@@ -877,6 +886,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -935,6 +945,8 @@
         "actions/dotnet-test/**",
         "actions/issue-title",
         "actions/issue-title/**",
+        "actions/node-test",
+        "actions/node-test/**",
         "actions/pipeline",
         "actions/pipeline/**",
         "actions/pipeline/consumer-kit",
@@ -1065,6 +1077,7 @@
         "tests/test_hygiene_zizmor_surface.py/**",
         "tests/test_issue_title.py/**",
         "tests/test_link_check.py/**",
+        "tests/test_node_test.py/**",
         "tests/test_pin_updater.py/**",
         "tests/test_pipeline_callers.py/**",
         "tests/test_pipeline_custom.py/**",
@@ -1147,6 +1160,7 @@
           "actions/dependabot-auto-merge/consumer-kit/**",
           "actions/dotnet-test/**",
           "actions/issue-title/**",
+          "actions/node-test/**",
           "actions/pipeline/**",
           "actions/pipeline/consumer-kit/**",
           "actions/pipeline/consumer-kit/docs/agents/ci.md/**",
@@ -1191,6 +1205,7 @@
           "actions/dependabot-auto-merge/consumer-kit/**",
           "actions/dotnet-test/**",
           "actions/issue-title/**",
+          "actions/node-test/**",
           "actions/pipeline/**",
           "actions/publication-checks/**",
           "actions/python-language-step/**",
@@ -1289,6 +1304,7 @@
           "tests/test_hygiene_zizmor_surface.py/**",
           "tests/test_issue_title.py/**",
           "tests/test_link_check.py/**",
+          "tests/test_node_test.py/**",
           "tests/test_pin_updater.py/**",
           "tests/test_pipeline_callers.py/**",
           "tests/test_pipeline_custom.py/**",
@@ -1372,6 +1388,7 @@
           "actions/dependabot-auto-merge/consumer-kit",
           "actions/dotnet-test",
           "actions/issue-title",
+          "actions/node-test",
           "actions/pipeline",
           "actions/pipeline/consumer-kit",
           "actions/pipeline/consumer-kit/docs",
@@ -1510,6 +1527,14 @@
         },
         {
           "path": "actions/issue-title/consumer-kit",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test/consumer-kit",
           "kind": "any"
         },
         {
@@ -2641,6 +2666,10 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_node_test.py",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_pin_updater.py",
           "kind": "any"
         },
@@ -3072,6 +3101,10 @@
             "kind": "any"
           },
           {
+            "path": "actions/node-test",
+            "kind": "any"
+          },
+          {
             "path": "actions/pipeline",
             "kind": "any"
           },
@@ -3295,6 +3328,10 @@
           },
           {
             "path": "actions/issue-title",
+            "kind": "any"
+          },
+          {
+            "path": "actions/node-test",
             "kind": "any"
           },
           {
@@ -4440,6 +4477,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_node_test.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pin_updater.py",
             "kind": "any"
           },
@@ -4695,6 +4736,10 @@
           },
           {
             "path": "actions/issue-title/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/node-test/consumer-kit",
             "kind": "any"
           },
           {
@@ -6780,6 +6825,14 @@
           "kind": "any"
         },
         {
+          "path": "actions/node-test/consumer-kit",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test/consumer-kit/publication-checks.yml",
+          "kind": "any"
+        },
+        {
           "path": "actions/pipeline/consumer-kit",
           "kind": "any"
         },
@@ -8733,6 +8786,14 @@
             "kind": "any"
           },
           {
+            "path": "actions/node-test/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/node-test/consumer-kit/publication-checks.yml",
+            "kind": "any"
+          },
+          {
             "path": "actions/pipeline/consumer-kit",
             "kind": "any"
           },
@@ -9487,6 +9548,7 @@
         ".github/workflows/suite-verdict.yml",
         ".github/workflows/validate.yml",
         "actions/dotnet-test/action.yml",
+        "actions/node-test/action.yml",
         "actions/pipeline/action.yml",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
@@ -9952,6 +10014,7 @@
           ".github/workflows/suite-verdict.yml",
           ".github/workflows/validate.yml",
           "actions/dotnet-test/action.yml",
+          "actions/node-test/action.yml",
           "actions/pipeline/action.yml",
           "actions/publication-checks/action.yml",
           "actions/python-language-step/action.yml",
@@ -10485,6 +10548,7 @@
         ".github/workflows/suite-verdict.yml/**",
         ".github/workflows/validate.yml/**",
         "actions/dotnet-test/action.yml/**",
+        "actions/node-test/action.yml/**",
         "actions/pipeline/action.yml/**",
         "actions/publication-checks/action.yml/**",
         "actions/python-language-step/action.yml/**",
@@ -10697,6 +10761,7 @@
         "tests/test_hygiene_zizmor_surface.py/**",
         "tests/test_issue_title.py/**",
         "tests/test_link_check.py/**",
+        "tests/test_node_test.py/**",
         "tests/test_pin_updater.py/**",
         "tests/test_pipeline_callers.py/**",
         "tests/test_pipeline_custom.py/**",
@@ -10781,6 +10846,7 @@
           ".github/workflows/suite-verdict.yml/**",
           ".github/workflows/validate.yml/**",
           "actions/dotnet-test/action.yml/**",
+          "actions/node-test/action.yml/**",
           "actions/pipeline/action.yml/**",
           "actions/publication-checks/action.yml/**",
           "actions/python-language-step/action.yml/**",
@@ -10864,6 +10930,7 @@
           "tests/test_hygiene_zizmor_surface.py/**",
           "tests/test_issue_title.py/**",
           "tests/test_link_check.py/**",
+          "tests/test_node_test.py/**",
           "tests/test_pin_updater.py/**",
           "tests/test_pipeline_callers.py/**",
           "tests/test_pipeline_custom.py/**",
@@ -11126,6 +11193,10 @@
         },
         {
           "path": "actions/dotnet-test/action.yml",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test/action.yml",
           "kind": "any"
         },
         {
@@ -11946,6 +12017,10 @@
         },
         {
           "path": "tests/test_link_check.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_node_test.py",
           "kind": "any"
         },
         {
@@ -13388,6 +13463,10 @@
             "kind": "any"
           },
           {
+            "path": "actions/node-test/action.yml",
+            "kind": "any"
+          },
+          {
             "path": "actions/pipeline/action.yml",
             "kind": "any"
           },
@@ -13853,6 +13932,10 @@
           },
           {
             "path": "tests/test_link_check.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_node_test.py",
             "kind": "any"
           },
           {
@@ -19005,6 +19088,8 @@
         "actions/dotnet-test/action.yml",
         "actions/dotnet-test/dotnet_test.py",
         "actions/issue-title/issue_title.py",
+        "actions/node-test/action.yml",
+        "actions/node-test/node_test.py",
         "actions/pipeline/action.yml",
         "actions/pipeline/consumer-kit/automation.yml",
         "actions/pipeline/consumer-kit/ci.yml",
@@ -19027,6 +19112,7 @@
         "actions/pipeline/schema/v1/parts/full-recording.json",
         "actions/pipeline/schema/v1/parts/github-release.json",
         "actions/pipeline/schema/v1/parts/issue-title.json",
+        "actions/pipeline/schema/v1/parts/node-test.json",
         "actions/pipeline/schema/v1/parts/python-test.json",
         "actions/pipeline/schema/v1/parts/python-verify.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19054,6 +19140,9 @@
         "tests/dependabot_auto_merge_source.py",
         "tests/fixtures/custom/fail.sh",
         "tests/fixtures/dotnet_test/Greeting.Tests.csproj",
+        "tests/fixtures/node_test/.nvmrc",
+        "tests/fixtures/node_test/package-lock.json",
+        "tests/fixtures/node_test/package.json",
         "tests/fixtures/python_tests/pyproject.toml",
         "tests/pipeline_fixtures.py",
         "tests/release_fixtures.py",
@@ -19085,6 +19174,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19117,6 +19207,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19146,6 +19237,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19195,6 +19287,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19216,6 +19309,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19235,6 +19329,8 @@
           ".github/workflows/pipeline.yml",
           "actions/dotnet-test/action.yml",
           "actions/dotnet-test/dotnet_test.py",
+          "actions/node-test/action.yml",
+          "actions/node-test/node_test.py",
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
@@ -19245,6 +19341,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19253,6 +19350,9 @@
           "actions/python-tests/python_tests.py",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/fixtures/dotnet_test/Greeting.Tests.csproj",
+          "tests/fixtures/node_test/.nvmrc",
+          "tests/fixtures/node_test/package-lock.json",
+          "tests/fixtures/node_test/package.json",
           "tests/fixtures/python_tests/pyproject.toml",
           "tests/pipeline_fixtures.py",
           "tests/test_pipeline_parts.py",
@@ -19271,6 +19371,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19302,6 +19403,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19328,6 +19430,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -19433,6 +19536,26 @@
         {
           "path": "actions/issue-title",
           "kind": "directory"
+        },
+        {
+          "path": "actions/node-test",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/node-test/node_test",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/node-test/node_test.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test/node_test.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test/node_test.so",
+          "kind": "any"
         },
         {
           "path": "actions/pipeline",
@@ -19677,6 +19800,10 @@
         {
           "path": "tests/fixtures/custom/absent.sh",
           "kind": "any"
+        },
+        {
+          "path": "tests/fixtures/node_test",
+          "kind": "directory"
         },
         {
           "path": "tests/pipeline_fixtures",
@@ -20938,6 +21065,26 @@
             "kind": "any"
           },
           {
+            "path": "actions/node-test",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/node-test/node_test",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/node-test/node_test.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/node-test/node_test.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/node-test/node_test.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/pipeline/plan",
             "kind": "directory"
           },
@@ -21000,6 +21147,10 @@
           {
             "path": "tests/__init__.so",
             "kind": "any"
+          },
+          {
+            "path": "tests/fixtures/node_test",
+            "kind": "directory"
           },
           {
             "path": "tests/pipeline_fixtures",
@@ -21475,6 +21626,7 @@
         ".",
         "actions/dotnet-test",
         "actions/issue-title",
+        "actions/node-test",
         "actions/pipeline",
         "actions/python-tests",
         "actions/repository-hygiene",
@@ -21532,6 +21684,7 @@
         "tests/test_pipeline_parts.py": [
           ".",
           "actions/dotnet-test",
+          "actions/node-test",
           "actions/pipeline",
           "actions/python-tests",
           "actions/repository-hygiene",
@@ -21593,6 +21746,7 @@
         "actions/pipeline/schema/v1/parts/full-recording.json",
         "actions/pipeline/schema/v1/parts/github-release.json",
         "actions/pipeline/schema/v1/parts/issue-title.json",
+        "actions/pipeline/schema/v1/parts/node-test.json",
         "actions/pipeline/schema/v1/parts/python-test.json",
         "actions/pipeline/schema/v1/parts/python-verify.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -21657,6 +21811,7 @@
           "actions/pipeline/schema/v1/parts/full-recording.json",
           "actions/pipeline/schema/v1/parts/github-release.json",
           "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -22589,6 +22744,76 @@
       ]
     },
     {
+      "name": "node-test",
+      "entries": [
+        "tests/test_node_test.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ],
+      "paths": [
+        "actions/node-test/node_test.py",
+        "tests/test_node_test.py"
+      ],
+      "existence_reads": [
+        {
+          "path": "actions",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/node-test",
+          "kind": "directory"
+        },
+        {
+          "path": "tests",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/__init__.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_node_test",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_node_test.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_node_test.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_node_test.so",
+          "kind": "any"
+        }
+      ],
+      "lookup_directories": [
+        ".",
+        "actions/node-test",
+        "tests"
+      ]
+    },
+    {
       "name": "python-floor",
       "entries": [
         "tests/test_python_floor.py"
@@ -22610,6 +22835,7 @@
         "actions/dependabot-auto-merge/auto_merge.py",
         "actions/dotnet-test/dotnet_test.py",
         "actions/issue-title/issue_title.py",
+        "actions/node-test/node_test.py",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/release.py",
@@ -22647,6 +22873,7 @@
         "actions/dependabot-auto-merge/consumer-kit",
         "actions/dotnet-test",
         "actions/issue-title",
+        "actions/node-test",
         "actions/pipeline",
         "actions/pipeline/consumer-kit",
         "actions/pipeline/consumer-kit/docs",
@@ -22724,6 +22951,14 @@
         },
         {
           "path": "actions/issue-title/__init__.pyi",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/node-test/__init__.pyi",
           "kind": "any"
         },
         {
@@ -25097,6 +25332,10 @@
       "tests"
     ],
     "actions/dotnet-test": [
+      "python_tests"
+    ],
+    "actions/node-test": [
+      "dotnet_test",
       "python_tests"
     ],
     "actions/pipeline": [
