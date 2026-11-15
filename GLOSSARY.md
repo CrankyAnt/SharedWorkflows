@@ -96,6 +96,10 @@ _Avoid_: Part schema, sub-schema
 The shared part that runs a script of the consumer after a setup that Shared Workflows knows, with read permission only, for CI that no other shared part covers.
 _Avoid_: Custom job, escape hatch, script job
 
+**Hook**:
+A setting of a shared part that names a script of the consumer that the part runs.
+_Avoid_: Extension point, callback
+
 **Request**:
 An issue in a consumer, labelled `shared-ci`, that asks for a shared part or for inputs that an existing shared part lacks.
 _Avoid_: Candidate report, shared-CI ticket
@@ -215,7 +219,7 @@ The file of a repository that names every suite with its entry files, its comman
 _Avoid_: Suite file, suites.json
 
 **Setup**:
-A named step that a job runs before its entry files, such as installing dependencies or building, which a suite or one of its entry files needs.
+A named step that a job runs before its entry files or its script, such as installing a toolchain or dependencies or building, which a suite, one of its entry files or the free job needs.
 _Avoid_: Install step, prepare step
 
 **Duration estimate**:
