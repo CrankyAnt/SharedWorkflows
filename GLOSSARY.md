@@ -22,6 +22,22 @@ _Avoid_: Central step, shared action
 A workflow that calls one shared workflow and runs no step of its own: in a consumer at `v1`, or in this repository by local path.
 _Avoid_: Wrapper, caller repository
 
+**Fixed caller**:
+A caller that every consumer holds equal byte for byte to its template at `v1`, one for each trigger class.
+_Avoid_: Stub workflow, kit workflow
+
+**Trigger class**:
+A set of events, with the permissions and secrets that runs on them get, on which one fixed caller starts: reading on pull requests and pushes, writing on automation events, or releasing on tags.
+_Avoid_: Caller type, event group
+
+**Configuration file**:
+The one file of a consumer that names the shared parts it switches on with their values, its Dependabot ecosystems and its local workflow register.
+_Avoid_: Settings file, CI config, ci-config.yml
+
+**Local workflow register**:
+The list in a configuration file of the workflows that stay in the consumer: each temporary, naming its request and the shared part it waits for, or permanent, naming a request that was declined.
+_Avoid_: Allowlist, exception list
+
 **Validation caller**:
 The caller that runs the suite selection, calls the one validation workflow with its shards and its Windows entry files, and gives the verdict. This repository's own validation caller calls the shared workflows by local path and runs its suites itself.
 _Avoid_: Validate caller, validation.yml
@@ -64,6 +80,18 @@ _Avoid_: Pin file, pin reference
 The shared part that runs a consumer's Python test suite with its standard test runner, pytest or unittest, and the language step for Python in one job, for a repository whose tests are too short for the suite selection to pay.
 _Avoid_: Test workflow, Python CI, test job
 
+**Pipeline**:
+The shared workflow that the reading fixed caller calls: it reads the configuration file, runs the shared parts that apply and gives the verdict.
+_Avoid_: CI workflow, main workflow
+
+**Free job**:
+The shared part that runs a script of the consumer after a setup that Shared Workflows knows, with read permission only, for CI that no other shared part covers.
+_Avoid_: Custom job, escape hatch, script job
+
+**Request**:
+An issue in a consumer, labelled `shared-ci`, that asks for a shared part or for inputs that an existing shared part lacks.
+_Avoid_: Candidate report, shared-CI ticket
+
 ### The v1 channel
 
 **v1 channel**:
@@ -73,6 +101,18 @@ _Avoid_: Release, release channel, v1 branch
 **Promotion**:
 A move of `v1` forward to a descendant commit whose CI on `main` passed: by hand after the user's yes, or automatically, by `promote-v1.yml`, for the updater App's pins pull request once the repository owner merged it. A move back to an earlier commit is a rollback.
 _Avoid_: Release, publish, tag bump
+
+**Promotion class**:
+The class of a path of the shared surface that decides how a change to it is promoted: the read class automatically after a proof run, the write class and the template class only by hand.
+_Avoid_: Risk class, surface class
+
+**Candidate tag**:
+The tag that a promotion moves first and to which the proof repository's callers point, so that a change runs there before `v1` moves.
+_Avoid_: Pre-release tag
+
+**Proof repository**:
+A public repository that exists only to run a candidate: its fixed callers equal the templates except that they point to the candidate tag.
+_Avoid_: Test repository, canary consumer, pilot consumer
 
 **Sweep**:
 The search through the owner's repositories, archived ones left out, for the consumers of the suite selection: each repository whose default-branch workflow files call the suite selection at `v1`. A manual move of `v1` sends a `v1-moved` dispatch run to each one whose calling workflow lists that event.
@@ -89,6 +129,20 @@ _Avoid_: Bot account, publication-checks App
 **Shared digest**:
 The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. For a pull request whose base is not the default branch, that run is the passed pull-request run that produced the base's tip, or else the last passed run on the default branch from the newest commit of its first-parent line that the base contains. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
 _Avoid_: Shared CI digest, recording hash
+
+### Sync
+
+**Sync**:
+The comparison of every reachable consumer's fixed callers, CI guide, generated Dependabot configuration and settings with the templates at `v1`, which proposes the files that differ and reports the settings that differ.
+_Avoid_: Drift fix, rollout, propagation
+
+**Sync App**:
+The GitHub App whose installation token the sync uses in the management repository, installed on the consumers it keeps equal and never on Shared Workflows.
+_Avoid_: Updater App, bot
+
+**Management repository**:
+The private repository that only runs the sync on a schedule and holds the sync App's key.
+_Avoid_: Admin repository, control repository, sync repository
 
 ### Checks
 
@@ -109,7 +163,7 @@ The name `<caller job> / <shared job>` that the check of a job in a shared workf
 _Avoid_: Status check name, job name
 
 **Verdict**:
-The one check of a validation run that a repository requires: it passes only when the suite selection succeeded and no unit it started failed or was cancelled.
+The one check that a repository requires, given by the pipeline as `ci / verdict` or by a validation run: it passes only when the plan or the suite selection succeeded and no shared part or unit it started failed or was cancelled.
 _Avoid_: Status check, gate job
 
 ### Runs
