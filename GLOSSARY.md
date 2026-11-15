@@ -77,7 +77,7 @@ The workflow of this repository at `v1` whose action pins a consumer copies into
 _Avoid_: Pin file, pin reference
 
 **Python tests**:
-The shared part that runs a consumer's Python test suite with its standard test runner, pytest or unittest, and the language step for Python in one job, for a repository whose tests are too short for the suite selection to pay.
+The shared part `python-test`, which runs the Python test suite of each configured project of a consumer with its standard test runner, pytest or unittest, one job per project, for a repository whose tests are too short for the suite selection to pay.
 _Avoid_: Test workflow, Python CI, test job
 
 **Pipeline**:
@@ -163,7 +163,7 @@ A check that applies to every repository with a given property, such as all repo
 _Avoid_: Central check, common check, generic check
 
 **Language step**:
-The shared step that runs the shared checks of one language inside the consumer's job that installs that language's toolchain.
+The shared step that runs the shared checks of one language in a job that has installed that language's toolchain: the job of the shared part `python-verify` in the pipeline, or a consumer's own job.
 _Avoid_: Lint job, language job, language workflow
 
 **Floor**:
