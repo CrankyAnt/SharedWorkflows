@@ -330,6 +330,7 @@
           "tests/test_ci_policy_auto_merge_caller.py"
         ],
         "tests/test_ci_policy_catalogue.py": [
+          "actions/pipeline/consumer-kit/README.md",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
