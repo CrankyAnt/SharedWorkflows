@@ -159,6 +159,7 @@ jobs:
         if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"

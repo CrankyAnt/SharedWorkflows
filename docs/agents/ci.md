@@ -26,6 +26,7 @@ This repository calls its own shared workflows and shared steps by local path, `
 | Suite selection | `validate.yml` | `validation / validation` | on `select`: `suites: tests/suites.json`, `language-steps: python`, `runner-labels: linux=ubuntu-26.04 windows=windows-2025`, `setup-versions: python=3.13` |
 | Python language step | `validate.yml`, shard 1; `python-tests.yml` in `python-tests-caller.yml` | none | none |
 | Python tests | `python-tests-caller.yml` | `tests / tests` | `python-version: "3.14"`, `working-directory: tests/fixtures/python_tests`, `install: dev` |
+| Pipeline | `ci.yml` | `ci / verdict` | none; the configuration file `.github/ci-config.yml` switches no part on |
 
 `docs/maintaining.md` describes what each part runs:
 
@@ -34,10 +35,11 @@ This repository calls its own shared workflows and shared steps by local path, `
 - Suite selection: [Job layout](../maintaining.md#job-layout) and [Suite selection](../maintaining.md#suite-selection).
 - Python language step: [Python language step](../maintaining.md#python-language-step).
 - Python tests: [Python tests](../maintaining.md#python-tests), on the fixture project that tests the shared workflow.
+- Pipeline: [Pipeline](../maintaining.md#pipeline), which runs repository hygiene a second time beside the hygiene caller while both shared workflows are at `v1`.
 
 The hygiene caller, the validation caller and the Python tests caller also run on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event).
 
-The checks to require in a ruleset on the default branch are `hygiene / hygiene`, `validation / validation` and `tests / tests`; [Change a check name](../maintaining.md#change-a-check-name) changes them.
+The checks to require in a ruleset on the default branch are `hygiene / hygiene`, `validation / validation` and `tests / tests`; [Change a check name](../maintaining.md#change-a-check-name) changes them. `ci / verdict` reports on every pull request and is not required yet.
 
 ## Inputs
 

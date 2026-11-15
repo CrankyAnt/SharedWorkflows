@@ -6,6 +6,7 @@ const PAGE_LIMIT = 100;
 const TIMEOUT_MILLISECONDS = 30000;
 
 class UnreadableList extends Error {}
+class UnreadablePullRequest extends Error {}
 
 function git(...arguments_) {
   const result = spawnSync("git", arguments_, { encoding: "utf8", maxBuffer: 1024 * 1024 * 1024 });
@@ -24,6 +25,36 @@ function pullRequestEvent() {
     throw new Error("the pull request event in GITHUB_EVENT_PATH names no pull request");
   }
   return event;
+}
+
+// The pull request as it is now, read with the job's token: a run that is started again after a corrected title or
+// body checks the corrected text, which the event file of the first run does not hold.
+async function currentPullRequest(event) {
+  const repository = process.env.GITHUB_REPOSITORY ?? "";
+  if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("GITHUB_REPOSITORY names no repository");
+  const number = event.pull_request.number ?? event.number;
+  if (!Number.isInteger(number)) throw new Error("the pull request event in GITHUB_EVENT_PATH names no pull request number");
+  const api = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/+$/, "");
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "publication-checks" };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  let response;
+  let pullRequest;
+  try {
+    response = await fetch(`${api}/repos/${repository}/pulls/${number}`, { headers, signal: AbortSignal.timeout(TIMEOUT_MILLISECONDS) });
+  } catch (error) {
+    throw new UnreadablePullRequest(`request failed (${error.cause?.code ?? error.name})`);
+  }
+  if (!response.ok) throw new UnreadablePullRequest(`HTTP ${response.status}`);
+  try {
+    pullRequest = await response.json();
+  } catch {
+    pullRequest = undefined;
+  }
+  const { title, body } = pullRequest ?? {};
+  if (typeof title !== "string" || (typeof body !== "string" && body !== null && body !== undefined)) {
+    throw new UnreadablePullRequest("the answer is not the expected JSON pull request");
+  }
+  return { title, body };
 }
 
 // Every text the check reads, with the name its positions are reported under.
@@ -101,7 +132,15 @@ async function main() {
     console.log("Skipping the reference check: this repository is private, so its texts are not public.");
     return 0;
   }
-  const found = references(owner, texts(base, head, event.pull_request));
+  let pullRequest;
+  try {
+    pullRequest = await currentPullRequest(event);
+  } catch (error) {
+    if (!(error instanceof UnreadablePullRequest)) throw error;
+    console.error(`the pull request's current title and body cannot be read: ${error.message}. The check cannot read the texts it checks; run it again.`);
+    return 1;
+  }
+  const found = references(owner, texts(base, head, pullRequest));
   if (found.length === 0) {
     console.log("No reference to a repository of the owner.");
     return 0;

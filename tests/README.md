@@ -16,6 +16,8 @@ The first Linux shard also runs the Python language step outside the recording: 
 
 The `python-tests` suite (`tests/test_python_tests.py`, `tests/test_python_tests_workflow.py`) runs the script of Python tests on fixture repositories and projects in temporary directories, with a virtual environment without pip as the consumer's Python and stand-ins for pip and pytest on its `PYTHONPATH`, so it installs no package and needs only Python and Git. The fixture project `tests/fixtures/python_tests` is no input of a suite: `python-tests-caller.yml` runs the shared workflow on it.
 
+The `pipeline` suite (`tests/test_pipeline_*.py`) runs the plan program of the pipeline, `actions/pipeline/plan.py`, on fixture consumers in temporary Git repositories and on fixture schema folders with invented parts (`tests/pipeline_fixtures.py`), and checks the real schema folder; it needs only Python and Git. The contract of `pipeline.yml` and of the caller `ci.yml` is `tests/test_ci_policy_pipeline.py` in `ci-policy`.
+
 ### Adding a suite
 
 A new suite is one item in `tests/suites.json` with `name`, `entries`, `command`, `setups`, `os` for a Windows suite, and `entry_selection` for a suite selected per entry file. It has no `paths` at first, so it runs on every change. The recording `check` of its first run names its reads as additions; apply them with `recording.py apply`, as "Validation" in `docs/maintaining.md` says, in the change that adds the suite. A suite whose entry files need a setup that no suite has yet also needs that setup in the shard job of `validate.yml` and of `full-recording.yml`, which `ci-policy` keeps equal.

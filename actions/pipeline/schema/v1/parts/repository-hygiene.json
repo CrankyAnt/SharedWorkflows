@@ -1,0 +1,4 @@
+{
+  "description": "Repository hygiene: the convention checks, the credential scan and the shared checks that a change can affect.",
+  "always": true
+}

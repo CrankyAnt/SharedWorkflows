@@ -7,6 +7,7 @@
     ".github/workflows/suite-selection.yml",
     ".github/workflows/suite-verdict.yml",
     ".github/workflows/python-tests.yml",
+    ".github/workflows/pipeline.yml",
     "catalogue.json",
     "actions/publication-checks",
     "actions/repository-hygiene",
@@ -15,6 +16,7 @@
     "actions/recording",
     "actions/python-language-step",
     "actions/python-tests",
+    "actions/pipeline",
     "actions/repository-ruleset"
   ]
 }

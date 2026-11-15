@@ -64,17 +64,20 @@ Every tracked top-level folder whose name does not start with a dot gets one lin
 One line per validation or test command and per CI workflow the repository runs. A change that adds, removes or renames a command or workflow, or changes what it validates or tests, adds, removes or rewrites its line in the same change.
 
 - `wsl -d Ubuntu-26.04-CI -u root -- ci-max python3 -m unittest -v <entry file>`: one Linux entry file, with its suite's `command` from the suite list `tests/suites.json`, on the hosted runner's tool versions
+- `python actions/pipeline/plan.py schema --check`: the assembled schema of the configuration file against its base and fragments; without `--check` it writes the schema
 - `python -m unittest -v <entry file>`: one entry file of the Windows suites `windows` and `etw-consumer-build`, on Windows
 - `repository-hygiene-caller` (local path): the convention checks of branch names, commit subjects and pull-request titles, the check, in a public repository, of commit messages and pull-request titles and bodies for references to repositories of the owner that are not public, the credential scan, workflow validation, Dependabot coverage and the Markdown link check, and `reuse lint`
 - `dependabot-auto-merge-caller` (local path): auto-merge of qualifying Dependabot pull requests
 - `python-tests-caller` (local path): Python tests on the fixture project `tests/fixtures/python_tests`: its installation, the Python language step and its pytest test
 - `validate` (local path): the validation caller; selects the units from the stored lists of the suite list, runs them in Linux shards and one Windows job under the recording step and reports the verdict `validation / validation`
+- `ci` (local path): the pipeline caller; checks the configuration file `.github/ci-config.yml`, runs repository hygiene and reports the verdict `ci / verdict`
 - `full-recording`: records every entry file every two weeks and proposes the changed stored lists and duration estimates as a pull request
 - `repository-hygiene`: the shared workflow of repository hygiene, called by `repository-hygiene-caller` and by consumers at `v1`
 - `dependabot-auto-merge`: the shared workflow of Dependabot auto-merge, called by `dependabot-auto-merge-caller` and by consumers at `v1`
 - `suite-selection`: the shared workflow of the suite selection, called by `validate` and by consumers at `v1`
 - `suite-verdict`: the shared workflow of the verdict, called by `validate` and by consumers at `v1`
 - `python-tests`: the shared workflow of Python tests, called by `python-tests-caller` and by consumers at `v1`
+- `pipeline`: the shared workflow of the pipeline, called by `ci` and by consumers at `v1`
 - `promote-v1`: moves `v1` after a pins-only commit on `main` whose CI passed
 - `apply-additions`: commits the recorded additions of a failed `Validate` run onto its pull request's branch, once per push, or comments with the manual route, and leaves a run that `rebuild-etw-consumer` acts on to it; the kit template, kept equal by `ci-policy`
 - `rebuild-etw-consumer`: rebuilds the committed ETW consumer for a Dependabot pull request after a failed `Validate` and commits it with the run's recorded additions to its branch, once per push, or comments with the manual route when a failed or cancelled job leaves a run it acts on without that commit

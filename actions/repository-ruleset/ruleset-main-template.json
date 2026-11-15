@@ -19,7 +19,8 @@
         "required_status_checks": [
           { "context": "hygiene / hygiene", "integration_id": 15368 },
           { "context": "validation / validation", "integration_id": 15368 },
-          { "context": "tests / tests", "integration_id": 15368 }
+          { "context": "tests / tests", "integration_id": 15368 },
+          { "context": "ci / verdict", "integration_id": 15368 }
         ]
       }
     }

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The configuration file .github/ci-config.yml, version 1",
+  "description": "Switches shared parts of the pipeline on with their values and registers the repository's local workflows. A part runs when it is stated under parts; a part that is not stated is switched off. The smallest valid file is the line `version: 1`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "description": "The schema version of this file. The pipeline reads the current version and the one before it.",
+      "const": 1
+    },
+    "parts": {
+      "description": "The shared parts that are switched on, each under its name with its values. A part without values is stated as `<part>: {}`. Not stated here, because it always runs and has no settings: repository-hygiene.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "local-workflows": {
+      "description": "The register of the repository's workflows that are no fixed caller: one entry per workflow file.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/local-workflow"
+      }
+    }
+  },
+  "$defs": {
+    "paths": {
+      "description": "The part runs only when a changed path matches one of these patterns, when its own configuration changed, or when the changed files are unknown. A pattern is a path relative to the repository root with `/` separators: one that ends in `/` matches everything under that folder, `*` matches within one path segment, `?` matches one character of a segment, `**` matches any number of segments, and any other pattern matches that one path. Invented example: [\"src/\", \"tests/**/*.py\", \"pyproject.toml\"].",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "local-workflow": {
+      "oneOf": [
+        {
+          "title": "a temporary entry (workflow, request, waits-for)",
+          "description": "A workflow that stays local until the shared part it waits for exists. Invented example: {\"workflow\": \".github/workflows/nightly-report.yml\", \"request\": 12, \"waits-for\": \"python-release\"}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workflow",
+            "request",
+            "waits-for"
+          ],
+          "properties": {
+            "workflow": {
+              "$ref": "#/$defs/workflow"
+            },
+            "request": {
+              "description": "The number of the request issue in this repository.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "waits-for": {
+              "description": "The name of the shared part the workflow waits for.",
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+            }
+          }
+        },
+        {
+          "title": "a permanent entry (workflow, declined-request)",
+          "description": "A workflow that stays local because its request was declined. Invented example: {\"workflow\": \".github/workflows/weekly-monitor.yml\", \"declined-request\": 15}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workflow",
+            "declined-request"
+          ],
+          "properties": {
+            "workflow": {
+              "$ref": "#/$defs/workflow"
+            },
+            "declined-request": {
+              "description": "The number of the closed request issue in this repository that was declined.",
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "workflow": {
+      "description": "The path of the workflow file.",
+      "type": "string",
+      "pattern": "^\\.github/workflows/[^/]+\\.ya?ml$"
+    }
+  }
+}

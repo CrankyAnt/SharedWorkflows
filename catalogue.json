@@ -50,6 +50,16 @@
       "needs": "A Python project for Python 3.11 or newer with tests that pytest or unittest discovers, and its test dependencies, pytest included where the project configures it, in a requirements file or an extra of the project.",
       "applies": "A repository with Python tests short enough that the suite selection does not pay, and not a repository that uses the suite selection, which runs its Python tests through that part.",
       "consumer_kit": "actions/python-tests/consumer-kit"
+    },
+    {
+      "name": "Pipeline",
+      "purpose": "Reads a repository's configuration file, runs repository hygiene and the shared parts that the file switches on and a change can affect, and reports one verdict as the required check.",
+      "workflows": [".github/workflows/pipeline.yml"],
+      "steps": ["actions/pipeline"],
+      "required_checks": ["ci / verdict"],
+      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, and a caller ci.yml whose job ci calls the pipeline on pull requests and on pushes to main.",
+      "applies": "Every repository; the fixed callers and their adoption follow in a later version of this catalogue, and until then the other shared parts are adopted through their consumer kits.",
+      "consumer_kit": null
     }
   ]
 }

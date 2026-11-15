@@ -25,7 +25,8 @@
         "tests/test_ci_policy_python_language_step.py",
         "tests/test_ci_policy_reuse.py",
         "tests/test_ci_policy_python_tests_caller.py",
-        "tests/test_ci_policy_apply_additions.py"
+        "tests/test_ci_policy_apply_additions.py",
+        "tests/test_ci_policy_pipeline.py"
       ],
       "command": [
         "python3",
@@ -62,9 +63,11 @@
       "paths": [
         ".github/dependabot.yml",
         ".github/workflows/apply-additions.yml",
+        ".github/workflows/ci.yml",
         ".github/workflows/dependabot-auto-merge-caller.yml",
         ".github/workflows/dependabot-auto-merge.yml",
         ".github/workflows/full-recording.yml",
+        ".github/workflows/pipeline.yml",
         ".github/workflows/probe-dependabot-app-token.yml",
         ".github/workflows/promote-v1.yml",
         ".github/workflows/python-tests-caller.yml",
@@ -147,6 +150,7 @@
         "tests/test_ci_policy_hygiene_updater.py",
         "tests/test_ci_policy_hygiene_validate.py",
         "tests/test_ci_policy_off_path_runners.py",
+        "tests/test_ci_policy_pipeline.py",
         "tests/test_ci_policy_publication.py",
         "tests/test_ci_policy_publication_document.py",
         "tests/test_ci_policy_python_language_step.py",
@@ -474,6 +478,14 @@
           "docs/maintaining.md",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_apply_additions.py"
+        ],
+        "tests/test_ci_policy_pipeline.py": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/pipeline.yml",
+          ".github/workflows/repository-hygiene.yml",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
+          "tests/test_ci_policy_pipeline.py"
         ]
       },
       "directory_memberships": [
@@ -15598,6 +15610,25 @@
           "tests"
         ]
       }
+    },
+    {
+      "name": "pipeline",
+      "entries": [
+        "tests/test_pipeline_plan.py",
+        "tests/test_pipeline_schema.py",
+        "tests/test_pipeline_verdict.py",
+        "tests/test_pipeline_workflow.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ],
+      "entry_selection": true
     },
     {
       "name": "python-floor",
