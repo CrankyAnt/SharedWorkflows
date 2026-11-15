@@ -181,6 +181,12 @@ The triage of Shared Workflows collects the open requests and answers each in a 
 
 `ci.yml` does not start on `edited`, so correcting a pull request's title or body starts no run. The title check and the reference check read the current title and body from GitHub: after a correction, re-run the failed job.
 
+## The sync App
+
+The sync keeps the fixed files of a repository equal to their templates: it opens a pull request with auto-merge when a fixed caller, the CI guide or the generated Dependabot configuration differs. It reaches a repository through the installation of the sync App, a GitHub App that is installed on selected repositories, one by one.
+
+Only the owner adds a repository to the sync App. An agent in a repository does not install it and asks the user instead. A repository outside the installation receives no sync updates: no sync pull request arrives after `v1` moves, its fixed files stay as they are until someone brings them in line by hand as [When a repository adopted it earlier](#when-a-repository-adopted-it-earlier) says, and the hygiene job of its pipeline fails on a fixed file that differs from its template.
+
 ## Default-branch ruleset
 
 The one check that the ruleset on `main` requires is `ci / verdict`. The [ruleset template](../../repository-ruleset/README.md) holds it with three checks of callers that a repository with the fixed callers no longer holds; drop those three. The sync compares the ruleset with the ruleset template holding `ci / verdict` as its one required check, and the merge settings with those that the [consumer kit of repository hygiene](../../repository-hygiene/consumer-kit/README.md#merge-settings) states. A difference in either is no choice of the repository and is not kept: the sync reports it on every run, and its local mode replaces it with the template's value.

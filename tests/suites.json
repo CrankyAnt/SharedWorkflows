@@ -142,6 +142,7 @@
         ".github/workflows/update-publication-spec.yml",
         ".github/workflows/validate.yml",
         ".github/zizmor.yml",
+        "README.md",
         "actions/dependabot-auto-merge/action.yml",
         "actions/dependabot-auto-merge/auto_merge.py",
         "actions/dependabot-auto-merge/consumer-kit/README.md",
@@ -244,14 +245,13 @@
         "actions/suite-selection/unrecorded.py",
         "actions/sync/action.yml",
         "actions/sync/adoption.json",
-        "actions/sync/consumer-kit/AGENTS.template.md",
-        "actions/sync/consumer-kit/README.md",
-        "actions/sync/consumer-kit/sync.yml",
+        "actions/sync/caller.yml",
         "actions/sync/merge-settings.json",
         "actions/sync/sync.py",
         "catalogue.json",
         "docs/agents/issue-tracker.md",
         "docs/maintaining.md",
+        "tests/README.md",
         "tests/ci_policy_support.py",
         "tests/fixtures/issue_title/categories.json",
         "tests/fixtures/python_tests/pyproject.toml",
@@ -402,9 +402,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
-          "actions/sync/consumer-kit/AGENTS.template.md",
-          "actions/sync/consumer-kit/README.md",
-          "actions/sync/consumer-kit/sync.yml",
+          "actions/sync/caller.yml",
           "actions/sync/merge-settings.json",
           "catalogue.json",
           "tests/ci_policy_support.py",
@@ -585,7 +583,6 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
-          "actions/sync/consumer-kit/sync.yml",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_zizmor.py"
         ],
@@ -690,6 +687,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "actions/sync/action.yml",
+          "actions/sync/caller.yml",
           "actions/sync/sync.py",
           "catalogue.json",
           "tests/ci_policy_support.py",
@@ -898,6 +896,7 @@
         ],
         "tests/test_ci_policy_sync.py": [
           ".github/workflows/sync.yml",
+          "README.md",
           "actions/pipeline/consumer-kit/README.md",
           "actions/pipeline/consumer-kit/docs/agents/ci.md",
           "actions/pipeline/consumer-kit/previous/docs/agents/ci.md",
@@ -905,16 +904,18 @@
           "actions/pipeline/plan.py",
           "actions/repository-hygiene/consumer-kit/README.md",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/shared-surface.json",
           "actions/repository-ruleset/README.md",
           "actions/repository-ruleset/ruleset-main-template.json",
           "actions/suite-selection/ci_definition.py",
           "actions/sync/action.yml",
           "actions/sync/adoption.json",
-          "actions/sync/consumer-kit/AGENTS.template.md",
-          "actions/sync/consumer-kit/README.md",
-          "actions/sync/consumer-kit/sync.yml",
+          "actions/sync/caller.yml",
           "actions/sync/merge-settings.json",
           "actions/sync/sync.py",
+          "catalogue.json",
+          "docs/maintaining.md",
+          "tests/README.md",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_sync.py",
           "tests/workflow_commands.py"
@@ -1003,8 +1004,6 @@
         "actions/suite-selection/consumer-kit/**",
         "actions/sync",
         "actions/sync/**",
-        "actions/sync/consumer-kit",
-        "actions/sync/consumer-kit/**",
         "catalogue.json/**",
         "tests/fixtures/python_tests",
         "tests/fixtures/python_tests/tests",
@@ -1050,7 +1049,6 @@
         "tests/test_consumer_kit_installed_permissions.py/**",
         "tests/test_consumer_kit_installed_targets.py/**",
         "tests/test_consumer_kit_installed_validation.py/**",
-        "tests/test_consumer_kit_management.py/**",
         "tests/test_consumer_kit_own_dependabot.py/**",
         "tests/test_consumer_kit_publication.py/**",
         "tests/test_consumer_kit_python_tests.py/**",
@@ -1190,8 +1188,7 @@
           "actions/repository-ruleset/**",
           "actions/suite-selection/**",
           "actions/suite-selection/consumer-kit/**",
-          "actions/sync/**",
-          "actions/sync/consumer-kit/**"
+          "actions/sync/**"
         ],
         "tests/test_ci_policy_shared_surface.py": [
           ".github/workflows/**",
@@ -1220,7 +1217,6 @@
           "actions/suite-selection/**",
           "actions/suite-selection/consumer-kit/**",
           "actions/sync/**",
-          "actions/sync/consumer-kit/**",
           "catalogue.json/**"
         ],
         "tests/test_ci_policy_hygiene_validate.py": [
@@ -1277,7 +1273,6 @@
           "tests/test_consumer_kit_installed_permissions.py/**",
           "tests/test_consumer_kit_installed_targets.py/**",
           "tests/test_consumer_kit_installed_validation.py/**",
-          "tests/test_consumer_kit_management.py/**",
           "tests/test_consumer_kit_own_dependabot.py/**",
           "tests/test_consumer_kit_publication.py/**",
           "tests/test_consumer_kit_python_tests.py/**",
@@ -1375,8 +1370,7 @@
           "actions/python-language-step/consumer-kit",
           "actions/python-tests/consumer-kit",
           "actions/repository-hygiene/consumer-kit",
-          "actions/suite-selection/consumer-kit",
-          "actions/sync/consumer-kit"
+          "actions/suite-selection/consumer-kit"
         ],
         "tests/test_ci_policy_etw_consumer.py": [
           ".github/workflows"
@@ -1412,8 +1406,7 @@
           "actions/repository-ruleset",
           "actions/suite-selection",
           "actions/suite-selection/consumer-kit",
-          "actions/sync",
-          "actions/sync/consumer-kit"
+          "actions/sync"
         ],
         "tests/test_ci_policy_reuse.py": [
           ".github/workflows"
@@ -1843,6 +1836,10 @@
         },
         {
           "path": "actions/sync",
+          "kind": "any"
+        },
+        {
+          "path": "actions/sync/caller.yml",
           "kind": "any"
         },
         {
@@ -2558,10 +2555,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/test_consumer_kit_management.py",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_consumer_kit_own_dependabot.py",
           "kind": "any"
         },
@@ -3217,7 +3210,7 @@
             "kind": "any"
           },
           {
-            "path": "actions/sync/consumer-kit",
+            "path": "actions/sync/caller.yml",
             "kind": "any"
           },
           {
@@ -3412,10 +3405,6 @@
           },
           {
             "path": "actions/sync",
-            "kind": "any"
-          },
-          {
-            "path": "actions/sync/consumer-kit",
             "kind": "any"
           },
           {
@@ -4369,10 +4358,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_consumer_kit_management.py",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_own_dependabot.py",
             "kind": "any"
           },
@@ -4756,6 +4741,10 @@
           },
           {
             "path": "actions/repository-ruleset/consumer-kit",
+            "kind": "any"
+          },
+          {
+            "path": "actions/sync/consumer-kit",
             "kind": "any"
           },
           {
@@ -6265,8 +6254,7 @@
         "tests/test_consumer_kit_templates.py",
         "tests/test_consumer_kit_validation_workflow.py",
         "tests/test_consumer_kit_python_tests.py",
-        "tests/test_consumer_kit_fixed_callers.py",
-        "tests/test_consumer_kit_management.py"
+        "tests/test_consumer_kit_fixed_callers.py"
       ],
       "command": [
         "python3",
@@ -6325,8 +6313,6 @@
         "actions/pipeline/consumer-kit/ci.yml",
         "actions/pipeline/consumer-kit/docs/agents/ci.md",
         "actions/pipeline/consumer-kit/release.yml",
-        "actions/pipeline/consumer_checks.py",
-        "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/ci-config.schema.json",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
@@ -6355,10 +6341,6 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
-        "actions/sync/consumer-kit/AGENTS.template.md",
-        "actions/sync/consumer-kit/README.md",
-        "actions/sync/consumer-kit/sync.yml",
-        "actions/sync/sync.py",
         "catalogue.json",
         "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
         "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
@@ -6383,7 +6365,6 @@
         "tests/test_consumer_kit_installed_permissions.py",
         "tests/test_consumer_kit_installed_targets.py",
         "tests/test_consumer_kit_installed_validation.py",
-        "tests/test_consumer_kit_management.py",
         "tests/test_consumer_kit_own_dependabot.py",
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_python_tests.py",
@@ -6577,7 +6558,6 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
-          "actions/sync/consumer-kit/sync.yml",
           "tests/test_consumer_kit_publication.py",
           "tests/test_setup_ci_publication.py"
         ],
@@ -6598,7 +6578,6 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/consumer-kit/validation-workflow.yml",
           "actions/suite-selection/consumer-kit/validation.yml",
-          "actions/sync/consumer-kit/README.md",
           "catalogue.json",
           "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
           "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
@@ -6659,18 +6638,6 @@
           "docs/agents/ci.md",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_fixed_callers.py"
-        ],
-        "tests/test_consumer_kit_management.py": [
-          ".github/workflows/sync.yml",
-          "actions/pipeline/consumer_checks.py",
-          "actions/pipeline/plan.py",
-          "actions/repository-hygiene/dependabot_coverage.py",
-          "actions/sync/consumer-kit/AGENTS.template.md",
-          "actions/sync/consumer-kit/README.md",
-          "actions/sync/consumer-kit/sync.yml",
-          "actions/sync/sync.py",
-          "tests/consumer_kit_support.py",
-          "tests/test_consumer_kit_management.py"
         ]
       },
       "directory_memberships": [
@@ -6705,7 +6672,6 @@
         "actions/repository-hygiene",
         "actions/repository-hygiene/consumer-kit",
         "actions/suite-selection/consumer-kit",
-        "actions/sync/consumer-kit",
         "docs/adr"
       ],
       "entry_directory_memberships": {
@@ -6767,8 +6733,7 @@
           "actions/python-tests/consumer-kit",
           "actions/repository-hygiene",
           "actions/repository-hygiene/consumer-kit",
-          "actions/suite-selection/consumer-kit",
-          "actions/sync/consumer-kit"
+          "actions/suite-selection/consumer-kit"
         ],
         "tests/test_consumer_kit_templates.py": [
           "actions/dependabot-auto-merge/consumer-kit",
@@ -6778,7 +6743,6 @@
           "actions/repository-hygiene",
           "actions/repository-hygiene/consumer-kit",
           "actions/suite-selection/consumer-kit",
-          "actions/sync/consumer-kit",
           "docs/adr"
         ],
         "tests/test_consumer_kit_validation_workflow.py": [
@@ -6790,9 +6754,6 @@
         ],
         "tests/test_consumer_kit_fixed_callers.py": [
           "actions/repository-hygiene"
-        ],
-        "tests/test_consumer_kit_management.py": [
-          "actions/sync/consumer-kit"
         ]
       },
       "existence_reads": [
@@ -6838,38 +6799,6 @@
         },
         {
           "path": "actions/pipeline/consumer-kit/publication-checks.yml",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/consumer_checks",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/pipeline/consumer_checks.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/consumer_checks.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/plan",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/pipeline/plan.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/pipeline/plan.so",
           "kind": "any"
         },
         {
@@ -7053,23 +6982,11 @@
           "kind": "any"
         },
         {
+          "path": "actions/sync/consumer-kit",
+          "kind": "any"
+        },
+        {
           "path": "actions/sync/consumer-kit/publication-checks.yml",
-          "kind": "any"
-        },
-        {
-          "path": "actions/sync/sync",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/sync/sync.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/sync/sync.so",
           "kind": "any"
         },
         {
@@ -7378,22 +7295,6 @@
         },
         {
           "path": "tests/test_consumer_kit_installed_validation.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_management",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_consumer_kit_management.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_management.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_management.so",
           "kind": "any"
         },
         {
@@ -8842,6 +8743,10 @@
             "kind": "any"
           },
           {
+            "path": "actions/sync/consumer-kit",
+            "kind": "any"
+          },
+          {
             "path": "actions/sync/consumer-kit/publication-checks.yml",
             "kind": "any"
           },
@@ -9289,129 +9194,13 @@
             "path": "tests/test_consumer_kit_fixed_callers.so",
             "kind": "any"
           }
-        ],
-        "tests/test_consumer_kit_management.py": [
-          {
-            "path": "actions/pipeline/consumer_checks",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/pipeline/consumer_checks.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/consumer_checks.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/consumer_checks.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/plan",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/pipeline/plan.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/pipeline/plan.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/sync/sync",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/sync/sync.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/sync/sync.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/sync/sync.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/consumer_kit_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/consumer_kit_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/consumer_kit_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/consumer_kit_support.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_management",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_consumer_kit_management.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_management.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_management.so",
-            "kind": "any"
-          }
         ]
       },
       "lookup_directories": [
         ".",
-        "actions/pipeline",
         "actions/recording",
         "actions/repository-hygiene",
         "actions/suite-selection",
-        "actions/sync",
         "tests"
       ],
       "entry_lookup_directories": {
@@ -9475,13 +9264,6 @@
         ],
         "tests/test_consumer_kit_fixed_callers.py": [
           ".",
-          "tests"
-        ],
-        "tests/test_consumer_kit_management.py": [
-          ".",
-          "actions/pipeline",
-          "actions/repository-hygiene",
-          "actions/sync",
           "tests"
         ]
       }
@@ -10734,7 +10516,6 @@
         "tests/test_consumer_kit_installed_permissions.py/**",
         "tests/test_consumer_kit_installed_targets.py/**",
         "tests/test_consumer_kit_installed_validation.py/**",
-        "tests/test_consumer_kit_management.py/**",
         "tests/test_consumer_kit_own_dependabot.py/**",
         "tests/test_consumer_kit_publication.py/**",
         "tests/test_consumer_kit_python_tests.py/**",
@@ -10903,7 +10684,6 @@
           "tests/test_consumer_kit_installed_permissions.py/**",
           "tests/test_consumer_kit_installed_targets.py/**",
           "tests/test_consumer_kit_installed_validation.py/**",
-          "tests/test_consumer_kit_management.py/**",
           "tests/test_consumer_kit_own_dependabot.py/**",
           "tests/test_consumer_kit_publication.py/**",
           "tests/test_consumer_kit_python_tests.py/**",
@@ -11909,10 +11689,6 @@
         },
         {
           "path": "tests/test_consumer_kit_installed_validation.py",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_management.py",
           "kind": "any"
         },
         {
@@ -13824,10 +13600,6 @@
           },
           {
             "path": "tests/test_consumer_kit_installed_validation.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_management.py",
             "kind": "any"
           },
           {
@@ -16331,6 +16103,7 @@
         ]
       },
       "directory_memberships": [
+        "**",
         ".",
         "actions/repository-hygiene"
       ],
@@ -16356,6 +16129,9 @@
         ],
         "tests/test_hygiene_zizmor_surface.py": [
           "actions/repository-hygiene"
+        ],
+        "tests/test_v1_promotion.py": [
+          "**"
         ]
       },
       "existence_reads": [
@@ -22897,8 +22673,7 @@
         "actions/repository-ruleset",
         "actions/suite-selection",
         "actions/suite-selection/consumer-kit",
-        "actions/sync",
-        "actions/sync/consumer-kit"
+        "actions/sync"
       ],
       "existence_reads": [
         {
