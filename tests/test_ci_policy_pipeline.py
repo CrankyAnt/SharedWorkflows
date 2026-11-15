@@ -201,7 +201,8 @@ class PipelineTests(unittest.TestCase):
     def test_repository_hygiene_has_read_rights_only_and_keeps_no_checkout_credentials(self) -> None:
         self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, self.jobs[HYGIENE]["permissions"])
         checkouts = re.findall(r"- uses: actions/checkout@[0-9a-f]{40} # v[\d.]+\n        with:\n((?:          .*\n)+)", self.text)
-        self.assertEqual(self.text.count("actions/checkout@"), len(checkouts))
+        self.assertEqual(self.text.count("actions/checkout@"), len(checkouts), "every checkout of the pipeline states its options")
+        self.assertGreaterEqual(len(checkouts), 2)
         for options in checkouts:
             self.assertIn("persist-credentials: false", options)
 

@@ -17,6 +17,7 @@
     "actions/python-language-step",
     "actions/python-tests",
     "actions/pipeline",
+    "actions/dotnet-test",
     "actions/repository-ruleset"
   ]
 }

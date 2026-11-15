@@ -87,6 +87,32 @@
       "description": "The path of the workflow file.",
       "type": "string",
       "pattern": "^\\.github/workflows/[^/]+\\.ya?ml$"
+    },
+    "relative-path": {
+      "description": "A path relative to the repository root with `/` separators, without a `..` segment and without a leading `/` or `-`. Invented example: \"services/api\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![-/])(?!(.*/)?\\.\\.(/|$)).+$"
+    },
+    "runner-label": {
+      "description": "The label of one GitHub-hosted runner, of the ubuntu-, windows- or macos- family, such as \"windows-2025\"; no other label, so that no job runs on a self-hosted runner.",
+      "type": "string",
+      "pattern": "^(ubuntu|windows|macos)-[A-Za-z0-9][A-Za-z0-9.-]*$"
+    },
+    "dotnet-sdk-version": {
+      "description": "A .NET SDK version as a quoted string: one SDK (\"10.0.403\"), the newest patch of a feature band (\"10.0.4xx\"), of a minor version (\"10.0.x\") or of a major version (\"10.x\").",
+      "type": "string",
+      "pattern": "^[0-9]+\\.(x|[0-9]+\\.(x|[0-9]+|[0-9]xx))$"
+    },
+    "python-version": {
+      "description": "A Python version, 3.11 or newer, as a minor version (\"3.13\") or one patch of it (\"3.13.2\").",
+      "type": "string",
+      "pattern": "^3\\.(1[1-9]|[2-9][0-9])(\\.[0-9]+)?$"
+    },
+    "python-install": {
+      "description": "A requirements file ending in .txt, as a path relative to the project's directory, or the name of an extra of the project. Invented examples: \"requirements-dev.txt\", \"dev\".",
+      "type": "string",
+      "pattern": "^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?|(?![-/])[A-Za-z0-9._/-]+\\.txt)$"
     }
   }
 }

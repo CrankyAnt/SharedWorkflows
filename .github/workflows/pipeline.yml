@@ -113,6 +113,112 @@ jobs:
           SCRIPT: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config.script }}
         run: bash -- "$SCRIPT"
 
+  dotnet-test:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['dotnet-test'].run }}
+    name: dotnet-test (${{ matrix.project['project'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.plan).parts['dotnet-test'].config['projects'] }}
+    runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['dotnet-test'].group }}-${{ strategy.job-index }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['dotnet-test']['cancel-in-progress'] == true }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up the .NET SDK
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ matrix.project['sdk-version'] }}
+      - name: Build the project and run its tests
+        uses: $/actions/dotnet-test
+        with:
+          project: ${{ matrix.project['project'] }}
+
+  python-test:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['python-test'].run }}
+    name: python-test (${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.plan).parts['python-test'].config['projects'] }}
+    runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-test'].group }}-${{ strategy.job-index }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-test']['cancel-in-progress'] == true }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Load the script of Python tests from this workflow revision
+        id: resources
+        uses: $/actions/python-tests
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.project['python-version'] }}
+      - name: Install the dependencies
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          WORKING_DIRECTORY: ${{ matrix.project['working-directory'] || '.' }}
+          INSTALL: ${{ matrix.project['install'] }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" install --root "$WORKING_DIRECTORY" --install="$INSTALL"
+      - name: Run the tests
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+          WORKING_DIRECTORY: ${{ matrix.project['working-directory'] || '.' }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" test --root "$WORKING_DIRECTORY"
+
+  python-verify:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['python-verify'].run }}
+    name: python-verify (${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.plan).parts['python-verify'].config['projects'] }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-verify'].group }}-${{ strategy.job-index }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-verify']['cancel-in-progress'] == true }}
+    steps:
+      - name: Load the installation script from this workflow revision
+        id: resources
+        uses: $/actions/python-tests
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.project['python-version'] }}
+      - name: Install the dependencies
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          WORKING_DIRECTORY: ${{ matrix.project['working-directory'] || '.' }}
+          INSTALL: ${{ matrix.project['install'] }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/python_tests.py" install --root "$WORKING_DIRECTORY" --install="$INSTALL"
+      - name: Run the Python language step
+        uses: $/actions/python-language-step
+        with:
+          root: ${{ matrix.project['working-directory'] || '.' }}
+          format-check: ${{ matrix.project['format-check'] == true }}
+
   repository-hygiene:
     needs: plan
     if: ${{ !cancelled() }}
@@ -322,7 +428,7 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" gitleaks --tools "$HYGIENE_TOOLS" --config "$config" --baseline "$baseline"
 
   verdict:
-    needs: [plan, custom, repository-hygiene]
+    needs: [plan, custom, dotnet-test, python-test, python-verify, repository-hygiene]
     if: always()
     runs-on: ubuntu-slim
     permissions:

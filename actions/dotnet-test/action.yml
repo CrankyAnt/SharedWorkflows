@@ -1,0 +1,15 @@
+name: Shared .NET test step
+description: Build a .NET test project or solution and run its tests with the .NET SDK that the job installed.
+inputs:
+  project:
+    description: The test project or the solution, as a path relative to the repository root.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        PROJECT: ${{ inputs.project }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+      run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/dotnet_test.py" --project "$PROJECT"

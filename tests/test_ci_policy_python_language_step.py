@@ -82,14 +82,14 @@ class PythonLanguageStepConsumerKitTests(unittest.TestCase):
                     self.assertNotIn(forbidden, text)
 
 
-# The one shared workflow that installs a Python interpreter: Python tests sets up the Python its caller names.
-PYTHON_TESTS = ".github/workflows/python-tests.yml"
-# The free job of the pipeline installs the Python of the setup that a repository names for its script.
-PIPELINE = ".github/workflows/pipeline.yml"
+# The shared workflows that install a Python interpreter: Python tests sets up the Python its caller names, and the
+# pipeline sets up the Python that the configuration file names, in its jobs python-verify and python-test and, for
+# the setup that a repository names for its script, in its free job.
+INSTALLING = [".github/workflows/pipeline.yml", ".github/workflows/python-tests.yml"]
 
 
 class NoInterpreterInstallTests(unittest.TestCase):
-    def test_no_shared_part_but_python_tests_and_the_free_job_of_the_pipeline_installs_a_python_interpreter(self) -> None:
+    def test_only_python_tests_and_the_python_parts_and_the_free_job_of_the_pipeline_install_a_python_interpreter(self) -> None:
         surface = json.loads(SURFACE.read_text(encoding="utf-8"))["paths"]
         # A consumer kit's templates become the consumer's own workflows, which set up the Python its suites test on.
         files = [path for path in (REPOSITORY_ROOT / "actions").rglob("*")
@@ -98,7 +98,7 @@ class NoInterpreterInstallTests(unittest.TestCase):
         self.assertTrue(any(path.name == "suite-selection.yml" for path in files))
         install = re.compile(r"actions/setup-python|python-version:|\bpyenv\b|\buv python\b|deadsnakes|apt(?:-get)? install[^\n]*\bpython3?(?:\.\d+)?\b")
         installing = [path.relative_to(REPOSITORY_ROOT).as_posix() for path in files if install.search(path.read_text(encoding="utf-8"))]
-        self.assertEqual([PIPELINE, PYTHON_TESTS], sorted(installing))
+        self.assertEqual(INSTALLING, sorted(installing))
 
 
 if __name__ == "__main__":

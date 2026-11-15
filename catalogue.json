@@ -60,6 +60,36 @@
       "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, and the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, of which ci.yml calls the pipeline on pull requests and on pushes to main.",
       "applies": "Every repository; until a repository holds the fixed callers, it adopts the other shared parts through their consumer kits.",
       "consumer_kit": "actions/pipeline/consumer-kit"
+    },
+    {
+      "name": "python-verify",
+      "purpose": "A job of the pipeline per configured project that installs a Python version and the project's dependencies and runs the Python language checks: ruff check, mypy where the project configures it, and optionally ruff format --check.",
+      "workflows": [],
+      "steps": ["actions/python-language-step", "actions/python-tests"],
+      "required_checks": [],
+      "needs": "The pipeline, and parts.python-verify in .github/ci-config.yml with projects, a list of one or more projects that each name python-version, 3.11 or newer, and optionally working-directory, install and format-check; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/python-verify.json states every setting.",
+      "applies": "A repository with Python files that runs the pipeline.",
+      "consumer_kit": null
+    },
+    {
+      "name": "python-test",
+      "purpose": "A job of the pipeline per configured project that installs a Python version and the project's dependencies and runs the project's Python tests with pytest where the project configures it and otherwise with unittest.",
+      "workflows": [],
+      "steps": ["actions/python-tests"],
+      "required_checks": [],
+      "needs": "The pipeline, a Python project with tests that pytest or unittest discovers, its test dependencies in a requirements file or an extra of the project, and parts.python-test in .github/ci-config.yml with projects, a list of one or more projects that each name python-version, 3.11 or newer, and optionally working-directory, install and runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/python-test.json states every setting.",
+      "applies": "A repository that runs the pipeline and has Python tests short enough that the suite selection does not pay, and not a repository that uses the suite selection, which runs its Python tests through that part.",
+      "consumer_kit": null
+    },
+    {
+      "name": "dotnet-test",
+      "purpose": "A job of the pipeline per configured test project or solution that installs a .NET SDK version, builds it, runs its tests with dotnet test and fails when no test ran.",
+      "workflows": [],
+      "steps": ["actions/dotnet-test"],
+      "required_checks": [],
+      "needs": "The pipeline, a .NET test project or a solution that dotnet test runs, and parts.dotnet-test in .github/ci-config.yml with projects, a list of one or more items that each name sdk-version and project and optionally runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/dotnet-test.json states every setting.",
+      "applies": "A repository with .NET tests that runs the pipeline.",
+      "consumer_kit": null
     }
   ]
 }

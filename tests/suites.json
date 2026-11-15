@@ -27,7 +27,8 @@
         "tests/test_ci_policy_python_tests_caller.py",
         "tests/test_ci_policy_apply_additions.py",
         "tests/test_ci_policy_pipeline.py",
-        "tests/test_ci_policy_fixed_callers.py"
+        "tests/test_ci_policy_fixed_callers.py",
+        "tests/test_ci_policy_pipeline_parts.py"
       ],
       "command": [
         "python3",
@@ -87,6 +88,7 @@
         "actions/dependabot-auto-merge/consumer-kit/README.md",
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
+        "actions/dotnet-test/action.yml",
         "actions/pipeline/action.yml",
         "actions/pipeline/consumer-kit/README.md",
         "actions/pipeline/consumer-kit/automation.yml",
@@ -97,6 +99,9 @@
         "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/ci-config.schema.json",
         "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/dotnet-test.json",
+        "actions/pipeline/schema/v1/parts/python-test.json",
+        "actions/pipeline/schema/v1/parts/python-verify.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
         "actions/pipeline/schema/v1/setups.json",
         "actions/publication-checks/action.yml",
@@ -165,6 +170,7 @@
         "tests/test_ci_policy_hygiene_validate.py",
         "tests/test_ci_policy_off_path_runners.py",
         "tests/test_ci_policy_pipeline.py",
+        "tests/test_ci_policy_pipeline_parts.py",
         "tests/test_ci_policy_publication.py",
         "tests/test_ci_policy_publication_document.py",
         "tests/test_ci_policy_python_language_step.py",
@@ -552,6 +558,22 @@
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_fixed_callers.py"
+        ],
+        "tests/test_ci_policy_pipeline_parts.py": [
+          ".github/workflows/pipeline.yml",
+          ".github/workflows/python-tests.yml",
+          ".github/workflows/validate.yml",
+          "actions/dotnet-test/action.yml",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/python-language-step/action.yml",
+          "actions/python-tests/action.yml",
+          "actions/repository-hygiene/shared-surface.json",
+          "actions/suite-selection/ci_definition.py",
+          "catalogue.json",
+          "tests/ci_policy_support.py",
+          "tests/test_ci_policy_pipeline_parts.py"
         ]
       },
       "directory_memberships": [
@@ -16259,7 +16281,8 @@
         "tests/test_pipeline_workflow.py",
         "tests/test_pipeline_callers.py",
         "tests/test_pipeline_register.py",
-        "tests/test_pipeline_dependabot.py"
+        "tests/test_pipeline_dependabot.py",
+        "tests/test_pipeline_parts.py"
       ],
       "command": [
         "python3",
@@ -16274,13 +16297,19 @@
       "paths": [
         ".github/ci-config.yml",
         ".github/workflows/pipeline.yml",
+        "actions/dotnet-test/action.yml",
+        "actions/dotnet-test/dotnet_test.py",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/base.json",
         "actions/pipeline/schema/v1/ci-config.schema.json",
         "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/dotnet-test.json",
+        "actions/pipeline/schema/v1/parts/python-test.json",
+        "actions/pipeline/schema/v1/parts/python-verify.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
         "actions/pipeline/schema/v1/setups.json",
+        "actions/python-tests/python_tests.py",
         "actions/repository-hygiene/dependabot_coverage.py",
         "actions/repository-hygiene/hygiene.py",
         "actions/repository-hygiene/install_tools.py",
@@ -16292,10 +16321,13 @@
         "tests/consumer_checks_fixtures.py",
         "tests/consumer_kit_support.py",
         "tests/fixtures/custom/fail.sh",
+        "tests/fixtures/dotnet_test/Greeting.Tests.csproj",
+        "tests/fixtures/python_tests/pyproject.toml",
         "tests/pipeline_fixtures.py",
         "tests/test_pipeline_callers.py",
         "tests/test_pipeline_custom.py",
         "tests/test_pipeline_dependabot.py",
+        "tests/test_pipeline_parts.py",
         "tests/test_pipeline_plan.py",
         "tests/test_pipeline_register.py",
         "tests/test_pipeline_schema.py",
@@ -16397,6 +16429,26 @@
           "tests/consumer_kit_support.py",
           "tests/pipeline_fixtures.py",
           "tests/test_pipeline_dependabot.py"
+        ],
+        "tests/test_pipeline_parts.py": [
+          ".github/ci-config.yml",
+          ".github/workflows/pipeline.yml",
+          "actions/dotnet-test/action.yml",
+          "actions/dotnet-test/dotnet_test.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/python-tests/python_tests.py",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/fixtures/dotnet_test/Greeting.Tests.csproj",
+          "tests/fixtures/python_tests/pyproject.toml",
+          "tests/pipeline_fixtures.py",
+          "tests/test_pipeline_parts.py",
+          "tests/workflow_commands.py"
         ]
       },
       "directory_memberships": [
@@ -17791,6 +17843,21 @@
           "tests"
         ]
       }
+    },
+    {
+      "name": "dotnet-test",
+      "entries": [
+        "tests/test_dotnet_test.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ]
     },
     {
       "name": "python-floor",
