@@ -100,6 +100,16 @@
       "needs": "The fixed caller release.yml of the pipeline's consumer kit, the part github-release under parts in the configuration file .github/ci-config.yml with its tag patterns, its allowed-signers file and the files to publish, as the schema actions/pipeline/schema/v1/ci-config.schema.json describes them, and that allowed-signers file on the default branch.",
       "applies": "A repository that publishes files as a GitHub release from signed tags.",
       "consumer_kit": "actions/pipeline/consumer-kit"
+    },
+    {
+      "name": "Sync",
+      "purpose": "Compares every repository that the sync App is installed on with the templates of the fixed files and with the ruleset and merge settings, opens a pull request with auto-merge for file differences and reports settings differences as issues.",
+      "workflows": [".github/workflows/sync.yml"],
+      "steps": ["actions/sync"],
+      "required_checks": [],
+      "needs": "A private repository built from the management repository kit, with the environment sync limited to main that holds the Client ID and the private key of the sync App, which has Contents, Pull requests and Workflows write and Issues read, no Administration, and is never installed on CrankyAnt/SharedWorkflows.",
+      "applies": "The one management repository of the owner; a consumer does not call it, and the sync reaches a consumer through the App's installation.",
+      "consumer_kit": "actions/sync/consumer-kit"
     }
   ]
 }

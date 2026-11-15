@@ -1,0 +1,50 @@
+name: Sync
+
+on:
+  workflow_call:
+    secrets:
+      SYNC_APP_PRIVATE_KEY:
+        description: The private key of the sync App. The job reads it from the environment sync of the calling repository.
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 30
+    environment: sync
+    permissions:
+      issues: write
+    steps:
+      - name: Load the sync program from this workflow revision
+        id: resources
+        uses: $/actions/sync
+      - name: Get the installation token of the sync App
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] the sync reaches every repository of the installation, so that no file names one
+          permission-contents: write
+          permission-issues: read
+          permission-pull-requests: write
+          permission-workflows: write
+      - name: Compare every repository of the installation with the templates
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/sync.py" sync --own-repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Open an issue for a failed run
+        if: ${{ failure() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/sync.py" failure --own-repository "$GITHUB_REPOSITORY" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --summary "$GITHUB_STEP_SUMMARY"

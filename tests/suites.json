@@ -30,7 +30,8 @@
         "tests/test_ci_policy_fixed_callers.py",
         "tests/test_ci_policy_pipeline_parts.py",
         "tests/test_ci_policy_release.py",
-        "tests/test_ci_policy_automation.py"
+        "tests/test_ci_policy_automation.py",
+        "tests/test_ci_policy_sync.py"
       ],
       "command": [
         "python3",
@@ -83,6 +84,7 @@
         ".github/workflows/repository-hygiene.yml",
         ".github/workflows/suite-selection.yml",
         ".github/workflows/suite-verdict.yml",
+        ".github/workflows/sync.yml",
         ".github/workflows/update-ci-pins.yml",
         ".github/workflows/update-publication-spec.yml",
         ".github/workflows/validate.yml",
@@ -157,6 +159,13 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
+        "actions/sync/action.yml",
+        "actions/sync/adoption.json",
+        "actions/sync/consumer-kit/AGENTS.template.md",
+        "actions/sync/consumer-kit/README.md",
+        "actions/sync/consumer-kit/sync.yml",
+        "actions/sync/merge-settings.json",
+        "actions/sync/sync.py",
         "catalogue.json",
         "docs/maintaining.md",
         "tests/ci_policy_support.py",
@@ -187,9 +196,11 @@
         "tests/test_ci_policy_release.py",
         "tests/test_ci_policy_reuse.py",
         "tests/test_ci_policy_shared_surface.py",
+        "tests/test_ci_policy_sync.py",
         "tests/test_ci_policy_tool_pins.py",
         "tests/test_ci_policy_validate.py",
-        "tests/test_ci_policy_zizmor.py"
+        "tests/test_ci_policy_zizmor.py",
+        "tests/workflow_commands.py"
       ],
       "entry_paths": {
         "tests/test_ci_policy_action_pins.py": [
@@ -650,6 +661,23 @@
         ],
         "tests/test_ci_policy_automation.py": [
           "tests/test_ci_policy_automation.py"
+        ],
+        "tests/test_ci_policy_sync.py": [
+          ".github/workflows/sync.yml",
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/suite-selection/ci_definition.py",
+          "actions/sync/action.yml",
+          "actions/sync/adoption.json",
+          "actions/sync/consumer-kit/AGENTS.template.md",
+          "actions/sync/consumer-kit/README.md",
+          "actions/sync/consumer-kit/sync.yml",
+          "actions/sync/merge-settings.json",
+          "actions/sync/sync.py",
+          "tests/ci_policy_support.py",
+          "tests/test_ci_policy_sync.py",
+          "tests/workflow_commands.py"
         ]
       },
       "directory_memberships": [
@@ -1031,7 +1059,8 @@
         ],
         "tests/test_ci_policy_release.py": [
           ".github/workflows/**"
-        ]
+        ],
+        "tests/test_ci_policy_sync.py": []
       },
       "existence_reads": [
         {
@@ -4347,7 +4376,8 @@
             "path": "tests/test_ci_policy_release.so",
             "kind": "any"
           }
-        ]
+        ],
+        "tests/test_ci_policy_sync.py": []
       },
       "lookup_directories": [
         ".",
@@ -4459,7 +4489,8 @@
         "tests/test_ci_policy_release.py": [
           ".",
           "tests"
-        ]
+        ],
+        "tests/test_ci_policy_sync.py": []
       }
     },
     {
@@ -4962,7 +4993,8 @@
         "tests/test_consumer_kit_templates.py",
         "tests/test_consumer_kit_validation_workflow.py",
         "tests/test_consumer_kit_python_tests.py",
-        "tests/test_consumer_kit_fixed_callers.py"
+        "tests/test_consumer_kit_fixed_callers.py",
+        "tests/test_consumer_kit_management.py"
       ],
       "command": [
         "python3",
@@ -5006,6 +5038,7 @@
         ".github/workflows/repository-hygiene.yml",
         ".github/workflows/suite-selection.yml",
         ".github/workflows/suite-verdict.yml",
+        ".github/workflows/sync.yml",
         ".github/workflows/update-ci-pins.yml",
         ".github/workflows/update-publication-spec.yml",
         ".github/workflows/validate.yml",
@@ -5016,6 +5049,8 @@
         "actions/pipeline/consumer-kit/automation.yml",
         "actions/pipeline/consumer-kit/ci.yml",
         "actions/pipeline/consumer-kit/release.yml",
+        "actions/pipeline/consumer_checks.py",
+        "actions/pipeline/plan.py",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-tests/consumer-kit/README.md",
@@ -5042,6 +5077,10 @@
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
+        "actions/sync/consumer-kit/AGENTS.template.md",
+        "actions/sync/consumer-kit/README.md",
+        "actions/sync/consumer-kit/sync.yml",
+        "actions/sync/sync.py",
         "catalogue.json",
         "docs/adr/0001-consumers-reach-the-shared-parts-through-a-catalogue.md",
         "docs/adr/0002-passed-results-are-reused-only-within-one-pull-request.md",
@@ -5056,15 +5095,16 @@
         "tests/setup_ci_support.py",
         "tests/strace_stand_in.py",
         "tests/test_automation_additions.py",
+        "tests/test_automation_full_recording.py",
         "tests/test_consumer_kit_auto_merge.py",
         "tests/test_consumer_kit_dependabot.py",
         "tests/test_consumer_kit_fixed_callers.py",
-        "tests/test_automation_full_recording.py",
         "tests/test_consumer_kit_hygiene.py",
         "tests/test_consumer_kit_install_by_need.py",
         "tests/test_consumer_kit_installed_permissions.py",
         "tests/test_consumer_kit_installed_targets.py",
         "tests/test_consumer_kit_installed_validation.py",
+        "tests/test_consumer_kit_management.py",
         "tests/test_consumer_kit_own_dependabot.py",
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_python_tests.py",
@@ -5325,6 +5365,18 @@
           "catalogue.json",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_fixed_callers.py"
+        ],
+        "tests/test_consumer_kit_management.py": [
+          ".github/workflows/sync.yml",
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/sync/consumer-kit/AGENTS.template.md",
+          "actions/sync/consumer-kit/README.md",
+          "actions/sync/consumer-kit/sync.yml",
+          "actions/sync/sync.py",
+          "tests/consumer_kit_support.py",
+          "tests/test_consumer_kit_management.py"
         ]
       },
       "directory_memberships": [
@@ -5441,7 +5493,8 @@
         ],
         "tests/test_consumer_kit_fixed_callers.py": [
           "actions/repository-hygiene"
-        ]
+        ],
+        "tests/test_consumer_kit_management.py": []
       },
       "existence_reads": [
         {
@@ -7801,7 +7854,8 @@
             "path": "tests/test_consumer_kit_fixed_callers.so",
             "kind": "any"
           }
-        ]
+        ],
+        "tests/test_consumer_kit_management.py": []
       },
       "lookup_directories": [
         ".",
@@ -7872,7 +7926,8 @@
         "tests/test_consumer_kit_fixed_callers.py": [
           ".",
           "tests"
-        ]
+        ],
+        "tests/test_consumer_kit_management.py": []
       }
     },
     {
@@ -18542,6 +18597,24 @@
           "tests"
         ]
       }
+    },
+    {
+      "name": "sync",
+      "entries": [
+        "tests/test_sync_files.py",
+        "tests/test_sync_settings.py",
+        "tests/test_sync_adoption.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ],
+      "entry_selection": true
     },
     {
       "name": "dotnet-test",

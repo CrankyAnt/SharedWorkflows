@@ -1,0 +1,17 @@
+name: Sync
+
+on:
+  schedule:
+    # Every twelve hours, at 05:23 and 17:23 UTC.
+    - cron: "23 5,17 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    permissions:
+      issues: write
+    secrets:
+      SYNC_APP_PRIVATE_KEY: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/sync.yml@v1

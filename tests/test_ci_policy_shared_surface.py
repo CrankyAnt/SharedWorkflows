@@ -12,7 +12,7 @@ from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, is_tracked, 
 
 SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
-PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "issue-title")
+PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "issue-title", "sync")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
 # The header of the pin-source table of a consumer kit's README, which consumers follow and the pin-source test reads.
 PIN_SOURCE_HEADER = "| Template | Pin source |"

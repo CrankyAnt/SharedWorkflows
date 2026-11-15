@@ -10,6 +10,7 @@
     ".github/workflows/pipeline.yml",
     ".github/workflows/automation.yml",
     ".github/workflows/release.yml",
+    ".github/workflows/sync.yml",
     "catalogue.json",
     "actions/publication-checks",
     "actions/repository-hygiene",
@@ -21,6 +22,7 @@
     "actions/pipeline",
     "actions/dotnet-test",
     "actions/issue-title",
+    "actions/sync",
     "actions/repository-ruleset"
   ]
 }

@@ -1,6 +1,6 @@
 # Maintaining Shared Workflows
 
-Shared Workflows serves every repository that calls the reusable workflows of `CrankyAnt/SharedWorkflows` at the tag `v1`. It offers six shared parts, the entries of the [catalogue](../catalogue.json). Each shared part has one or more shared steps, and each shared step has its part folder, a subfolder of `actions/` with a composite action `$/actions/<folder>`. A shared workflow loads each part folder it uses through that action, in the form that [Same-repository references](#same-repository-references) states. The action of the recording step and of the Python language step runs commands; the action of every other part folder is resource-only. A consumer's job calls the recording step and the Python language step at `v1`, `python-tests.yml` runs the Python language step in its own job, and the consumer's full recording also calls `suite-selection` and `repository-hygiene` at `v1`. The shared parts share the [v1 channel](#the-v1-channel), the [pins file](#pins) and the promotion of `v1`.
+Shared Workflows serves every repository that calls the reusable workflows of `CrankyAnt/SharedWorkflows` at the tag `v1`. It offers eleven shared parts, the entries of the [catalogue](../catalogue.json). Each shared part has one or more shared steps, and each shared step has its part folder, a subfolder of `actions/` with a composite action `$/actions/<folder>`. A shared workflow loads each part folder it uses through that action, in the form that [Same-repository references](#same-repository-references) states. The action of the recording step and of the Python language step runs commands; the action of every other part folder is resource-only. A consumer's job calls the recording step and the Python language step at `v1`, `python-tests.yml` runs the Python language step in its own job, and the consumer's full recording also calls `suite-selection` and `repository-hygiene` at `v1`. The shared parts share the [v1 channel](#the-v1-channel), the [pins file](#pins) and the promotion of `v1`.
 
 An agent in a consumer starts from the catalogue, read at `v1`: one entry per shared part with its purpose, its shared workflows and shared steps, the checks a consumer requires, what it needs from a repository, when it applies and its consumer kit. A shared part's consumer kit holds its caller templates and their explanation for a consumer. This document is for changing the shared parts themselves: what the workflows do and how they are maintained.
 
@@ -19,6 +19,7 @@ The shared parts, with one row per shared step:
 | Pipeline | `pipeline.yml` | Pipeline, `pipeline/`; its job of repository hygiene loads `repository-hygiene/`, `suite-selection/` and `publication-checks/` | `pipeline/plan.py`, `pipeline/consumer_checks.py` | `pipeline` |
 | Pipeline | `automation.yml`, the [automation workflow](#the-automation-workflow) | Issue-title normalisation, `issue-title/`; the workflow also loads `pipeline/`, `dependabot-auto-merge/`, `recording/`, `suite-selection/` and `repository-hygiene/` | `issue-title/issue_title.py` | `pipeline` |
 | GitHub release | `release.yml` | Pipeline, `pipeline/` | `pipeline/release.py` | `pipeline` |
+| Sync | `sync.yml` | Sync, `sync/`; it reads the templates, the schema and the consumer checks of `pipeline/` and the ruleset template of `repository-ruleset/` | `sync/sync.py` | `sync` |
 
 The repository workflows run only for this repository, and no caller calls them. Each runs scripts from a part folder:
 
@@ -844,6 +845,64 @@ The program changes the title with one `PATCH` of the issue and changes nothing 
 
 This repository calls the workflow from `automation-caller.yml`, which equals the fixed caller apart from the local path and the workflows of its `workflow_run` trigger: `CI`, `Repository hygiene`, `Validate` and `Python tests`, whose runs report this repository's checks and its recorded additions. Its configuration file switches the four parts on. `issue-title` reads the fixture category file `tests/fixtures/issue_title/categories.json`, whose one category has the label `fixture:issue-title` and the prefix `[fixture-form]`, so an issue of this repository keeps its title unless it carries that label or starts with that prefix. Dependabot auto-merge runs a second time beside `dependabot-auto-merge-caller.yml` while both shared workflows are at `v1`: the job that merges first sends the dispatch, and the other finds the pull request merged.
 
+### Sync
+
+`sync.yml` is the sync: the shared workflow that the private [management repository](../actions/sync/consumer-kit/README.md) calls every twelve hours and on a start by hand. No consumer calls it and this repository holds no caller of it, because it needs the sync App, which is never installed here; its program is tested on fixture repositories behind a stand-in for the GitHub API, and its first run in the management repository shows what only GitHub can show.
+
+The workflow has one job, `sync`, which runs only on `main`, in the environment `sync` of the calling repository, with `issues: write`. It loads [sync.py](../actions/sync/sync.py) from its own revision, gets an installation token for every repository of the App's installation with `actions/create-github-app-token`, pinned to a full commit, from the environment's variable `SYNC_APP_CLIENT_ID` and secret `SYNC_APP_PRIVATE_KEY`, limited to the App's four permissions (Contents, Pull requests and Workflows write, Issues read), and runs `sync.py sync --own-repository <the calling repository>`. The App's token goes to that step alone. When a step fails, the last step runs `sync.py failure`. No file of the sync names a repository other than this one; `tests/test_ci_policy_sync.py` fails when one does, and on each rule of this paragraph.
+
+#### What the sync compares
+
+`sync.py sync` asks GitHub for the repositories of the installation. An archived repository and the calling repository are left alone. The repository that the template of `ci.yml` calls, this one, is never synced: when the installation holds it, the run fails before any write. A repository without `.github/ci-config.yml` has not adopted the pipeline; the summary says so and nothing else happens to it.
+
+For every other repository the sync compares, on the default branch:
+
+| What | With | A difference |
+| --- | --- | --- |
+| The fixed callers `ci.yml`, `automation.yml` and `release.yml` | their templates in `actions/pipeline/consumer-kit/` | joins the sync pull request |
+| The pointer document `docs/agents/ci.md` | its template `docs/agents/ci.md` in the same kit, when the kit holds it | joins the sync pull request |
+| `.github/dependabot.yml` | the file that [the consumer checks](#the-consumer-checks) generate from `dependabot` in the configuration file; `.github/dependabot.yaml` leaves | joins the sync pull request |
+| The default-branch ruleset | `actions/repository-ruleset/ruleset-main-template.json` with `ci / verdict` as its one required check | is a settings difference |
+| The merge settings | `actions/sync/merge-settings.json`: the merge settings of the hygiene kit and `allow_auto_merge` | is a settings difference |
+
+A configuration file that does not match its schema leaves the Dependabot configuration uncompared, and a Dependabot configuration in a repository whose configuration file states no ecosystems stays; the summary says either, and hygiene in that repository fails on it.
+
+The ruleset is found by the template's name and target. It matches when it holds everything the template states: further fields that GitHub adds are no difference, and rules and checks may stand in any order. GitHub shows the bypass list only to a token that administers the repository, so the App's run does not compare it and the local mode does.
+
+#### The sync pull request
+
+For file differences the sync puts one commit with the expected files on the tip of the default branch, onto the branch that `sync-branch` in the kit's record `fixed-callers.json` names, opens one pull request with the title `chore: sync the fixed files with their templates`, requests auto-merge with a squash, and goes on to the next repository: it waits for nothing. A pull request that is already open is kept; its branch moves only when the files it should hold changed, and auto-merge is requested again when it is off. When GitHub refuses auto-merge, the summary says why. A repository that matches gets no request that writes and no line in the summary.
+
+A repository that GitHub refuses fails the run after the other repositories were synced.
+
+#### Settings and the local mode
+
+With the App's token, which holds no Administration permission, a settings difference is reported and never changed. `sync.py sync --local --repository <owner>/<name>` is the local mode: it runs with the owner's own token in `GH_TOKEN` on the repositories it is given, does the same comparison and pull request, and also corrects each settings difference, the merge settings with one `PATCH` of the differing values and the ruleset by creating it or replacing it with the expected one. It asks for no installation and opens no issue.
+
+#### Issues in the management repository
+
+With `--own-repository`, the sync opens issues there with the token of the run, `GITHUB_TOKEN`; the App's token is never sent to that repository.
+
+| Finding | Issue title | One issue |
+| --- | --- | --- |
+| A sync pull request is still open six hours after it was opened | `Sync pull request not merged after six hours: <repository>#<number>` | ever, per pull request |
+| An open issue with the label `shared-ci` in a repository of the installation | `Request for shared CI: <repository>#<number>` | ever, per request |
+| A repository's settings differ | `Settings differ: <repository>` | while an issue with the same differences is open |
+| The run failed | `The sync failed` | while one is open |
+
+Each issue carries the marker `<!-- sync-finding: <key> -->` in its body, by which a later run finds it among all issues of the repository. The key of a settings difference holds a digest of its differences, so changed differences open a new issue. A run without findings opens none.
+
+#### Adoption
+
+`sync.py adopt --repository <owner>/<name>` makes the adoption pull request of a repository without a configuration file, with the owner's own token, on the branch `chore/adopt-shared-pipeline` and without auto-merge. It holds the fixed callers, the pointer document, the derived `.github/ci-config.yml` and the generated `.github/dependabot.yml`.
+
+- A workflow whose every job calls a shared workflow that `actions/sync/adoption.json` maps to a part of the current schema leaves the repository. Its part is switched on with the inputs that are settings of the part; a part that always runs takes none.
+- Every other workflow stays, or is replaced when it has the name of a fixed caller.
+- The Dependabot ecosystems and directories come from the repository's Dependabot configuration. A directory that is a pattern or does not start with `/` is not carried over.
+- The derived file is checked against the schema before anything is written; a file that does not match stops the command.
+
+The command's output and the pull request's body list, under "Not derived", each workflow that stays or is replaced, each input and each Dependabot key that is not carried over. A repository that holds a configuration file already is refused.
+
 ### Repository prerequisites
 
 The user configures these settings; the workflows change none of them. The consumer kit of a part states the settings that part needs.
@@ -858,8 +917,8 @@ Every change to a kit's templates, `actions/*/consumer-kit/*.yml`, updates that 
 
 - Every change: [Validation](#validation) and [Apply recorded additions](#apply-recorded-additions).
 - `v1`: [Promote v1 by hand](#promote-v1-by-hand), [Roll v1 back](#roll-v1-back), [The ruleset on v1](#the-ruleset-on-v1), to read it back or replace the deploy key, and [Act on a failed `promote-v1.yml` run](#act-on-a-failed-promote-v1yml-run).
-- Consumers: [Find the consumers](#find-the-consumers), [Onboard a consumer](#onboard-a-consumer) and [A skipped suite in a consumer](#a-skipped-suite-in-a-consumer).
-- The shared parts: [Add a part](#add-a-part), [Add a part to the pipeline](#add-a-part-to-the-pipeline), [Add a setup](#add-a-setup), [Change a fixed caller](#change-a-fixed-caller), [Change a naming rule](#change-a-naming-rule), [Change a hygiene check](#change-a-hygiene-check), [Add or remove a pinned tool](#add-or-remove-a-pinned-tool), [Change an auto-merge rule](#change-an-auto-merge-rule), [Change a selection rule](#change-a-selection-rule), [Change a selection workflow](#change-a-selection-workflow), [Change a check name](#change-a-check-name) and [Change the suite-list format](#change-the-suite-list-format).
+- Consumers: [Find the consumers](#find-the-consumers), [Onboard a consumer](#onboard-a-consumer), [Adopt the pipeline in a consumer](#adopt-the-pipeline-in-a-consumer), [Correct a consumer's settings](#correct-a-consumers-settings) and [A skipped suite in a consumer](#a-skipped-suite-in-a-consumer).
+- The shared parts: [Add a part](#add-a-part), [Add a part to the pipeline](#add-a-part-to-the-pipeline), [Add a setup](#add-a-setup), [Change a fixed caller](#change-a-fixed-caller), [Change what the sync compares](#change-what-the-sync-compares), [Change a naming rule](#change-a-naming-rule), [Change a hygiene check](#change-a-hygiene-check), [Add or remove a pinned tool](#add-or-remove-a-pinned-tool), [Change an auto-merge rule](#change-an-auto-merge-rule), [Change a selection rule](#change-a-selection-rule), [Change a selection workflow](#change-a-selection-workflow), [Change a check name](#change-a-check-name) and [Change the suite-list format](#change-the-suite-list-format).
 - The recording step: [Change the ETW consumer](#change-the-etw-consumer), [Renew the stored strace recordings](#renew-the-stored-strace-recordings) and [Renew the standard-library names](#renew-the-standard-library-names).
 - This repository's own files: [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline).
 - The GitHub App: [Rotate the App's private key](#rotate-the-apps-private-key) and [Replace the App](#replace-the-app).
@@ -1055,6 +1114,30 @@ A consumer adopts shared parts through the [catalogue](../catalogue.json) and th
 8. Create the default-branch ruleset from the [ruleset template](../actions/repository-ruleset/README.md#fill-the-template-for-a-repository) with the required checks of the parts the consumer uses, as [Default-branch ruleset](../actions/repository-hygiene/consumer-kit/README.md#default-branch-ruleset) of repository hygiene says, with `enforcement` set to `disabled`. Activate it once the callers are on the default branch and each required check has reported on a pull request since, as [When to activate](../actions/repository-ruleset/README.md#when-to-activate) says.
 9. For Dependabot auto-merge, switch the part on as [Switching it on](../actions/dependabot-auto-merge/consumer-kit/README.md#switching-it-on) says, [the Dependabot configuration](../actions/dependabot-auto-merge/consumer-kit/README.md#the-dependabot-configuration) unless step 3 added it, and the [repository settings](../actions/dependabot-auto-merge/consumer-kit/README.md#repository-settings). It merges only while an active ruleset requires a check, as [Which updates merge on their own](../actions/dependabot-auto-merge/consumer-kit/README.md#which-updates-merge-on-their-own) says, so it follows step 8.
 10. Check that the sweep of [Find the consumers](#find-the-consumers) lists the consumer. From then on, each move of `v1` reaches it as the sections "When `v1` moves" of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md#when-v1-moves), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-v1-moves), the [Python language step](../actions/python-language-step/consumer-kit/README.md#when-v1-moves) and [Python tests](../actions/python-tests/consumer-kit/README.md#when-v1-moves) say. A change of a kit's templates reaches it as the sections "When a repository adopted it earlier" of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md#when-a-repository-adopted-it-earlier), [Dependabot auto-merge](../actions/dependabot-auto-merge/consumer-kit/README.md#when-a-repository-adopted-it-earlier), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-a-repository-adopted-it-earlier), the [Python language step](../actions/python-language-step/consumer-kit/README.md#when-a-repository-adopted-it-earlier) and [Python tests](../actions/python-tests/consumer-kit/README.md#when-a-repository-adopted-it-earlier) say.
+
+### Adopt the pipeline in a consumer
+
+Both commands change another repository, so each is a question to the user first. They run from a checkout of this repository at `v1`, with the owner's own login.
+
+1. Make the adoption pull request: `GH_TOKEN="$(gh auth token)" python3 actions/sync/sync.py adopt --repository <owner>/<name>`.
+2. Resolve what the command lists under "Not derived" in that pull request, by the decision rule of the catalogue: a workflow that stays needs a part, the free job or an entry under `local-workflows`; an input or a Dependabot key that is not carried over needs a setting or is dropped.
+3. Merge the pull request once `ci / verdict` passed on it.
+4. Correct the settings as [Correct a consumer's settings](#correct-a-consumers-settings) says, which sets the ruleset that requires `ci / verdict`.
+5. Install the sync App on the repository, so that the sync keeps its fixed files from then on.
+
+### Correct a consumer's settings
+
+An issue `Settings differ: <repository>` in the management repository lists the differences. Show them to the user, and after a yes run `GH_TOKEN="$(gh auth token)" python3 actions/sync/sync.py sync --local --repository <owner>/<name>` from a checkout of this repository at `v1`. The summary names each corrected setting. Close the issue.
+
+### Change what the sync compares
+
+A change to `sync.py`, `sync.yml`, the management repository kit, the merge settings or the adoption table is a template-class change and reaches the management repository through a promotion by hand.
+
+- A new fixed file: add its template to `actions/pipeline/consumer-kit/` at its path in a consumer and name it beside `POINTER` in `sync.py`, with a case in `tests/test_sync_files.py`.
+- A merge setting: change `actions/sync/merge-settings.json` and the merge settings in the hygiene kit's README together.
+- The ruleset: change `actions/repository-ruleset/ruleset-main-template.json`; the sync keeps `ci / verdict` as the one required check.
+- A part that replaces an earlier shared workflow: add `"<workflow file>": "<part>"` to `actions/sync/adoption.json`; `tests/test_sync_adoption.py` fails on a workflow or a part that does not exist.
+- A change to `actions/sync/consumer-kit/sync.yml` or `AGENTS.template.md`: update the kit's section "When a repository adopted it earlier", and replace the files in the management repository by hand after the promotion.
 
 ### Add a part
 
