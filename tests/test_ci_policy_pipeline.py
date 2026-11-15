@@ -3,6 +3,7 @@ outside the configuration, and every other shared part a job that the plan start
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 
@@ -35,6 +36,12 @@ DIFFERENT = {
 }
 # The jobs of the pipeline that are no shared part.
 PLAN, VERDICT = "plan", "verdict"
+# The free job, the known setups, and the definition that a setting refers to when it names code of the repository to run.
+CUSTOM = "custom"
+SETUPS = REPOSITORY_ROOT / "actions" / "pipeline" / "schema" / "v1" / "setups.json"
+SCRIPT_REFERENCE = "#/$defs/script"
+# The action that installs each tool of a setup, with the input that takes the setup's version.
+SETUP_ACTIONS = {"python": ("actions/setup-python", "python-version"), "dotnet": ("actions/setup-dotnet", "dotnet-version")}
 
 
 def step_key(step: dict) -> str:
@@ -90,6 +97,30 @@ def concurrency_problems(name: str, job: dict) -> list[str]:
     if set(concurrency or {}) != {"group", "cancel-in-progress"} or text.count(f"needs.plan.outputs.concurrency || '{{}}')['{name}']") != 2:
         return [f"{name} does not take its concurrency group and cancel flag from the plan"]
     return []
+
+
+def refers_to(schema: object, reference: str) -> bool:
+    """Whether a schema refers to a definition, at any depth."""
+    if isinstance(schema, dict):
+        return schema.get("$ref") == reference or any(refers_to(value, reference) for value in schema.values())
+    return isinstance(schema, list) and any(refers_to(value, reference) for value in schema)
+
+
+def read_class_problems(name: str, job: dict, workflow: dict) -> list[str]:
+    """Each way a job that runs code of the repository exceeds the limits of the free job: other rights than
+    ``contents: read``, a secret or a token, checkout credentials that stay in the checkout, or a cache mode that writes."""
+    problems = []
+    if job.get("permissions") != {"contents": "read"}:
+        problems.append(f"{name} has other rights than contents: read")
+    text = json.dumps(job)
+    problems += [f"{name} receives a secret or a token: {word}" for word in ("secrets", "github.token", "GITHUB_TOKEN") if word in text]
+    for step in job.get("steps", []):
+        if str(step.get("uses", "")).startswith("actions/checkout@") and (step.get("with") or {}).get("persist-credentials") != "false":
+            problems.append(f"{name} keeps the checkout credentials")
+    for holder, owner in ((workflow, "the workflow"), (job, name)):
+        if holder.get("cache-mode", "read") not in ("read", "none"):
+            problems.append(f"{owner} requests cache-mode {holder['cache-mode']}")
+    return problems
 
 
 class PipelineTests(unittest.TestCase):
@@ -160,7 +191,7 @@ class PipelineTests(unittest.TestCase):
     def test_repository_hygiene_has_read_rights_only_and_keeps_no_checkout_credentials(self) -> None:
         self.assertEqual({"actions": "read", "contents": "read", "pull-requests": "read"}, self.jobs[HYGIENE]["permissions"])
         checkouts = re.findall(r"- uses: actions/checkout@[0-9a-f]{40} # v[\d.]+\n        with:\n((?:          .*\n)+)", self.text)
-        self.assertEqual(2, len(checkouts))
+        self.assertEqual(self.text.count("actions/checkout@"), len(checkouts))
         for options in checkouts:
             self.assertIn("persist-credentials: false", options)
 
@@ -178,6 +209,89 @@ class PipelineTests(unittest.TestCase):
         step = next(step for step in self.jobs[HYGIENE]["steps"] if step.get("id") == "title")
         self.assertIn("set -euo pipefail", step["run"], "a title that cannot be read fails the check")
         self.assertEqual("${{ github.token }}", step["env"]["GITHUB_TOKEN"])
+
+
+class FreeJobTests(unittest.TestCase):
+    """The free job runs the repository's script after the setups that the plan names, and nothing decides its result but
+    that script."""
+
+    def setUp(self) -> None:
+        self.job = read_workflow(PIPELINE)[1]["jobs"][CUSTOM]
+        self.steps = self.job["steps"]
+        self.plan = "fromJSON(needs.plan.outputs.plan).parts['custom']"
+
+    def test_the_job_checks_out_the_repository_and_installs_the_named_setups_in_the_listed_order_before_the_script(self) -> None:
+        self.assertEqual("ubuntu-26.04", self.job["runs-on"])
+        self.assertTrue(str(self.steps[0]["uses"]).startswith("actions/checkout@"))
+        known = json.loads(SETUPS.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(SETUP_ACTIONS), sorted({setup["tool"] for setup in known.values()}), "every tool of a known setup has its action here")
+        # A list without duplicates names at most every known setup, so that many places install any list in its order.
+        expected = [(position, tool) for position in range(len(known)) for tool in SETUP_ACTIONS]
+        installs = self.steps[1:-1]
+        self.assertEqual(len(expected), len(installs))
+        for (position, tool), step in zip(expected, installs):
+            with self.subTest(position=position, tool=tool):
+                action, version_input = SETUP_ACTIONS[tool]
+                self.assertEqual(action, str(step["uses"]).split("@", 1)[0])
+                self.assertEqual(f"${{{{ {self.plan}.setups[{position}].tool == '{tool}' }}}}", step["if"])
+                self.assertEqual({version_input: f"${{{{ {self.plan}.setups[{position}].version }}}}"}, step["with"], "the setup's version and no cache")
+        self.assertEqual(len(SETUP_ACTIONS), len({str(step["uses"]) for step in installs}), "one pin per action")
+
+    def test_the_last_step_runs_the_configured_script_and_its_exit_status_is_the_job_s_result(self) -> None:
+        step = self.steps[-1]
+        self.assertEqual({"SCRIPT": f"${{{{ {self.plan}.config.script }}}}"}, step["env"])
+        self.assertEqual('bash -- "$SCRIPT"', step["run"], "the script's path reaches the shell as a value, never as text of the command")
+        self.assertEqual(["env", "name", "run"], sorted(step))
+        for holder in (self.job, *self.steps):
+            self.assertNotIn("continue-on-error", holder)
+        self.assertEqual([], [step for step in self.steps[1:] if "if" in step and "].tool ==" not in step["if"]])
+
+
+class ReadClassTests(unittest.TestCase):
+    """Code of the repository runs only in a job with the limits of the free job. A setting that names such code refers to
+    the definition ``script`` of the schema, so the parts that run it are known from their fragments."""
+
+    def setUp(self) -> None:
+        self.workflow = read_workflow(PIPELINE)[1]
+        self.jobs = self.workflow["jobs"]
+        fragments = {path.rsplit("/", 1)[1].removesuffix(".json"): json.loads((REPOSITORY_ROOT / path).read_text(encoding="utf-8"))
+                     for path in sorted(tracked_files(REPOSITORY_ROOT, [FRAGMENTS]))}
+        self.script_parts = [name for name, fragment in fragments.items() if refers_to(fragment, SCRIPT_REFERENCE)]
+
+    def test_the_free_job_has_read_rights_only_no_secret_no_checkout_credentials_and_no_cache_mode_that_writes(self) -> None:
+        self.assertEqual([], read_class_problems(CUSTOM, self.jobs[CUSTOM], self.workflow))
+        self.assertEqual({"contents": "read"}, self.jobs[CUSTOM]["permissions"])
+
+    def test_every_part_whose_configuration_names_a_script_of_the_repository_has_a_job_with_the_limits_of_the_free_job(self) -> None:
+        self.assertIn(CUSTOM, self.script_parts)
+        for name in self.script_parts:
+            with self.subTest(part=name):
+                self.assertEqual([], read_class_problems(name, self.jobs[name], self.workflow))
+
+    def test_only_a_job_of_such_a_part_reads_a_script_from_the_plan(self) -> None:
+        readers = [name for name, job in self.jobs.items() if re.search(r"\.config\.[\w.-]*script", json.dumps(job))]
+        self.assertEqual(self.script_parts, readers)
+
+    def test_a_job_that_exceeds_a_limit_is_named(self) -> None:
+        good = self.jobs[CUSTOM]
+        checkout = good["steps"][0]
+        for change, problem in (
+            ({"permissions": {"contents": "write"}}, "custom has other rights than contents: read"),
+            ({"permissions": {"contents": "read", "pull-requests": "read"}}, "custom has other rights than contents: read"),
+            ({"permissions": "{}"}, "custom has other rights than contents: read"),
+            ({"steps": [*good["steps"], {"run": "deploy", "env": {"KEY": "${{ secrets.DEPLOY_KEY }}"}}]}, "custom receives a secret or a token: secrets"),
+            ({"steps": [*good["steps"], {"run": "gh api user", "env": {"GH_TOKEN": "${{ github.token }}"}}]}, "custom receives a secret or a token: github.token"),
+            ({"steps": [{**checkout, "with": {"persist-credentials": "true"}}, *good["steps"][1:]]}, "custom keeps the checkout credentials"),
+            ({"steps": [{"uses": checkout["uses"]}, *good["steps"][1:]]}, "custom keeps the checkout credentials"),
+            ({"cache-mode": "write"}, "custom requests cache-mode write"),
+            ({"cache-mode": "write-only"}, "custom requests cache-mode write-only"),
+            ({"cache-mode": "${{ github.event_name == 'push' && 'write' || 'read' }}"}, "custom requests cache-mode ${{ github.event_name == 'push' && 'write' || 'read' }}"),
+        ):
+            with self.subTest(change=change):
+                self.assertEqual([problem], read_class_problems(CUSTOM, {**good, **change}, self.workflow))
+        self.assertEqual(["the workflow requests cache-mode write"], read_class_problems(CUSTOM, good, {**self.workflow, "cache-mode": "write"}))
+        for mode in ("read", "none"):
+            self.assertEqual([], read_class_problems(CUSTOM, {**good, "cache-mode": mode}, self.workflow))
 
 
 class HygieneStepTests(unittest.TestCase):

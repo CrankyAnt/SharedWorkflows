@@ -16,7 +16,7 @@ The first Linux shard also runs the Python language step outside the recording: 
 
 The `python-tests` suite (`tests/test_python_tests.py`, `tests/test_python_tests_workflow.py`) runs the script of Python tests on fixture repositories and projects in temporary directories, with a virtual environment without pip as the consumer's Python and stand-ins for pip and pytest on its `PYTHONPATH`, so it installs no package and needs only Python and Git. The fixture project `tests/fixtures/python_tests` is no input of a suite: `python-tests-caller.yml` runs the shared workflow on it.
 
-The `pipeline` suite (`tests/test_pipeline_*.py`) runs the plan program of the pipeline, `actions/pipeline/plan.py`, on fixture consumers in temporary Git repositories and on fixture schema folders with invented parts (`tests/pipeline_fixtures.py`), and checks the real schema folder; it needs only Python and Git. The contract of `pipeline.yml` and of the caller `ci.yml` is `tests/test_ci_policy_pipeline.py` in `ci-policy`.
+The `pipeline` suite (`tests/test_pipeline_*.py`) runs the plan program of the pipeline, `actions/pipeline/plan.py`, on fixture consumers in temporary Git repositories and on fixture schema folders with invented parts (`tests/pipeline_fixtures.py`), and checks the real schema folder; it needs only Python and Git. `tests/test_pipeline_custom.py` runs the plan on the free job's setups in the real schema and runs the command of the job's last step in Bash on the fixture scripts `tests/fixtures/custom/`; those cases skip without `bash`. The contract of `pipeline.yml` and of the caller `ci.yml` is `tests/test_ci_policy_pipeline.py` in `ci-policy`.
 
 ### Adding a suite
 

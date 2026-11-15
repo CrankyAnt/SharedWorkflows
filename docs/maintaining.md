@@ -613,7 +613,8 @@ The schema lives in `actions/pipeline/schema/`, one folder `v<N>` per schema ver
 
 | File | What it holds |
 | --- | --- |
-| `base.json` | The schema of the file apart from the parts: `version`, `parts`, `local-workflows`, and the definition `paths` that a fragment refers to as `#/$defs/paths`. |
+| `base.json` | The schema of the file apart from the parts: `version`, `parts`, `local-workflows`, and the definitions that a fragment refers to: `paths` as `#/$defs/paths`, `setups` as `#/$defs/setups`, whose items are the definition `setup`, and `script` as `#/$defs/script`. |
+| `setups.json` | The known setups by name, each with the `tool` and the `version` that a job installs. The definition `setup` accepts these names only. |
 | `parts/<part>.json` | The fragment of one shared part: its `description` and either `configuration`, the schema of the part's values as an object without additional properties, or `"always": true` for a part that runs in every pipeline run. |
 | `ci-config.schema.json` | The schema assembled from the base and the fragments, for a reader and an editor. `plan.py schema` writes it, and `plan.py schema --check` fails while it differs. |
 
@@ -636,7 +637,7 @@ Per part it decides:
 
 A pattern of `paths` that ends in `/` matches everything under that folder; `*` matches within one path segment, `?` one character of a segment and `**` any number of segments; any other pattern matches that one path. A renamed file counts under its old and its new path. The changed files are unknown when the base is empty, all zeros or absent from the checkout.
 
-`plan` gives two outputs. `concurrency` holds per part the `group` and `cancel-in-progress` of its job, written before the configuration file is read, so a failed plan still gives them: the group is the workflow's name, the part and `pr-<number>` on a pull request or `run-<run id>` on any other event, and only a pull request's run is cancelled by a newer one. `plan` is one JSON document with `version`, per part `run`, `reason` and `config` (the part's values), `compared`, `switched-off` (the parts that the base states and the head does not) and `local-workflows-added` (the registered workflows that the base does not register). Without a base to compare with, `compared` is false.
+`plan` gives two outputs. `concurrency` holds per part the `group` and `cancel-in-progress` of its job, written before the configuration file is read, so a failed plan still gives them: the group is the workflow's name, the part and `pr-<number>` on a pull request or `run-<run id>` on any other event, and only a pull request's run is cancelled by a newer one. `plan` is one JSON document with `version`, per part `run`, `reason`, `config` (the part's values) and, for a stated part with the setting `setups`, `setups` (the `tool` and `version` of each setup it names, in the listed order), `compared`, `switched-off` (the parts that the base states and the head does not) and `local-workflows-added` (the registered workflows that the base does not register). Without a base to compare with, `compared` is false.
 
 #### Repository hygiene in the pipeline
 
@@ -647,6 +648,25 @@ The job `repository-hygiene` needs `plan` only for its concurrency and runs unde
 - It has no `dependabot-merged` run and no record of passed checks for an `edited` run.
 
 `tests/test_ci_policy_pipeline.py` compares the steps of the two jobs: a step of `repository-hygiene.yml` without an equal step in the pipeline fails, unless the test's lists `LEFT_OUT` and `DIFFERENT` name it with its reason. A change to a hygiene check therefore changes both workflows in the same change.
+
+#### The free job
+
+The job `custom` is the free job. A repository switches it on with `script`, the path of a script of its own, and may name `setups`, a list of known setups without duplicates, and `paths`:
+
+```yaml
+parts:
+  custom:
+    setups: [dotnet-10, python-3.14]
+    script: ci/check-licences.sh
+```
+
+The job checks out the repository without persisted credentials, installs each named setup in the listed order, and runs `bash -- "$SCRIPT"` from the repository root. Without `setups`, or with an empty list, it installs nothing. Of two setups of the same tool, the later one is the one that the tool's command names. The script's exit status is the job's result: no later step and no `continue-on-error` changes it. A setup installs with its action's defaults, so without a dependency cache.
+
+The known setups are the names in `setups.json`: `python-3.11` to `python-3.14` and `dotnet-8` and `dotnet-10` today. `plan.py schema` writes them into the assembled schema as the accepted values of the definition `setup`, so a name that `setups.json` does not hold fails `plan` with the list of the known ones. `plan` gives the job the `tool` and the `version` of each named setup in the listed order. A workflow has no loop over steps, so the job holds one place per known setup, as many as a list without duplicates can name, and each place holds one install step per tool, which runs when the setup at that place in the list has that tool. A `script` is a relative path without a `..` segment.
+
+The job has the limits of the read class: `contents: read` as its only right, no secret and no token in any step, no checkout credentials left in the checkout, and no `cache-mode` that writes, on the job or on the workflow. `tests/test_ci_policy_pipeline.py` fails when one of them changes. The same limits hold for every job that runs code of the repository through a hook: a setting of a part that names such code refers to `#/$defs/script`, and the test applies the limits to the job of every part whose fragment holds that reference. It also fails when a job of another part reads a script from the plan.
+
+This repository's own configuration file switches the free job on with the one setup `python-3.14` and the fixture script `tests/fixtures/custom/pass.sh`, which fails unless `python3` is Python 3.14. `tests/fixtures/custom/fail.sh` is the fixture script that fails, for a run that shows the verdict failing.
 
 #### The pipeline's verdict
 
@@ -667,7 +687,7 @@ Every change to a kit's templates, `actions/*/consumer-kit/*.yml`, updates that 
 - Every change: [Validation](#validation) and [Apply recorded additions](#apply-recorded-additions).
 - `v1`: [Promote v1 by hand](#promote-v1-by-hand), [Roll v1 back](#roll-v1-back), [The ruleset on v1](#the-ruleset-on-v1), to read it back or replace the deploy key, and [Act on a failed `promote-v1.yml` run](#act-on-a-failed-promote-v1yml-run).
 - Consumers: [Find the consumers](#find-the-consumers), [Onboard a consumer](#onboard-a-consumer) and [A skipped suite in a consumer](#a-skipped-suite-in-a-consumer).
-- The shared parts: [Add a part](#add-a-part), [Add a part to the pipeline](#add-a-part-to-the-pipeline), [Change a naming rule](#change-a-naming-rule), [Change a hygiene check](#change-a-hygiene-check), [Add or remove a pinned tool](#add-or-remove-a-pinned-tool), [Change an auto-merge rule](#change-an-auto-merge-rule), [Change a selection rule](#change-a-selection-rule), [Change a selection workflow](#change-a-selection-workflow), [Change a check name](#change-a-check-name) and [Change the suite-list format](#change-the-suite-list-format).
+- The shared parts: [Add a part](#add-a-part), [Add a part to the pipeline](#add-a-part-to-the-pipeline), [Add a setup](#add-a-setup), [Change a naming rule](#change-a-naming-rule), [Change a hygiene check](#change-a-hygiene-check), [Add or remove a pinned tool](#add-or-remove-a-pinned-tool), [Change an auto-merge rule](#change-an-auto-merge-rule), [Change a selection rule](#change-a-selection-rule), [Change a selection workflow](#change-a-selection-workflow), [Change a check name](#change-a-check-name) and [Change the suite-list format](#change-the-suite-list-format).
 - The recording step: [Change the ETW consumer](#change-the-etw-consumer), [Renew the stored strace recordings](#renew-the-stored-strace-recordings) and [Renew the standard-library names](#renew-the-standard-library-names).
 - This repository's own files: [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline).
 - The GitHub App: [Rotate the App's private key](#rotate-the-apps-private-key) and [Replace the App](#replace-the-app).
@@ -878,12 +898,22 @@ A new shared part gets its part folder, a subfolder of `actions/` with the scrip
 
 ### Add a part to the pipeline
 
-1. Add the part's fragment `actions/pipeline/schema/v<N>/parts/<part>.json` in the current version folder, with its `description` and the schema of its `configuration`: an object with `"additionalProperties": false`, and `"paths": {"$ref": "#/$defs/paths"}` among its properties when the part runs on some changes only.
+1. Add the part's fragment `actions/pipeline/schema/v<N>/parts/<part>.json` in the current version folder, with its `description` and the schema of its `configuration`: an object with `"additionalProperties": false`, and `"paths": {"$ref": "#/$defs/paths"}` among its properties when the part runs on some changes only. A setting that names code of the repository for the job to run, a hook, is `{"$ref": "#/$defs/script"}`, and a setting that names the setups to install is `{"$ref": "#/$defs/setups"}`, named `setups`, so that the plan gives the job their tools and versions. A job that runs such code keeps the limits of [the free job](#the-free-job).
 2. Run `python actions/pipeline/plan.py schema` and commit the assembled `ci-config.schema.json`.
 3. Add the job to `pipeline.yml` under the part's name, with `needs: plan`, the condition `${{ fromJSON(needs.plan.outputs.plan).parts['<part>'].run }}`, and its concurrency group and cancel flag from `fromJSON(needs.plan.outputs.concurrency || '{}')['<part>']`. The job reads its values from `fromJSON(needs.plan.outputs.plan).parts['<part>'].config`. Add the job to `needs` of `verdict`. `tests/test_ci_policy_pipeline.py` fails while a fragment has no job, a job has no fragment, or a job does not follow the plan.
 4. Describe the part under [Pipeline](#pipeline) and validate as [Validation](#validation) says.
 
 A change to the schema that makes a valid configuration file invalid needs a new version folder `v<N+1>`, a copy of the current one with the change; the folder before the previous version is removed in the same change.
+
+### Add a setup
+
+1. Add the setup to `actions/pipeline/schema/v<N>/setups.json` in the current version folder, under its name `<tool>-<version>`, with its `tool` and the `version` that the tool's action takes.
+2. Run `python actions/pipeline/plan.py schema` and commit the assembled `ci-config.schema.json`.
+3. Add one place to the install steps of every job of `pipeline.yml` that installs setups: one step per tool, with the condition on the plan's `setups[<place>].tool` and the version from `setups[<place>].version`. `tests/test_ci_policy_pipeline.py` fails while the free job has fewer or more places than `setups.json` has setups.
+4. For a new tool, add its install step to every place, and add the tool with its action to `SETUP_ACTIONS` in `tests/test_ci_policy_pipeline.py`, which fails while a tool of `setups.json` has no install step in the free job.
+5. Name the setup under [The free job](#the-free-job) and in the cases of `tests/test_pipeline_custom.py`, and validate as [Validation](#validation) says.
+
+Removing a setup makes a valid configuration file invalid, so it needs a new version folder.
 
 A part without a shared workflow, such as the Python language step, is a shared step that a consumer's job calls at `CrankyAnt/SharedWorkflows/actions/<folder>@v1`. Its `action.yml` runs the part's commands instead of being resource-only. Steps 2 and 4 drop out, and the others change:
 

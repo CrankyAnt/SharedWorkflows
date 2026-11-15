@@ -15886,6 +15886,7 @@
     {
       "name": "pipeline",
       "entries": [
+        "tests/test_pipeline_custom.py",
         "tests/test_pipeline_plan.py",
         "tests/test_pipeline_schema.py",
         "tests/test_pipeline_verdict.py",
@@ -15907,14 +15908,20 @@
         "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/base.json",
         "actions/pipeline/schema/v1/ci-config.schema.json",
+        "actions/pipeline/schema/v1/parts/custom.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+        "actions/pipeline/schema/v1/setups.json",
         "actions/repository-hygiene/dependabot_coverage.py",
         "actions/repository-hygiene/hygiene.py",
         "actions/repository-hygiene/install_tools.py",
         "actions/repository-hygiene/link_check.py",
         "actions/repository-hygiene/package-ecosystems.json",
         "actions/repository-hygiene/pins.py",
+        "actions/suite-selection/ci_definition.py",
+        "tests/ci_policy_support.py",
+        "tests/fixtures/custom/fail.sh",
         "tests/pipeline_fixtures.py",
+        "tests/test_pipeline_custom.py",
         "tests/test_pipeline_plan.py",
         "tests/test_pipeline_schema.py",
         "tests/test_pipeline_verdict.py",
@@ -15922,6 +15929,21 @@
         "tests/workflow_commands.py"
       ],
       "entry_paths": {
+        "tests/test_pipeline_custom.py": [
+          ".github/workflows/pipeline.yml",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
+          "tests/fixtures/custom/fail.sh",
+          "tests/pipeline_fixtures.py",
+          "tests/test_pipeline_custom.py"
+        ],
         "tests/test_pipeline_plan.py": [
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",

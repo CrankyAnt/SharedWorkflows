@@ -9,12 +9,15 @@
 ``plan`` reads ``.github/ci-config.yml``, checks it against the schema of its version and decides per part whether it
 runs. The schema folder holds one folder per schema version, ``v<N>``, with the ``base.json`` of the file and one
 fragment per part, ``parts/<part>.json``: its ``description`` and either the schema of its ``configuration`` or
-``"always": true`` for a part that runs in every pipeline run, which the configuration file cannot state. The highest
-version is the current one; the plan reads it and the one before.
+``"always": true`` for a part that runs in every pipeline run, which the configuration file cannot state. Beside them,
+``setups.json`` holds the known setups by name, each with the ``tool`` and the ``version`` that a job installs; the
+definition ``setup`` of the base accepts those names only. The highest version is the current one; the plan reads it and
+the one before.
 
 A part that always runs, runs. Any other part runs when the configuration file states it under ``parts`` and, where its
 configuration names ``paths``, a changed path matches them, its own configuration differs from the base, or the changed
-files are unknown. The plan is one JSON document, the output ``plan``: per part ``run``, ``reason`` and ``config``, the
+files are unknown. The plan is one JSON document, the output ``plan``: per part ``run``, ``reason`` and ``config``, and
+for a stated part with the setting ``setups`` the tool and the version of each setup it names, in the listed order, the
 parts switched off and the local workflows registered compared with the base, and whether that comparison was made.
 
 Before it reads the configuration file, ``plan`` writes the output ``concurrency``: per part the ``group`` and
@@ -33,7 +36,7 @@ import json
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PART_FOLDER = Path(__file__).resolve().parent
@@ -43,6 +46,7 @@ from dependabot_coverage import YamlError, parse_yaml  # noqa: E402
 CONFIGURATION = ".github/ci-config.yml"
 SCHEMAS = PART_FOLDER / "schema"
 ASSEMBLED = "ci-config.schema.json"
+SETUPS = "setups.json"
 PLAN_JOB = "plan"
 FAILING_RESULTS = ("failure", "cancelled")
 ALL_ZERO = re.compile(r"^0+$")
@@ -71,6 +75,7 @@ class SchemaVersion:
     version: int
     schema: dict
     always: frozenset[str]
+    setups: dict = field(default_factory=dict)
 
     @property
     def parts(self) -> list[str]:
@@ -105,6 +110,16 @@ def check_keywords(schema: object, source: str) -> None:
             check_keywords(schema[key], source)
 
 
+def known_setups(folder: Path) -> dict:
+    """The setups of one version by name, each with the tool and the version that a job installs."""
+    path = folder / SETUPS
+    setups = read_json(path) if path.is_file() else {}
+    for name, setup in setups.items():
+        if not isinstance(setup, dict) or set(setup) != {"tool", "version"} or not all(isinstance(value, str) and value for value in setup.values()):
+            raise SchemaError(f"{path}: the setup {name} holds a tool and a version")
+    return setups
+
+
 def assemble(folder: Path, version: int) -> SchemaVersion:
     """The schema of one version: its base with the configuration of each part's fragment under ``parts``."""
     schema = read_json(folder / "base.json")
@@ -113,6 +128,11 @@ def assemble(folder: Path, version: int) -> SchemaVersion:
         parts = schema["properties"]["parts"]["properties"]
     except (KeyError, TypeError) as error:
         raise SchemaError(f"{folder / 'base.json'}: properties.parts.properties is missing") from error
+    setups = known_setups(folder)
+    if "setup" in schema.get("$defs", {}):
+        if not setups:
+            raise SchemaError(f"{folder / SETUPS}: the base has the definition setup, so this file names at least one setup")
+        schema["$defs"]["setup"]["enum"] = list(setups)
     always = set()
     for path in sorted((folder / "parts").glob("*.json")):
         fragment = read_json(path)
@@ -131,7 +151,7 @@ def assemble(folder: Path, version: int) -> SchemaVersion:
         parts[path.stem] = {"description": fragment["description"], **configuration}
     if always:
         schema["properties"]["parts"]["description"] += f" Not stated here, because it always runs and has no settings: {and_list(sorted(always))}."
-    return SchemaVersion(version, schema, frozenset(always))
+    return SchemaVersion(version, schema, frozenset(always), setups)
 
 
 def schema_versions(folder: Path) -> dict[int, SchemaVersion]:
@@ -397,6 +417,8 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     for name in version.parts:
         run, reason = decide(name, version, parts, base_parts, changed)
         decisions[name] = {"run": run, "reason": reason, "config": parts.get(name, {})}
+        if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
+            decisions[name]["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
     known = registered_workflows(before)
     return {
         "version": version.version,

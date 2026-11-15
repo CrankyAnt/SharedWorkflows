@@ -88,6 +88,7 @@ class PipelineFixture(unittest.TestCase):
             base = json.loads((SCHEMAS / "v1" / "base.json").read_text(encoding="utf-8"))
             base["properties"]["version"]["const"] = version
             (target / "base.json").write_text(json.dumps(base), encoding="utf-8")
+            shutil.copy(SCHEMAS / "v1" / "setups.json", target / "setups.json")
             for part, fragment in (FIXTURE_PARTS if parts is None else parts).items():
                 (target / "parts" / f"{part}.json").write_text(json.dumps(fragment), encoding="utf-8")
         return folder

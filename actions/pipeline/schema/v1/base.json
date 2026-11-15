@@ -30,6 +30,22 @@
       "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
     },
+    "setup": {
+      "description": "The name of a setup that the pipeline knows: the tool and the version that a job installs before it runs code of the repository. The known setups are the names in setups.json beside this schema.",
+      "type": "string"
+    },
+    "setups": {
+      "description": "The setups that a job installs, in the listed order, before it runs code of the repository; a later setup of the same tool is the one that its command names. An empty list installs nothing. Invented example: [\"dotnet-10\", \"python-3.14\"].",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/setup"}
+    },
+    "script": {
+      "description": "The path of a script of the repository, relative to the repository root, that a job runs with Bash from the repository root. Its exit status decides the job's result. A job that runs it has read permission only and receives no secret. Invented example: \"ci/check-licences.sh\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))"
+    },
     "local-workflow": {
       "oneOf": [
         {

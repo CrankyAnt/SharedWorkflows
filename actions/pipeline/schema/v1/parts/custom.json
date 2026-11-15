@@ -1,0 +1,13 @@
+{
+  "description": "The free job: runs a script of the repository after the setups that it names, with read permission only and without secrets, for CI that no other part covers. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\"}.",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["script"],
+    "properties": {
+      "setups": {"$ref": "#/$defs/setups"},
+      "script": {"$ref": "#/$defs/script"},
+      "paths": {"$ref": "#/$defs/paths"}
+    }
+  }
+}

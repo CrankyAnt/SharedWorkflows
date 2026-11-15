@@ -1,1 +1,5 @@
 version: 1
+parts:
+  custom:
+    setups: [python-3.14]
+    script: tests/fixtures/custom/pass.sh

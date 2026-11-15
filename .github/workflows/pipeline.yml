@@ -34,6 +34,85 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . --base "$BASE" --head "$HEAD" --compare "$COMPARE" --workflow "$WORKFLOW" --event "$EVENT" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
+  custom:
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].run }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['custom'].group }}
+      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['custom']['cancel-in-progress'] == true }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # One place per known setup, each with one step per tool, so that any list of setups installs in its listed order.
+      - name: Set up Python for setup 1
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].version }}
+      - name: Set up .NET for setup 1
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[0].version }}
+      - name: Set up Python for setup 2
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].version }}
+      - name: Set up .NET for setup 2
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[1].version }}
+      - name: Set up Python for setup 3
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].version }}
+      - name: Set up .NET for setup 3
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[2].version }}
+      - name: Set up Python for setup 4
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].version }}
+      - name: Set up .NET for setup 4
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[3].version }}
+      - name: Set up Python for setup 5
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].version }}
+      - name: Set up .NET for setup 5
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[4].version }}
+      - name: Set up Python for setup 6
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].tool == 'python' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].version }}
+      - name: Set up .NET for setup 6
+        if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].tool == 'dotnet' }}
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].setups[5].version }}
+      - name: Run the script of the repository
+        env:
+          SCRIPT: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config.script }}
+        run: bash -- "$SCRIPT"
+
   repository-hygiene:
     needs: plan
     if: ${{ !cancelled() }}
@@ -215,7 +294,7 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" gitleaks --tools "$HYGIENE_TOOLS" --config "$config" --baseline "$baseline"
 
   verdict:
-    needs: [plan, repository-hygiene]
+    needs: [plan, custom, repository-hygiene]
     if: always()
     runs-on: ubuntu-slim
     permissions:
