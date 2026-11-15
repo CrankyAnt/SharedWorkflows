@@ -23,7 +23,7 @@ def runners(workflow: str) -> dict[str, str]:
 class OffPathRunnerTests(unittest.TestCase):
     def test_every_job_of_the_off_path_workflows_runs_on_ubuntu_slim(self) -> None:
         expected = {
-            "promote-v1.yml": (PROMOTER, {"decide": "ubuntu-slim", "candidate": "ubuntu-slim", "await": "ubuntu-slim", "move": "ubuntu-slim"}),
+            "promote-v1.yml": (PROMOTER, {"decide": "ubuntu-slim", "await": "ubuntu-slim", "move": "ubuntu-slim"}),
             "update-ci-pins.yml": (PINS_UPDATER, {"plan": "ubuntu-slim", "propose": "ubuntu-slim"}),
             "update-publication-spec.yml": (SPEC_UPDATER, {"plan": "ubuntu-slim", "propose": "ubuntu-slim"}),
         }

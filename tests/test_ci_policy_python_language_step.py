@@ -93,10 +93,9 @@ INSTALLING = [".github/workflows/pipeline.yml", ".github/workflows/python-tests.
 class NoInterpreterInstallTests(unittest.TestCase):
     def test_only_python_tests_the_python_parts_and_the_free_job_of_the_pipeline_the_release_part_and_the_suite_jobs_install_a_python_interpreter(self) -> None:
         surface = json.loads(SURFACE.read_text(encoding="utf-8"))["paths"]
-        # A consumer kit's templates become the consumer's own workflows, which set up the Python its suites test on, and
-        # the proof kit is the content of the proof repository, whose configuration file names the Python of its project.
+        # A consumer kit's templates become the consumer's own workflows, which set up the Python its suites test on.
         files = [path for path in (REPOSITORY_ROOT / "actions").rglob("*")
-                 if path.suffix in (".yml", ".py", ".sh", ".ps1") and "consumer-kit" not in path.parts and "proof-kit" not in path.parts]
+                 if path.suffix in (".yml", ".py", ".sh", ".ps1") and "consumer-kit" not in path.parts]
         files += [path for path in (REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml") if f".github/workflows/{path.name}" in surface]
         self.assertTrue(any(path.name == "suite-selection.yml" for path in files))
         install = re.compile(r"actions/setup-python|python-version:|\bpyenv\b|\buv python\b|deadsnakes|apt(?:-get)? install[^\n]*\bpython3?(?:\.\d+)?\b")

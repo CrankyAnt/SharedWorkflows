@@ -525,6 +525,134 @@ class DispatchTests(unittest.TestCase):
         self.assertIn('push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;', changes["run"])
 
 
+# The shared workflows whose run blocks reach this repository's files only through a part folder that a `$/` step loaded.
+CONSUMER_PATH_WORKFLOWS = ("pipeline.yml", "repository-hygiene.yml", "suite-selection.yml", "suite-verdict.yml", "python-tests.yml")
+# The one stated exception: the definition options of `hygiene.py changes` name a definition by its path and selector,
+# which the program looks up in the checkout's history; they name no file of this repository to read.
+DEFINITION_OPTIONS = ("--definition", "--packages-definition", "--markdown-definition")
+LOADED_PATH = re.compile(r"^\$\{\{\s*steps\.([\w-]+)\.outputs\.path\s*\}\}$")
+HEREDOC = re.compile(r"<<-?\s*'?(\w+)'?\n.*?\n\s*\1(?:\n|$)", re.DOTALL)
+SHELL_WORD = re.compile(r"""(?:[^\s"';|&()<>]|"[^"]*"|'[^']*')+""")
+VARIABLE_PREFIX = re.compile(r"^\$\{?(\w+)\}?/(.*)$")
+EXPRESSION_PREFIX = re.compile(r"^\$\{\{\s*(.+?)\s*\}\}/(.*)$")
+
+
+def repository_paths() -> tuple[set[str], set[str]]:
+    """The tracked paths of the shared parts and shared workflows, and the names of the files that lie directly in a part
+    folder, which a block could give a program bare, through the working directory."""
+    tracked = tracked_files(REPOSITORY_ROOT, ["actions", ".github/workflows"])
+    return tracked, {path.split("/")[2] for path in tracked if path.startswith("actions/") and path.count("/") == 2}
+
+
+def names_repository_path(text: str, tracked: set[str], part_files: set[str]) -> bool:
+    path = text.split("#", 1)[0].removeprefix("./").rstrip("/")
+    return bool(path) and (path in part_files or any(item == path or item.startswith(path + "/") for item in tracked))
+
+
+def run_block_words(run: str) -> list[str]:
+    """The shell words of a run block without quotes, an assignment or an option with `=` as its value alone, and without
+    the bodies of here-documents, which are another program's text."""
+    words = []
+    for word in SHELL_WORD.findall(HEREDOC.sub("\n", run)):
+        word = word.replace('"', "").replace("'", "")
+        if "=" in word and not word.startswith("$"):
+            word = word.split("=", 1)[1]
+        words.append(word)
+    return words
+
+
+def consumer_path_problems(name: str, workflow: dict, tracked: set[str], part_files: set[str]) -> list[str]:
+    """Each path of this repository that a run block of ``workflow`` gives a program, the program's own path included,
+    and that does not start with a variable whose value a `$/` step set; a consumer's working directory holds none."""
+    problems = []
+    for job_name, job in workflow.get("jobs", {}).items():
+        steps = job.get("steps", [])
+        loaded_steps = {step["id"] for step in steps if str(step.get("uses", "")).startswith("$/") and "id" in step}
+        for step in steps:
+            if "run" not in step:
+                continue
+            where = f"{name}: job {job_name}, step {step.get('name') or step.get('id')}"
+            environment = {**job.get("env", {}), **step.get("env", {})}
+            loaded = {key for key, value in environment.items() if (found := LOADED_PATH.match(str(value))) and found[1] in loaded_steps}
+            for key, value in environment.items():
+                value = str(value)
+                found = EXPRESSION_PREFIX.match(value)
+                if found:
+                    source = LOADED_PATH.match(f"${{{{ {found[1]} }}}}")
+                    if source and source[1] in loaded_steps:
+                        continue
+                    rest = found[2]
+                elif value.startswith("${{"):
+                    continue
+                else:
+                    rest = value
+                if names_repository_path(rest, tracked, part_files):
+                    problems.append(f"{where}: the variable {key} gives the path {value} of this repository, which does not start with a part folder that a $/ step loaded")
+            words = run_block_words(str(step["run"]))
+            defines = 'hygiene.py" changes' in str(step["run"]) or "hygiene.py changes" in str(step["run"])
+            for index, word in enumerate(words):
+                if defines and index and words[index - 1] in DEFINITION_OPTIONS:
+                    continue
+                prefixed = VARIABLE_PREFIX.match(word)
+                if prefixed and prefixed[1] in loaded:
+                    continue
+                rest = prefixed[2] if prefixed else word
+                if not word.startswith("$") or prefixed:
+                    if names_repository_path(rest, tracked, part_files):
+                        problems.append(f"{where}: {word} is a path of this repository that does not start with a variable set from a $/ step")
+    return problems
+
+
+class ConsumerPathTests(unittest.TestCase):
+    """A consumer's checkout holds no file of this repository: a run block reaches one only through a part folder that a
+    `$/` step loaded, whose path a variable of the step carries."""
+
+    def setUp(self) -> None:
+        self.tracked, self.part_files = repository_paths()
+
+    def problems(self, name: str, workflow: dict) -> list[str]:
+        return consumer_path_problems(name, workflow, self.tracked, self.part_files)
+
+    def test_every_run_block_gives_a_program_a_path_of_this_repository_only_through_a_loaded_part_folder(self) -> None:
+        for name in CONSUMER_PATH_WORKFLOWS:
+            with self.subTest(workflow=name):
+                self.assertEqual([], self.problems(name, read_workflow(WORKFLOWS / name)[1]))
+
+    def test_a_path_of_this_repository_given_through_the_working_directory_is_named_with_its_workflow(self) -> None:
+        install = '--pins "$RESOURCE_PATH/pins.json"'
+        for replacement, path in (("--pins actions/repository-hygiene/pins.json", "actions/repository-hygiene/pins.json"),
+                                  ('--pins "$GITHUB_WORKSPACE/actions/repository-hygiene/pins.json"', "$GITHUB_WORKSPACE/actions/repository-hygiene/pins.json"),
+                                  ("--pins pins.json", "pins.json")):
+            with self.subTest(replacement=replacement):
+                text = PIPELINE.read_text(encoding="utf-8")
+                self.assertIn(install, text)
+                workflow = ci_definition().read_yaml(text.replace(install, replacement), str(PIPELINE))
+                problems = self.problems("pipeline.yml", workflow)
+                self.assertEqual(1, len(problems), problems)
+                self.assertTrue(problems[0].startswith("pipeline.yml: job repository-hygiene, step Install the pinned tools"), problems[0])
+                self.assertIn(f"{path} is a path of this repository", problems[0])
+
+    def test_a_program_s_own_path_and_a_variable_that_no_loaded_part_folder_set_are_named(self) -> None:
+        text, workflow = read_workflow(WORKFLOWS / "python-tests.yml")
+        program = '"$RESOURCE_PATH/python_tests.py"'
+        self.assertIn(program, text)
+        problems = self.problems("python-tests.yml", ci_definition().read_yaml(text.replace(program, "actions/python-tests/python_tests.py", 1), "python-tests.yml"))
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("actions/python-tests/python_tests.py is a path of this repository", problems[0])
+        step = next(step for step in workflow["jobs"]["tests"]["steps"] if program in str(step.get("run", "")))
+        step["env"] = {**step["env"], "RESOURCE_PATH": "${{ github.workspace }}"}
+        self.assertTrue(any("$RESOURCE_PATH/python_tests.py" in problem for problem in self.problems("python-tests.yml", workflow)))
+
+    def test_the_definitions_of_the_change_decision_are_the_one_stated_exception(self) -> None:
+        text = PIPELINE.read_text(encoding="utf-8")
+        definition = '--definition "actions/repository-hygiene/action.yml#step:resources"'
+        self.assertIn(definition, text)
+        self.assertEqual([], self.problems("pipeline.yml", ci_definition().read_yaml(text, str(PIPELINE))))
+        problems = self.problems("pipeline.yml", ci_definition().read_yaml(text.replace(definition, f"{definition} --ecosystems actions/repository-hygiene/package-ecosystems.json"), str(PIPELINE)))
+        self.assertEqual(["pipeline.yml: job repository-hygiene, step Decide which checks the changed files can affect: actions/repository-hygiene/package-ecosystems.json "
+                          "is a path of this repository that does not start with a variable set from a $/ step"], problems)
+
+
 class CallerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text, self.caller = read_workflow(CALLER)

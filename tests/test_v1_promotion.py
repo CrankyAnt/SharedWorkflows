@@ -1,6 +1,6 @@
-"""The automatic and the manual v1 move: the tag read against a mocked API, the decision by promotion class, the
-candidate tag, the proof repository's run and the preparation over local fixture repositories, the leased tag push, and
-the start of the sync behind a stand-in for the ``gh`` CLI."""
+"""The automatic and the manual v1 move: the tag read against a mocked API, the decision by promotion class, the wait
+for the CI on ``main`` and the preparation over local fixture repositories, the leased tag push, and the start of the
+sync behind a stand-in for the ``gh`` CLI."""
 
 from __future__ import annotations
 
@@ -31,14 +31,11 @@ sys.modules[SPEC.name] = promote  # dataclasses resolve annotations through sys.
 SPEC.loader.exec_module(promote)
 
 GIT_IDENTITY = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
-PROOF_REPOSITORY = "CrankyAnt/ProofFixture"
 MANAGEMENT = "CrankyAnt/ManagementFixture"
 # A read workflow and a write workflow, a part folder in the read class and the templates in it.
 SURFACE = {
     "pins": "ci/pins.json",
     "updater_branch": "chore/update-ci-pins",
-    "candidate_tag": "v1-candidate",
-    "proof_repository": PROOF_REPOSITORY,
     "paths": [".github/workflows/checks.yml", ".github/workflows/hygiene.yml", "ci"],
     "classes": {".github/workflows/checks.yml": "read", ".github/workflows/hygiene.yml": "write", "ci": "read", "ci/kit": "template", "ci/pins.json": "write"},
 }
@@ -88,9 +85,6 @@ class Fixture:
     def remote_v1(self) -> str:
         return git(self.repo, "ls-remote", "origin", "refs/tags/v1").split()[0]
 
-    def remote_candidate(self) -> str:
-        return git(self.repo, "ls-remote", "origin", "refs/tags/v1-candidate").split()[0]
-
 
 class Api:
     """A mocked GitHub API: the ref and tag objects of a repository, and a record of every request."""
@@ -109,13 +103,6 @@ class Api:
 
     def runs(self, workflow: str, commit: str, runs: list[dict]) -> None:
         self.responses[promote.RUNS_URL.format(repository=self.REPOSITORY, workflow=workflow, commit=commit)] = {"total_count": len(runs), "workflow_runs": runs}
-
-    def proof_run(self, proof_commit: str, conclusion: str | None, candidate: str | None = None, shared: str = REPOSITORY) -> None:
-        """The run of the proof repository's pipeline caller for its commit; ``candidate`` is the commit at which it called the pipeline."""
-        run = {"id": 5, "status": "completed" if conclusion else "in_progress", "conclusion": conclusion}
-        if candidate:
-            run["referenced_workflows"] = [{"path": f"{shared}/.github/workflows/pipeline.yml@refs/tags/v1-candidate", "sha": candidate, "ref": "refs/tags/v1-candidate"}]
-        self.responses[promote.RUNS_URL.format(repository=PROOF_REPOSITORY, workflow="ci.yml", commit=proof_commit)] = {"total_count": 1, "workflow_runs": [run]}
 
     def fetch(self, url: str) -> bytes | None:
         self.requests.append(url)
@@ -175,25 +162,25 @@ class DecisionTests(unittest.TestCase):
     def decide(self, commit: str, v1: str | None = None, surface: dict = SURFACE) -> promote.Decision:
         return promote.decide(self.fixture.repo, commit, self.fixture.v1 if v1 is None else v1, surface)
 
-    def test_a_commit_whose_changes_compared_with_v1_stay_in_the_read_class_moves_the_candidate_tag(self) -> None:
+    def test_a_commit_whose_changes_compared_with_v1_stay_in_the_read_class_is_followed_by_v1(self) -> None:
         self.fixture.commit("feat: change a resource", {"ci/checks/check.cjs": "// 2\n"})
         commit = self.fixture.commit("feat: change the read workflow", {".github/workflows/checks.yml": "name: checks\n"})
         decision = self.decide(commit)
-        self.assertTrue(decision.candidate, decision.reason)
+        self.assertTrue(decision.follow, decision.reason)
         self.assertEqual((self.fixture.v1, commit), (decision.old, decision.new))
-        self.assertEqual(f"## v1 promotion\n\nThe candidate tag moves to `{commit}`: its changes compared with `v1` stay in the read class: "
-                         f".github/workflows/checks.yml, ci/checks/check.cjs. `v1` follows from `{self.fixture.v1}` once the CI of this commit on main "
-                         "and the proof repository's run on the candidate tag passed.\n", decision.summary())
+        self.assertEqual(f"## v1 promotion\n\n`v1` follows `{commit}` once its CI on main passed: its changes compared with `v1` stay in the read class: "
+                         f".github/workflows/checks.yml, ci/checks/check.cjs. `v1` follows from `{self.fixture.v1}` once the CI of this commit on main passed.\n",
+                         decision.summary())
 
     def test_other_commits_between_v1_and_the_commit_are_fine_when_they_leave_the_shared_surface_alone(self) -> None:
         self.fixture.commit("feat: product change", {"src/app.py": "print(2)\n", "docs/notes.md": "x\n"})
         commit = self.fixture.commit("feat: change a resource", {"ci/checks/check.cjs": "// 2\n", "src/app.py": "print(3)\n"})
-        self.assertTrue(self.decide(commit).candidate)
+        self.assertTrue(self.decide(commit).follow)
 
     def test_a_commit_that_changes_the_write_class_keeps_v1_and_states_the_question_for_a_promotion_by_hand(self) -> None:
         commit = self.fixture.commit("feat: change the write workflow", {".github/workflows/hygiene.yml": "name: hygiene 2\n"})
         decision = self.decide(commit)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertEqual("the changes compared with v1 leave the read class: .github/workflows/hygiene.yml (write class).", decision.reason)
         question = (f"Question: Move v1 from {self.fixture.v1} to {commit}, a promotion that changes the shared-surface files "
                     ".github/workflows/hygiene.yml (write class)? The move changes the later runs of every caller. Answer yes or no.")
@@ -204,7 +191,7 @@ class DecisionTests(unittest.TestCase):
     def test_a_commit_that_changes_the_template_class_keeps_v1_and_its_question_names_the_sync(self) -> None:
         commit = self.fixture.commit("feat: change a template", {"ci/kit/caller.yml": "name: caller\n", "ci/checks/check.cjs": "// 2\n"})
         decision = self.decide(commit)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertEqual("the changes compared with v1 leave the read class: ci/kit/caller.yml (template class).", decision.reason)
         self.assertIn("that changes the shared-surface files ci/checks/check.cjs (read class); ci/kit/caller.yml (template class)? "
                       "The move changes the later runs of every caller. It changes the template class, so the sync starts right after it. Answer yes or no.",
@@ -214,17 +201,17 @@ class DecisionTests(unittest.TestCase):
         self.fixture.commit("feat: change the write workflow", {".github/workflows/hygiene.yml": "name: hygiene 2\n"})
         commit = self.fixture.commit("feat: change a resource", {"ci/checks/check.cjs": "// 2\n"})
         decision = self.decide(commit)
-        self.assertFalse(decision.candidate, "the changes are compared with v1, not with the commit before")
+        self.assertFalse(decision.follow, "the changes are compared with v1, not with the commit before")
         self.assertIn(".github/workflows/hygiene.yml (write class)", decision.reason)
         self.assertIn("ci/checks/check.cjs (read class); .github/workflows/hygiene.yml (write class)?", decision.question)
 
     def test_a_merged_dependabot_pull_request_moves_v1_only_when_its_changes_stay_in_the_read_class(self) -> None:
         # Dependabot's merge commit is a commit on main like any other: what it changes decides, not who made it.
         read = self.fixture.commit("build(deps): bump the action of the read workflow", {".github/workflows/checks.yml": "uses: actions/checkout@v8\n"})
-        self.assertTrue(self.decide(read).candidate)
+        self.assertTrue(self.decide(read).follow)
         write = self.fixture.commit("build(deps): bump the action of the write workflow", {".github/workflows/hygiene.yml": "uses: actions/checkout@v8\n"})
         decision = self.decide(write)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertIn(".github/workflows/hygiene.yml (write class)", decision.reason)
         self.assertIn("Question: Move v1 from", decision.summary())
 
@@ -232,11 +219,11 @@ class DecisionTests(unittest.TestCase):
         surface = {**SURFACE, "paths": [*SURFACE["paths"], "extra"]}
         commit = self.fixture.commit("feat: a new part", {"extra/step.py": "x = 1\n", "ci/checks/check.cjs": "// 2\n"})
         decision = self.decide(commit, surface=surface)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertEqual("the changes compared with v1 reach extra/step.py, which the shared surface gives no promotion class.", decision.reason)
         self.assertTrue(decision.summary().endswith("A manual promotion is needed for this commit.\n"), decision.summary())
         unknown = {**SURFACE, "classes": {**SURFACE["classes"], "ci": "safe"}}
-        self.assertFalse(self.decide(commit, surface=unknown).candidate, "a class that is none of the three is no class")
+        self.assertFalse(self.decide(commit, surface=unknown).follow, "a class that is none of the three is no class")
 
     def test_a_missing_or_unrelated_v1_keeps_v1(self) -> None:
         commit = self.fixture.commit("feat: change a resource", {"ci/checks/check.cjs": "// 2\n"})
@@ -246,14 +233,14 @@ class DecisionTests(unittest.TestCase):
         stray = self.fixture.commit("feat: stray", {"ci/checks/check.cjs": "// stray\n"})
         git(self.fixture.repo, "switch", "-q", "main")
         decision = self.decide(commit, v1=stray)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertIn("is not an ancestor of this commit", decision.reason)
         self.assertTrue(decision.summary().endswith("A manual promotion is needed for this commit.\n"), decision.summary())
 
     def test_a_stay_with_an_identical_shared_surface_needs_no_promotion(self) -> None:
         commit = self.fixture.commit("feat: product change", {"src/app.py": "print(2)\n", "docs/notes.md": "x\n"})
         decision = self.decide(commit)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertEqual((self.fixture.v1, commit), (decision.old, decision.new))
         self.assertEqual(f"## v1 promotion\n\n`v1` stays at `{self.fixture.v1}`: the shared surface is identical between `v1` and this commit. No promotion is needed for this commit.\n", decision.summary())
 
@@ -261,7 +248,7 @@ class DecisionTests(unittest.TestCase):
         commit = self.fixture.commit("feat: product change", {"src/app.py": "print(2)\n"})
         tag_object = "b" * 40
         decision = promote.decide(self.fixture.repo, commit, self.fixture.v1, SURFACE, tag_object)
-        self.assertEqual((False, tag_object, commit), (decision.candidate, decision.old, decision.new))
+        self.assertEqual((False, tag_object, commit), (decision.follow, decision.old, decision.new))
         self.assertEqual(f"## v1 promotion\n\n`v1` stays at `{tag_object}`: the shared surface is identical between `v1` and this commit. No promotion is needed for this commit.\n", decision.summary())
 
     def test_an_identical_shared_surface_needs_no_promotion_when_v1_is_not_an_ancestor(self) -> None:
@@ -270,7 +257,7 @@ class DecisionTests(unittest.TestCase):
         git(self.fixture.repo, "switch", "-q", "main")
         commit = self.fixture.commit("feat: product change", {"src/app.py": "print(2)\n"})
         decision = self.decide(commit, v1=stray)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertEqual((stray, commit), (decision.old, decision.new))
         self.assertTrue(decision.summary().endswith("No promotion is needed for this commit.\n"), decision.summary())
 
@@ -279,14 +266,14 @@ class DecisionTests(unittest.TestCase):
         for v1, target, reason in [("", "no v1 tag", "no v1 tag exists yet."), ("1" * 40, "1" * 40, f"the current v1 commit {'1' * 40} is not available in this checkout.")]:
             with self.subTest(v1=v1):
                 decision = self.decide(commit, v1=v1)
-                self.assertFalse(decision.candidate)
+                self.assertFalse(decision.follow)
                 self.assertEqual((v1, commit), (decision.old, decision.new))
                 self.assertEqual(f"## v1 promotion\n\n`v1` stays at `{target}`: {reason} A manual promotion is needed for this commit.\n", decision.summary())
 
     def test_a_stay_whose_comparison_fails_asks_for_a_manual_promotion(self) -> None:
         unknown = "0" * 40
         decision = self.decide(unknown)
-        self.assertEqual((False, self.fixture.v1, unknown), (decision.candidate, decision.old, decision.new))
+        self.assertEqual((False, self.fixture.v1, unknown), (decision.follow, decision.old, decision.new))
         self.assertTrue(decision.summary().endswith("A manual promotion is needed for this commit.\n"), decision.summary())
 
     def command(self, commit: str, root: Path) -> list[str]:
@@ -300,9 +287,9 @@ class DecisionTests(unittest.TestCase):
         environment = {key: value for key, value in os.environ.items() if key != "GH_TOKEN"}
         result = subprocess.run(self.command(commit, root), capture_output=True, text=True, check=False, env=environment)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual(f"candidate=true\nold={self.fixture.v1}\nnew={commit}\n", (root / "output.txt").read_text(encoding="utf-8"))
+        self.assertEqual(f"follow=true\nold={self.fixture.v1}\nnew={commit}\n", (root / "output.txt").read_text(encoding="utf-8"))
         summary = (root / "summary.md").read_text(encoding="utf-8")
-        self.assertIn(f"The candidate tag moves to `{commit}`", summary)
+        self.assertIn(f"`v1` follows `{commit}` once its CI on main passed", summary)
         self.assertIn(summary, result.stdout)
 
     def test_the_cli_states_the_question_of_a_commit_outside_the_read_class(self) -> None:
@@ -310,7 +297,7 @@ class DecisionTests(unittest.TestCase):
         root = Path(self.temporary.name)
         result = subprocess.run(self.command(commit, root), capture_output=True, text=True, check=False)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual(f"candidate=false\nold={self.fixture.v1}\nnew={commit}\n", (root / "output.txt").read_text(encoding="utf-8"))
+        self.assertEqual(f"follow=false\nold={self.fixture.v1}\nnew={commit}\n", (root / "output.txt").read_text(encoding="utf-8"))
         summary = (root / "summary.md").read_text(encoding="utf-8")
         self.assertIn(f"Question: Move v1 from {self.fixture.v1} to {commit}, a promotion", summary)
         self.assertIn("Answer yes or no.", summary)
@@ -324,7 +311,7 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(expected, (root / "summary.md").read_text(encoding="utf-8"))
         self.assertIn(expected, result.stdout)
         self.assertNotIn("A manual promotion is needed", result.stdout)
-        self.assertEqual(f"candidate=false\nold={self.fixture.v1}\nnew={commit}\n", (root / "output.txt").read_text(encoding="utf-8"))
+        self.assertEqual(f"follow=false\nold={self.fixture.v1}\nnew={commit}\n", (root / "output.txt").read_text(encoding="utf-8"))
 
 
 class PinsExceptionTests(unittest.TestCase):
@@ -341,23 +328,23 @@ class PinsExceptionTests(unittest.TestCase):
     def decide(self, commit: str, pr: dict | None, app: str = APP, owner: str = OWNER) -> promote.Decision:
         return promote.decide(self.fixture.repo, commit, self.fixture.v1, SURFACE, pull_request=pr, app_login=app, owner=owner)
 
-    def test_the_pins_pull_request_of_the_updater_app_merged_by_the_owner_moves_the_candidate_tag(self) -> None:
+    def test_the_pins_pull_request_of_the_updater_app_merged_by_the_owner_is_followed_by_v1(self) -> None:
         commit = self.fixture.commit("chore: update CI tool pins", self.PINS)
         decision = self.decide(commit, pull_request(commit))
-        self.assertTrue(decision.candidate, decision.reason)
-        self.assertEqual(f"## v1 promotion\n\nThe candidate tag moves to `{commit}`: a pins-only pull request of the updater App from chore/update-ci-pins, merged by the "
-                         f"repository owner, landed, and the shared surface otherwise stays in the read class compared with `v1`. `v1` follows from `{self.fixture.v1}` "
-                         "once the CI of this commit on main and the proof repository's run on the candidate tag passed.\n", decision.summary())
+        self.assertTrue(decision.follow, decision.reason)
+        self.assertEqual(f"## v1 promotion\n\n`v1` follows `{commit}` once its CI on main passed: a pins-only pull request of the updater App from chore/update-ci-pins, "
+                         f"merged by the repository owner, landed, and the shared surface otherwise stays in the read class compared with `v1`. `v1` follows from "
+                         f"`{self.fixture.v1}` once the CI of this commit on main passed.\n", decision.summary())
 
     def test_read_class_changes_between_v1_and_the_pins_commit_do_not_keep_it_from_moving(self) -> None:
         self.fixture.commit("feat: change a resource", {"ci/checks/check.cjs": "// 2\n", "src/app.py": "print(2)\n"})
         commit = self.fixture.commit("chore: update CI tool pins", self.PINS)
-        self.assertTrue(self.decide(commit, pull_request(commit)).candidate)
+        self.assertTrue(self.decide(commit, pull_request(commit)).follow)
 
     def test_a_pins_commit_without_the_pull_request_facts_is_a_question_like_any_write_class_change(self) -> None:
         commit = self.fixture.commit("chore: update CI tool pins", self.PINS)
         decision = promote.decide(self.fixture.repo, commit, self.fixture.v1, SURFACE)
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertEqual("the changes compared with v1 leave the read class: ci/pins.json (write class). The pins file moves automatically only with the updater's "
                          "pull request, and no merged pull request landed this commit.", decision.reason)
         self.assertIn("Question: Move v1 from", decision.summary())
@@ -379,7 +366,7 @@ class PinsExceptionTests(unittest.TestCase):
         ]:
             with self.subTest(name=name):
                 decision = self.decide(commit, pr, app, owner)
-                self.assertFalse(decision.candidate)
+                self.assertFalse(decision.follow)
                 self.assertIn(fragment, decision.reason)
                 self.assertIn("ci/pins.json (write class)", decision.reason)
                 self.assertIn("Question: Move v1 from", decision.summary(), "the stay is the question of any write-class change")
@@ -396,20 +383,20 @@ class PinsExceptionTests(unittest.TestCase):
                 fixture = Fixture(Path(tempfile.mkdtemp(dir=self.temporary.name)))
                 commit = fixture.commit("chore: update CI tool pins", files)
                 decision = promote.decide(fixture.repo, commit, fixture.v1, SURFACE, pull_request=pull_request(commit), app_login=APP, owner=OWNER)
-                self.assertFalse(decision.candidate, "the updater's pull request moves nothing but a pins-only commit")
+                self.assertFalse(decision.follow, "the updater's pull request moves nothing but a pins-only commit")
                 self.assertIn(expected, decision.reason)
 
     def test_another_write_class_change_between_v1_and_the_pins_commit_keeps_v1(self) -> None:
         self.fixture.commit("feat: change the write workflow", {".github/workflows/hygiene.yml": "name: hygiene 2\n"})
         commit = self.fixture.commit("chore: update CI tool pins", self.PINS)
         decision = self.decide(commit, pull_request(commit))
-        self.assertFalse(decision.candidate)
+        self.assertFalse(decision.follow)
         self.assertEqual("the changes compared with v1 leave the read class: .github/workflows/hygiene.yml, ci/pins.json (write class).", decision.reason)
 
     def test_a_merged_dependabot_pull_request_in_the_write_class_stays_a_question_with_every_fact_of_the_updater(self) -> None:
         commit = self.fixture.commit("build(deps): bump the action of the write workflow", {".github/workflows/hygiene.yml": "uses: actions/checkout@v8\n"})
         decision = self.decide(commit, pull_request(commit))
-        self.assertFalse(decision.candidate, "the exception names the pins file, not the pull request")
+        self.assertFalse(decision.follow, "the exception names the pins file, not the pull request")
 
     def test_the_cli_takes_the_pull_request_the_app_login_and_the_owner(self) -> None:
         commit = self.fixture.commit("chore: update CI tool pins", self.PINS)
@@ -419,10 +406,10 @@ class PinsExceptionTests(unittest.TestCase):
         base = [sys.executable, str(SCRIPT), "decide", "--repository-root", str(self.fixture.repo), "--commit", commit, "--v1", self.fixture.v1,
                 "--surface", str(root / "surface.json")]
         for name, extra, expected in [
-            ("the updater's pull request", ["--pull-request", str(root / "pr.json"), "--app-login", APP, "--owner", OWNER], "candidate=true"),
-            ("a missing pull request file", ["--pull-request", str(root / "missing.json"), "--app-login", APP, "--owner", OWNER], "candidate=false"),
-            ("no App login", ["--pull-request", str(root / "pr.json"), "--owner", OWNER], "candidate=false"),
-            ("no facts at all", [], "candidate=false"),
+            ("the updater's pull request", ["--pull-request", str(root / "pr.json"), "--app-login", APP, "--owner", OWNER], "follow=true"),
+            ("a missing pull request file", ["--pull-request", str(root / "missing.json"), "--app-login", APP, "--owner", OWNER], "follow=false"),
+            ("no App login", ["--pull-request", str(root / "pr.json"), "--owner", OWNER], "follow=false"),
+            ("no facts at all", [], "follow=false"),
         ]:
             with self.subTest(name=name):
                 output = root / "output.txt"
@@ -438,135 +425,13 @@ class PinsExceptionTests(unittest.TestCase):
         elsewhere = {**SURFACE, "pins": "ci/checks/check.cjs"}
         commit = self.fixture.commit("chore: update CI tool pins", self.PINS)
         decision = promote.decide(self.fixture.repo, commit, self.fixture.v1, elsewhere, pull_request=pull_request(commit), app_login=APP, owner=OWNER)
-        self.assertFalse(decision.candidate, "only the file that the record names as pins takes the exception")
-
-
-class CandidateTagTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        self.fixture = Fixture(self.root)
-        (self.root / "surface.json").write_text(json.dumps(SURFACE), encoding="utf-8")
-
-    def candidate(self, commit: str) -> tuple[int, str]:
-        summary = self.root / "summary.md"
-        summary.unlink(missing_ok=True)
-        result = subprocess.run([sys.executable, str(SCRIPT), "candidate", "--repository-root", str(self.fixture.repo), "--new", commit,
-                                 "--surface", str(self.root / "surface.json"), "--summary", str(summary)], capture_output=True, text=True, check=False)
-        return result.returncode, summary.read_text(encoding="utf-8")
-
-    def test_the_candidate_tag_moves_to_the_commit_and_v1_stays(self) -> None:
-        first = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
-        git(self.fixture.repo, "push", "-q", "origin", "main")
-        code, summary = self.candidate(first)
-        self.assertEqual(0, code, summary)
-        self.assertEqual(first, self.fixture.remote_candidate())
-        self.assertEqual(self.fixture.v1, self.fixture.remote_v1(), "only the candidate tag moved")
-        self.assertEqual(f"## v1 promotion\n\nThe candidate tag `v1-candidate` moved to `{first}`.\n", summary)
-        second = self.fixture.commit("chore: update CI tool pins again", {"ci/pins.json": '{"version": "3"}\n'})
-        git(self.fixture.repo, "push", "-q", "origin", "main")
-        self.assertEqual(0, self.candidate(second)[0])
-        self.assertEqual(second, self.fixture.remote_candidate())
-        self.assertEqual(0, self.candidate(first)[0], "the candidate tag also moves back: a newer commit that did not prove itself leaves it behind")
-        self.assertEqual(first, self.fixture.remote_candidate())
-
-    def test_a_refused_push_fails_and_says_that_v1_stays(self) -> None:
-        commit = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
-        hook = self.fixture.origin / "hooks" / "pre-receive"
-        hook.write_text("#!/bin/sh\necho 'fixture rule refuses this push' >&2\nexit 1\n", encoding="utf-8", newline="\n")
-        hook.chmod(0o755)
-        code, summary = self.candidate(commit)
-        self.assertEqual(1, code)
-        self.assertIn(f"The push of the candidate tag `v1-candidate` to `{commit}` failed; `v1` stays.", summary)
-        self.assertIn("fixture rule refuses this push", summary)
-
-
-class ProofStartTests(unittest.TestCase):
-    """The proof repository is a bare repository here, and the kit a folder of invented files."""
-
-    CANDIDATE = "c" * 40
-
-    def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        self.proof = self.root / "proof.git"
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.proof)], check=True, capture_output=True)
-        self.kit = self.root / "kit"
-        self.write_kit({".github/workflows/ci.yml": "name: CI\n", ".github/ci-config.yml": "version: 1\n", "python/greeting.py": "x = 1\n"})
-        self.runs = 0
-
-    def write_kit(self, files: dict[str, str]) -> None:
-        for relative, content in files.items():
-            path = self.kit / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8", newline="\n")
-
-    def start(self, candidate: str = CANDIDATE, remote: Path | None = None) -> tuple[int, str, str, str]:
-        self.runs += 1
-        output, summary = self.root / f"output-{self.runs}", self.root / f"summary-{self.runs}"
-        (self.root / "surface.json").write_text(json.dumps(SURFACE), encoding="utf-8")
-        result = subprocess.run([sys.executable, str(SCRIPT), "start-proof", "--proof-remote", str(remote or self.proof), "--candidate", candidate, "--kit", str(self.kit),
-                                 "--surface", str(self.root / "surface.json"), "--work", str(self.root / f"work-{self.runs}"), "--output", str(output), "--summary", str(summary)],
-                                capture_output=True, text=True, check=False)
-        return (result.returncode, output.read_text(encoding="utf-8") if output.exists() else "", summary.read_text(encoding="utf-8") if summary.exists() else "",
-                result.stdout + result.stderr)
-
-    def proof_git(self, *arguments: str) -> str:
-        return git(self.proof, *arguments)
-
-    def test_the_proof_repository_gets_the_kit_in_one_commit_on_main_that_names_the_candidate(self) -> None:
-        code, output, _, log = self.start()
-        self.assertEqual(0, code, log)
-        head = self.proof_git("rev-parse", "refs/heads/main")
-        self.assertEqual(f"proof_commit={head}\n", output)
-        self.assertEqual([".github/ci-config.yml", ".github/workflows/ci.yml", "python/greeting.py"], self.proof_git("ls-tree", "-r", "--name-only", head).splitlines())
-        self.assertEqual("name: CI\n", self.proof_git("show", f"{head}:.github/workflows/ci.yml") + "\n")
-        self.assertEqual(f"chore: prove candidate {self.CANDIDATE}", self.proof_git("log", "-1", "--format=%s", head))
-        self.assertNotIn("proof.git", log, "the log names the proof repository's commit, not the repository")
-
-    def test_a_file_that_the_kit_no_longer_holds_leaves_the_proof_repository_and_a_changed_one_changes(self) -> None:
-        self.assertEqual(0, self.start()[0])
-        (self.kit / "python" / "greeting.py").unlink()
-        self.write_kit({".github/workflows/ci.yml": "name: CI 2\n", "dotnet/Greeting.cs": "class Greeting;\n"})
-        code, _, _, log = self.start("d" * 40)
-        self.assertEqual(0, code, log)
-        self.assertEqual([".github/ci-config.yml", ".github/workflows/ci.yml", "dotnet/Greeting.cs"], self.proof_git("ls-tree", "-r", "--name-only", "refs/heads/main").splitlines())
-        self.assertEqual("name: CI 2", self.proof_git("show", "refs/heads/main:.github/workflows/ci.yml"))
-        self.assertEqual(2, len(self.proof_git("log", "--format=%H", "refs/heads/main").splitlines()))
-
-    def test_an_unchanged_kit_still_gives_every_candidate_a_commit_of_its_own(self) -> None:
-        first = self.start()[1]
-        second = self.start("d" * 40)[1]
-        again = self.start("d" * 40)[1]
-        self.assertEqual(3, len({first, second, again}), "each start is a new commit, so each starts a run")
-        self.assertEqual(["chore: prove candidate " + "d" * 40] * 2 + ["chore: prove candidate " + self.CANDIDATE], self.proof_git("log", "--format=%s", "refs/heads/main").splitlines())
-        trees = self.proof_git("log", "--format=%T", "refs/heads/main").splitlines()
-        self.assertEqual(1, len(set(trees)), "the content stays the kit")
-
-    def test_a_proof_repository_that_cannot_be_reached_fails_without_an_output(self) -> None:
-        code, output, summary, log = self.start(remote=self.root / "missing.git")
-        self.assertEqual(1, code, log)
-        self.assertEqual("", output)
-        self.assertIn("The proof repository's run was not started; `v1` stays.", summary)
-        self.assertIn("<the proof repository>", summary)
-        self.assertNotIn("missing.git", summary + log, "neither the summary nor the log names the proof repository")
-
-    def test_an_empty_kit_starts_nothing(self) -> None:
-        empty = self.root / "empty"
-        empty.mkdir()
-        self.kit = empty
-        code, output, summary, _ = self.start()
-        self.assertEqual((1, ""), (code, output))
-        self.assertIn("holds no file", summary)
-        self.assertEqual("", self.proof_git("for-each-ref"))
+        self.assertFalse(decision.follow, "only the file that the record names as pins takes the exception")
 
 
 class FollowTests(unittest.TestCase):
-    """Whether ``v1`` follows the candidate tag: the CI on ``main`` of the commit and the proof repository's run."""
+    """Whether ``v1`` follows the commit: the newest push runs on ``main`` of the CI workflows for it, in this repository."""
 
-    COMMIT, OLD, PROOF_COMMIT = "d" * 40, "a" * 40, "e" * 40
+    COMMIT, OLD = "d" * 40, "a" * 40
 
     def setUp(self) -> None:
         self.api = Api()
@@ -575,7 +440,6 @@ class FollowTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        (self.root / "surface.json").write_text(json.dumps(SURFACE), encoding="utf-8")
         self.now = 0.0
         self.sleeps: list[float] = []
 
@@ -594,8 +458,7 @@ class FollowTests(unittest.TestCase):
             return real_wait(*arguments, clock=lambda: self.now, sleep=self.sleep, **options)
 
         with mock.patch.object(promote, "fetch", self.api.fetch), mock.patch.object(promote, "wait_for_ci", wait), contextlib.redirect_stdout(io.StringIO()) as stdout:
-            code = promote.main(["await", "--commit", self.COMMIT, "--old", self.OLD, "--proof-commit", self.PROOF_COMMIT, "--repository", Api.REPOSITORY,
-                                 "--surface", str(self.root / "surface.json"), "--output", str(output), "--summary", str(summary)])
+            code = promote.main(["await", "--commit", self.COMMIT, "--old", self.OLD, "--repository", Api.REPOSITORY, "--output", str(output), "--summary", str(summary)])
         self.assertEqual(0, code)
         return output.read_text(encoding="utf-8"), summary.read_text(encoding="utf-8"), stdout.getvalue()
 
@@ -604,60 +467,41 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(f"move=false\nold={self.OLD}\nnew={self.COMMIT}\n", output)
         self.assertEqual(f"## v1 promotion\n\n`v1` stays at `{self.OLD}`: {reason} A manual promotion is needed for this commit.\n", summary)
 
-    def test_v1_follows_once_the_ci_on_main_and_the_proof_run_on_the_candidate_passed(self) -> None:
-        self.api.proof_run(self.PROOF_COMMIT, "success", candidate=self.COMMIT)
+    def test_v1_follows_once_each_ci_run_on_main_concluded_success_and_no_other_repository_is_read(self) -> None:
         output, summary, printed = self.follow()
         self.assertEqual(f"move=true\nold={self.OLD}\nnew={self.COMMIT}\n", output)
-        self.assertEqual(f"## v1 promotion\n\n`v1` moves from `{self.OLD}` to `{self.COMMIT}`: the CI of this commit on main and the proof repository's run "
-                         "on the candidate tag passed.\n", summary)
+        self.assertEqual(f"## v1 promotion\n\n`v1` moves from `{self.OLD}` to `{self.COMMIT}`: the CI of this commit on main passed.\n", summary)
+        self.assertIn(summary, printed)
         self.assertEqual([], self.sleeps)
-        proof_url = promote.RUNS_URL.format(repository=PROOF_REPOSITORY, workflow="ci.yml", commit=self.PROOF_COMMIT)
-        self.assertEqual([*(promote.RUNS_URL.format(repository=Api.REPOSITORY, workflow=workflow, commit=self.COMMIT) for workflow in promote.CI_WORKFLOWS), proof_url],
-                         self.api.requests, "the proof run is the push run on main of the proof repository's pipeline caller for the commit that started it")
-        for text in (output, summary, printed):
-            self.assertNotIn(PROOF_REPOSITORY, text, "the summary and the log name no other repository")
-            self.assertNotIn("ProofFixture", text)
+        self.assertEqual([promote.RUNS_URL.format(repository=Api.REPOSITORY, workflow=workflow, commit=self.COMMIT) for workflow in promote.CI_WORKFLOWS],
+                         self.api.requests, "the wait reads the push runs on main of the three CI workflows of this repository and nothing else")
 
-    def test_a_proof_run_that_did_not_pass_keeps_v1(self) -> None:
-        for conclusion in ("failure", "cancelled", "timed_out"):
-            with self.subTest(conclusion=conclusion):
-                self.api.proof_run(self.PROOF_COMMIT, conclusion, candidate=self.COMMIT)
-                self.assert_stays(f"the proof repository's run on the candidate tag did not pass: it concluded {conclusion}.")
+    def test_a_ci_run_that_did_not_pass_keeps_v1_with_the_reason(self) -> None:
+        for workflow in promote.CI_WORKFLOWS:
+            for conclusion in ("failure", "cancelled", "timed_out"):
+                with self.subTest(workflow=workflow, conclusion=conclusion):
+                    self.setUp()
+                    self.api.runs(workflow, self.COMMIT, [{"id": 1, "status": "completed", "conclusion": conclusion}])
+                    self.assert_stays(f"the CI of this commit on main did not pass: {workflow} concluded {conclusion}.")
 
-    def test_a_proof_run_that_passed_on_another_commit_than_the_candidate_keeps_v1(self) -> None:
-        for name, arguments in (("another commit", {"candidate": "f" * 40}), ("no called workflow", {}),
-                                ("the pipeline of another repository", {"candidate": self.COMMIT, "shared": "CrankyAnt/Elsewhere"})):
-            with self.subTest(name=name):
-                self.api.proof_run(self.PROOF_COMMIT, "success", **arguments)
-                self.assert_stays("the proof repository's run passed without calling the pipeline at the candidate commit.")
-
-    def test_a_failed_ci_on_main_keeps_v1_although_the_proof_run_passed(self) -> None:
-        self.api.proof_run(self.PROOF_COMMIT, "success", candidate=self.COMMIT)
-        self.api.runs("ci.yml", self.COMMIT, [{"id": 1, "status": "completed", "conclusion": "failure"}])
+    def test_the_newest_run_decides_when_a_run_was_repeated(self) -> None:
+        self.api.runs("ci.yml", self.COMMIT, [{"id": 1, "status": "completed", "conclusion": "success"}, {"id": 2, "status": "completed", "conclusion": "failure"}])
         self.assert_stays("the CI of this commit on main did not pass: ci.yml concluded failure.")
 
-    def test_a_proof_run_that_has_not_completed_or_does_not_exist_when_the_wait_ends_keeps_v1(self) -> None:
-        for name, run in (("running", True), ("no run", False)):
+    def test_a_ci_run_that_has_not_completed_or_does_not_exist_when_the_wait_ends_keeps_v1(self) -> None:
+        for name, runs in (("running", [{"id": 1, "status": "in_progress", "conclusion": None}]), ("no run", [])):
             with self.subTest(name=name):
                 self.now, self.sleeps = 0.0, []
-                if run:
-                    self.api.proof_run(self.PROOF_COMMIT, None)
-                self.assert_stays("the proof repository's run on the candidate tag had not completed when the wait ended.")
-                self.assertEqual(promote.CI_TIMEOUT - 4 * promote.REQUEST_TIMEOUT, sum(self.sleeps), "a poll reads three CI workflows and the proof run")
+                self.api.runs("python-tests-caller.yml", self.COMMIT, runs)
+                self.assert_stays("the CI of this commit on main had not completed when the wait ended: python-tests-caller.yml.")
+                self.assertEqual(promote.CI_TIMEOUT - 3 * promote.REQUEST_TIMEOUT, sum(self.sleeps), "a poll reads the three CI workflows")
 
-    def test_the_wait_polls_until_the_proof_run_completed(self) -> None:
-        polls = iter([None, None, "success"])
+    def test_runs_that_could_not_be_read_on_the_last_poll_keep_v1_with_the_reason(self) -> None:
+        def unreachable(url: str) -> bytes | None:
+            raise urllib.error.URLError("temporary failure in name resolution")
 
-        def polling_fetch(url: str) -> bytes | None:
-            if PROOF_REPOSITORY in url:
-                self.api.proof_run(self.PROOF_COMMIT, next(polls), candidate=self.COMMIT)
-            return self.api.fetch(url)
-
-        proof = promote.Proof(PROOF_REPOSITORY, self.PROOF_COMMIT, Api.REPOSITORY, self.COMMIT)
-        conclusions = promote.wait_for_ci(Api.REPOSITORY, self.COMMIT, polling_fetch, clock=lambda: self.now, sleep=self.sleep, proof=proof)
-        self.assertEqual({**PASSED, promote.PROOF: "success"}, conclusions)
-        self.assertEqual([30, 30], self.sleeps)
-        self.assertIsNone(promote.ci_stay_reason(conclusions))
+        self.api.fetch = unreachable  # type: ignore[method-assign]
+        self.assert_stays("the CI runs of this commit on main could not be read when the wait ended: URLError: <urlopen error temporary failure in name resolution>.")
 
     def test_runs_that_could_not_be_read_when_the_wait_ended_keep_v1_with_the_error(self) -> None:
         def unreadable() -> dict:
@@ -665,7 +509,7 @@ class FollowTests(unittest.TestCase):
 
         outcome = promote.follow(self.OLD, self.COMMIT, ci=unreadable)
         self.assertFalse(outcome.move)
-        self.assertEqual("the CI runs of this commit on main and the proof repository's run could not be read when the wait ended: HTTPError: HTTP Error 502: Bad Gateway.", outcome.reason)
+        self.assertEqual("the CI runs of this commit on main could not be read when the wait ended: HTTPError: HTTP Error 502: Bad Gateway.", outcome.reason)
 
 
 class CiWaitTests(unittest.TestCase):
@@ -763,8 +607,7 @@ class CiWaitTests(unittest.TestCase):
 
     def test_the_worst_case_of_the_wait_ends_within_the_await_job_timeout(self) -> None:
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "promote-v1.yml").read_text(encoding="utf-8")
-        job_timeout = int(re.search(r"(?m)^  await:\n    needs: \[decide, candidate\]\n    runs-on: ubuntu-slim\n    timeout-minutes: (\d+)$", workflow).group(1)) * 60
-        proof = promote.Proof(PROOF_REPOSITORY, "e" * 40, Api.REPOSITORY, self.COMMIT)
+        job_timeout = int(re.search(r"(?m)^  await:\n    needs: decide\n    if: needs\.decide\.outputs\.follow == 'true'\n    runs-on: ubuntu-slim\n    timeout-minutes: (\d+)$", workflow).group(1)) * 60
         for outcome in ["pending", "timeout"]:
             with self.subTest(outcome=outcome):
                 self.now = 0.0
@@ -777,7 +620,7 @@ class CiWaitTests(unittest.TestCase):
                     return json.dumps({"workflow_runs": [{"id": 1, "status": "in_progress", "conclusion": None}]}).encode("utf-8")
 
                 try:
-                    promote.wait_for_ci(Api.REPOSITORY, self.COMMIT, slow_fetch, clock=lambda: self.now, sleep=self.sleep, proof=proof)
+                    promote.wait_for_ci(Api.REPOSITORY, self.COMMIT, slow_fetch, clock=lambda: self.now, sleep=self.sleep)
                 except promote.CiReadError:
                     self.assertEqual("timeout", outcome)
                 self.assertLessEqual(self.now, promote.CI_TIMEOUT)
@@ -791,7 +634,7 @@ class ToolDocumentTests(unittest.TestCase):
         tool = (REPOSITORY_ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
         section = tool.split("#### Automatic v1 move\n", 1)[1].split("\n#### ", 1)[0]
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "promote-v1.yml").read_text(encoding="utf-8")
-        job_timeout = re.search(r"(?m)^  await:\n    needs: \[decide, candidate\]\n    runs-on: ubuntu-slim\n    timeout-minutes: (\d+)$", workflow).group(1)
+        job_timeout = re.search(r"(?m)^  await:\n    needs: decide\n    if: needs\.decide\.outputs\.follow == 'true'\n    runs-on: ubuntu-slim\n    timeout-minutes: (\d+)$", workflow).group(1)
         figures = {
             r"polls the runs every (\d+) seconds": str(promote.CI_INTERVAL),
             r"Each request times out after (\d+) seconds": str(promote.REQUEST_TIMEOUT),
@@ -810,7 +653,7 @@ class ToolDocumentTests(unittest.TestCase):
         for text in ("every promotion that changes the write class or the template class of the shared surface", "every rollback", "the first creation",
                      "every move that changes a check name", "also starts the sync in the management repository",
                      "The automatic move of `promote-v1.yml` is not one", "stay in the read class",
-                     "after the commit's CI on `main` and the proof repository's run on the candidate tag passed",
+                     "after the commit's CI on `main` passed",
                      "A merged Dependabot pull request moves `v1` only that way",
                      "a pins-only pull request that the updater App opened from `chore/update-ci-pins` and the repository owner merged"):
             with self.subTest(document="publication.md", text=text):
@@ -818,20 +661,20 @@ class ToolDocumentTests(unittest.TestCase):
         tool = (REPOSITORY_ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
         channel = tool.split("### The v1 channel\n", 1)[1].split("\n### ", 1)[0]
         surface = json.loads((RESOURCES / "shared-surface.json").read_text(encoding="utf-8"))
-        for heading in ("#### Who moves v1", "#### Promotion classes", "#### The proof repository", "#### Automatic v1 move", "#### Promote v1 by hand", "#### Roll v1 back"):
+        for heading in ("#### Who moves v1", "#### Promotion classes", "#### Automatic v1 move", "#### Promote v1 by hand", "#### Roll v1 back"):
             with self.subTest(heading=heading):
                 self.assertEqual(1, channel.count(f"{heading}\n"))
         classes = channel.split("#### Promotion classes\n", 1)[1].split("\n#### ", 1)[0]
         self.assertEqual(["read", "write", "template"], re.findall(r"(?m)^\| (read|write|template) \|", classes), "one row per class")
         for text in ("a Dependabot pull request that merged itself moves `v1` only when its changes stay in the read class",
-                     f"the candidate tag `{surface['candidate_tag']}`", "`referenced_workflows`", "states the question for a promotion by hand",
+                     "states the question for a promotion by hand",
                      "starts `sync.yml` in the management repository with `workflow_dispatch`", "git config --local sharedworkflows.managementRepository <owner>/<name>",
-                     "`PROOF_REPOSITORY_DEPLOY_KEY`", "(../actions/pipeline/proof-kit)",
                      "the merge commit of a merged pull request that the updater App opened from `chore/update-ci-pins`", "the repository owner's account merged it",
                      "the commit changes only `pins.json`", "No other file of the write class and no other pull request takes this exception"):
             with self.subTest(document="maintaining.md", text=text):
                 self.assertIn(text, channel)
-        self.assertNotIn(surface["proof_repository"], tool, "the record of the shared surface alone names the proof repository")
+        self.assertNotIn("#### The proof", channel)
+        self.assertEqual(["pins", "updater_branch", "paths", "classes"], list(surface))
 
     def test_the_manual_procedures_give_prepare_the_question_and_promote(self) -> None:
         tool = (REPOSITORY_ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
@@ -860,15 +703,12 @@ class DeployKeyTests(unittest.TestCase):
     """``--deploy-key`` names the variable that holds the key; every push of the subcommand then goes over SSH with that
     key alone and a pinned host key, and nothing of it outlives the subcommand."""
 
-    PUSHES = {"candidate": ("push_candidate", (True, "moved\n"), ["candidate", "--new", "a" * 40]),
-              "start-proof": ("start_proof", "b" * 40, ["start-proof", "--candidate", "a" * 40, "--work", "work"]),
-              "move": ("move", (True, "moved\n"), ["move", "--old", "a" * 40, "--new", "b" * 40])}
+    PUSHES = {"move": ("move", (True, "moved\n"), ["move", "--old", "a" * 40, "--new", "b" * 40])}
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        (self.root / "surface.json").write_text(json.dumps(SURFACE), encoding="utf-8")
         self.seen: dict = {}
         self.result: object = None
 
@@ -883,12 +723,11 @@ class DeployKeyTests(unittest.TestCase):
 
     def run_push(self, subcommand: str, environment: dict[str, str]) -> int:
         function, self.result, arguments = self.PUSHES[subcommand]
-        surface = [] if subcommand == "move" else ["--surface", str(self.root / "surface.json")]
         self.output = io.StringIO()
         with mock.patch.dict(os.environ, {"RUNNER_TEMP": str(self.root), **environment}), mock.patch.object(promote, function, side_effect=self.push), \
                 contextlib.redirect_stdout(self.output):
             os.environ.pop("GIT_SSH_COMMAND", None)
-            code = promote.main([*arguments, "--deploy-key", KEY_VARIABLE, *surface])
+            code = promote.main([*arguments, "--deploy-key", KEY_VARIABLE])
             self.after = dict(os.environ)
         return code
 
@@ -912,10 +751,10 @@ class DeployKeyTests(unittest.TestCase):
                 self.assertEqual(KEY_TEXT, self.after[KEY_VARIABLE])
                 self.assertNotIn("FIXTURE KEY", self.output.getvalue(), "the key is never printed")
 
-    def test_two_keys_of_one_job_lie_in_two_files(self) -> None:
-        self.run_push("candidate", {KEY_VARIABLE: KEY_TEXT})
+    def test_two_pushes_of_one_job_lie_in_two_files(self) -> None:
+        self.run_push("move", {KEY_VARIABLE: KEY_TEXT})
         first = self.seen["key"]
-        self.run_push("start-proof", {KEY_VARIABLE: KEY_TEXT})
+        self.run_push("move", {KEY_VARIABLE: KEY_TEXT})
         self.assertNotEqual(first, self.seen["key"])
 
     def test_the_key_file_is_removed_when_the_push_raises(self) -> None:
@@ -951,10 +790,19 @@ class DeployKeyTests(unittest.TestCase):
 class WorkflowInvocationTests(unittest.TestCase):
     def test_the_promotion_workflow_invokes_the_script_with_subcommands_and_options_it_accepts(self) -> None:
         invocations = script_invocations(REPOSITORY_ROOT / ".github" / "workflows" / "promote-v1.yml", "promote_v1.py")
-        self.assertEqual([tokens[0] for tokens in invocations], ["read-tag", "decide", "candidate", "start-proof", "await", "move"])
+        self.assertEqual([tokens[0] for tokens in invocations], ["read-tag", "decide", "await", "move"])
         for tokens in invocations:
             with self.subTest(step=tokens[0]):
                 promote.build_parser().parse_args(tokens)
+
+    def test_the_subcommands_and_the_option_of_the_proof_are_gone(self) -> None:
+        for tokens in (["candidate", "--new", "a" * 40], ["start-proof", "--candidate", "a" * 40, "--work", "work"],
+                       ["await", "--commit", "a" * 40, "--old", "b" * 40, "--proof-commit", "c" * 40, "--repository", Api.REPOSITORY]):
+            with self.subTest(command=tokens[0]), contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(SystemExit) as raised:
+                promote.main(tokens)
+            self.assertEqual(2, raised.exception.code)
+            expected = "unrecognized arguments: --proof-commit" if tokens[0] == "await" else f"argument command: invalid choice: '{tokens[0]}'"
+            self.assertIn(expected, stderr.getvalue())
 
 
 class MoveTests(unittest.TestCase):
@@ -983,7 +831,7 @@ class MoveTests(unittest.TestCase):
         commit = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
         git(self.fixture.repo, "push", "-q", "origin", "main")
         decision = promote.decide(self.fixture.repo, commit, self.fixture.v1, SURFACE, tag_object, pull_request=pull_request(commit), app_login=APP, owner=OWNER)
-        self.assertTrue(decision.candidate, decision.reason)
+        self.assertTrue(decision.follow, decision.reason)
         self.assertEqual(tag_object, decision.old, "the lease names the object the remote ref holds")
         self.assertFalse(promote.move(self.fixture.repo, "origin", self.fixture.v1, commit)[0], "a lease on the peeled commit is rejected")
         self.assertTrue(promote.move(self.fixture.repo, "origin", decision.old, decision.new)[0])
@@ -1397,8 +1245,8 @@ class GhMove(ManualMove):
 
 
 class OtherRepositoryTests(GhMove):
-    """Apart from the start of the sync and the read of the proof repository's run, no subcommand asks GitHub about
-    another repository or sends one an event, and none names another repository in what it prints or writes."""
+    """Apart from the start of the sync in the management repository, no subcommand asks GitHub about another
+    repository or sends one an event, and none names another repository in what it prints or writes."""
 
     def assert_names_only_this_repository(self, text: str) -> None:
         self.assertEqual(set(), set(re.findall(r"CrankyAnt/[\w.-]+", text)) - {Api.REPOSITORY}, text)
@@ -1459,17 +1307,11 @@ class OtherRepositoryTests(GhMove):
     def test_the_automatic_move_names_no_other_repository_in_its_log_lines_outputs_or_summary(self) -> None:
         commit = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
         git(self.fixture.repo, "push", "-q", "origin", "main")
-        proof = self.root / "ProofFixture.git"
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(proof)], check=True, capture_output=True)
-        kit = self.root / "kit"
-        kit.mkdir()
-        (kit / "README.md").write_text("proof\n", encoding="utf-8")
         api = Api()
         api.ref(self.fixture.v1, "commit")
         for workflow in promote.CI_WORKFLOWS:
             api.runs(workflow, commit, [{"id": 1, "status": "completed", "conclusion": "success"}])
-        files = {name: self.root / name for name in ("tag-output", "output", "decide-summary", "candidate-summary", "proof-output", "proof-summary", "await-output",
-                                                     "await-summary", "move-summary")}
+        files = {name: self.root / name for name in ("tag-output", "output", "decide-summary", "await-output", "await-summary", "move-summary")}
         surface = ["--surface", str(self.surface_file)]
         with mock.patch.object(promote, "fetch", api.fetch):
             code, tag_log = self.run_script("read-tag", "--repository", Api.REPOSITORY, "--output", str(files["tag-output"]))
@@ -1479,18 +1321,9 @@ class OtherRepositoryTests(GhMove):
             code, decide_log = self.run_script("decide", "--commit", commit, "--v1", self.fixture.v1, "--pull-request", str(request), "--app-login", APP, "--owner", OWNER,
                                                *surface, "--output", str(files["output"]), "--summary", str(files["decide-summary"]))
             self.assertEqual(0, code, decide_log)
-            self.assertIn("candidate=true\n", files["output"].read_text(encoding="utf-8"))
-            code, candidate_log = self.run_script("candidate", "--new", commit, *surface, "--summary", str(files["candidate-summary"]))
-            self.assertEqual(0, code, candidate_log)
-            self.assertEqual(commit, self.fixture.remote_candidate())
-            code, proof_log = promote.main(["start-proof", "--proof-remote", str(proof), "--candidate", commit, "--kit", str(kit), "--work", str(self.root / "work"), *surface,
-                                            "--output", str(files["proof-output"]), "--summary", str(files["proof-summary"])]), ""
-            self.assertEqual(0, code)
-            proof_commit = files["proof-output"].read_text(encoding="utf-8").strip().removeprefix("proof_commit=")
-            self.assertEqual(proof_commit, git(proof, "rev-parse", "refs/heads/main"))
-            api.proof_run(proof_commit, "success", candidate=commit)
-            self.assertEqual(self.fixture.v1, self.fixture.remote_v1(), "v1 waits for the CI on main and the proof run")
-            code = promote.main(["await", "--commit", commit, "--old", self.fixture.v1, "--proof-commit", proof_commit, "--repository", Api.REPOSITORY, *surface,
+            self.assertIn("follow=true\n", files["output"].read_text(encoding="utf-8"))
+            self.assertEqual(self.fixture.v1, self.fixture.remote_v1(), "v1 waits for the CI on main")
+            code = promote.main(["await", "--commit", commit, "--old", self.fixture.v1, "--repository", Api.REPOSITORY,
                                  "--output", str(files["await-output"]), "--summary", str(files["await-summary"])])
             self.assertEqual(0, code)
         self.assertEqual(f"move=true\nold={self.fixture.v1}\nnew={commit}\n", files["await-output"].read_text(encoding="utf-8"))
@@ -1498,12 +1331,23 @@ class OtherRepositoryTests(GhMove):
         self.assertEqual(0, code, move_log)
         self.assertEqual(commit, self.fixture.remote_v1())
         self.assertEqual([], self.gh.calls)
-        own, proving = f"https://api.github.com/repos/{Api.REPOSITORY}/", f"https://api.github.com/repos/{PROOF_REPOSITORY}/actions/workflows/ci.yml/runs?"
-        self.assertTrue(all(url.startswith((own, proving)) for url in api.requests), api.requests)
-        self.assertEqual(1, len([url for url in api.requests if url.startswith(proving)]), "of another repository only the proof repository's run is read")
-        for text in (tag_log, decide_log, candidate_log, proof_log, move_log, *(path.read_text(encoding="utf-8") for path in files.values() if path.exists())):
+        own = f"https://api.github.com/repos/{Api.REPOSITORY}/"
+        self.assertTrue(api.requests)
+        self.assertTrue(all(url.startswith(own) for url in api.requests), f"the automatic move reads no other repository: {api.requests}")
+        for text in (tag_log, decide_log, move_log, *(path.read_text(encoding="utf-8") for path in files.values() if path.exists())):
             self.assert_names_only_this_repository(text)
-            self.assertNotIn("ProofFixture", text)
+
+    def test_the_program_reaches_only_the_repository_it_is_given_and_the_management_repository(self) -> None:
+        # tests/test_ci_policy_hygiene_promotion.py holds that promote-v1.yml gives it only the repository of the run.
+        program = SCRIPT.read_text(encoding="utf-8")
+        self.assertEqual({"{repository}"}, set(re.findall(r"\brepos/([^/\s\"']+)/", program)), "every API path takes the repository it is given")
+        self.assertNotIn("CrankyAnt/", program, "the program names no repository by its slug")
+        workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "promote-v1.yml").read_text(encoding="utf-8")
+        self.assertNotIn("--remote ", re.sub(r"--remote promote\b", "", workflow), "the workflow's one remote is the repository of the run")
+        # The one start of an event: the sync, in the repository that the local Git configuration of the checkout names.
+        self.assertEqual(1, program.count("start_sync(repository)"))
+        self.assertIn("    repository = management_repository(root)\n    if not repository:", program)
+        self.assertEqual(1, program.count('"--method", "POST"'))
 
 
 class SyncStartTests(GhMove):

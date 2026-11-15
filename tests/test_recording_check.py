@@ -434,7 +434,7 @@ class CheckSummaryRouteTests(unittest.TestCase):
     def test_the_form_is_read_from_the_repository_s_automation_caller(self) -> None:
         recording = load_recording()
         cases = {"the fixed caller": (self.FIXED_CALLER, True),
-                 "the fixed caller at another ref": (self.FIXED_CALLER.replace("@v1", "@v1-candidate"), True),
+                 "the fixed caller at another ref": (self.FIXED_CALLER.replace("@v1", "@v2"), True),
                  "no file": (None, False),
                  "a workflow of the repository's own under that name": ("jobs:\n  nightly:\n    runs-on: ubuntu-26.04\n    steps:\n      - run: make report\n", False),
                  "a caller of another shared workflow": (self.FIXED_CALLER.replace("automation.yml@", "pipeline.yml@"), False),

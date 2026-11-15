@@ -131,20 +131,12 @@ The tag `v1` through which every consumer receives the shared surface: a change 
 _Avoid_: Release, release channel, v1 branch
 
 **Promotion**:
-A move of `v1` forward to a descendant commit whose CI on `main` passed: by hand after the user's yes, or automatically, by `promote-v1.yml`, for the updater App's pins pull request once the repository owner merged it. A move back to an earlier commit is a rollback.
+A move of `v1` forward to a descendant commit whose CI on `main` passed: by hand after the user's yes, or automatically, by `promote-v1.yml`, for a commit whose changes stay in the read class and for the updater App's pins pull request once the repository owner merged it. A move back to an earlier commit is a rollback.
 _Avoid_: Release, publish, tag bump
 
 **Promotion class**:
-The class of a path of the shared surface that decides how a change to it is promoted: the read class automatically after a proof run, the write class and the template class only by hand.
+The class of a path of the shared surface that decides how a change to it is promoted: the read class automatically after the CI on `main`, the write class and the template class only by hand.
 _Avoid_: Risk class, surface class
-
-**Candidate tag**:
-The tag that a promotion moves first and to which the proof repository's callers point, so that a change runs there before `v1` moves.
-_Avoid_: Pre-release tag
-
-**Proof repository**:
-A public repository that exists only to run a candidate: its fixed callers equal the templates except that they point to the candidate tag.
-_Avoid_: Test repository, canary consumer, pilot consumer
 
 **Sweep**:
 The search by hand, in the maintainer's terminal, through the owner's repositories, archived ones left out, for the consumers: each repository whose default-branch workflow files call a shared workflow at `v1`. No workflow or script of Shared Workflows runs it, and a move of `v1` sends no event to any repository.

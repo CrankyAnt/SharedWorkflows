@@ -1,42 +1,32 @@
 """Promote ``v1``: automatically for a commit on the default branch whose changes stay in the read class, after its CI
-and a run of the proof repository on the candidate tag, and by hand for every other move.
+on ``main``, and by hand for every other move.
 
     python3 promote_v1.py read-tag --repository OWNER/NAME [--output GITHUB_OUTPUT]
     python3 promote_v1.py decide --commit SHA --v1 SHA [--v1-object SHA] [--pull-request FILE] [--app-login LOGIN] [--owner LOGIN]
                                  [--repository-root DIR] [--surface shared-surface.json] [--output GITHUB_OUTPUT] [--summary FILE]
-    python3 promote_v1.py candidate --new SHA [--deploy-key VARIABLE] [--remote origin] [--repository-root DIR] [--surface shared-surface.json]
-                                    [--summary FILE]
-    python3 promote_v1.py start-proof --candidate SHA --work DIR [--deploy-key VARIABLE] [--proof-remote REMOTE] [--kit DIR]
-                                      [--surface shared-surface.json] [--output GITHUB_OUTPUT] [--summary FILE]
-    python3 promote_v1.py await  --commit SHA --old OBJECT --proof-commit SHA --repository OWNER/NAME [--surface shared-surface.json]
-                                 [--output GITHUB_OUTPUT] [--summary FILE]
+    python3 promote_v1.py await  --commit SHA --old OBJECT --repository OWNER/NAME [--output GITHUB_OUTPUT] [--summary FILE]
     python3 promote_v1.py move   --old SHA --new SHA [--deploy-key VARIABLE] [--remote origin] [--repository-root DIR] [--summary FILE]
     python3 promote_v1.py prepare [--commit SHA] [--remote origin] [--repository-root DIR]
     python3 promote_v1.py promote --old OBJECT --new SHA [--remote origin] [--repository-root DIR]
 
 ``shared-surface.json`` gives every path of the shared surface one promotion class under ``classes``; a file takes the
 class of the longest recorded path that holds it. ``decide`` compares the shared surface at the current ``v1`` with the
-commit: when every changed file is in the read class and ``v1`` is an ancestor of the commit, the candidate tag moves.
+commit: when every changed file is in the read class and ``v1`` is an ancestor of the commit, ``v1`` follows the commit.
 When a changed file is in the write class or the template class, ``v1`` stays and the summary states the question for
 a promotion by hand; when the shared surface is identical, the summary says that no promotion is needed; any other
 stay gives the reason and asks for a manual promotion. Who made the commit does not count, so a merged Dependabot
 pull request moves ``v1`` only when its changes stay in the read class.
 
-One change outside the read class still moves the candidate tag: the pins update. The pins file is in the write
-class, because a workflow that writes installs the pinned tools. When it is the only changed file outside the read
-class, the candidate tag moves if the commit is the merge commit of a merged pull request that the updater App opened
+One change outside the read class still moves ``v1``: the pins update. The pins file is in the write class, because
+a workflow that writes installs the pinned tools. When it is the only changed file outside the read class, ``v1``
+follows if the commit is the merge commit of a merged pull request that the updater App opened
 from the updater's branch, that the repository owner merged, and that changes only the pins file. ``--pull-request``
 is the JSON of that pull request as the GitHub API returns it, ``--app-login`` the App's login and ``--owner`` the
 owner's. No other file and no other pull request takes this exception.
 
-``candidate`` moves the candidate tag that ``shared-surface.json`` names to the commit. ``start-proof`` gives the proof
-repository, which the same record names, the content of the proof kit in one commit on its ``main`` that names the
-candidate; that push starts the run of its pipeline caller, which calls the pipeline at the candidate tag. ``await``
-waits for the push runs on ``main`` of the CI workflows for the commit and for that run of the proof repository, read
-through the GitHub API with the token in ``GH_TOKEN``; ``v1`` follows only when every one concluded ``success`` and
-the proof run called the pipeline at the commit, which the run's ``referenced_workflows`` records. "Automatic v1 move"
-in ``docs/maintaining.md`` gives the polling interval and the bounds. No summary and no log line names the proof
-repository.
+``await`` waits for the newest push runs on ``main`` of the CI workflows for the commit, read through the GitHub API
+with the token in ``GH_TOKEN`` from this repository alone; ``v1`` follows only when every one concluded ``success``.
+"Automatic v1 move" in ``docs/maintaining.md`` gives the polling interval and the bounds.
 
 ``read-tag`` reads ``refs/tags/v1`` through the GitHub API with the token in ``GH_TOKEN``, because the checkout
 holds no credentials, and writes ``v1`` and ``v1_object`` as outputs, both empty when the tag does not exist.
@@ -44,7 +34,7 @@ holds no credentials, and writes ``v1`` and ``v1_object`` as outputs, both empty
 tag, the tag object for an annotated one); ``move`` pushes with ``--force-with-lease`` on that object, so a tag that
 moved after the decision read it rejects the push.
 
-``candidate``, ``start-proof`` and ``move`` push over SSH. ``--deploy-key`` names the environment variable that holds the
+``move`` pushes over SSH. ``--deploy-key`` names the environment variable that holds the
 private deploy key of the push: for the length of the subcommand the key lies in a file that only the user of the
 process reads, Git offers that key and no other identity, and it accepts ``github.com`` only under the host key pinned
 here, :data:`GITHUB_HOST_KEY`. Without the option, Git pushes with what its environment gives it.
@@ -78,7 +68,6 @@ from typing import Callable, Iterator, Mapping
 
 SURFACE_PATH = Path(__file__).resolve().parent / "shared-surface.json"
 TAG = "refs/tags/v1"
-PROOF_KIT = Path(__file__).resolve().parents[1] / "pipeline" / "proof-kit"
 CLASSES = ("read", "write", "template")
 READ, TEMPLATE = "read", "template"
 REF_URL = "https://api.github.com/repos/{repository}/git/ref/tags/v1"
@@ -91,11 +80,6 @@ SCRIPT_COMMAND = "python3 actions/repository-hygiene/promote_v1.py"
 PROMOTION, ROLLBACK, FIRST_CREATION = "promotion", "rollback", "first creation"
 SCAN_REFUSAL = "the Gitleaks scan of the tag push reports a finding or could not run"
 CI_WORKFLOWS = ("ci.yml", "repository-hygiene-caller.yml", "python-tests-caller.yml")
-PROOF_WORKFLOW = "ci.yml"
-PROOF_PIPELINE = ".github/workflows/pipeline.yml"
-PROOF = "the proof repository's run"
-UNBOUND = "unbound"
-PROOF_IDENTITY = ("-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com", "-c", "commit.gpgsign=false")
 # GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
 GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 MANAGEMENT_KEY = "sharedworkflows.managementRepository"
@@ -130,10 +114,10 @@ class ScanResult:
 
 @dataclass(frozen=True)
 class Decision:
-    """Whether the candidate tag moves to the commit; ``question`` is the question for a promotion by hand when the
-    commit's changes leave the read class."""
+    """Whether ``v1`` follows the commit once its CI on ``main`` passed; ``question`` is the question for a promotion by
+    hand when the commit's changes leave the read class."""
 
-    candidate: bool
+    follow: bool
     reason: str
     old: str
     new: str
@@ -141,8 +125,8 @@ class Decision:
     question: str = ""
 
     def summary(self) -> str:
-        if self.candidate:
-            return f"## v1 promotion\n\nThe candidate tag moves to `{self.new}`: {self.reason}\n"
+        if self.follow:
+            return f"## v1 promotion\n\n`v1` follows `{self.new}` once its CI on main passed: {self.reason}\n"
         target = self.old or "no v1 tag"
         if self.surface_identical:
             return f"## v1 promotion\n\n`v1` stays at `{target}`: the shared surface is identical between `v1` and this commit. No promotion is needed for this commit.\n"
@@ -154,7 +138,7 @@ class Decision:
 
 @dataclass(frozen=True)
 class Outcome:
-    """Whether ``v1`` follows the candidate tag after the wait for the CI on ``main`` and the proof repository's run."""
+    """Whether ``v1`` follows the commit after the wait for its CI on ``main``."""
 
     move: bool
     reason: str
@@ -242,7 +226,7 @@ def newest_runs(repository: str, commit: str, fetcher: Fetcher) -> dict[str, CiR
     for workflow in CI_WORKFLOWS:
         body = fetcher(RUNS_URL.format(repository=repository, workflow=workflow, commit=commit))
         runs = json.loads(body).get("workflow_runs", []) if body else []
-        run = max(runs, key=lambda candidate: candidate["id"], default=None)
+        run = max(runs, key=lambda item: item["id"], default=None)
         newest[workflow] = CiRun(run["status"], run["conclusion"]) if run else CiRun(None, None)
     return newest
 
@@ -252,50 +236,20 @@ def ci_conclusions(repository: str, commit: str, fetcher: Fetcher) -> Conclusion
     return {workflow: run.conclusion if run.status == "completed" else None for workflow, run in newest_runs(repository, commit, fetcher).items()}
 
 
-@dataclass(frozen=True)
-class Proof:
-    """The run that proves a candidate: the push run on ``main`` of the proof repository's pipeline caller for
-    ``commit``, the commit that started it there, which must have called the pipeline of ``shared`` at ``candidate``."""
-
-    repository: str
-    commit: str
-    shared: str
-    candidate: str
-
-
-def proof_conclusion(proof: Proof, fetcher: Fetcher) -> str | None:
-    """The conclusion of the proof run; None while it has not completed or no run exists, and :data:`UNBOUND` when it
-    passed without calling the pipeline at the candidate commit."""
-    body = fetcher(RUNS_URL.format(repository=proof.repository, workflow=PROOF_WORKFLOW, commit=proof.commit))
-    runs = json.loads(body).get("workflow_runs", []) if body else []
-    run = max(runs, key=lambda candidate: candidate["id"], default=None)
-    if run is None or run["status"] != "completed":
-        return None
-    if run["conclusion"] != "success":
-        return run["conclusion"]
-    called = f"{proof.shared}/{PROOF_PIPELINE}@"
-    bound = any(str(reference.get("path", "")).startswith(called) and reference.get("sha") == proof.candidate
-                for reference in run.get("referenced_workflows") or [])
-    return "success" if bound else UNBOUND
-
-
 def wait_for_ci(repository: str, commit: str, fetcher: Fetcher, timeout: float = CI_TIMEOUT, interval: float = CI_INTERVAL,
                 request_timeout: float = REQUEST_TIMEOUT, clock: Callable[[], float] = time.monotonic,
-                sleep: Callable[[float], None] = time.sleep, proof: Proof | None = None) -> Conclusions:
-    """Poll the CI of ``commit``, and with ``proof`` the proof run, until every run completed or one completed without success.
+                sleep: Callable[[float], None] = time.sleep) -> Conclusions:
+    """Poll the CI of ``commit`` until every run completed or one completed without success.
 
     A poll starts only while it ends within ``timeout`` seconds even when each of its requests takes ``request_timeout``.
     A failed read counts as not completed; when the last poll failed, :class:`CiReadError` names its error.
     """
-    names = [*CI_WORKFLOWS, PROOF] if proof else list(CI_WORKFLOWS)
-    deadline = clock() + timeout - len(names) * request_timeout
-    conclusions: Conclusions = dict.fromkeys(names)
+    deadline = clock() + timeout - len(CI_WORKFLOWS) * request_timeout
+    conclusions: Conclusions = dict.fromkeys(CI_WORKFLOWS)
     while True:
         error = ""
         try:
             conclusions = ci_conclusions(repository, commit, fetcher)
-            if proof:
-                conclusions = {**conclusions, PROOF: proof_conclusion(proof, fetcher)}
         except (OSError, ValueError) as caught:
             error = f"{type(caught).__name__}: {caught}"
         else:
@@ -312,20 +266,12 @@ def wait_for_ci(repository: str, commit: str, fetcher: Fetcher, timeout: float =
 
 def ci_stay_reason(conclusions: Conclusions) -> str | None:
     """Why ``v1`` stays given the CI conclusions, or None when every run concluded ``success``."""
-    ci = {workflow: conclusion for workflow, conclusion in conclusions.items() if workflow != PROOF}
-    proof = conclusions.get(PROOF, "success")
-    failed = [f"{workflow} concluded {conclusion}" for workflow, conclusion in ci.items() if conclusion not in (None, "success")]
+    failed = [f"{workflow} concluded {conclusion}" for workflow, conclusion in conclusions.items() if conclusion not in (None, "success")]
     if failed:
         return f"the CI of this commit on main did not pass: {', '.join(failed)}."
-    if proof == UNBOUND:
-        return "the proof repository's run passed without calling the pipeline at the candidate commit."
-    if proof not in (None, "success"):
-        return f"the proof repository's run on the candidate tag did not pass: it concluded {proof}."
-    pending = [workflow for workflow, conclusion in ci.items() if conclusion is None]
+    pending = [workflow for workflow, conclusion in conclusions.items() if conclusion is None]
     if pending:
         return f"the CI of this commit on main had not completed when the wait ended: {', '.join(pending)}."
-    if proof is None:
-        return "the proof repository's run on the candidate tag had not completed when the wait ended."
     return None
 
 
@@ -337,7 +283,7 @@ def changed_files(root: Path, base: str, head: str, paths: list[str] | None = No
 
 def load_surface(path: Path = SURFACE_PATH) -> dict:
     surface = json.loads(path.read_text(encoding="utf-8"))
-    texts = ("pins", "updater_branch", "candidate_tag", "proof_repository")
+    texts = ("pins", "updater_branch")
     if not all(isinstance(surface.get(key), str) for key in texts) or not isinstance(surface.get("paths"), list) or not isinstance(surface.get("classes"), dict):
         raise ValueError(f"{path} must hold {', '.join(texts)}, paths and classes")
     return surface
@@ -422,7 +368,7 @@ def pins_refusal(root: Path, commit: str, pull_request: dict | None, app_login: 
 
 def decide(root: Path, commit: str, v1: str, surface: dict, v1_object: str = "", *, pull_request: dict | None = None, app_login: str = "",
            owner: str = "") -> Decision:
-    """Whether the candidate tag moves to ``commit``: when its changes compared with ``v1`` stay in the read class, or
+    """Whether ``v1`` follows ``commit`` once its CI on ``main`` passed: when its changes compared with ``v1`` stay in the read class, or
     when the pins file is the only change outside it and the commit is the updater's pins update that the owner merged."""
     lease = v1_object or v1
     if surface_matches_v1(root, v1, commit, surface["paths"]):
@@ -442,7 +388,7 @@ def decide(root: Path, commit: str, v1: str, surface: dict, v1_object: str = "",
     if None in grouped:
         return stay(f"the changes compared with v1 reach {', '.join(grouped[None])}, which the shared surface gives no promotion class.")
     outside = {name: members for name, members in grouped.items() if name != READ}
-    follows = f"`v1` follows from `{lease}` once the CI of this commit on main and the proof repository's run on the candidate tag passed."
+    follows = f"`v1` follows from `{lease}` once the CI of this commit on main passed."
     if [path for members in outside.values() for path in members] == [surface["pins"]]:
         # The one exception outside the read class: the reviewed pins update. Nothing else in the write class takes it.
         refusal = pins_refusal(root, commit, pull_request, app_login, owner, surface)
@@ -457,43 +403,14 @@ def decide(root: Path, commit: str, v1: str, surface: dict, v1_object: str = "",
 
 
 def follow(old: str, new: str, *, ci: Callable[[], Conclusions]) -> Outcome:
-    """Whether ``v1`` follows the candidate tag to ``new``; ``ci`` gives the conclusions of the CI on ``main`` and of the proof run."""
+    """Whether ``v1`` follows the commit to ``new``; ``ci`` gives the conclusions of the CI on ``main``."""
     try:
         reason = ci_stay_reason(ci())
     except CiReadError as error:
-        reason = f"the CI runs of this commit on main and the proof repository's run could not be read when the wait ended: {error}."
+        reason = f"the CI runs of this commit on main could not be read when the wait ended: {error}."
     if reason:
         return Outcome(False, reason, old, new)
-    return Outcome(True, "the CI of this commit on main and the proof repository's run on the candidate tag passed.", old, new)
-
-
-def push_candidate(root: Path, remote: str, tag: str, new: str) -> tuple[bool, str]:
-    """Move the candidate tag of ``remote`` to ``new``; nothing but a promotion moves it, so the push takes no lease."""
-    result = subprocess.run(["git", "-C", str(root), "push", "--force", remote, f"{new}:refs/tags/{tag}"], capture_output=True, text=True, check=False)
-    if result.returncode == 0:
-        return True, f"## v1 promotion\n\nThe candidate tag `{tag}` moved to `{new}`.\n"
-    return False, f"## v1 promotion\n\nThe push of the candidate tag `{tag}` to `{new}` failed; `v1` stays.\n\n```\n{result.stderr.strip()}\n```\n"
-
-
-def start_proof(kit: Path, remote: str, candidate: str, work: Path) -> str:
-    """Give the proof repository behind ``remote`` the content of the proof kit in one commit on ``main`` that names
-    ``candidate``, and return that commit. The commit is made even when the content is unchanged, so that every
-    candidate starts a run of its own there."""
-    files = sorted(path for path in kit.rglob("*") if path.is_file())
-    if not files:
-        raise RuntimeError(f"the proof kit {kit} holds no file.")
-    git(work.parent, "clone", "-q", "--depth", "1", remote, str(work))
-    git(work, "checkout", "-q", "-B", "main")
-    if subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "--quiet", "HEAD"], capture_output=True, check=False).returncode == 0:
-        git(work, "rm", "-r", "-q", "--ignore-unmatch", ".")
-    for source in files:
-        target = work / source.relative_to(kit)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(source.read_bytes())
-    git(work, "add", "-A")
-    git(work, *PROOF_IDENTITY, "commit", "-q", "--allow-empty", "-m", f"chore: prove candidate {candidate}")
-    git(work, "push", "-q", "origin", "HEAD:refs/heads/main")
-    return git(work, "rev-parse", "HEAD")
+    return Outcome(True, "the CI of this commit on main passed.", old, new)
 
 
 def leased_push(root: Path, remote: str, old: str, new: str) -> subprocess.CompletedProcess:
@@ -775,28 +692,10 @@ def build_parser() -> argparse.ArgumentParser:
     decide_parser.add_argument("--output", type=Path)
     decide_parser.add_argument("--summary", type=Path)
     key_help = "the environment variable that holds the private deploy key of the push; the push then goes over SSH with that key alone"
-    candidate_parser = subcommands.add_parser("candidate", help="move the candidate tag to the commit")
-    candidate_parser.add_argument("--deploy-key", default="", metavar="VARIABLE", help=key_help)
-    candidate_parser.add_argument("--repository-root", type=Path, default=Path("."))
-    candidate_parser.add_argument("--remote", default="origin")
-    candidate_parser.add_argument("--new", required=True)
-    candidate_parser.add_argument("--surface", type=Path, default=SURFACE_PATH)
-    candidate_parser.add_argument("--summary", type=Path)
-    proof_parser = subcommands.add_parser("start-proof", help="give the proof repository the proof kit in one commit, which starts its run on the candidate tag")
-    proof_parser.add_argument("--deploy-key", default="", metavar="VARIABLE", help=key_help)
-    proof_parser.add_argument("--proof-remote", default="", help="the Git remote of the proof repository; over SSH to the repository that the surface names without it")
-    proof_parser.add_argument("--surface", type=Path, default=SURFACE_PATH)
-    proof_parser.add_argument("--candidate", required=True, help="the commit the candidate tag names")
-    proof_parser.add_argument("--kit", type=Path, default=PROOF_KIT)
-    proof_parser.add_argument("--work", type=Path, required=True, help="a directory that does not exist yet, for the clone of the proof repository")
-    proof_parser.add_argument("--output", type=Path)
-    proof_parser.add_argument("--summary", type=Path)
-    await_parser = subcommands.add_parser("await", help="wait for the CI on main and the proof repository's run, and decide whether v1 follows the candidate tag")
+    await_parser = subcommands.add_parser("await", help="wait for the CI on main and decide whether v1 follows the commit")
     await_parser.add_argument("--commit", required=True)
     await_parser.add_argument("--old", required=True, help="the object refs/tags/v1 held at the decision")
-    await_parser.add_argument("--proof-commit", required=True, help="the commit that started the proof repository's run")
     await_parser.add_argument("--repository", required=True, help="OWNER/NAME of the repository whose CI runs of the commit are read")
-    await_parser.add_argument("--surface", type=Path, default=SURFACE_PATH)
     await_parser.add_argument("--output", type=Path)
     await_parser.add_argument("--summary", type=Path)
     move_parser = subcommands.add_parser("move")
@@ -872,31 +771,10 @@ def run(arguments: argparse.Namespace) -> int:
                           pull_request=pull_request, app_login=arguments.app_login, owner=arguments.owner)
         print(decision.summary())
         _append(arguments.summary, decision.summary())
-        _append(arguments.output, f"candidate={str(decision.candidate).lower()}\nold={decision.old}\nnew={decision.new}\n")
-        return 0
-    if arguments.command == "candidate":
-        moved, summary = push_candidate(arguments.repository_root.resolve(), arguments.remote, load_surface(arguments.surface)["candidate_tag"], arguments.new)
-        print(summary)
-        _append(arguments.summary, summary)
-        return 0 if moved else 1
-    if arguments.command == "start-proof":
-        repository = load_surface(arguments.surface)["proof_repository"]
-        remote = arguments.proof_remote or f"git@github.com:{repository}.git"
-        try:
-            commit = start_proof(arguments.kit.resolve(), remote, arguments.candidate, arguments.work.resolve())
-        except RuntimeError as error:
-            # Git names the remote in its errors; the summary and the log name no other repository.
-            detail = str(error).replace(remote, "<the proof repository>").replace(repository, "<the proof repository>")
-            summary = f"## v1 promotion\n\nThe proof repository's run was not started; `v1` stays.\n\n```\n{detail}\n```\n"
-            print(summary)
-            _append(arguments.summary, summary)
-            return 1
-        print(f"The proof repository's run starts on its commit {commit}.")
-        _append(arguments.output, f"proof_commit={commit}\n")
+        _append(arguments.output, f"follow={str(decision.follow).lower()}\nold={decision.old}\nnew={decision.new}\n")
         return 0
     if arguments.command == "await":
-        proof = Proof(load_surface(arguments.surface)["proof_repository"], arguments.proof_commit, arguments.repository, arguments.commit)
-        outcome = follow(arguments.old, arguments.commit, ci=lambda: wait_for_ci(arguments.repository, arguments.commit, fetch, proof=proof))
+        outcome = follow(arguments.old, arguments.commit, ci=lambda: wait_for_ci(arguments.repository, arguments.commit, fetch))
         print(outcome.summary())
         _append(arguments.summary, outcome.summary())
         _append(arguments.output, f"move={str(outcome.move).lower()}\nold={outcome.old}\nnew={outcome.new}\n")
