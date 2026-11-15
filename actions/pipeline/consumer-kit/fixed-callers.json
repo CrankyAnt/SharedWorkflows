@@ -2,7 +2,8 @@
   "previous": {
     "automation.yml": "2026-11-15",
     "ci.yml": "2026-11-15",
-    "release.yml": "2026-11-15"
+    "release.yml": "2026-11-15",
+    "docs/agents/ci.md": "2026-11-15"
   },
   "sync-branch": "chore/sync-shared-workflows"
 }

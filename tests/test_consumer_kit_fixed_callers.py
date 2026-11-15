@@ -86,7 +86,7 @@ class FixedCallerReadmeTest(unittest.TestCase):
 
 
 class CiGuideTemplateTest(unittest.TestCase):
-    """The template of a consumer's ``docs/agents/ci.md``: a fixed pointer to the catalogue at v1."""
+    """The fixed pointer and principles of a consumer's ``docs/agents/ci.md``."""
 
     def setUp(self) -> None:
         self.template = (KIT / CI_GUIDE).read_text(encoding="utf-8")
@@ -107,12 +107,31 @@ class CiGuideTemplateTest(unittest.TestCase):
                 self.assertTrue(target.startswith("https://github.com/CrankyAnt/SharedWorkflows"))
                 self.assertNotIn("/main/", target, "a consumer reads the shared parts at v1")
 
-    def test_the_template_holds_no_rule_of_its_own_no_placeholder_and_nothing_of_this_repository_alone(self) -> None:
-        self.assertIn("holds no rule of its own", self.template)
-        self.assertEqual(["# CI", "## Repository choices"], re.findall(r"(?m)^#+ .*$", self.template), "another section would hold a rule")
+    def test_the_fixed_part_holds_the_pointer_and_principles_without_repository_specific_content(self) -> None:
+        self.assertNotIn("holds no rule of its own", self.template)
+        self.assertIn("principles", self.template.split("\n\n", 2)[1])
+        self.assertEqual(["# CI", "## Principles", "## Repository choices"], re.findall(r"(?m)^#+ .*$", self.template))
         self.assertEqual([], NOT_FIXED.findall(self.template))
         self.assertEqual([], re.findall(r"tests/|maintaining\.md|ci-policy|suites\.json", self.template))
-        self.assertLessEqual(len(self.template.splitlines()), 12)
+
+    def test_the_ten_principles_equal_this_repository_s_principles_word_for_word(self) -> None:
+        own = (REPOSITORY_ROOT / CI_GUIDE).read_text(encoding="utf-8")
+        names = ("Purpose", "Selection", "Sound selection", "Running everything", "Reuse", "One verdict", "Jobs", "Tests", "Changing CI", "Time and scaling")
+        sections = [text.split("\n## Principles\n", 1)[1].split("\n## ", 1)[0] for text in (own, self.template)]
+        for name in names:
+            with self.subTest(principle=name):
+                pattern = rf"(?ms)^- \*\*{re.escape(name)}\.\*\* .*?(?=^- \*\*|\Z)"
+                source, template = [[principle.rstrip() for principle in re.findall(pattern, section)] for section in sections]
+                self.assertEqual(1, len(source), f"{name}: the repository must hold the principle once")
+                self.assertEqual(1, len(template), f"{name}: the template must hold the principle once")
+                self.assertEqual(source, template, f"{name}: the principle must match word for word")
+
+    def test_the_principles_open_with_shared_ci_and_the_consumer_s_own_work(self) -> None:
+        paragraph = self.template.split("\n## Principles\n\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("CI work runs in a shared part unless the catalogue's decision rule places it in the repository.", paragraph)
+        self.assertIn("principles apply to the CI that the repository builds itself", paragraph)
+        self.assertIn("script of the free job", paragraph)
+        self.assertIn("registered local workflows", paragraph)
 
     def test_the_template_ends_with_the_heading_below_which_a_consumer_records_its_choices(self) -> None:
         self.assertTrue(self.template.endswith("\n\n## Repository choices\n"), "the comparison stops at this heading, so nothing fixed follows it")
