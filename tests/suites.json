@@ -577,6 +577,7 @@
         "tests/test_publication_branch.py/**",
         "tests/test_publication_checks.py/**",
         "tests/test_publication_commits.py/**",
+        "tests/test_publication_references.py/**",
         "tests/test_publication_spec_fixture.py/**",
         "tests/test_publication_spec_update.py/**",
         "tests/test_publication_spec_workflow.py/**",
@@ -710,6 +711,7 @@
           "tests/test_publication_branch.py/**",
           "tests/test_publication_checks.py/**",
           "tests/test_publication_commits.py/**",
+          "tests/test_publication_references.py/**",
           "tests/test_publication_spec_fixture.py/**",
           "tests/test_publication_spec_update.py/**",
           "tests/test_publication_spec_workflow.py/**",
@@ -1632,6 +1634,10 @@
         },
         {
           "path": "tests/test_publication_commits.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_publication_references.py",
           "kind": "any"
         },
         {
@@ -2993,6 +2999,10 @@
           },
           {
             "path": "tests/test_publication_commits.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_publication_references.py",
             "kind": "any"
           },
           {
@@ -8274,6 +8284,7 @@
         "tests/test_publication_branch.py/**",
         "tests/test_publication_checks.py/**",
         "tests/test_publication_commits.py/**",
+        "tests/test_publication_references.py/**",
         "tests/test_publication_spec_fixture.py/**",
         "tests/test_publication_spec_update.py/**",
         "tests/test_publication_spec_workflow.py/**",
@@ -8397,6 +8408,7 @@
           "tests/test_publication_branch.py/**",
           "tests/test_publication_checks.py/**",
           "tests/test_publication_commits.py/**",
+          "tests/test_publication_references.py/**",
           "tests/test_publication_spec_fixture.py/**",
           "tests/test_publication_spec_update.py/**",
           "tests/test_publication_spec_workflow.py/**",
@@ -9278,6 +9290,10 @@
         },
         {
           "path": "tests/test_publication_commits.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_publication_references.py",
           "kind": "any"
         },
         {
@@ -10889,6 +10905,10 @@
           },
           {
             "path": "tests/test_publication_commits.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_publication_references.py",
             "kind": "any"
           },
           {
@@ -15940,6 +15960,7 @@
         ".github/workflows/update-publication-spec.yml",
         "actions/publication-checks/check-branch.cjs",
         "actions/publication-checks/check-commits.cjs",
+        "actions/publication-checks/check-references.cjs",
         "actions/publication-checks/commitlint.config.cjs",
         "actions/publication-checks/package-lock.json",
         "actions/publication-checks/package.json",
@@ -16013,6 +16034,9 @@
           "tests/test_publication_commits.py"
         ],
         "tests/test_publication_references.py": [
+          "actions/publication-checks/check-references.cjs",
+          "actions/repository-hygiene/pins.json",
+          "tests/publication_fixtures.py",
           "tests/test_publication_references.py"
         ],
         "tests/test_publication_spec_fixture.py": [
@@ -16066,6 +16090,9 @@
           "."
         ],
         "tests/test_publication_commits.py": [
+          "."
+        ],
+        "tests/test_publication_references.py": [
           "."
         ],
         "tests/test_publication_spec_fixture.py": [
@@ -16285,6 +16312,22 @@
         },
         {
           "path": "tests/test_publication_commits.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_publication_references",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_publication_references.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_publication_references.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_publication_references.so",
           "kind": "any"
         },
         {
@@ -16701,6 +16744,64 @@
             "kind": "any"
           }
         ],
+        "tests/test_publication_references.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/publication-checks",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/publication_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/publication_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/publication_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/publication_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_publication_references",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_publication_references.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_publication_references.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_publication_references.so",
+            "kind": "any"
+          }
+        ],
         "tests/test_publication_spec_fixture.py": [
           {
             "path": "tests",
@@ -17021,6 +17122,10 @@
           "tests"
         ],
         "tests/test_publication_commits.py": [
+          ".",
+          "tests"
+        ],
+        "tests/test_publication_references.py": [
           ".",
           "tests"
         ],
