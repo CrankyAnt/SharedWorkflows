@@ -31,7 +31,7 @@
           }
         },
         "custom": {
-          "description": "The free job: runs a script of the repository after the setups that it names, on the GitHub-hosted runner that `runner-label` names or on ubuntu-26.04, with read permission only and without secrets, for CI that no other part covers. While the work waits for a shared part or for a setting of one, `request` and `waits-for` name the request and what it waits for, as a temporary entry of the local workflow register does, and repository hygiene reports when the part or the setting exists. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\", \"request\": 12, \"waits-for\": \"python-licences\"}.",
+          "description": "The free job: runs a script of the repository after the setups that it names, on the GitHub-hosted runner that `runner-label` names or on ubuntu-26.04, with read permission only and without secrets, for CI that no other part covers. While the work waits for a shared part or for a setting of one, `request` and `waits-for` name the request and what it waits for, as a temporary entry of the local workflow register does, and repository hygiene reports when the part or the setting exists. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\", \"runner-label\": \"windows-2025\", \"request\": 12, \"waits-for\": \"python-licences\"}.",
           "type": "object",
           "additionalProperties": false,
           "required": [

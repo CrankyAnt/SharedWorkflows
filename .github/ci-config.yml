@@ -4,6 +4,11 @@ parts:
     setups: [python-3.13, python-3.14]
     script: tests/fixtures/custom/pass.sh
     runner-label: windows-2025
+    paths:
+      - tests/fixtures/custom/
+      - actions/pipeline/
+      - .github/workflows/pipeline.yml
+      - .github/workflows/ci.yml
   python-verify:
     projects:
       - python-version: "3.14"
