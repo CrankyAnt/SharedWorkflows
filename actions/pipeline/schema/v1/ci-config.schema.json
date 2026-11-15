@@ -13,7 +13,7 @@
       "const": 1
     },
     "parts": {
-      "description": "The shared parts that are switched on, each under its name with its values. A part without values is stated as `<part>: {}`. Not stated here, because it always runs and has no settings: repository-hygiene.",
+      "description": "The shared parts that are switched on, each under its name with its values. A part without values is stated as `<part>: {}`.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -277,6 +277,31 @@
             },
             "paths": {
               "$ref": "#/$defs/paths"
+            }
+          }
+        },
+        "repository-hygiene": {
+          "description": "Repository hygiene: the convention checks, the credential scan and the shared checks that a change can affect. It always runs and cannot be switched off; stating it, as `repository-hygiene: {}` or with settings, only sets what its Dependabot coverage check and its link check leave out. Without the part or a setting, both checks read every file. Invented example: {\"coverage-exclude\": [\"tests/fixtures/package.json\"], \"link-exclude\": [\"vendor/**/*.md\"]}.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "coverage-exclude": {
+              "description": "The package files that are test fixtures, which nothing installs, or folders of such files, each as a path relative to the repository root. The Dependabot coverage check leaves out a package file at or under a listed path, which then needs no entry under dependabot. A change to this setting starts the coverage check. Invented example: [\"tests/fixtures/package.json\", \"tests/fixtures/node\"].",
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/relative-path"
+              }
+            },
+            "link-exclude": {
+              "description": "Globs, relative to the repository root, of Markdown files whose links the repository does not maintain, such as vendored documentation: `*` matches within one path segment and `**` across segments, and a pattern that ends in `/` matches everything under that folder. The link check checks no link in a matching file and still checks a link from another file into one. A change to this setting starts the link check. Invented example: [\"vendor/**/*.md\", \"third_party/\"].",
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?![-/])(?!(.*/)?\\.\\.(/|$)).+$"
+              }
             }
           }
         },

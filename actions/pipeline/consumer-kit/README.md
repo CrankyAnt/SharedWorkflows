@@ -22,11 +22,30 @@ No caller starts on `pull_request_target`, and none inherits secrets.
 
 ## The CI guide
 
-Copy [docs/agents/ci.md](docs/agents/ci.md) to `docs/agents/ci.md`. Its fixed part holds the pointer to the catalogue and the schema of the configuration file at `v1`, and the CI principles. The principles apply to the script of the free job and the registered local workflows. The fixed part ends with the heading `## Repository choices`. Up to and including that heading it is equal byte for byte in every repository, as a fixed caller is. Below the heading the repository records, each with its reason, the choices that no file states, such as a deviation of its ruleset from the [ruleset template](../../repository-ruleset/README.md). A choice that a shared part reads is a value in the configuration file, and work that no shared part covers follows the decision rule in the catalogue; neither goes below the heading.
+Copy [docs/agents/ci.md](docs/agents/ci.md) to `docs/agents/ci.md`. Its fixed part holds the pointer to the catalogue and the schema of the configuration file at `v1`, and the CI principles. The principles apply to the script of the free job and the registered local workflows. The fixed part ends with the heading `## Repository choices`. Up to and including that heading it is equal byte for byte in every repository, as a fixed caller is. Below the heading the repository records, each with its reason, the choices that no file states. The ruleset and the merge settings are no choice of the repository: the sync keeps both equal to their templates, as [Default-branch ruleset](#default-branch-ruleset) says. A choice that a shared part reads is a value in the configuration file, and work that no shared part covers follows the decision rule in the catalogue; neither goes below the heading.
 
 ## The configuration file
 
 `.github/ci-config.yml` matches the schema [ci-config.schema.json](../schema/v1/ci-config.schema.json), which describes every key. The smallest file is the line `version: 1`. It holds the shared parts that the repository switches on under `parts`, its Dependabot ecosystems under `dependabot` and its local workflow register under `local-workflows`.
+
+## Repository hygiene
+
+The part `repository-hygiene` runs in every run of the pipeline and cannot be switched off. The configuration file may state it under `parts` with two optional settings, for files that its Dependabot coverage check and its link check leave out:
+
+```yaml
+version: 1
+parts:
+  repository-hygiene:
+    coverage-exclude:
+      - tests/fixtures/package.json
+    link-exclude:
+      - vendor/**/*.md
+```
+
+- `coverage-exclude`: the package files that are test fixtures, which nothing installs, or folders of such files, as paths relative to the repository root. The coverage check leaves out a package file at or under a listed path, so it needs no entry under `dependabot`, and the generated `.github/dependabot.yml` holds none for it.
+- `link-exclude`: globs, relative to the repository root, of Markdown files whose links the repository does not maintain, such as vendored documentation. The link check checks no link in a matching file, and still checks a link from another file into one.
+
+Each setting is a list of at least one string. Without the part, or with `repository-hygiene: {}`, both checks read every file. The hygiene job reads the two settings from the configuration file itself; when the file cannot be used, both checks leave no file out and the plan reports the file. A change to `coverage-exclude` starts the coverage check, and a change to `link-exclude` starts the link check.
 
 ## The parts of the automation workflow
 
@@ -142,7 +161,7 @@ This label belongs only to requests for shared CI, which the triage of Shared Wo
 
 | Default label | Colour | Meaning |
 | --- | --- | --- |
-| `shared-ci` | `bfd4f2` | A request for a shared part, for an input that a shared part lacks, or for the repair of a fault of a shared part |
+| `shared-ci` | `bfd4f2` | Request for shared CI: a shared part, a missing input or a shared part's fault |
 ```
 
 The triage of Shared Workflows collects the open requests and answers each in a comment on the request. For a request that it takes up, the comment links a public issue in general terms and states the final name of the part, and of the setting for a missing input: keep `waits-for` equal to them. A request that it declines it closes as not planned, with the decline in the comment. When the part exists at `v1`, the switch-over check fails the next pull request: the agent that switches the part on removes the temporary workflow with its entry and closes the request. A workflow stays in the repository for good only with a permanent entry, which names a closed request that was declined.
@@ -153,7 +172,7 @@ The triage of Shared Workflows collects the open requests and answers each in a 
 
 ## Default-branch ruleset
 
-The one check that the ruleset on `main` requires is `ci / verdict`. The [ruleset template](../../repository-ruleset/README.md) holds it; drop each other check of the template whose caller the repository does not hold.
+The one check that the ruleset on `main` requires is `ci / verdict`. The [ruleset template](../../repository-ruleset/README.md) holds it with three checks of callers that a repository with the fixed callers no longer holds; drop those three. The sync compares the ruleset with the ruleset template holding `ci / verdict` as its one required check, and the merge settings with those that the [consumer kit of repository hygiene](../../repository-hygiene/consumer-kit/README.md#merge-settings) states. A difference in either is no choice of the repository and is not kept: the sync reports it on every run, and its local mode replaces it with the template's value.
 
 ## When a repository adopted it earlier
 
@@ -169,4 +188,4 @@ Nothing of the installed caller carries over. The CI guide follows its template,
 
 ## When `v1` moves
 
-A move of `v1` changes the later runs of the callers without a change in the repository. When it changes a template, the previous section applies. A failure that the repository cannot fix in its own files is a fault of the shared part: report it to the user and file a request, as [Requests for shared CI](#requests-for-shared-ci) says.
+A move of `v1` changes the later runs of the callers without a change in the repository. When it changes a template, the previous section applies. When a check of repository hygiene that the move adds fails on what the repository already holds, fix it in the same pull request: repair a dead link, or name Markdown that the repository does not maintain under `link-exclude`; add the ecosystem and directory of an uncovered package file under `dependabot`, or name a test fixture under `coverage-exclude`, as [Repository hygiene](#repository-hygiene) says. A failure that the repository cannot fix in its own files is a fault of the shared part: report it to the user and file a request, as [Requests for shared CI](#requests-for-shared-ci) says.

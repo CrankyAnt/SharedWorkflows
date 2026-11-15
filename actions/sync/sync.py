@@ -609,7 +609,11 @@ def derive_parts(workflows: dict[str, str], templates: Templates, table: dict[st
             part = table[called[name]]
             inputs = job.get("with") if isinstance(job.get("with"), dict) else {}
             if part in version.always:
-                notes += [f"`{path}`: the input `{key}` is not carried over; the part `{part}` always runs and has no settings." for key in inputs]
+                known = settings_of.get(part, {}).get("properties", {})
+                notes += [f"`{path}`: the input `{key}` is not carried over; "
+                          + (f"state it as `parts.{part}.{key}` in `{plan.CONFIGURATION}`, in the form that the schema gives." if key in known
+                             else f"the part `{part}` always runs and has no settings." if part not in settings_of else f"it is no setting of the part `{part}`.")
+                          for key in inputs]
                 continue
             if part in parts:
                 notes.append(f"`{path}`: the job `{name}` is a second call of the part `{part}`, which the configuration file states once; its inputs are not carried over.")

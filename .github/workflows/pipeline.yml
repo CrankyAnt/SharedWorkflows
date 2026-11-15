@@ -296,7 +296,7 @@ jobs:
             push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
             *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
           esac
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --markdown-definition ".github/workflows/pipeline.yml#step:links" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude" --markdown-definition ".github/workflows/pipeline.yml#step:links" --markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Decide whether the PR author skips the convention checks
         id: author-decision
         if: github.event_name == 'pull_request'
@@ -400,13 +400,23 @@ jobs:
         if: ${{ !cancelled() && steps.changes.outputs.packages == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" coverage
+          PIPELINE_PATH: ${{ steps.pipeline.outputs.path }}
+        run: |
+          set -euo pipefail
+          # The setting coverage-exclude of the configuration file; a file that cannot be used leaves nothing out.
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$PIPELINE_PATH/plan.py" setting --part repository-hygiene --setting coverage-exclude |
+            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" coverage --exclude-from -
       - name: Relative links in tracked Markdown
         id: links
         if: ${{ !cancelled() && steps.changes.outputs.markdown == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --summary "$GITHUB_STEP_SUMMARY"
+          PIPELINE_PATH: ${{ steps.pipeline.outputs.path }}
+        run: |
+          set -euo pipefail
+          # The setting link-exclude of the configuration file; a file that cannot be used leaves nothing out.
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$PIPELINE_PATH/plan.py" setting --part repository-hygiene --setting link-exclude |
+            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"
       - name: Install the pinned tools and verify their checksums
         id: install
         if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}

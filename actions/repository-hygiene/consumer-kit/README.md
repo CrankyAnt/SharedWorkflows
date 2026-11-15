@@ -6,7 +6,7 @@ The consumer kit of repository hygiene, a shared part of the [catalogue](../../.
 
 Copy [repository-hygiene.yml](repository-hygiene.yml) to `.github/workflows/repository-hygiene.yml` and replace `<default-branch>` with the repository's default branch. The caller sets `permissions: {}` at the top and `actions: read`, `contents: read` and `pull-requests: read` on its one job, passes no secrets and runs no step of its own. It runs on pull requests, `edited` included, on pushes to the default branch, and on the `repository_dispatch` event `dependabot-merged`, which Dependabot auto-merge sends after each merge; on that event the job checks out the commit that `client_payload.sha` names, or the default branch's tip without one. The job fails, and runs no checks, when `client_payload.sha` is malformed, absent from the checkout, or a commit off the default branch.
 
-The job id `hygiene` gives the check `hygiene / hygiene`. It is the one check that repository hygiene adds to the checks the default-branch ruleset requires.
+The job id `hygiene` gives the check `hygiene / hygiene`. A repository that has not adopted the pipeline requires it in its default-branch ruleset, as [Default-branch ruleset](#default-branch-ruleset) says; in a repository that holds the fixed callers, the pipeline runs repository hygiene and its verdict `ci / verdict` is the one required check.
 
 ## What the job checks
 
@@ -58,18 +58,26 @@ The shared zizmor policy holds every `uses:` reference outside the repository to
 
 The shared parts rely on the merge settings and the default-branch ruleset below. The user configures them; the job changes none of them. An agent shows the user the values it will set and sets them only after the user's approval.
 
+Neither is a choice of the repository. In a repository that has adopted the pipeline, the sync keeps both equal to their templates: a merge setting that differs from [merge-settings.json](../../sync/merge-settings.json), or a ruleset that differs from the template as the sync expects it below, is not kept. The sync reports it on every run, and its local mode replaces it with the value of that file or the template.
+
 ### Merge settings
 
-- Squash merge is enabled: `allow_squash_merge` is `true`. Dependabot auto-merge requests a squash merge.
-- Merge commits are enabled: `allow_merge_commit` is `true`. An integration branch reaches the default branch with a merge commit whose subject is the pull request title.
-- Rebase merge is disabled: `allow_rebase_merge` is `false`.
-- The squash and merge-commit subjects are the pull request title with an empty body: `squash_merge_commit_title` and `merge_commit_title` are `PR_TITLE`, and `squash_merge_commit_message` and `merge_commit_message` are `BLANK`.
+The merge settings are the fields of [merge-settings.json](../../sync/merge-settings.json), which the sync compares:
+
+- `allow_squash_merge` is `true`: Dependabot auto-merge requests a squash merge.
+- `allow_merge_commit` is `true`: an integration branch reaches the default branch with a merge commit whose subject is the pull request title.
+- `allow_rebase_merge` is `false`: a pull request merges by squash or with a merge commit only.
+- `allow_auto_merge` is `true`: the sync pull request and the full recording's pull request merge themselves once their required checks have passed.
+- `squash_merge_commit_title` is `PR_TITLE`: a squash commit's subject is the pull request title.
+- `squash_merge_commit_message` is `BLANK`: a squash commit has an empty body.
+- `merge_commit_title` is `PR_TITLE`: a merge commit's subject is the pull request title.
+- `merge_commit_message` is `BLANK`: a merge commit has an empty body.
 
 Set them and read them back with:
 
 ```text
-gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_merge_commit=true -F allow_rebase_merge=false -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
-gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
+gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_merge_commit=true -F allow_rebase_merge=false -F allow_auto_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
+gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, allow_auto_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
 ```
 
 ### Default-branch ruleset
@@ -78,7 +86,7 @@ The [ruleset template](../../repository-ruleset/ruleset-main-template.json) hold
 
 - the target `~DEFAULT_BRANCH`;
 - the rules `deletion` and `non_fast_forward`;
-- the rule `required_status_checks` with the required checks of the shared parts the repository uses, each with GitHub Actions as its source (`integration_id` `15368`): `hygiene / hygiene` of repository hygiene in every consumer, `validation / validation`, the verdict's check, when the repository uses the suite selection, and `tests / tests` when it uses Python tests. The catalogue lists each part's checks under `required_checks`; Dependabot auto-merge and the Python language step add none;
+- the rule `required_status_checks` with the required checks, each with GitHub Actions as its source (`integration_id` `15368`). A repository that holds the fixed callers requires one check, `ci / verdict`, the pipeline's verdict, which carries the result of every part of the pipeline, repository hygiene included. The sync compares its ruleset with the ruleset template holding that one required check, and reports a ruleset with another set of required checks as a settings difference. A repository that has not adopted the pipeline requires the check of each caller it still holds: `hygiene / hygiene` with the hygiene caller, `validation / validation`, the verdict's check, with the validation caller of the suite selection, and `tests / tests` with the caller of Python tests. The catalogue lists each part's checks under `required_checks`; Dependabot auto-merge and the Python language step add none;
 - a bypass for the repository admin role: `actor_id` `5`, `actor_type` `RepositoryRole`, `bypass_mode` `always`;
 - `enforcement` `active`.
 

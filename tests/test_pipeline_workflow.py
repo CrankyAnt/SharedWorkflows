@@ -11,7 +11,7 @@ import sys
 import unittest
 
 from tests.ci_policy_support import read_workflow
-from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT, PipelineFixture, plan_program, read_outputs
+from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT, SCHEMAS, PipelineFixture, git, plan_program, read_outputs
 from tests.workflow_commands import script_invocations
 
 WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml"
@@ -30,10 +30,16 @@ class PipelineInvocationTests(unittest.TestCase):
         self.invocations = script_invocations(WORKFLOW, "plan.py")
 
     def test_the_pipeline_starts_the_plan_and_then_the_verdict_with_options_that_the_program_accepts(self) -> None:
-        self.assertEqual(["plan", "verdict"], [tokens[0] for tokens in self.invocations])
+        self.assertEqual(["plan", "setting", "setting", "verdict"], [tokens[0] for tokens in self.invocations])
         for tokens in self.invocations:
             with self.subTest(command=tokens[0]):
                 plan_program.parser().parse_args(tokens)
+
+    def test_the_hygiene_job_reads_the_two_exclusions_of_repository_hygiene_from_the_checkout(self) -> None:
+        settings = [plan_program.parser().parse_args(tokens) for tokens in self.invocations if tokens[0] == "setting"]
+        self.assertEqual([("repository-hygiene", "coverage-exclude"), ("repository-hygiene", "link-exclude")], [(options.part, options.setting) for options in settings])
+        for options in settings:
+            self.assertEqual((".", str(plan_program.SCHEMAS)), (options.root, options.schemas), "the setting is read with the schema of the pipeline's own revision")
 
     def test_the_plan_gets_the_change_and_the_run_and_writes_its_outputs_and_its_summary(self) -> None:
         options = plan_program.parser().parse_args(self.invocations[0])
@@ -51,7 +57,7 @@ class PipelineInvocationTests(unittest.TestCase):
             self.assertIn(binding, text)
 
     def test_the_verdict_gets_the_needs_context_and_writes_its_summary(self) -> None:
-        options = plan_program.parser().parse_args(self.invocations[1])
+        options = plan_program.parser().parse_args(self.invocations[-1])
         self.assertEqual(("x/needs.json", "x"), (options.needs, options.summary))
 
 
@@ -117,17 +123,117 @@ class HygieneInvocationTests(PipelineFixture):
         arguments = install_tools.build_parser().parse_args(install[0])
         self.assertEqual(("linux-x64", ["gitleaks"]), (arguments.platform, arguments.tools))
 
-    def test_the_decision_of_the_hygiene_job_runs_in_a_consumer_that_holds_no_pipeline_of_its_own(self) -> None:
-        base = self.commit({CONFIGURATION: "version: 1\n", "README.md": "A consumer.\n", ".github/workflows/ci.yml": "name: CI\non: pull_request\njobs: {}\n"})
-        head = self.commit({"docs/guide.md": "A guide.\n"})
+    def decide(self, base: str, head: str) -> dict[str, str]:
+        """The decision of the pipeline's hygiene job with the definitions that its step `changes` names."""
         tokens = next(tokens for tokens in script_invocations(WORKFLOW, "hygiene.py") if tokens[0] == "changes")
         definitions = [token for token in tokens[1:] if token not in ("$@", "x") and not token.startswith("--github-output") and not token.startswith("--summary")]
         outputs = self.directory / "hygiene-output"
+        outputs.unlink(missing_ok=True)
         completed = subprocess.run([sys.executable, str(HYGIENE_FOLDER / "hygiene.py"), "changes", "--root", str(self.repository), "--base", base, "--head", head,
                                     "--compare", "merge-base", *definitions, "--github-output", str(outputs)], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        decided = read_outputs(outputs)
+        return read_outputs(outputs)
+
+    def test_the_decision_of_the_hygiene_job_runs_in_a_consumer_that_holds_no_pipeline_of_its_own(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\n", "README.md": "A consumer.\n", ".github/workflows/ci.yml": "name: CI\non: pull_request\njobs: {}\n"})
+        head = self.commit({"docs/guide.md": "A guide.\n"})
+        decided = self.decide(base, head)
         self.assertEqual(("true", "false", "false"), (decided["markdown"], decided["actionlint"], decided["packages"]))
+
+    def test_a_change_to_one_exclusion_alone_starts_the_check_that_reads_it(self) -> None:
+        stated = "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures]\n    link-exclude: [vendor/]\n"
+        base = self.commit({CONFIGURATION: stated, "README.md": "A consumer.\n", ".github/workflows/ci.yml": "name: CI\non: pull_request\njobs: {}\n"})
+        for changed, packages, markdown in (
+            (stated.replace("[tests/fixtures]", "[tests/fixtures, tools/fixture]"), "true", "false"),
+            (stated.replace("[vendor/]", "[vendor/, docs/old/*.md]"), "false", "true"),
+            (stated.replace("ci/check.sh", "ci/other.sh"), "false", "false"),
+        ):
+            with self.subTest(changed=changed):
+                head = self.commit({CONFIGURATION: changed})
+                decided = self.decide(base, head)
+                self.assertEqual((packages, markdown, "false", "false"), (decided["packages"], decided["markdown"], decided["actionlint"], decided["reuse"]))
+                git(self.repository, "reset", "--quiet", "--hard", base)
+
+
+@unittest.skipUnless(sys.platform != "win32" and shutil.which("bash") and shutil.which("python3"), "the hygiene steps run in Bash with python3 off Windows")
+class ExclusionStepRunTests(PipelineFixture):
+    """The steps `coverage` and `links` of the pipeline's hygiene job, run in Bash as Actions runs them, on a fixture
+    consumer whose configuration file states the exclusions of repository hygiene or does not."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = SCHEMAS
+
+    DEPENDABOT = "version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: /\n    schedule:\n      interval: weekly\n"
+
+    def run_step(self, step_id: str, pipeline_path: str = str(REPOSITORY_ROOT / "actions" / "pipeline")) -> subprocess.CompletedProcess:
+        step = next(step for step in read_workflow(WORKFLOW)[1]["jobs"]["repository-hygiene"]["steps"] if step.get("id") == step_id)
+        environment = {**os.environ, "RESOURCE_PATH": str(HYGIENE_FOLDER), "PIPELINE_PATH": pipeline_path,
+                       "RUNNER_TEMP": str(self.directory), "GITHUB_STEP_SUMMARY": str(self.directory / "step-summary.md")}
+        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repository, env=environment, capture_output=True, text=True, encoding="utf-8")
+
+    def test_coverage_passes_when_the_only_uncovered_package_file_is_under_coverage_exclude_and_fails_without_it(self) -> None:
+        files = {".github/dependabot.yml": self.DEPENDABOT, "tests/fixtures/node/package.json": "{}\n", "README.md": "A consumer.\n"}
+        for configuration in ("version: 1\nparts:\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures]\n",
+                              "version: 1\nparts:\n  repository-hygiene:\n    coverage-exclude:\n      - tests/fixtures/node/package.json\n"):
+            with self.subTest(configuration=configuration):
+                self.commit({**files, CONFIGURATION: configuration})
+                ran = self.run_step("coverage")
+                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+                self.assertIn("Every tracked package file has a covering Dependabot entry.", ran.stdout)
+        for configuration in ("version: 1\n", "version: 1\nparts:\n  repository-hygiene: {}\n", "version: 1\nparts:\n  repository-hygiene:\n    coverage-exclude: [tests/other]\n"):
+            with self.subTest(configuration=configuration):
+                self.commit({CONFIGURATION: configuration})
+                ran = self.run_step("coverage")
+                self.assertEqual(1, ran.returncode, ran.stdout + ran.stderr)
+                self.assertIn("::error file=tests/fixtures/node/package.json::", ran.stdout)
+
+    def test_links_pass_when_the_only_dead_link_is_in_a_file_under_link_exclude_and_fail_without_it(self) -> None:
+        files = {"README.md": "A consumer. See [the guide](docs/guide.md).\n", "docs/guide.md": "# Guide\n", "vendor/lib/notes.md": "See [gone](missing.md).\n"}
+        for configuration in ("version: 1\nparts:\n  repository-hygiene:\n    link-exclude: [vendor/**/*.md]\n",
+                              "version: 1\nparts:\n  repository-hygiene:\n    link-exclude: [vendor/]\n"):
+            with self.subTest(configuration=configuration):
+                self.commit({**files, CONFIGURATION: configuration})
+                ran = self.run_step("links")
+                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+                self.assertIn("1 excluded", (self.directory / "step-summary.md").read_text(encoding="utf-8"))
+        for configuration in ("version: 1\n", "version: 1\nparts:\n  repository-hygiene:\n    link-exclude: [docs/*.md]\n"):
+            with self.subTest(configuration=configuration):
+                self.commit({CONFIGURATION: configuration})
+                ran = self.run_step("links")
+                self.assertEqual(1, ran.returncode, ran.stdout + ran.stderr)
+                self.assertIn("vendor/lib/notes.md:1: the link target missing.md does not exist", ran.stdout)
+
+    def test_a_link_from_a_checked_file_into_an_excluded_file_is_still_checked(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  repository-hygiene:\n    link-exclude: [vendor/**/*.md]\n",
+                     "README.md": "See [the notes](vendor/lib/notes.md#usage) and [the start](vendor/lib/notes.md#start).\n",
+                     "vendor/lib/notes.md": "# Start\n\nSee [gone](missing.md).\n"})
+        ran = self.run_step("links")
+        self.assertEqual(1, ran.returncode, ran.stdout + ran.stderr)
+        self.assertIn("README.md:1: the link target vendor/lib/notes.md#usage names no heading of vendor/lib/notes.md", ran.stdout)
+        self.assertNotIn("vendor/lib/notes.md#start", ran.stdout)
+        self.assertNotIn("missing.md", ran.stdout, "the excluded file's own links stay unchecked")
+
+    def test_a_configuration_file_that_cannot_be_used_leaves_no_file_out_of_either_check(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures]\n    link-exclude: [vendor/]\n    extra: true\n",
+                     ".github/dependabot.yml": self.DEPENDABOT, "tests/fixtures/package.json": "{}\n", "README.md": "A consumer.\n",
+                     "vendor/notes.md": "See [gone](missing.md).\n"})
+        coverage, links = self.run_step("coverage"), self.run_step("links")
+        self.assertEqual(1, coverage.returncode, coverage.stdout + coverage.stderr)
+        self.assertIn("::error file=tests/fixtures/package.json::", coverage.stdout)
+        self.assertEqual(1, links.returncode, links.stdout + links.stderr)
+        self.assertIn("vendor/notes.md:1: the link target missing.md does not exist", links.stdout)
+        for ran in (coverage, links):
+            self.assertIn(".github/ci-config.yml cannot be used", ran.stderr)
+            self.assertIn("parts.repository-hygiene.extra: is not a setting of the part repository-hygiene", ran.stderr)
+        self.assertEqual(1, self.plan().status, "the plan fails with the file's problem")
+
+    def test_a_setting_that_cannot_be_read_fails_the_step_instead_of_leaving_nothing_out_silently(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\n", "README.md": "A consumer.\n"})
+        for step_id in ("coverage", "links"):
+            with self.subTest(step=step_id):
+                ran = self.run_step(step_id, pipeline_path=str(self.directory / "no-pipeline"))
+                self.assertNotEqual(0, ran.returncode, "pipefail carries the failure of the reader")
 
 
 if __name__ == "__main__":

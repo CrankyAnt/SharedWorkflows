@@ -137,8 +137,7 @@ class CiGuideTemplateTest(unittest.TestCase):
         self.assertTrue(self.template.endswith("\n\n## Repository choices\n"), "the comparison stops at this heading, so nothing fixed follows it")
         self.assertEqual(1, self.template.count("\n## Repository choices\n"))
         self.assertIn("`## Repository choices`", self.readme)
-        ruleset = (REPOSITORY_ROOT / "actions" / "repository-ruleset" / "README.md").read_text(encoding="utf-8")
-        self.assertIn("under `## Repository choices` in the repository's `docs/agents/ci.md`", ruleset, "the ruleset README sends a deviation there")
+        self.assertIn("A choice of this repository that no file states is recorded with its reason below `## Repository choices`.", self.template)
 
     def test_the_readme_says_that_a_consumer_holds_the_ci_guide_unchanged(self) -> None:
         self.assertIn(f"[{CI_GUIDE}]({CI_GUIDE})", self.readme)

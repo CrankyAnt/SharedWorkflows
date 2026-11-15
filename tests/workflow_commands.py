@@ -16,12 +16,13 @@ VARIABLE = re.compile(r'"\$\{?([A-Za-z_]+)\}?"|\$\{?([A-Za-z_]+)\}?')
 def script_invocations(workflow: Path, script: str) -> list[list[str]]:
     """Every argument list the run lines of ``workflow`` hand to ``script`` (a file name such as ``hygiene.py``), in
     workflow order, with shell variables replaced by placeholders."""
-    pattern = re.compile(rf'(?:"\$RESOURCE_PATH/|actions/[a-z-]+/){re.escape(script)}"?\s+(.*)$')
+    pattern = re.compile(rf'(?:"\$(?:RESOURCE|PIPELINE)_PATH/|actions/[a-z-]+/){re.escape(script)}"?\s+(.*)$')
     invocations = []
     for line in workflow.read_text(encoding="utf-8").splitlines():
         match = pattern.search(line)
         if match is None:
             continue
-        rest = VARIABLE.sub(lambda found: PLACEHOLDERS.get(found.group(1) or found.group(2), "x"), match.group(1))
+        # A command whose output a pipe at the end of the line hands to the next one ends before that pipe.
+        rest = VARIABLE.sub(lambda found: PLACEHOLDERS.get(found.group(1) or found.group(2), "x"), match.group(1).rstrip().removesuffix("|"))
         invocations.append(shlex.split(rest))
     return invocations

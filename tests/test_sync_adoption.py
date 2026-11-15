@@ -117,6 +117,21 @@ class AdoptionTests(AdoptionFixture):
         self.assertIn(f"`{TESTS}`: the input `paths` is not carried over; its value is no plain value.", adopted.summary)
         self.assertIn(f"`{FLOOR}`: the input `strict` is not carried over; the part `fixture-floor` always runs and has no settings.", adopted.summary)
 
+    def test_the_inputs_of_a_hygiene_caller_are_reported_with_the_settings_that_repository_hygiene_takes_in_the_real_schema(self) -> None:
+        self.schemas = SCHEMAS
+        self.adoption.write_text('{"shared-workflows": {"fixture-floor.yml": "repository-hygiene"}}', encoding="utf-8")
+        inputs = "    with:\n      coverage-exclude: tests/fixtures\n      link-exclude: vendor/**/*.md\n      zizmor-persona: pedantic\n"
+        consumer = self.before({FLOOR: caller("fixture-floor.yml", inputs)})
+        adopted = self.adopt()
+        self.assertEqual(0, adopted.status, adopted.stdout + adopted.stderr)
+        self.assertEqual("version: 1\n", consumer.files(BRANCH)[CONFIGURATION])
+        for setting in ("coverage-exclude", "link-exclude"):
+            with self.subTest(setting=setting):
+                self.assertIn(f"`{FLOOR}`: the input `{setting}` is not carried over; state it as `parts.repository-hygiene.{setting}` in `{CONFIGURATION}`, "
+                              "in the form that the schema gives.", adopted.summary)
+        self.assertIn(f"`{FLOOR}`: the input `zizmor-persona` is not carried over; it is no setting of the part `repository-hygiene`.", adopted.summary)
+        self.assertNotIn("has no settings", adopted.summary)
+
     def test_a_workflow_with_a_job_of_its_own_beside_a_shared_call_stays(self) -> None:
         mixed = caller("fixture-test.yml") + "  extra:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make\n"
         consumer = self.before({TESTS: mixed})
