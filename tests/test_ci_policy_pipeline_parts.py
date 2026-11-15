@@ -1,12 +1,14 @@
-"""Text contract of the Python, .NET and Node parts of the pipeline: each is a job with read rights only that runs once per
-configured project, takes its values from the plan and runs a shared step of the pipeline's own revision, and none is a
-reusable workflow of its own; the pipeline reaches one reusable workflow, the suite jobs."""
+"""Text contract of the project parts of the pipeline: each is a job with read rights only that runs once per configured
+project, takes its values from the plan and runs a shared step of the pipeline's own revision, and none is a reusable
+workflow of its own; the pipeline reaches one reusable workflow, the suite jobs. Each project part is one entry of
+``PARTS``, and every check that applies to each part iterates over it."""
 
 from __future__ import annotations
 
 import json
 import re
 import unittest
+from dataclasses import dataclass
 
 from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, read_workflow, tracked_workflows
 
@@ -17,17 +19,47 @@ SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.j
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
 FRAGMENTS = REPOSITORY_ROOT / "actions" / "pipeline" / "schema" / "v1" / "parts"
 PYTHON_VERIFY, PYTHON_TEST, DOTNET_TEST, NODE_TEST = "python-verify", "python-test", "dotnet-test", "node-test"
-# Each part with the shared steps its job reaches at the pipeline's own revision, in the job's order; node-test reaches
-# its step twice, to check the project before Node is installed and to run its npm commands after.
-SHARED_STEPS = {
-    PYTHON_VERIFY: ["actions/python-tests", "actions/python-language-step"],
-    PYTHON_TEST: ["actions/python-tests"],
-    DOTNET_TEST: ["actions/dotnet-test"],
-    NODE_TEST: ["actions/node-test", "actions/node-test"],
-}
 # The one setting that names a cache and is allowed: it switches off the cache that actions/setup-node restores by itself
 # when package.json names packageManager.
 NO_PACKAGE_MANAGER_CACHE = "package-manager-cache: false"
+# A line that names a cache: the word cache in any case, not as the end of a word such as pycache.
+CACHE_WORD = re.compile(r"(?<![A-Za-z])cache", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Part:
+    """What the checks of this file need of one project part."""
+
+    shared_steps: list[str]
+    """The shared steps that the part's job reaches at the pipeline's own revision, in the job's order."""
+    name: str
+    """What the job's name holds in its parentheses before the runner label."""
+    runner_label: bool
+    """Whether a project takes runner-label, which then names the job's runner and ends the job's name."""
+    fixture_folder: str
+    """The setting of a configured project that names its folder, working-directory, or project for a file in it."""
+    paths: list[str]
+    """The fixture and the part folders that the part's paths in this repository's configuration file name, each of
+    which a check removes to see the part named."""
+    cache_lines: tuple[str, ...] = ()
+    """The only lines of the part's job that name a cache, each of which switches a cache off."""
+
+
+# The project parts: adding a part to the checks of this file is one entry here. node-test reaches its step twice, to
+# check the project before Node is installed and to run its npm commands after.
+PARTS = {
+    PYTHON_VERIFY: Part(shared_steps=["actions/python-tests", "actions/python-language-step"],
+                        name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=False,
+                        fixture_folder="working-directory",
+                        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
+    PYTHON_TEST: Part(shared_steps=["actions/python-tests"],
+                      name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=True,
+                      fixture_folder="working-directory", paths=["tests/fixtures/python_tests/", "actions/python-tests/"]),
+    DOTNET_TEST: Part(shared_steps=["actions/dotnet-test"], name="${{ matrix.project['project'] }}", runner_label=True,
+                      fixture_folder="project", paths=["tests/fixtures/dotnet_test/", "actions/dotnet-test/"]),
+    NODE_TEST: Part(shared_steps=["actions/node-test", "actions/node-test"], name="${{ matrix.project['working-directory'] }}", runner_label=True,
+                    fixture_folder="working-directory", paths=["tests/fixtures/node_test/", "actions/node-test/"], cache_lines=(NO_PACKAGE_MANAGER_CACHE,)),
+}
 # The pipeline calls one reusable workflow, the suite jobs, and that one calls none: a caller, the pipeline and the suite
 # jobs keep the pipeline two levels deep, as the spec states. The suite jobs are a workflow and not jobs of the pipeline
 # because the full recording of the automation workflow runs the same jobs, so their steps stand once.
@@ -85,14 +117,13 @@ class PartJobTests(unittest.TestCase):
         return self.jobs[part]["steps"]
 
     def test_each_part_has_read_rights_only_takes_no_secret_and_keeps_no_checkout_credentials(self) -> None:
-        for part in SHARED_STEPS:
+        for part, entry in PARTS.items():
             with self.subTest(part=part):
                 self.assertEqual({"contents": "read"}, self.jobs[part]["permissions"])
                 section = self.section(part)
-                if part == NODE_TEST:
-                    lines = [line.strip() for line in section.splitlines() if "cache" in line.lower()]
-                    self.assertEqual([NO_PACKAGE_MANAGER_CACHE], lines, "the one cache setting of node-test switches setup-node's cache off")
-                    section = "\n".join(line for line in section.splitlines() if line.strip() != NO_PACKAGE_MANAGER_CACHE)
+                lines = [line.strip() for line in section.splitlines() if CACHE_WORD.search(line)]
+                self.assertEqual(list(entry.cache_lines), lines, "the only cache settings of a job switch a cache off")
+                section = "\n".join(line for line in section.splitlines() if line.strip() not in entry.cache_lines)
                 for forbidden in ("secrets.", "github.token", "GITHUB_TOKEN", "inputs.", "vars.", "actions/cache", "cache:", "cache-mode", "PIP_CACHE_DIR"):
                     self.assertNotIn(forbidden, section)
                 checkouts = [step for step in self.steps(part) if str(step.get("uses", "")).startswith("actions/checkout@")]
@@ -101,7 +132,8 @@ class PartJobTests(unittest.TestCase):
                                  "without credentials, at the dispatched commit on a dependabot-merged run")
 
     def test_each_part_reaches_its_shared_steps_at_the_pipeline_s_own_revision(self) -> None:
-        for part, shared in SHARED_STEPS.items():
+        for part, entry in PARTS.items():
+            shared = entry.shared_steps
             with self.subTest(part=part):
                 uses = [str(step["uses"]) for step in self.steps(part) if "uses" in step]
                 self.assertEqual([f"$/{step}" for step in shared], [item for item in uses if not item.startswith("actions/")])
@@ -109,7 +141,9 @@ class PartJobTests(unittest.TestCase):
                 self.assertNotIn("./", self.section(part))
 
     def test_each_part_runs_one_job_per_project_of_its_own_configuration_and_a_failing_project_stops_no_other(self) -> None:
-        for part in SHARED_STEPS:
+        self.assertEqual(sorted(PARTS), sorted(name for name, job in self.jobs.items() if "config['projects']" in str(job.get("strategy", ""))),
+                         "every job that runs once per project is in the register")
+        for part in PARTS:
             with self.subTest(part=part):
                 self.assertEqual({"fail-fast": "false", "matrix": {"project": projects(part)}},
                                  {**self.jobs[part]["strategy"], "fail-fast": str(self.jobs[part]["strategy"]["fail-fast"])})
@@ -120,14 +154,14 @@ class PartJobTests(unittest.TestCase):
 
     def test_each_project_s_job_carries_a_name_that_tells_the_projects_apart(self) -> None:
         label = "${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }}"
-        directory = "${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}"
-        self.assertEqual(f"{PYTHON_VERIFY} ({directory})", self.jobs[PYTHON_VERIFY]["name"])
-        self.assertEqual(f"{PYTHON_TEST} ({directory}{label})", self.jobs[PYTHON_TEST]["name"])
-        self.assertEqual(f"{DOTNET_TEST} (${{{{ matrix.project['project'] }}}}{label})", self.jobs[DOTNET_TEST]["name"])
-        self.assertEqual(f"{NODE_TEST} (${{{{ matrix.project['working-directory'] }}}}{label})", self.jobs[NODE_TEST]["name"])
+        for part, entry in PARTS.items():
+            with self.subTest(part=part):
+                self.assertEqual(f"{part} ({entry.name}{label if entry.runner_label else ''})", self.jobs[part]["name"])
+                runner = f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}" if entry.runner_label else "ubuntu-26.04"
+                self.assertEqual(runner, self.jobs[part]["runs-on"], "a part that takes runner-label runs there, any other on ubuntu-26.04")
 
     def test_the_jobs_of_two_projects_of_one_part_do_not_share_a_concurrency_group(self) -> None:
-        for part in SHARED_STEPS:
+        for part in PARTS:
             with self.subTest(part=part):
                 self.assertEqual(f"${{{{ fromJSON(needs.plan.outputs.concurrency || '{{}}')['{part}'].group }}}}-${{{{ strategy.job-index }}}}",
                                  self.jobs[part]["concurrency"]["group"])
@@ -203,10 +237,11 @@ SIBLING_FOLDER = re.compile(r"\$RESOURCE_PATH/\.\./([\w.-]+)/")
 
 
 def fixture_folders(part: str, settings: dict) -> list[str]:
-    """The folder of each configured project of a part: its working directory, or the folder of its .NET project."""
+    """The folder of each configured project of a part: its working directory, or the folder of the file it names."""
     folders = []
+    setting = PARTS[part].fixture_folder
     for project in settings.get("projects", []):
-        folder = project["project"].rpartition("/")[0] if part == DOTNET_TEST else project.get("working-directory", "")
+        folder = project[setting].rpartition("/")[0] if setting == "project" else project.get(setting, "")
         if folder.strip("./"):
             folders.append(folder.rstrip("/") + "/")
     return folders
@@ -233,28 +268,25 @@ def missing_paths(part: str, settings: dict, job: dict) -> list[str]:
 
 
 class FixturePartPathsTests(unittest.TestCase):
-    """This repository's configuration file runs the four parts on its fixtures only for a change that can reach them, so
-    their `paths` must name every path through which a change reaches a part's job."""
+    """This repository's configuration file runs each project part on its fixture only for a change that can reach it, so
+    its `paths` must name every path through which a change reaches the part's job."""
 
     def setUp(self) -> None:
         self.parts = ci_definition().read_yaml(CONFIGURATION.read_text(encoding="utf-8"), str(CONFIGURATION))["parts"]
         self.jobs = read_workflow(PIPELINE)[1]["jobs"]
 
     def test_the_configuration_file_states_paths_for_each_fixture_part(self) -> None:
-        for part in SHARED_STEPS:
+        for part in PARTS:
             with self.subTest(part=part):
                 self.assertTrue(self.parts[part].get("paths"), f"{part} states no paths")
 
     def test_the_paths_of_each_fixture_part_name_its_fixture_its_part_folders_the_plan_and_the_pipeline(self) -> None:
-        for part in SHARED_STEPS:
+        for part in PARTS:
             with self.subTest(part=part):
                 self.assertEqual([], missing_paths(part, self.parts[part], self.jobs[part]))
 
     def test_a_missing_path_is_named_with_its_part(self) -> None:
-        for part, path in ((PYTHON_VERIFY, "tests/fixtures/python_tests/"), (PYTHON_VERIFY, "actions/python-language-step/"),
-                           (PYTHON_VERIFY, "actions/repository-hygiene/"), (PYTHON_TEST, "actions/python-tests/"), (DOTNET_TEST, "tests/fixtures/dotnet_test/"),
-                           (DOTNET_TEST, "actions/dotnet-test/"), (DOTNET_TEST, "actions/pipeline/"), (PYTHON_TEST, ".github/workflows/pipeline.yml"),
-                           (PYTHON_TEST, ".github/workflows/ci.yml"), (NODE_TEST, "tests/fixtures/node_test/"), (NODE_TEST, "actions/node-test/")):
+        for part, path in [(part, path) for part, entry in PARTS.items() for path in [*entry.paths, *COMMON_PATHS]]:
             with self.subTest(part=part, path=path):
                 settings = {**self.parts[part], "paths": [item for item in self.parts[part]["paths"] if item != path]}
                 self.assertEqual([f"{part}: paths lack {path}"], missing_paths(part, settings, self.jobs[part]))
@@ -319,7 +351,7 @@ class ReusableWorkflowCountTests(unittest.TestCase):
     def test_no_part_of_the_pipeline_is_a_reusable_workflow_of_its_own(self) -> None:
         workflows = tracked_workflows(REPOSITORY_ROOT)
         jobs = read_workflow(PIPELINE)[1]["jobs"]
-        for part in SHARED_STEPS:
+        for part in PARTS:
             with self.subTest(part=part):
                 self.assertTrue((FRAGMENTS / f"{part}.json").is_file())
                 self.assertNotIn(f".github/workflows/{part}.yml", workflows)
@@ -353,7 +385,8 @@ class CataloguePageTests(unittest.TestCase):
         self.surface = json.loads(SURFACE.read_text(encoding="utf-8"))["paths"]
 
     def test_each_part_has_a_catalogue_page_that_names_its_shared_steps_and_its_schema_fragment(self) -> None:
-        for part, shared in SHARED_STEPS.items():
+        for part, register in PARTS.items():
+            shared = register.shared_steps
             with self.subTest(part=part):
                 entry = self.entries[part]
                 self.assertEqual(sorted(set(shared)), sorted(entry["steps"]))
@@ -365,15 +398,17 @@ class CataloguePageTests(unittest.TestCase):
                 self.assertTrue((FRAGMENTS / f"{part}.json").is_file())
 
     def test_each_shared_step_of_the_parts_is_on_the_shared_surface(self) -> None:
-        for step in sorted({step for shared in SHARED_STEPS.values() for step in shared}):
+        for step in sorted({step for entry in PARTS.values() for step in entry.shared_steps}):
             with self.subTest(step=step):
                 self.assertIn(step, self.surface)
                 self.assertTrue((REPOSITORY_ROOT / step / "action.yml").is_file())
 
     def test_a_page_names_nothing_that_exists_only_in_this_repository(self) -> None:
-        for part in SHARED_STEPS:
+        fixtures = [path.removeprefix("tests/fixtures/").rstrip("/") for entry in PARTS.values() for path in entry.paths if path.startswith("tests/fixtures/")]
+        owns = ["tests/", *dict.fromkeys(fixtures), "maintaining.md", "docs/agents"]
+        for part in PARTS:
             text = json.dumps(self.entries[part])
-            for own in ("tests/", "python_tests", "dotnet_test", "node_test", "maintaining.md", "docs/agents"):
+            for own in owns:
                 with self.subTest(part=part, own=own):
                     self.assertNotIn(own, text)
 
