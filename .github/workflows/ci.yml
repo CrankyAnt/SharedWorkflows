@@ -1,3 +1,4 @@
+# Fixed caller: Shared Workflows keeps this file equal to its template; change the template, not this file.
 name: CI
 
 on:
