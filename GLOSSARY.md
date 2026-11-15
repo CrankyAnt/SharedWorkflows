@@ -84,6 +84,14 @@ _Avoid_: Test workflow, Python CI, test job
 The shared workflow that the reading fixed caller calls: it reads the configuration file, runs the shared parts that apply and gives the verdict.
 _Avoid_: CI workflow, main workflow
 
+**Plan**:
+The first job of the pipeline, which checks the configuration file against its schema and decides, from the file and the change, which shared parts run and with which values.
+_Avoid_: Planner, setup job
+
+**Schema fragment**:
+The part of the configuration file's schema that one shared part contributes: its description and either its values or that it always runs.
+_Avoid_: Part schema, sub-schema
+
 **Free job**:
 The shared part that runs a script of the consumer after a setup that Shared Workflows knows, with read permission only, for CI that no other shared part covers.
 _Avoid_: Custom job, escape hatch, script job
