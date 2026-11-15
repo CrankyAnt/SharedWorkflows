@@ -26,10 +26,6 @@ class HygienePromotionSurfaceTests(unittest.TestCase):
         self.assertIn(f"git add {surface['pins']}", updater)
         self.assertEqual(2, updater.count(f'branch="{surface["updater_branch"]}"'))
 
-    def test_the_record_names_the_candidate_tag_and_the_proof_repository_and_the_workflow_names_neither(self) -> None:
+    def test_the_record_holds_the_pins_the_updater_branch_the_paths_and_the_classes_and_no_other_key(self) -> None:
         surface = json.loads(SURFACE.read_text(encoding="utf-8"))
-        self.assertEqual("v1-candidate", surface["candidate_tag"])
-        self.assertRegex(surface["proof_repository"], r"^CrankyAnt/[A-Z][A-Za-z]+$", "a repository of the owner, named in PascalCase")
-        promoter = PROMOTER.read_text(encoding="utf-8")
-        self.assertNotIn(surface["candidate_tag"], promoter)
-        self.assertNotIn(surface["proof_repository"].partition("/")[2], promoter)
+        self.assertEqual(["pins", "updater_branch", "paths", "classes"], list(surface))
