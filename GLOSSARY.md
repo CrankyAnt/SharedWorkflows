@@ -35,8 +35,20 @@ The one file of a consumer that names the shared parts it switches on with their
 _Avoid_: Settings file, CI config, ci-config.yml
 
 **Local workflow register**:
-The list in a configuration file of the workflows that stay in the consumer: each temporary, naming its request and the shared part it waits for, or permanent, naming a request that was declined.
+The list in a configuration file of the workflows that stay in the consumer: each temporary, naming its request and the shared part, or the setting of a shared part, it waits for, or permanent, naming a request that was declined.
 _Avoid_: Allowlist, exception list
+
+**CI guide**:
+A consumer's document for agents about its CI: a fixed pointer to the catalogue, equal in every consumer, followed by the repository's own choices.
+_Avoid_: Pointer document, ci.md
+
+**Decision rule**:
+The ordered steps in the catalogue by which an agent decides whether CI work switches a shared part on, uses the free job, files a request or registers a temporary local workflow.
+_Avoid_: Candidate rule, sharing policy
+
+**Switch-over check**:
+The hygiene check that fails a consumer's pull request once the shared part, or the setting, that a temporary local workflow waits for exists at `v1`.
+_Avoid_: Adoption check, migration check
 
 **Validation caller**:
 The caller that runs the suite selection, calls the one validation workflow with its shards and its Windows entry files, and gives the verdict. This repository's own validation caller calls the shared workflows by local path and runs its suites itself.
@@ -61,7 +73,7 @@ The subfolder of `actions/` that holds one shared step: its composite action and
 _Avoid_: Part (for the folder), tool folder, Tool
 
 **Catalogue**:
-The one entry, read at `v1`, through which an agent in a consumer learns which shared parts exist, what each is for, and where its consumer kit is.
+The one entry, read at `v1`, through which an agent in a consumer learns the decision rule, which shared parts exist with their configuration, the local workflow register and how to file a request.
 _Avoid_: Registry, index, shared surface
 
 **Shared surface**:
@@ -105,7 +117,7 @@ A setting of a shared part that names a script of the consumer that the part run
 _Avoid_: Extension point, callback
 
 **Request**:
-An issue in a consumer, labelled `shared-ci`, that asks for a shared part or for inputs that an existing shared part lacks.
+An issue in a consumer, labelled `shared-ci`, that asks for a shared part or for inputs that an existing shared part lacks, or reports a fault of a shared part.
 _Avoid_: Candidate report, shared-CI ticket
 
 ### The v1 channel
