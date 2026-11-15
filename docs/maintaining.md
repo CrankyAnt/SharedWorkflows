@@ -738,16 +738,17 @@ In the repository that the template of `ci.yml` calls, which is this repository,
 
 #### The free job
 
-The job `custom` is the free job. A repository switches it on with `script`, the path of a script of its own, and may name `setups`, a list of known setups without duplicates, `paths`, and `request` with `waits-for`:
+The job `custom` is the free job. A repository switches it on with `script`, the path of a script of its own, and may name `setups`, a list of known setups without duplicates, `paths`, `runner-label`, and `request` with `waits-for`:
 
 ```yaml
 parts:
   custom:
     setups: [dotnet-10, python-3.14]
     script: ci/check-licences.sh
+    runner-label: windows-2025
 ```
 
-The job checks out the repository without persisted credentials, installs each named setup in the listed order, and runs `bash -- "$SCRIPT"` from the repository root. Without `setups`, or with an empty list, it installs nothing. Of two setups of the same tool, the later one is the one that the tool's command names. The script's exit status is the job's result: no later step and no `continue-on-error` changes it. A setup installs with its action's defaults, so without a dependency cache.
+`runner-label` is the definition `runner-label` of the base, a label of GitHub's `ubuntu`, `windows` or `macos` runners, and the job runs on `ubuntu-26.04` when the part does not state it. The job checks out the repository without persisted credentials, installs each named setup in the listed order, and runs `bash -- "$SCRIPT"` from the repository root, with `bash` as the step's shell on every runner, so also on Windows, where the default shell is PowerShell. On a Windows runner Git can check the script out with CRLF line endings, which Bash does not read; a repository that runs its script there keeps it at LF, for example with `eol=lf` in `.gitattributes`. Without `setups`, or with an empty list, it installs nothing. Of two setups of the same tool, the later one is the one that the tool's command names. The script's exit status is the job's result: no later step and no `continue-on-error` changes it. A setup installs with its action's defaults, so without a dependency cache.
 
 The known setups are the names in `setups.json`: `python-3.11` to `python-3.14` and `dotnet-8` and `dotnet-10` today. `plan.py schema` writes them into the assembled schema as the accepted values of the definition `setup`, so a name that `setups.json` does not hold fails `plan` with the list of the known ones. `plan` gives the job the `tool` and the `version` of each named setup in the listed order. A workflow has no loop over steps, so the job holds one place per known setup, as many as a list without duplicates can name, and each place holds one install step per tool, which runs when the setup at that place in the list has that tool. A `script` is a relative path without a `..` segment.
 
@@ -755,7 +756,7 @@ The job has the limits of the read class: `contents: read` as its only right, no
 
 `request` and `waits-for` are the definitions `request` and `waits-for` of the base, which a temporary entry of the register uses too: the number of the request issue in the repository for the part that takes over the work of the script, and the name of that part, or `<part>.<setting>`. The job does not read them. The [consumer check](#the-consumer-checks) `register` does, as it reads a temporary entry: the request is an issue of the repository, the switch-over check reports when the part exists or knows the setting, and a request that was closed as not planned is reported with the instruction to remove the two settings. One of the two without the other is a finding of that check, since the schema check reads no keyword that ties two settings together.
 
-This repository's own configuration file switches the free job on with the one setup `python-3.14` and the fixture script `tests/fixtures/custom/pass.sh`, which fails unless `python3` is Python 3.14. `tests/fixtures/custom/fail.sh` is the fixture script that fails, for a run that shows the verdict failing.
+This repository's own configuration file switches the free job on with `runner-label: windows-2025`, the setups `python-3.13` and `python-3.14` in that order, and the fixture script `tests/fixtures/custom/pass.sh`, which fails unless it runs in Bash from the repository root and the Python command names Python 3.14, the later setup. The script also fails unless the folder of `python-3.14` comes before that of `python-3.13` in `PATH`, so a run shows the job on Windows with both setups installed in their listed order. Its `paths` start the job on a change to the fixture scripts, the part folder `actions/pipeline/`, `pipeline.yml` or `ci.yml`. `tests/fixtures/custom/fail.sh` is the fixture script that fails, for a run that shows the verdict failing.
 
 #### The release part
 
