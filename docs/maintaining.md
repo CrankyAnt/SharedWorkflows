@@ -756,7 +756,7 @@ The job has the limits of the read class: `contents: read` as its only right, no
 
 `request` and `waits-for` are the definitions `request` and `waits-for` of the base, which a temporary entry of the register uses too: the number of the request issue in the repository for the part that takes over the work of the script, and the name of that part, or `<part>.<setting>`. The job does not read them. The [consumer check](#the-consumer-checks) `register` does, as it reads a temporary entry: the request is an issue of the repository, the switch-over check reports when the part exists or knows the setting, and a request that was closed as not planned is reported with the instruction to remove the two settings. One of the two without the other is a finding of that check, since the schema check reads no keyword that ties two settings together.
 
-This repository's own configuration file switches the free job on with the one setup `python-3.14` and the fixture script `tests/fixtures/custom/pass.sh`, which fails unless `python3` is Python 3.14. `tests/fixtures/custom/fail.sh` is the fixture script that fails, for a run that shows the verdict failing.
+This repository's own configuration file switches the free job on with `runner-label: windows-2025`, the setups `python-3.13` and `python-3.14` in that order, and the fixture script `tests/fixtures/custom/pass.sh`, which fails unless it runs in Bash from the repository root and the Python command names Python 3.14, the later setup. Each run of the pipeline here thus shows the job on Windows, with its setups installed in their listed order. `tests/fixtures/custom/fail.sh` is the fixture script that fails, for a run that shows the verdict failing.
 
 #### The release part
 
