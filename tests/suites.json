@@ -243,6 +243,8 @@
         ],
         "tests/test_ci_policy_hygiene_promotion.py": [
           ".github/workflows/promote-v1.yml",
+          "actions/suite-selection/ci_definition.py",
+          "docs/maintaining.md",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_hygiene_promotion.py"
         ],
