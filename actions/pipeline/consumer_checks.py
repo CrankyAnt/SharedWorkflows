@@ -222,7 +222,7 @@ def settings_of(schema: object) -> set[str]:
 
 def existing_parts(schemas: Path) -> dict[str, set[str]]:
     """The shared parts that exist, each with the settings it knows: the parts of the current schema version of the
-    pipeline's own revision. A part that always runs knows no setting."""
+    pipeline's own revision. A part that always runs knows the settings of its configuration, and none without one."""
     versions = plan.schema_versions(schemas)
     current = versions[max(versions)]
     configurations = current.schema["properties"]["parts"]["properties"]

@@ -109,7 +109,7 @@ The first job of the pipeline, which checks the configuration file against its s
 _Avoid_: Planner, setup job
 
 **Schema fragment**:
-The part of the configuration file's schema that one shared part contributes: its description and either its values or that it always runs.
+The part of the configuration file's schema that one shared part contributes: its description and its values, that it always runs, or both.
 _Avoid_: Part schema, sub-schema
 
 **Free job**:

@@ -5,11 +5,13 @@
                             [--workflow NAME] [--event NAME] [--pull-request NUMBER] [--run-id ID] [--github-output FILE] [--summary FILE]
     python3 plan.py verdict --needs FILE [--summary FILE]
     python3 plan.py schema  [--schemas DIR] [--check]
+    python3 plan.py setting --part NAME --setting NAME [--root DIR] [--schemas DIR]
 
 ``plan`` reads ``.github/ci-config.yml``, checks it against the schema of its version and decides per part whether it
 runs. The schema folder holds one folder per schema version, ``v<N>``, with the ``base.json`` of the file and one
-fragment per part, ``parts/<part>.json``: its ``description`` and either the schema of its ``configuration`` or
-``"always": true`` for a part that runs in every pipeline run, which the configuration file cannot state. A fragment
+fragment per part, ``parts/<part>.json``: its ``description``, the schema of its ``configuration``, or both, and
+``"always": true`` for a part that runs in every pipeline run. The configuration file can state a part that always runs
+only when its fragment has a configuration, and then only to give its settings; it cannot switch it off. A fragment
 with ``"workflow": "<file>.yml"`` is a part whose job is in that shared workflow and not in the pipeline: the
 configuration file states it under ``parts`` like any other part, and the plan and the verdict leave it out; with ``--shared-workflow`` set to that file,
 ``plan`` decides on the parts of that workflow alone. Beside them,
@@ -30,6 +32,11 @@ and the pull request's number, or the run's id on any other event; only a pull r
 ``verdict`` reads the ``needs`` context of the job that needs ``plan`` and every part, as ``toJSON(needs)`` renders it.
 It fails when ``plan`` did not succeed or any other job ended failure or cancelled; a skipped job is a part that did not
 run. ``schema`` writes, or with ``--check`` compares, the assembled schema ``ci-config.schema.json`` of each version.
+
+``setting`` prints the items of one list setting of one part, one per line, as the checked configuration file states
+them; it prints nothing when the file does not state the setting. When the configuration file cannot be used, it prints
+nothing and says so on standard error, and passes: the job that reads the setting then runs without it, and the plan
+reports the file.
 """
 
 from __future__ import annotations
@@ -153,8 +160,9 @@ def assemble(folder: Path, version: int) -> SchemaVersion:
     for path in sorted((folder / "parts").glob("*.json")):
         fragment = read_json(path)
         unknown = sorted(set(fragment) - {"description", "always", "configuration", "workflow"})
-        if unknown or not isinstance(fragment.get("description"), str) or not isinstance(fragment.get("always", False), bool):
-            raise SchemaError(f"{path}: a fragment holds a description and either a configuration or always")
+        stated = fragment.get("always") or "configuration" in fragment
+        if unknown or not isinstance(fragment.get("description"), str) or not isinstance(fragment.get("always", False), bool) or not stated:
+            raise SchemaError(f"{path}: a fragment holds a description and a configuration, always, or both")
         if "workflow" in fragment:
             if fragment.get("always"):
                 raise SchemaError(f"{path}: a part that always runs is a part of the pipeline and names no workflow")
@@ -162,17 +170,17 @@ def assemble(folder: Path, version: int) -> SchemaVersion:
                 raise SchemaError(f"{path}: workflow names a workflow file, such as release.yml")
             workflows[path.stem] = fragment["workflow"]
         if fragment.get("always"):
-            if "configuration" in fragment:
-                raise SchemaError(f"{path}: a part that always runs has no configuration")
             always.add(path.stem)
-            continue
+            if "configuration" not in fragment:
+                continue
         configuration = fragment.get("configuration")
         check_keywords(configuration, str(path))
         if configuration.get("type") != "object" or configuration.get("additionalProperties") is not False:
             raise SchemaError(f"{path}: the configuration of a part is an object without additional properties")
         parts[path.stem] = {"description": fragment["description"], **configuration}
-    if always:
-        schema["properties"]["parts"]["description"] += f" Not stated here, because it always runs and has no settings: {and_list(sorted(always))}."
+    without_settings = sorted(always - set(parts))
+    if without_settings:
+        schema["properties"]["parts"]["description"] += f" Not stated here, because it always runs and has no settings: {and_list(without_settings)}."
     return SchemaVersion(version, schema, frozenset(always), setups, workflows)
 
 
@@ -587,6 +595,33 @@ def run_schema(options: argparse.Namespace) -> int:
     return 1 if stale else 0
 
 
+# --- one setting of the configuration file -------------------------------------------------------------------------
+
+
+def run_setting(options: argparse.Namespace) -> int:
+    try:
+        versions = schema_versions(Path(options.schemas))
+    except SchemaError as error:
+        print(error, file=sys.stderr)
+        return 2
+    path = Path(options.root) / CONFIGURATION
+    try:
+        if not path.is_file():
+            raise PlanError(f"{CONFIGURATION} does not exist")
+        configuration, _ = checked_configuration(path.read_text(encoding="utf-8"), versions)
+    except PlanError as error:
+        print(f"{CONFIGURATION} cannot be used, so the setting {options.part}.{options.setting} is taken as not stated; the plan reports why: "
+              + "; ".join(str(error).splitlines()), file=sys.stderr)
+        return 0
+    value = stated_parts(configuration).get(options.part, {}).get(options.setting, [])
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        print(f"{options.part}.{options.setting} is no list of strings", file=sys.stderr)
+        return 2
+    for item in value:
+        print(item)
+    return 0
+
+
 # --- the command line -----------------------------------------------------------------------------------------------
 
 
@@ -612,12 +647,17 @@ def parser() -> argparse.ArgumentParser:
     assembling = commands.add_parser("schema", help="write or check the assembled schema of each version")
     assembling.add_argument("--schemas", default=str(SCHEMAS), help="the schema folder")
     assembling.add_argument("--check", action="store_true", help="fail when an assembled schema differs instead of writing it")
+    reading = commands.add_parser("setting", help="print the items of one list setting of one part, one per line")
+    reading.add_argument("--root", default=".", help="the repository's checkout")
+    reading.add_argument("--schemas", default=str(SCHEMAS), help="the schema folder")
+    reading.add_argument("--part", required=True, help="the name of the part")
+    reading.add_argument("--setting", required=True, help="the name of the setting, a list of strings")
     return main_parser
 
 
 def main(argv: list[str] | None = None) -> int:
     options = parser().parse_args(argv)
-    return {"plan": run_plan, "verdict": run_verdict, "schema": run_schema}[options.command](options)
+    return {"plan": run_plan, "verdict": run_verdict, "schema": run_schema, "setting": run_setting}[options.command](options)
 
 
 if __name__ == "__main__":

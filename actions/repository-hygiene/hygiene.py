@@ -15,7 +15,10 @@
 compatible ``workflows`` output is the union of the two linters. Each output says whether changed files can affect that
 check. A change that cannot be read, or one to a shared ``--definition`` glob or selector, sets all outputs to
 ``true``; ``reuse`` stays ``false`` in a repository without a ``REUSE.toml``. A definition can select an input
-(``PATH#INPUT``), step (``PATH#step:ID``), or exact mapping value (``PATH#key:outputs.path.value``). Check-specific definitions select only their check. ``--lookup``
+(``PATH#INPUT``), step (``PATH#step:ID``), or exact mapping value (``PATH#key:outputs.path.value``). A value selector
+(``PATH#value:parts.repository-hygiene.link-exclude``) compares the value at that dotted path as the YAML reader of the
+configuration file reads it; a value that neither revision states is unchanged, and a revision that the reader cannot
+read counts as a change. Check-specific definitions select only their check. ``--lookup``
 takes the push lookup of ``suite_selection.py lookup`` in place of ``--base`` and ``--head``. ``--results`` takes the
 record that ``record`` wrote in an earlier run of the pull request; a check it holds for the same tested tree is
 reused and named in the ``reused`` output with the run it passed in. ``--tools`` names the directory
@@ -171,8 +174,8 @@ def parse_definition(value: str, option: str) -> tuple[str, str]:
     path, separator, key = value.partition("#")
     if not separator or not path or not key:
         raise ValueError(f"{option} must be PATH#INPUT, got {value!r}")
-    if ":" in key and not re.fullmatch(r"(?:step:[A-Za-z_][A-Za-z0-9_-]*|key:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)", key):
-        raise ValueError(f"{option} has an invalid selector in {value!r}; expected INPUT, step:ID or key:DOTTED.PATH")
+    if ":" in key and not re.fullmatch(r"(?:step:[A-Za-z_][A-Za-z0-9_-]*|(?:key|value):[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)", key):
+        raise ValueError(f"{option} has an invalid selector in {value!r}; expected INPUT, step:ID, key:DOTTED.PATH or value:DOTTED.PATH")
     return path, key
 
 
@@ -289,6 +292,25 @@ def delegated_workflow_refs(lines: list[str] | None, path: str) -> set[str]:
     return refs
 
 
+UNREADABLE = object()  # a revision whose file the YAML reader cannot read; it differs from every other value
+
+
+def stated_value(lines: list[str] | None, dotted: str) -> object:
+    """The value at a dotted path of a YAML file as the reader of the configuration file reads it; None when the file or
+    a key on the path is missing, and ``UNREADABLE`` when the reader cannot read the file."""
+    if lines is None:
+        return None
+    try:
+        value = dependabot_coverage.parse_yaml("\n".join(lines) + "\n")
+    except dependabot_coverage.YamlError:
+        return UNREADABLE
+    for key in dotted.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
 def definition_inputs_changed(root: Path, base: str, head: str, definitions: list[str], option: str) -> set[str]:
     """Definitions whose selected data changed between revisions; malformed precise selectors fail explicitly."""
     changed: set[str] = set()
@@ -296,6 +318,11 @@ def definition_inputs_changed(root: Path, base: str, head: str, definitions: lis
         path, key = parse_definition(definition, option)
         old_lines, new_lines = git_file(root, base, path), git_file(root, head, path)
         if old_lines == new_lines:
+            continue
+        if key.startswith("value:"):
+            old_value, new_value = stated_value(old_lines, key.removeprefix("value:")), stated_value(new_lines, key.removeprefix("value:"))
+            if old_value is UNREADABLE or new_value is UNREADABLE or old_value != new_value:
+                changed.add(path)
             continue
         try:
             old_block = selector_block(old_lines, key) if old_lines is not None else set()
@@ -611,8 +638,8 @@ def build_parser() -> argparse.ArgumentParser:
     deciding.add_argument("--head", default="", help="the pushed commit, or the head commit of a pull request")
     deciding.add_argument("--compare", choices=("merge-base", "direct"), default="direct")
     deciding.add_argument("--definition", action="append", default=[], help="a glob or PATH#SELECTOR shared by every check (repeatable)")
-    deciding.add_argument("--packages-definition", action="append", default=[], help="PATH#SELECTOR that can change coverage; INPUT, step:ID or key:DOTTED.PATH (repeatable)")
-    deciding.add_argument("--markdown-definition", action="append", default=[], help="PATH#SELECTOR that can change links; INPUT, step:ID or key:DOTTED.PATH (repeatable)")
+    deciding.add_argument("--packages-definition", action="append", default=[], help="PATH#SELECTOR that can change coverage; INPUT, step:ID, key:DOTTED.PATH or value:DOTTED.PATH (repeatable)")
+    deciding.add_argument("--markdown-definition", action="append", default=[], help="PATH#SELECTOR that can change links; INPUT, step:ID, key:DOTTED.PATH or value:DOTTED.PATH (repeatable)")
     deciding.add_argument("--ecosystems", type=Path, default=dependabot_coverage.ECOSYSTEMS_PATH)
     deciding.add_argument("--lookup", type=Path, help="the push lookup of a push or dispatch run, in place of --base and --head")
     deciding.add_argument("--results", type=Path, help="the record of an earlier run of the pull request, whose passed checks of the same tested tree are reused")

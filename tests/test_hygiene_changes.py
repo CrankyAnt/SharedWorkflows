@@ -296,6 +296,39 @@ runs:
                 self.assertIn("--markdown-definition", result.stderr)
                 self.assertNotIn("packages=true", result.stdout)
 
+    def test_a_value_selector_selects_its_check_only_when_the_value_that_the_reader_reads_changes(self) -> None:
+        configuration = ".github/ci-config.yml"
+        arguments = ("--packages-definition", f"{configuration}#value:parts.repository-hygiene.coverage-exclude",
+                     "--markdown-definition", f"{configuration}#value:parts.repository-hygiene.link-exclude")
+        none = {"workflows": "false", "packages": "false", "markdown": "false"}
+        base = self.commit({configuration: "version: 1\n"})
+        for text, expected in (
+            ("version: 1\nparts:\n  custom:\n    script: ci/check.sh\n", none),
+            ("version: 1\nparts:\n  custom:\n    script: ci/check.sh\n  repository-hygiene: {}\n", none),
+            ("version: 1\nparts:\n  custom:\n    script: ci/check.sh\n  repository-hygiene:\n    coverage-exclude:\n    - tests/fixtures\n", {**none, "packages": "true"}),
+            ("version: 1\nparts:\n  custom: {script: ci/check.sh}\n  repository-hygiene: {coverage-exclude: [tests/fixtures]}\n", none),
+            ("version: 1\nparts:\n  repository-hygiene: {coverage-exclude: [tests/fixtures], link-exclude: [vendor/]}\n", {**none, "markdown": "true"}),
+            ("# The exclusions.\nversion: 1\nparts:\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures]  # fixtures\n    link-exclude: [vendor/]\n", none),
+            ("version: 1\nparts:\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures]\n    link-exclude: [vendor/, docs/old/]\n", {**none, "markdown": "true"}),
+            ("version: 1\nparts:\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures, tools/]\n    link-exclude: [vendor/, docs/old/]\n", {**none, "packages": "true"}),
+            ("version: 1\n", {**none, "packages": "true", "markdown": "true"}),
+            ("version: 1\nparts: [\n", {**none, "packages": "true", "markdown": "true"}),
+            ("version: 1\n", {**none, "packages": "true", "markdown": "true"}),
+        ):
+            with self.subTest(text=text):
+                head = self.commit({configuration: text})
+                decisions, stdout, _ = self.decide(base, head, *arguments)
+                base = head
+                self.assertEqual(expected, decisions, stdout)
+
+    def test_a_value_selector_on_a_file_that_neither_revision_holds_or_that_does_not_change_selects_nothing(self) -> None:
+        arguments = ("--packages-definition", ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude")
+        head = self.commit({"src/app.py": "print(2)\n"})
+        self.assertEqual({"workflows": "false", "packages": "false", "markdown": "false"}, self.decide(self.base, head, *arguments)[0])
+        added = self.commit({".github/ci-config.yml": "version: 1\nparts:\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures]\n"})
+        self.assertEqual("true", self.decide(head, added, *arguments)[0]["packages"])
+        self.assertEqual("false", self.decide(added, self.commit({"src/app.py": "print(3)\n"}), *arguments)[0]["packages"])
+
     def test_linter_outputs_select_only_tools_that_read_the_changed_input(self) -> None:
         base = self.base
         for path, actionlint, zizmor in (

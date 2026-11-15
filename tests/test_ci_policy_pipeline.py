@@ -1,6 +1,7 @@
 """Text contract of the pipeline and of this repository's caller of it: one verdict that always runs, repository hygiene
-outside the configuration, and every other shared part a job that the plan starts, in the pipeline or in the shared
-workflow that its fragment names, with the jobs that follow a part's job stated here."""
+outside the plan, reading only its two exclusions from the configuration file, and every other shared part a job that
+the plan starts, in the pipeline or in the shared workflow that its fragment names, with the jobs that follow a part's
+job stated here."""
 
 from __future__ import annotations
 
@@ -26,8 +27,8 @@ LEFT_OUT = {
 DIFFERENT = {
     "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run",
     "Check the pull request title": "the pipeline reads the current title through the API, for a re-run after a corrected title",
-    "Dependabot coverage of tracked package files": "the pipeline has no input coverage-exclude",
-    "Relative links in tracked Markdown": "the pipeline has no input link-exclude",
+    "Dependabot coverage of tracked package files": "the pipeline reads coverage-exclude from the configuration file, not from an input",
+    "Relative links in tracked Markdown": "the pipeline reads link-exclude from the configuration file, not from an input",
     "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona",
     "Gitleaks over all reachable history": "the pipeline takes the Gitleaks files by their fixed names, not from inputs",
 }
@@ -197,8 +198,9 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(condition_holds(hygiene["if"], {}))
         start = self.text.index(f"\n  {HYGIENE}:\n")
         section = self.text[start:self.text.index(f"\n  {SUITE_SELECTION}:\n")]
-        self.assertNotIn("outputs.plan", section, "repository hygiene reads nothing of the configuration file")
-        self.assertNotIn("ci-config", section)
+        self.assertNotIn("outputs.plan", section, "repository hygiene reads nothing of the plan, so it runs after a failed plan too")
+        self.assertEqual(['.github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude', '.github/ci-config.yml#value:parts.repository-hygiene.link-exclude'],
+                         re.findall(r'"(\.github/ci-config\.yml#[^"]*)"', section), "the job reads the configuration file only for the two exclusions")
         self.assertEqual([], concurrency_problems(HYGIENE, hygiene))
         self.assertIn("|| format('repository-hygiene-run-{0}', github.run_id)", hygiene["concurrency"]["group"],
                       "after a plan without outputs, repository hygiene still has a concurrency group")
@@ -234,8 +236,21 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('if [ -f .gitleaks-baseline.json ]; then baseline=".gitleaks-baseline.json"; fi', self.text)
         self.assertIn('hygiene.py" gitleaks --tools "$HYGIENE_TOOLS" --config "$config" --baseline "$baseline"', self.text)
         self.assertIn('hygiene.py" zizmor --tools "$HYGIENE_TOOLS" --persona ""', self.text)
-        for option in ("--exclude", "exclude-from", "EXCLUDE"):
-            self.assertNotIn(option, self.text)
+
+    def test_the_coverage_and_link_checks_take_their_exclusions_from_the_configuration_file_and_a_change_to_one_starts_its_check(self) -> None:
+        steps = {step.get("id"): step for step in self.jobs[HYGIENE]["steps"]}
+        for check, setting, command in (("coverage", "coverage-exclude", 'hygiene.py" coverage --exclude-from -'),
+                                        ("links", "link-exclude", 'hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"')):
+            with self.subTest(check=check):
+                step = steps[check]
+                self.assertEqual("${{ steps.pipeline.outputs.path }}", step["env"]["PIPELINE_PATH"], "the pipeline's own revision reads the setting")
+                self.assertIn("set -euo pipefail", step["run"])
+                self.assertRegex(step["run"], rf'"\$PIPELINE_PATH/plan\.py" setting --part repository-hygiene --setting {setting} \|\n'
+                                              rf'\s+PYTHONPYCACHEPREFIX="\$RUNNER_TEMP/repo-pycache" python3 "\$RESOURCE_PATH/{re.escape(command)}\n?\Z')
+                self.assertNotIn("inputs.", step["run"] + json.dumps(step["env"]))
+        changes = steps["changes"]["run"]
+        self.assertIn('--packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude"', changes)
+        self.assertIn('--markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude"', changes)
 
     def test_the_title_check_reads_the_current_title_and_not_the_one_of_the_event(self) -> None:
         self.assertNotIn("github.event.pull_request.title", self.text)

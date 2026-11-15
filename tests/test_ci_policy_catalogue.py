@@ -44,6 +44,11 @@ def named_paths(catalogue: dict) -> list[str]:
     return sorted(paths)
 
 
+def shared_ci_meanings(kit: str) -> list[str]:
+    """The ``Meaning`` cell of each ``shared-ci`` row of a vocabulary table in the pipeline kit's README."""
+    return [cells[3].strip() for line in kit.splitlines() if line.startswith("| `shared-ci` |") and len(cells := line.split("|")) == 5]
+
+
 class CatalogueFixture(unittest.TestCase):
     def setUp(self) -> None:
         self.catalogue = json.loads(CATALOGUE.read_text(encoding="utf-8"))
@@ -143,6 +148,13 @@ class RequestTests(CatalogueFixture):
         kit = (REPOSITORY_ROOT / "actions/pipeline/consumer-kit/README.md").read_text(encoding="utf-8")
         self.assertIn(f"| `shared-ci` | `{requests['label_colour']}` |", kit)
 
+    def test_the_kit_s_vocabulary_row_holds_the_label_s_description_character_for_character(self) -> None:
+        requests = self.catalogue["requests"]
+        kit = (REPOSITORY_ROOT / "actions/pipeline/consumer-kit/README.md").read_text(encoding="utf-8")
+        self.assertEqual([requests["label_description"]], shared_ci_meanings(kit))
+        changed = kit.replace(f"| {requests['label_description']} |", f"| {requests['label_description']}. |")
+        self.assertNotEqual([requests["label_description"]], shared_ci_meanings(changed), "a row that differs fails")
+
     def test_the_triage_states_the_part_s_final_name_and_the_entry_follows_it(self) -> None:
         requests = self.catalogue["requests"]
         self.assertIn("final name", requests["triage"])
@@ -194,12 +206,25 @@ class PageTests(CatalogueFixture):
             with self.subTest(part=part):
                 if fragment.get("always"):
                     self.assertIn("always runs", needs)
-                    continue
+                    if "configuration" not in fragment:
+                        continue
                 self.assertIn(f"parts.{part}", needs)
                 self.assertIn(fragment["path"], needs)
                 for setting in fragment["configuration"].get("required", []):
                     with self.subTest(part=part, setting=setting):
                         self.assertRegex(needs, rf"(?<![\w-]){re.escape(setting)}(?![\w-])")
+
+    def test_the_page_of_repository_hygiene_names_both_exclusions_and_no_longer_says_it_takes_no_settings(self) -> None:
+        page = self.entries["repository-hygiene"]
+        for setting in ("coverage-exclude", "link-exclude"):
+            with self.subTest(setting=setting):
+                self.assertIn(setting, page["needs"])
+                self.assertIn(setting, self.fragments["repository-hygiene"]["configuration"]["properties"])
+        for text in (page["purpose"], page["needs"]):
+            self.assertNotRegex(text, r"takes no settings|has no settings|nothing under parts")
+
+    def test_the_entry_repository_hygiene_names_enabled_auto_merge_under_needs(self) -> None:
+        self.assertIn("whose auto-merge is enabled", self.entries["Repository hygiene"]["needs"])
 
     def test_a_page_names_the_shared_workflow_of_a_part_outside_the_pipeline(self) -> None:
         for part, fragment in self.fragments.items():

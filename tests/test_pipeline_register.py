@@ -7,7 +7,7 @@ from __future__ import annotations
 import unittest
 
 from tests.consumer_checks_fixtures import CONSUMER, SHARED, WORKFLOWS, ConsumerFixture
-from tests.pipeline_fixtures import CONFIGURATION, FIXTURE_PARTS
+from tests.pipeline_fixtures import CONFIGURATION, FIXTURE_PARTS, SCHEMAS
 
 TEMPORARY = f"{WORKFLOWS}/nightly-report.yml"
 PERMANENT = f"{WORKFLOWS}/weekly-monitor.yml"
@@ -184,6 +184,23 @@ class SwitchOverTests(ConsumerFixture):
         self.assertIn(f"The entry of `{TEMPORARY}` waits for the setting `level` of the part `fixture-test`, which exists now: state it under "
                       f"`parts.fixture-test` in `{CONFIGURATION}`, remove the workflow and its entry, and close the request #12.", checked.summary)
         self.assertIn(f"The catalogue describes the part: https://github.com/{SHARED}/blob/v1/catalogue.json", checked.summary)
+
+    def test_an_entry_or_a_free_job_that_waits_for_an_exclusion_of_repository_hygiene_fails_in_the_real_schema(self) -> None:
+        self.schemas = SCHEMAS
+        for setting in ("coverage-exclude", "link-exclude"):
+            with self.subTest(entry=setting):
+                self.consumer({CONFIGURATION: self.WAITING.replace("fixture-build", f"repository-hygiene.{setting}")})
+                checked = self.check("register")
+                self.assertEqual(1, checked.status, checked.stdout)
+                self.assertIn(f"The entry of `{TEMPORARY}` waits for the setting `{setting}` of the part `repository-hygiene`, which exists now: state it under "
+                              f"`parts.repository-hygiene` in `{CONFIGURATION}`, remove the workflow and its entry, and close the request #12.", checked.summary)
+            with self.subTest(free_job=setting):
+                self.consumer({CONFIGURATION: f"version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    request: 12\n    waits-for: repository-hygiene.{setting}\n"})
+                checked = self.check("register")
+                self.assertEqual(1, checked.status, checked.stdout)
+                self.assertIn(f"the setting `{setting}` of the part `repository-hygiene`, which exists now", checked.summary)
+        self.consumer({CONFIGURATION: self.WAITING.replace("fixture-build", "repository-hygiene.zizmor-persona")})
+        self.assertEqual(0, self.check("register").status, "a setting that the part lacks keeps the entry")
 
     def test_an_entry_that_waits_for_a_setting_passes_while_the_part_lacks_it(self) -> None:
         for waits_for in ("fixture-test.depth", "fixture-build.level", "fixture-floor.level", "fixture-release.level"):

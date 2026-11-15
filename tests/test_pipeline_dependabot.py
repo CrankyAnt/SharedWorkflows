@@ -3,11 +3,13 @@ Dependabot ecosystems of the configuration file."""
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import unittest
 
 from tests.consumer_checks_fixtures import SHARED, ConsumerFixture, consumer_checks
 from tests.consumer_kit_support import assert_update_entry_follows_the_template, read_yaml_text
-from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT
+from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT, SCHEMAS, git
 
 DEPENDABOT = ".github/dependabot.yml"
 STATED = "version: 1\ndependabot:\n  github-actions: [/]\n  pip: [/, /tools/report]\n"
@@ -30,6 +32,27 @@ GENERATED = (
 
 
 class DependabotCheckTests(ConsumerFixture):
+    def test_a_package_file_under_coverage_exclude_needs_no_ecosystem_and_the_generated_file_holds_no_entry_for_it(self) -> None:
+        self.schemas = SCHEMAS
+        configuration = STATED + "parts:\n  repository-hygiene:\n    coverage-exclude: [tests/fixtures/package.json]\n"
+        self.consumer({CONFIGURATION: configuration, DEPENDABOT: GENERATED, "tests/fixtures/package.json": "{}\n"})
+        checked = self.start("dependabot")
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        self.assertIn(f"`{DEPENDABOT}` equals the file generated from `dependabot` in `{CONFIGURATION}`", checked.summary)
+        self.assertNotIn("npm", GENERATED)
+        self.assertNotIn("/tests/fixtures", GENERATED)
+        git(self.repository, "add", "--all")
+        self.assertEqual(0, self.coverage(), "the exclusion covers the fixture, so the coverage check passes beside the generated file")
+        self.consumer({CONFIGURATION: STATED})
+        self.assertEqual(1, self.coverage(), "without the exclusion the same fixture needs an ecosystem")
+
+    def coverage(self) -> int:
+        """The coverage check of the pipeline's hygiene job: the setting coverage-exclude piped into hygiene.py coverage."""
+        excluded = subprocess.run([sys.executable, str(REPOSITORY_ROOT / "actions" / "pipeline" / "plan.py"), "setting", "--root", str(self.repository),
+                                   "--part", "repository-hygiene", "--setting", "coverage-exclude"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
+        return subprocess.run([sys.executable, str(REPOSITORY_ROOT / "actions" / "repository-hygiene" / "hygiene.py"), "coverage", "--root", str(self.repository),
+                               "--exclude-from", "-"], input=excluded, capture_output=True, text=True, encoding="utf-8").returncode
+
     def test_a_file_that_equals_the_generated_one_passes(self) -> None:
         self.consumer({CONFIGURATION: STATED, DEPENDABOT: GENERATED})
         checked = self.start("dependabot")
