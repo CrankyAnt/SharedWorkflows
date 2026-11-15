@@ -169,7 +169,7 @@ class RebuildWorkflowTests(unittest.TestCase):
                           "HEAD_SHA": "${{ github.event.workflow_run.head_sha }}", "HEAD_MESSAGE": "${{ github.event.workflow_run.head_commit.message }}",
                           "RUN_ID": "${{ github.event.workflow_run.id }}", "RUN_URL": "${{ github.event.workflow_run.html_url }}",
                           "WORKFLOW_RUN_URL": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}, step["env"])
-        for check in ('[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]', '[[ "$RUN_ID" =~ ^[0-9]+$ ]]', "gh workflow run apply-additions.yml -f run-id=%s"):
+        for check in ('[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]', '[[ "$RUN_ID" =~ ^[0-9]+$ ]]', "gh workflow run automation-caller.yml -f part=additions -f run-id=%s"):
             with self.subTest(check=check):
                 self.assertIn(check, step["run"])
         # It comments only when the condition, evaluated again, finds that the rebuild acts on the run.

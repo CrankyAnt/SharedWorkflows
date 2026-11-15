@@ -41,7 +41,7 @@ class FixedCallerTemplatesTest(unittest.TestCase):
 
     def test_the_read_caller_gives_the_check_ci_verdict_with_read_rights_only(self) -> None:
         _, caller = read_yaml(KIT / "ci.yml")
-        self.assertEqual({"pull_request": None, "push": {"branches": ["main"]}}, caller["on"])
+        self.assertEqual({"pull_request": None, "push": {"branches": ["main"]}, "repository_dispatch": {"types": ["dependabot-merged"]}}, caller["on"])
         self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, caller["jobs"]["ci"]["permissions"])
 
     def test_this_repository_s_own_caller_differs_from_the_template_only_in_the_local_path(self) -> None:

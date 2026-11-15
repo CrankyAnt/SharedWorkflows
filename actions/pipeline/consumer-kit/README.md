@@ -8,14 +8,14 @@ Copy each template to its install target without changing it. A fixed caller equ
 
 | Template | Install target | Starts on | Calls |
 | --- | --- | --- | --- |
-| [ci.yml](ci.yml) | `.github/workflows/ci.yml` | pull requests and pushes to `main` | `CrankyAnt/SharedWorkflows/.github/workflows/pipeline.yml@v1` |
-| [automation.yml](automation.yml) | `.github/workflows/automation.yml` | a completed `CI` run, a weekly schedule, a start by hand and an opened issue | `CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1` |
+| [ci.yml](ci.yml) | `.github/workflows/ci.yml` | pull requests, pushes to `main` and the dispatch `dependabot-merged` | `CrankyAnt/SharedWorkflows/.github/workflows/pipeline.yml@v1` |
+| [automation.yml](automation.yml) | `.github/workflows/automation.yml` | a completed `CI` run, a weekly schedule, a start by hand with the part to start, and an opened issue | `CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1` |
 | [release.yml](release.yml) | `.github/workflows/release.yml` | a pushed tag and a start by hand | `CrankyAnt/SharedWorkflows/.github/workflows/release.yml@v1` |
 
 Each caller sets `permissions: {}` at the top, holds one job named after its file and runs no step of its own.
 
-- `ci.yml` is the read caller. Its job `ci` holds `actions: read`, `contents: read`, `issues: read` and `pull-requests: read` and passes no secret. The pipeline's verdict reports as the check `ci / verdict`.
-- `automation.yml` is the write caller. Its job holds `actions: read`, `contents: write`, `issues: write` and `pull-requests: write` and passes the secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY` under its own name. A part that the configuration file does not switch on does nothing.
+- `ci.yml` is the read caller. Its job `ci` holds `actions: read`, `contents: read`, `issues: read` and `pull-requests: read` and passes no secret. The pipeline's verdict reports as the check `ci / verdict`. The part `dependabot-auto-merge` merges with the workflow's own token, and such a merge starts no push run, so it sends a `repository_dispatch` of type `dependabot-merged` with the merged commit: on it the pipeline runs for that commit as for a push of it, after it checked that the commit is on the default branch.
+- `automation.yml` is the write caller. Its job holds `actions: read`, `contents: write`, `issues: write` and `pull-requests: write` and passes the secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY` under its own name. [The parts of the automation workflow](#the-parts-of-the-automation-workflow) names what it runs.
 - `release.yml` is the release caller. Its job holds `attestations: write`, `contents: write` and `id-token: write` and passes no secret. Without release configuration it publishes nothing, as [The release part](#the-release-part) says.
 
 No caller starts on `pull_request_target`, and none inherits secrets.
@@ -23,6 +23,59 @@ No caller starts on `pull_request_target`, and none inherits secrets.
 ## The configuration file
 
 `.github/ci-config.yml` matches the schema [ci-config.schema.json](../schema/v1/ci-config.schema.json), which describes every key. The smallest file is the line `version: 1`. It holds the shared parts that the repository switches on under `parts`, its Dependabot ecosystems under `dependabot` and its local workflow register under `local-workflows`.
+
+## The parts of the automation workflow
+
+The write caller runs four parts, each only when the configuration file states it under `parts`:
+
+| Part | Values | Runs on | What it does |
+| --- | --- | --- | --- |
+| `dependabot-auto-merge` | `suites`, optional: the suite list's path | a completed pull-request run of `CI` for a Dependabot pull request | merges the pull request when its updates qualify and its required checks have passed, as the kit of [Dependabot auto-merge](../../dependabot-auto-merge/consumer-kit/README.md) says |
+| `issue-title` | `categories`: the path of the repository's category file | an opened issue | gives the issue the title prefix of its category, as [Issue titles](#issue-titles) says |
+| `additions` | `suites`: the suite list's path | a failed pull-request run of `CI` from a branch of the repository; a start by hand | commits the recorded additions of the run onto the pull request's branch, as [Additions](../../suite-selection/consumer-kit/README.md#additions) of the suite selection says |
+| `full-recording` | `suites`; `validation-workflow`: the path of the workflow that runs the suites on a pull request | every second week on the schedule; a start by hand | records every entry file and proposes the changed lists as a pull request that merges itself, as [The full recording](../../suite-selection/consumer-kit/README.md#the-full-recording) of the suite selection says |
+
+Every trigger of the caller starts a run. A job without work on the event, and every job of a part that is switched off, is skipped without a runner; on an event that no part has work on, nothing runs at all. The configuration file that decides is the one on the default branch for a completed run, the schedule and an issue, so a pull request cannot switch a part on for itself.
+
+A start by hand names the part: `gh workflow run automation.yml -f part=full-recording`, with `-f verify-token=true` to check the App's key, or `gh workflow run automation.yml -f part=additions -f run-id=<run id>`.
+
+`additions` and `full-recording` commit and propose as a GitHub App: the repository holds the App's Client ID in the variable `PUBLICATION_CHECKS_APP_CLIENT_ID` and its private key in the secret that the caller passes, as the [repository settings](../../suite-selection/consumer-kit/README.md#repository-settings) of the suite selection state.
+
+### Issue titles
+
+`issue-title` reads the repository's category file, a JSON object with two lists. The values here are an invented example:
+
+```json
+{
+  "product_categories": [
+    {
+      "key": "widget",
+      "source_directory": "widgets",
+      "marker": "WIDGET.md",
+      "title_prefix": "[widget]",
+      "dynamic_title_prefix": "[widget: {component}]",
+      "component_label": "Widget",
+      "required_metadata": ["name"],
+      "labels": ["area:widget"]
+    }
+  ],
+  "generic_forms": [
+    {"key": "question", "title_prefix": "[question]", "labels": ["type:question"]}
+  ]
+}
+```
+
+A category of `product_categories` has components: each direct subfolder of `source_directory` that holds the file `marker`. A marker starts with `key: value` lines between two `---` lines and holds each key of `required_metadata`; its `name`, when present, equals the folder's name, and a required `entrypoint` names a file in the folder. A category of `generic_forms` has no components. The part ignores every other key of the file, so the file may also serve the repository's own tools.
+
+The category of an opened issue is the one category whose label the issue carries, otherwise the category whose `component_label` heads a filled section of the body, as an issue form writes it. The title becomes the category's prefix and then the title without an earlier prefix:
+
+- a category without components gives its `title_prefix`;
+- a section that names a component gives `dynamic_title_prefix` with that component, spelled as its folder is;
+- `Not sure`, a component the repository does not hold, or an empty section gives the prefix with `unsure`;
+- without a component section, a title that already starts with the prefix of a current component keeps it;
+- an issue without a category keeps its title.
+
+The job changes the title of the opened issue and nothing else. It fails, with the reason in its log, on a category file or a marker that it cannot read.
 
 ## The release part
 

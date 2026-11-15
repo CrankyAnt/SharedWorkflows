@@ -11,18 +11,10 @@ from tests.consumer_kit_support import read_yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
-AUTO_MERGE_KIT = REPOSITORY_ROOT / "actions" / "dependabot-auto-merge" / "consumer-kit"
-
 OWN_WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 OWN_CALLERS = ("dependabot-auto-merge-caller.yml", "repository-hygiene-caller.yml")
 OWN_DEPENDABOT = REPOSITORY_ROOT / ".github" / "dependabot.yml"
 HYGIENE_RESOURCES = REPOSITORY_ROOT / "actions" / "repository-hygiene"
-
-
-def template_job(template: str) -> dict:
-    _, caller = read_yaml(AUTO_MERGE_KIT / template)
-    (job,) = caller["jobs"].values()
-    return job
 
 
 def local_path_callers() -> dict[str, dict]:
@@ -61,8 +53,7 @@ class InstallByNeedTest(unittest.TestCase):
     def test_this_repository_has_a_dependency_of_its_own_and_carries_both_files_that_come_with_one(self) -> None:
         self.assertTrue(own_dependencies())
         self.assertTrue(OWN_DEPENDABOT.is_file())
-        target = template_job("dependabot-auto-merge.yml")["uses"].removeprefix("CrankyAnt/SharedWorkflows/")
-        self.assertIn(target.removesuffix("@v1"), local_path_callers())
+        self.assertIn(".github/workflows/dependabot-auto-merge.yml", local_path_callers())
 
 
 if __name__ == "__main__":

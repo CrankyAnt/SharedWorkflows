@@ -1,17 +1,17 @@
-"""The additions template of the suite-selection consumer kit: a workflow that applies all additions artifacts of a
-validation run whose recording check reported additions. Started by `workflow_run` when a pull-request run of the
-validation caller failed, it commits the changed suite list as the updater App onto that pull request's branch, or
-comments on the pull request with the reason and the manual route; started by hand with a run id, it proposes the
-changed suite list as a pull request onto the reporting pull request's branch.
+"""The additions workflow, a part of the automation workflow: its job applies all additions artifacts of a validation
+run whose recording check reported additions. Started by `workflow_run` when a pull-request run failed, it commits the
+changed suite list as the updater App onto that pull request's branch, or its second job comments on the pull request
+with the reason and the manual route; started by hand with a run id, it proposes the changed suite list as a pull request
+onto the reporting pull request's branch.
 
-The structure tests read the template; the run tests run its shell steps with Bash against a fixture repository, a
-local remote and a stand-in `gh` that answers the GitHub API from fixture documents and filters them with `jq`, as
-`gh api --jq` does. A test that runs actionlint and zizmor over the installed template needs the pinned tools.
+The structure tests read the jobs; the run tests run their shell steps with Bash against a fixture repository, a local
+remote and a stand-in `gh` that answers the GitHub API from fixture documents and filters them with `jq`, as
+`gh api --jq` does, first as a consumer with its own suite list runs them.
 
-The last run tests run the same steps of Shared Workflows' own additions workflow, which `ci-policy` keeps equal to the
-template apart from the stated substitutions, beside the rebuild workflow of its ETW consumer: on a run that the rebuild
-workflow acts on, the additions workflow commits nothing and does not comment, and the rebuild commit carries the run's
-additions; the bound of each recognises the App's commits; and on a branch that moved since the run neither pushes."""
+The last run tests run the same steps as Shared Workflows runs them, beside the rebuild workflow of its ETW consumer: on
+a run that the rebuild workflow acts on, the additions job commits nothing and does not comment, and the rebuild commit
+carries the run's additions; the bound of each recognises the App's commits; and on a branch that moved since the run
+neither pushes."""
 
 from __future__ import annotations
 
@@ -26,29 +26,28 @@ import unittest
 from pathlib import Path
 
 from tests.ci_policy_support import expression_value, read_workflow
-from tests.hygiene_fixtures import fixture_repository, tools_available
-from tests.hygiene_process import hygiene
 from tests.recording_fixtures import GIT_IDENTITY
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
-TEMPLATE = SELECTION_KIT / "apply-additions.yml"
-KIT_FULL_RECORDING = SELECTION_KIT / "full-recording.yml"
-VALIDATION_CALLER = SELECTION_KIT / "validation.yml"
-PIN_SOURCE = REPOSITORY_ROOT / ".github" / "workflows" / "full-recording.yml"
+WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml"
+JOB, COMMENT_JOB = "additions", "additions-comment"
+CALLER = "automation.yml"
+CONSUMER_SUITES = ".github/suites.json"
 RECORDING = REPOSITORY_ROOT / "actions" / "recording"
 REPOSITORY = "owner/consumer"
 RUN_ID = "4242"
 HEAD_BRANCH = "feat/adopt-suite-selection"
 PROPOSAL = f"chore/apply-recorded-additions-{RUN_ID}"
 SUBJECT = f"chore: apply the recorded additions of run {RUN_ID}"
-MANUAL_ROUTE = f"gh workflow run apply-additions.yml -f run-id={RUN_ID}"
+MANUAL_ROUTE = f"gh workflow run {CALLER} -f part=additions -f run-id={RUN_ID}"
+# The route that the rebuild workflow names: this repository's own caller of the automation workflow.
+OWN_MANUAL_ROUTE = f"gh workflow run automation-caller.yml -f part=additions -f run-id={RUN_ID}"
 APP_STEPS = ("app-token", "Configure the GitHub App identity", "Commit the applied additions", "hygiene", "Install the pinned Gitleaks",
              "Scan the commit before pushing")
 DISPATCH_STEPS = ("Push the proposal branch", "Create or update the proposal pull request")
 AUTOMATIC_STEPS = ("Push the applied additions to the pull request's branch",)
-# This repository's own additions workflow, kept equal to the template, and the rebuild workflow of its ETW consumer.
-OWN_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "apply-additions.yml"
+# The rebuild workflow of this repository's ETW consumer, and this repository's suite list.
+OWN_SUITES = "tests/suites.json"
 REBUILD = REPOSITORY_ROOT / ".github" / "workflows" / "rebuild-etw-consumer.yml"
 ADDITIONS_SUBJECT = "chore: apply the recorded additions of run 4100"
 REBUILD_SUBJECT = "chore: rebuild the ETW consumer"
@@ -105,45 +104,28 @@ def additions(suite: str, entry: str, paths: list[str]) -> dict:
          "reads": {"paths": paths, "existence_reads": [], "directory_memberships": [], "lookup_directories": [], "module_lookups": {}}}]}
 
 
-def workflow_run_event(*, event: str = "pull_request", conclusion: str = "failure", head_repository: str | None = REPOSITORY) -> dict:
-    return {"event_name": "workflow_run", "repository": REPOSITORY, "event": {"workflow_run": {
-        "id": int(RUN_ID), "event": event, "conclusion": conclusion, "head_branch": HEAD_BRANCH,
-        "head_repository": None if head_repository is None else {"full_name": head_repository}}}}
+def plan_values(text: str) -> str:
+    """An expression with the plan's values as the context `plan`, which the expression reader of the tests can follow."""
+    return re.sub(r"\['([\w-]+)'\]", r".\1", text.replace("fromJSON(needs.plan.outputs.plan)", "plan"))
 
 
-class ApplyAdditionsTemplateTest(unittest.TestCase):
+class AdditionsJobTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.text, self.workflow = read_workflow(TEMPLATE)
-        self.job = self.workflow["jobs"]["apply"]
+        self.text, self.workflow = read_workflow(WORKFLOW)
+        self.job = self.workflow["jobs"][JOB]
         self.steps = self.job["steps"]
-
-    def test_it_starts_by_hand_with_the_run_id_and_when_a_run_of_the_validation_caller_completes(self) -> None:
-        self.assertEqual("Apply recorded additions", self.workflow["name"])
-        _, caller = read_workflow(VALIDATION_CALLER)
-        self.assertEqual({"workflow_dispatch": {"inputs": {"run-id": {
-            "description": "The id of the validation run whose recording check reported additions", "required": "true", "type": "string"}}},
-            "workflow_run": {"workflows": f"[{caller['name']}]", "types": "[completed]"}}, self.workflow["on"])
-        self.assertRegex(self.text, r"(?m)^  workflow_run: # zizmor: ignore\[dangerous-triggers\] \S")
-        self.assertEqual(["apply", "comment"], list(self.workflow["jobs"]))
 
     def test_runs_for_one_head_branch_share_one_concurrency_group_without_cancel_and_a_start_by_hand_keeps_its_group(self) -> None:
         self.assertNotIn("concurrency", self.workflow)
-        self.assertEqual({"group": "${{ github.workflow }}-${{ inputs.run-id || format('branch-{0}', github.event.workflow_run.head_branch) }}",
+        self.assertEqual({"group": "${{ github.workflow }}-additions-${{ github.event.inputs.run-id || format('branch-{0}', github.event.workflow_run.head_branch) }}",
                           "cancel-in-progress": "false"}, self.job["concurrency"])
-        self.assertNotIn("concurrency", self.workflow["jobs"]["comment"])
+        self.assertNotIn("concurrency", self.workflow["jobs"][COMMENT_JOB])
 
-    def test_the_job_acts_only_on_a_failed_pull_request_run_from_a_branch_of_the_repository_or_a_start_by_hand(self) -> None:
-        condition = self.job["if"]
-        self.assertTrue(expression_value(condition, {"github": workflow_run_event()}))
-        self.assertTrue(expression_value(condition, {"github": {"event_name": "workflow_dispatch", "repository": REPOSITORY, "event": {}}}))
-        for name, context in (("a fork", workflow_run_event(head_repository="someone/consumer")),
-                              ("a deleted fork", workflow_run_event(head_repository=None)),
-                              ("a run that passed", workflow_run_event(conclusion="success")),
-                              ("a cancelled run", workflow_run_event(conclusion="cancelled")),
-                              ("a push run", workflow_run_event(event="push")),
-                              ("a dispatched run", workflow_run_event(event="repository_dispatch"))):
-            with self.subTest(run=name):
-                self.assertFalse(expression_value(condition, {"github": context}))
+    def test_the_job_takes_the_run_and_the_suite_list_from_the_event_and_the_plan(self) -> None:
+        self.assertEqual({"RUN_ID": "${{ github.event.inputs.run-id || github.event.workflow_run.id }}",
+                          "PROPOSAL_BRANCH": "chore/apply-recorded-additions-${{ github.event.inputs.run-id }}",
+                          "SUBJECT": "chore: apply the recorded additions of run ${{ github.event.inputs.run-id || github.event.workflow_run.id }}",
+                          "SUITES": "${{ fromJSON(needs.plan.outputs.plan).parts['additions'].config.suites }}"}, self.job["env"])
 
     def test_the_workflow_token_only_reads_and_only_the_app_token_writes_the_branch(self) -> None:
         self.assertIn("\npermissions: {}\n", self.text)
@@ -159,19 +141,19 @@ class ApplyAdditionsTemplateTest(unittest.TestCase):
         self.assertEqual("false", step(self.steps, "checkout")["with"]["persist-credentials"])
 
     def test_only_the_comment_job_writes_with_the_workflow_token_and_it_checks_out_nothing(self) -> None:
-        comment = self.workflow["jobs"]["comment"]
+        comment = self.workflow["jobs"][COMMENT_JOB]
         self.assertEqual({"pull-requests": "write"}, comment["permissions"])
-        self.assertEqual("apply", comment["needs"])
-        self.assertEqual("always() && needs.apply.outputs.reason != ''", comment["if"])
+        self.assertEqual(JOB, comment["needs"])
+        self.assertEqual("always() && needs.additions.outputs.reason != ''", comment["if"])
         self.assertEqual([], [item for item in comment["steps"] if "uses" in item])
         self.assertEqual({"pull-request": "${{ steps.run.outputs.pull-request }}", "reason": "${{ steps.reason.outputs.reason }}"}, self.job["outputs"])
 
-    def test_the_apply_step_runs_the_recording_step_at_v1_before_the_app_token_with_no_token_in_its_environment(self) -> None:
+    def test_the_apply_step_runs_the_recording_step_of_its_own_revision_before_the_app_token_with_no_token_in_its_environment(self) -> None:
         apply = step(self.steps, "apply")
         self.assertEqual("Apply every additions artifact of the run", apply["name"])
         self.assertLess(position(self.steps, "recording"), position(self.steps, "apply"))
-        self.assertEqual("CrankyAnt/SharedWorkflows/actions/recording@v1", step(self.steps, "recording")["uses"])
-        self.assertIn('"$RECORDING/recording.py" apply --suites .github/suites.json', apply["run"])
+        self.assertEqual("$/actions/recording", step(self.steps, "recording")["uses"])
+        self.assertIn('"$RECORDING/recording.py" apply --suites "$SUITES" --summary', apply["run"])
         self.assertLess(position(self.steps, "apply"), position(self.steps, "app-token"))
         self.assertEqual({"RECORDING", "PULL_REQUEST", "HEAD_BRANCH", "REPORT"}, set(apply["env"]))
         for key in ("token", "secrets", "GH_", "GITHUB_TOKEN"):
@@ -179,11 +161,13 @@ class ApplyAdditionsTemplateTest(unittest.TestCase):
                 self.assertNotIn(key, json.dumps(apply).replace("$GITHUB_STEP_SUMMARY", ""))
                 self.assertNotIn(key, json.dumps(self.job["env"]))
 
-    def test_each_action_reference_carries_the_pin_placeholder_and_the_shared_steps_v1(self) -> None:
+    def test_each_action_is_pinned_and_the_shared_steps_come_from_the_workflow_s_own_revision(self) -> None:
         references = [item["uses"] for item in self.steps if "uses" in item]
-        self.assertEqual(["actions/checkout@<pin>", "actions/download-artifact@<pin>", "CrankyAnt/SharedWorkflows/actions/recording@v1",
-                          "actions/create-github-app-token@<pin>", "CrankyAnt/SharedWorkflows/actions/repository-hygiene@v1"], references)
-        self.assertEqual([], re.findall(r"@[0-9a-f]{40}", self.text))
+        self.assertEqual(["actions/checkout", "actions/download-artifact", "$/actions/recording", "actions/create-github-app-token", "$/actions/repository-hygiene"],
+                         [reference.split("@")[0] for reference in references])
+        for reference in references:
+            if not reference.startswith("$/"):
+                self.assertRegex(reference, r"@[0-9a-f]{40}$")
 
     def test_it_checks_out_the_run_s_ref_downloads_every_additions_artifact_and_applies_each_file_at_any_depth(self) -> None:
         self.assertEqual({"ref": "${{ steps.run.outputs.ref }}", "fetch-depth": "1", "persist-credentials": "false"},
@@ -213,7 +197,7 @@ class ApplyAdditionsTemplateTest(unittest.TestCase):
 
     def test_the_bound_recognises_the_subject_that_the_app_commits(self) -> None:
         bound = re.search(r"bound='(.+)'", step(self.steps, "run")["run"])[1]
-        subject = self.job["env"]["SUBJECT"].replace("${{ inputs.run-id || github.event.workflow_run.id }}", "18234567890")
+        subject = self.job["env"]["SUBJECT"].replace("${{ github.event.inputs.run-id || github.event.workflow_run.id }}", "18234567890")
         self.assertRegex(subject, bound)
         self.assertIn('git commit -m "$SUBJECT" -m "[dependabot skip]"', step(self.steps, "Commit the applied additions")["run"])
 
@@ -225,35 +209,19 @@ class ApplyAdditionsTemplateTest(unittest.TestCase):
         self.assertEqual("reason", self.steps[-1]["id"])
         self.assertEqual("always() && github.event_name == 'workflow_run'", self.steps[-1]["if"])
 
-    def test_the_gitleaks_scan_and_the_app_identity_follow_the_full_recording(self) -> None:
-        _, full = read_workflow(KIT_FULL_RECORDING)
-        close = full["jobs"]["close"]["steps"]
+    def test_the_gitleaks_scan_and_the_app_identity_are_those_of_the_full_recording(self) -> None:
+        close = self.workflow["jobs"]["full-recording-close"]["steps"]
         for name in ("Configure the GitHub App identity", "Install the pinned Gitleaks", "Scan the commit before pushing", "hygiene"):
             with self.subTest(step=name):
                 ours, theirs = dict(step(self.steps, name)), dict(step(close, name))
                 ours.pop("if"), theirs.pop("if")
                 self.assertEqual(theirs, ours)
 
-
-def installed_template() -> str:
-    """The template as a consumer installs it: each `@<pin>` filled from the pin source, and the Gitleaks options."""
-    pins = dict(re.findall(r"uses: ([\w./-]+)@([0-9a-f]{40} # v[\w.]+)", PIN_SOURCE.read_text(encoding="utf-8")))
-    text = TEMPLATE.read_text(encoding="utf-8")
-    text = re.sub(r"uses: ([\w./-]+)@<pin>", lambda found: f"uses: {found[1]}@{pins[found[1]]}", text)
-    return text.replace("<gitleaks-options>", "--config .gitleaks.toml")
-
-
-@unittest.skipUnless(tools_available("actionlint", "shellcheck", "zizmor"), "the pinned tools are neither in HYGIENE_TOOLS nor on PATH")
-class InstalledTemplateLintTest(unittest.TestCase):
-    def test_the_installed_template_passes_actionlint_and_zizmor(self) -> None:
-        text = installed_template()
-        self.assertEqual([], re.findall(r"<pin>|<gitleaks-options>", text), "every placeholder is filled")
-        with tempfile.TemporaryDirectory() as temporary:
-            repository = fixture_repository(Path(temporary) / "consumer", {".github/workflows/apply-additions.yml": text})
-            for check in ("actionlint", "zizmor"):
-                with self.subTest(check=check):
-                    result = hygiene(check, repository)
-                    self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+    def test_the_scan_takes_the_repository_s_gitleaks_files_by_their_fixed_names_when_it_holds_them(self) -> None:
+        scan = step(self.steps, "Scan the commit before pushing")["run"]
+        self.assertIn("if [ -f .gitleaks.toml ]; then options+=(--config .gitleaks.toml); fi", scan)
+        self.assertIn("if [ -f .gitleaks-baseline.json ]; then options+=(--baseline-path .gitleaks-baseline.json); fi", scan)
+        self.assertIn('gitleaks" git "${options[@]}" --log-opts="HEAD --not --remotes=origin" --redact --no-banner --no-color', scan)
 
 
 def write(path: Path, text: str) -> Path:
@@ -268,16 +236,16 @@ def git(repository: Path, *arguments: str) -> str:
 
 @requires_bash_and_jq
 class ApplyAdditionsSteps(unittest.TestCase):
-    """Runs the shell steps of `WORKFLOW`, the template or a workflow kept equal to it, in order as the job runs them,
-    with the step outputs passed on."""
+    """Runs the shell steps of the additions jobs in order as the jobs run them, with the step outputs passed on, in a
+    repository whose configuration file names `SUITES` as its suite list."""
 
-    WORKFLOW = TEMPLATE
+    SUITES = CONSUMER_SUITES
 
     def setUp(self) -> None:
-        _, workflow = read_workflow(self.WORKFLOW)
-        self.steps = workflow["jobs"]["apply"]["steps"]
-        self.comment_steps = workflow["jobs"]["comment"]["steps"]
-        self.job_env = workflow["jobs"]["apply"]["env"]
+        _, workflow = read_workflow(WORKFLOW)
+        self.steps = workflow["jobs"][JOB]["steps"]
+        self.comment_steps = workflow["jobs"][COMMENT_JOB]["steps"]
+        self.job_env = workflow["jobs"][JOB]["env"]
         self.base = Path(tempfile.mkdtemp(prefix="apply-additions-"))
         self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
         self.fixtures = self.base / "gh"
@@ -323,9 +291,10 @@ class ApplyAdditionsSteps(unittest.TestCase):
         output_file.touch()
         automatic = event == "workflow_run"
         context = {
-            "inputs": {"run-id": "" if automatic else run_id},
+            "plan": {"parts": {JOB: {"config": {"suites": self.SUITES}}}},
             "github": {"token": "workflow-token", "event_name": event, "repository": REPOSITORY, "server_url": "https://github.example", "run_id": "9",
-                       "event": {"workflow_run": {"id": run_id, "html_url": f"https://github.example/{REPOSITORY}/actions/runs/{run_id}"}} if automatic else {}},
+                       "event": {"workflow_run": {"id": run_id, "html_url": f"https://github.example/{REPOSITORY}/actions/runs/{run_id}"}} if automatic
+                       else {"inputs": {"part": JOB, "run-id": run_id}}},
             "runner": {"temp": str(self.runner_temp)},
             "steps": {"app-token": {"outputs": {"token": "app-token", "app-slug": "updater"}}, "recording": {"outputs": {"path": str(RECORDING)}},
                       "hygiene": {"outputs": {"path": "unused"}},
@@ -335,7 +304,7 @@ class ApplyAdditionsSteps(unittest.TestCase):
 
         def resolve(text: str) -> str:
             def value(found: re.Match[str]) -> str:
-                result = expression_value(found[1], context)
+                result = expression_value(plan_values(found[1]), context)
                 return "" if result is None else str(result)
             return re.sub(r"\$\{\{\s*(.+?)\s*\}\}", value, text)
 
@@ -343,6 +312,7 @@ class ApplyAdditionsSteps(unittest.TestCase):
         environment = {**os.environ, "PATH": f"{self.base / 'bin'}{os.pathsep}{os.environ['PATH']}", "GH_FIXTURES": str(self.fixtures),
                        "GITHUB_REPOSITORY": REPOSITORY, "GITHUB_REPOSITORY_OWNER": REPOSITORY.split("/")[0], "GITHUB_EVENT_NAME": event,
                        "GITHUB_SERVER_URL": "https://github.example", "GITHUB_RUN_ID": "9",
+                       "GITHUB_WORKFLOW_REF": f"{REPOSITORY}/.github/workflows/{CALLER}@refs/heads/main",
                        "GITHUB_OUTPUT": str(output_file), "GITHUB_STEP_SUMMARY": str(self.summary), "RUNNER_TEMP": str(self.runner_temp),
                        **{name: resolve(str(value)) for name, value in {**job_env, **item.get("env", {})}.items()}}
         environment.pop("GITHUB_TOKEN", None)
@@ -364,13 +334,13 @@ class ApplyAdditionsSteps(unittest.TestCase):
 
     def comment(self, reason: str) -> subprocess.CompletedProcess[str]:
         ran, _ = self.run_step("Comment on the pull request with the reason and the manual route", self.base, event="workflow_run",
-                               steps=self.comment_steps, extra={"needs": {"apply": {"outputs": {"pull-request": "7", "reason": reason}}}})
+                               steps=self.comment_steps, extra={"needs": {JOB: {"outputs": {"pull-request": "7", "reason": reason}}}})
         return ran
 
 
 @requires_bash_and_jq
 class ApplyAdditionsRunTest(ApplyAdditionsSteps):
-    """The template's shell steps."""
+    """The shell steps of the additions jobs, as a consumer with its own suite list runs them."""
 
     # --- the refusals of a start by hand -------------------------------------------------------------------------
 
@@ -716,10 +686,10 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
 
 @requires_bash_and_jq
 class AutomaticRoutesSteps(ApplyAdditionsSteps):
-    """The steps of this repository's additions workflow and of the rebuild workflow of its ETW consumer, against a
-    fixture repository whose pull request is on `self.branch`."""
+    """The steps of the additions jobs with this repository's suite list, and of the rebuild workflow of its ETW consumer,
+    against a fixture repository whose pull request is on `self.branch`."""
 
-    WORKFLOW = OWN_WORKFLOW
+    SUITES = OWN_SUITES
 
     def setUp(self) -> None:
         super().setUp()
@@ -966,7 +936,7 @@ class RebuildBoundRunTest(AutomaticRoutesSteps):
         (body,) = self.comments()
         self.assertIn(f"[its workflow run](https://github.example/{REPOSITORY}/actions/runs/9) failed or was cancelled", body)
         self.assertIn(f"[run {RUN_ID}](https://github.example/{REPOSITORY}/actions/runs/{RUN_ID})", body)
-        self.assertIn(MANUAL_ROUTE, body)
+        self.assertIn(OWN_MANUAL_ROUTE, body)
         self.assertIn(f"https://github.example/{REPOSITORY}/blob/HEAD/docs/maintaining.md#change-the-etw-consumer", body)
         self.assertEqual([f"pr comment 9 --repo {REPOSITORY} --body-file {self.runner_temp}/rebuild-etw-consumer-comment.md"],
                          [call for call in self.calls() if call.startswith("pr ")])

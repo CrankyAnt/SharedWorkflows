@@ -387,11 +387,10 @@ class ShardEntryRunTest(unittest.TestCase):
         """The script of each source's entry step and of its listing step, None for a full recording, which lists none."""
         sources = {"validation-workflow.yml template": (SELECTION_KIT / "validation-workflow.yml", self.LISTING_STEP),
                    "validate.yml": (OWN_VALIDATE, self.LISTING_STEP),
-                   "full-recording.yml template": (SELECTION_KIT / "full-recording.yml", None),
-                   "full-recording.yml": (REPOSITORY_ROOT / ".github" / "workflows" / "full-recording.yml", None)}
+                   "the full recording of automation.yml": (REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml", None)}
         scripts = {}
         for source, (path, listing) in sources.items():
-            steps = {step.get("name"): step for step in read_workflow(path)[1]["jobs"]["linux"]["steps"]}
+            steps = {step.get("name"): step for step in read_workflow(path)[1]["jobs"]["full-recording-linux" if listing is None else "linux"]["steps"]}
             scripts[source] = (steps[self.ENTRIES_STEP]["run"], steps[listing]["run"] if listing else None)
         return scripts
 

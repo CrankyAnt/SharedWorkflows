@@ -37,3 +37,12 @@ parts:
       - actions/pipeline/
       - .github/workflows/pipeline.yml
       - .github/workflows/ci.yml
+  dependabot-auto-merge:
+    suites: tests/suites.json
+  issue-title:
+    categories: tests/fixtures/issue_title/categories.json
+  additions:
+    suites: tests/suites.json
+  full-recording:
+    suites: tests/suites.json
+    validation-workflow: .github/workflows/validate.yml

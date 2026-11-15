@@ -1,0 +1,13 @@
+{
+  "description": "Dependabot auto-merge: merges a pull request of Dependabot whose updates are all patch or minor, and for GitHub Actions all from actions/*, once its required checks have passed. `suites` names the suite list, so that a commit of the updater App that changes only that file does not make the pull request manual. Invented example: {\"suites\": \"ci/suites.json\"}.",
+  "workflow": "automation.yml",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "suites": {
+        "$ref": "#/$defs/file"
+      }
+    }
+  }
+}

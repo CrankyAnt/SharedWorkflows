@@ -17,6 +17,19 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "additions": {
+          "description": "The additions workflow: after a failed pull-request run that reported recorded additions, commits them to the suite list on the pull request's branch, once per push, as the updater App. `suites` names the suite list. Invented example: {\"suites\": \"ci/suites.json\"}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "suites"
+          ],
+          "properties": {
+            "suites": {
+              "$ref": "#/$defs/file"
+            }
+          }
+        },
         "custom": {
           "description": "The free job: runs a script of the repository after the setups that it names, with read permission only and without secrets, for CI that no other part covers. Invented example: {\"setups\": [\"python-3.14\"], \"script\": \"ci/check-licences.sh\"}.",
           "type": "object",
@@ -33,6 +46,16 @@
             },
             "paths": {
               "$ref": "#/$defs/paths"
+            }
+          }
+        },
+        "dependabot-auto-merge": {
+          "description": "Dependabot auto-merge: merges a pull request of Dependabot whose updates are all patch or minor, and for GitHub Actions all from actions/*, once its required checks have passed. `suites` names the suite list, so that a commit of the updater App that changes only that file does not make the pull request manual. Invented example: {\"suites\": \"ci/suites.json\"}.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "suites": {
+              "$ref": "#/$defs/file"
             }
           }
         },
@@ -74,6 +97,23 @@
             },
             "paths": {
               "$ref": "#/$defs/paths"
+            }
+          }
+        },
+        "full-recording": {
+          "description": "The full recording: records every entry file of the suite list every two weeks and proposes the changed stored lists as a pull request that merges itself once its required checks have passed. `suites` names the suite list and `validation-workflow` the workflow that runs the suites on a pull request. Invented example: {\"suites\": \"ci/suites.json\", \"validation-workflow\": \".github/workflows/validation.yml\"}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "suites",
+            "validation-workflow"
+          ],
+          "properties": {
+            "suites": {
+              "$ref": "#/$defs/file"
+            },
+            "validation-workflow": {
+              "$ref": "#/$defs/workflow"
             }
           }
         },
@@ -124,6 +164,19 @@
             "runner-label": {
               "description": "The label of the GitHub-hosted runner of the job that runs `script`. Without it, ubuntu-26.04. It needs `script`, as `setups` does.",
               "$ref": "#/$defs/runner-label"
+            }
+          }
+        },
+        "issue-title": {
+          "description": "Issue-title normalisation: gives an opened issue the title prefix of its category. `categories` names the repository's category file, a JSON object with the component categories under `product_categories` and the categories without components under `generic_forms`. Invented example: {\"categories\": \"intake/categories.json\"}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "categories"
+          ],
+          "properties": {
+            "categories": {
+              "$ref": "#/$defs/file"
             }
           }
         },
@@ -271,6 +324,12 @@
     },
     "script": {
       "description": "The path of a script of the repository, relative to the repository root, that a job runs with Bash from the repository root. Its exit status decides the job's result. A job that runs it has read permission only and receives no secret. Invented example: \"ci/check-licences.sh\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))"
+    },
+    "file": {
+      "description": "The path of a file of the repository, relative to the repository root, with `/` separators. Invented example: \"ci/suites.json\".",
       "type": "string",
       "minLength": 1,
       "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))"

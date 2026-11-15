@@ -12,7 +12,9 @@ from tests.consumer_kit_support import assert_caller_passes_no_secrets_and_runs_
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
-KIT_TEMPLATES = ("validation.yml", "validation-workflow.yml", "full-recording.yml", "apply-additions.yml")
+KIT_TEMPLATES = ("validation.yml", "validation-workflow.yml")
+# The templates that left the kit: the automation workflow runs their parts for a repository that switches them on.
+FORMER_TEMPLATES = ("full-recording.yml", "apply-additions.yml")
 # What only this repository has: its suite list and tests, its own validation workflow, a local-path call of a shared
 # workflow or step, and a resolved action pin in place of `<pin>`.
 THIS_REPOSITORY_ONLY = re.compile(r"tests/|validate\.yml|\$/actions/|\$/\.github/workflows/(?:suite-selection|suite-verdict|repository-hygiene)\.yml|@[0-9a-f]{40}")
@@ -27,10 +29,12 @@ def readme_section(readme: str, heading: str) -> str:
 
 
 class SelectionConsumerKitTemplatesTest(unittest.TestCase):
-    def test_the_kit_holds_its_four_templates(self) -> None:
-        for template in KIT_TEMPLATES:
+    def test_the_kit_holds_its_two_templates_and_no_template_of_a_part_of_the_automation_workflow(self) -> None:
+        self.assertEqual(sorted(KIT_TEMPLATES), sorted(path.name for path in SELECTION_KIT.glob("*.yml")))
+        readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
+        for template in FORMER_TEMPLATES:
             with self.subTest(template=template):
-                self.assertTrue((SELECTION_KIT / template).is_file())
+                self.assertNotIn(f"]({template})", readme)
 
     def test_the_kit_templates_carry_nothing_that_exists_only_in_this_repository(self) -> None:
         for template in KIT_TEMPLATES:

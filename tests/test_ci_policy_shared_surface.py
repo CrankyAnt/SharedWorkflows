@@ -7,12 +7,12 @@ import re
 import unittest
 from pathlib import Path
 
-from tests.ci_policy_support import REPOSITORY_ROOT, is_tracked, shared_workflows, tracked_files, tracked_workflows, uses_values
+from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, is_tracked, shared_workflows, tracked_files, tracked_workflows, uses_values
 
 
 SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
-PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test")
+PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "issue-title")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
 # The header of the pin-source table of a consumer kit's README, which consumers follow and the pin-source test reads.
 PIN_SOURCE_HEADER = "| Template | Pin source |"
@@ -291,13 +291,12 @@ class AutoMergeConsumerKitTests(unittest.TestCase):
 
     def test_the_catalogue_entry_names_the_consumer_kit_beside_the_part(self) -> None:
         self.assertEqual("actions/dependabot-auto-merge/consumer-kit", self.entry["consumer_kit"])
-        self.assertTrue((self.kit / "dependabot-auto-merge.yml").is_file())
-        self.assertTrue((self.kit / "dependabot.yml").is_file())
+        self.assertEqual(["dependabot.yml"], sorted(path.name for path in self.kit.glob("*.yml")), "the part has no caller template: the fixed caller reaches it")
 
     def test_the_readme_names_what_a_consumer_installs_needs_and_when_it_applies(self) -> None:
-        for text in ("dependabot-auto-merge.yml", "dependabot.yml", ".github/workflows/dependabot-auto-merge.yml",
-                     ".github/dependabot.yml", "<required-check-workflows>", "contents: write", "pull-requests: write",
-                     "CrankyAnt/SharedWorkflows/.github/workflows/dependabot-auto-merge.yml@v1", "patch", "minor", "actions/*",
+        for text in ("`dependabot-auto-merge`", "dependabot.yml", ".github/ci-config.yml", "dependabot-auto-merge: {}",
+                     ".github/dependabot.yml", "contents: write", "pull-requests: write", "without a runner",
+                     "CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1", "patch", "minor", "actions/*",
                      "ruleset", "Dependabot alerts", "security updates", "When a repository adopts it"):
             with self.subTest(text=text):
                 self.assertIn(text, self.readme)
@@ -307,13 +306,13 @@ class AutoMergeConsumerKitTests(unittest.TestCase):
                      "maintaining.md", "$/.github", "in SharedWorkflows only"):
             with self.subTest(text=text):
                 self.assertNotIn(text, self.readme)
-        for template in ("dependabot-auto-merge.yml", "dependabot.yml"):
-            self.assertNotIn("$/actions", (self.kit / template).read_text(encoding="utf-8"))
+        self.assertNotIn("$/actions", (self.kit / "dependabot.yml").read_text(encoding="utf-8"))
 
-    def test_the_readme_states_the_rights_and_the_ignore_entry_that_the_templates_hold(self) -> None:
-        caller = (self.kit / "dependabot-auto-merge.yml").read_text(encoding="utf-8")
-        self.assertIn("contents: write", caller)
-        self.assertIn("pull-requests: write", caller)
+    def test_the_readme_states_the_rights_of_the_part_s_job_and_the_ignore_entry_that_the_template_holds(self) -> None:
+        automation = ci_definition().read_yaml((REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml").read_text(encoding="utf-8"), "automation.yml")
+        self.assertEqual({"contents": "write", "pull-requests": "write"}, automation["jobs"]["dependabot-auto-merge"]["permissions"])
+        self.assertIn("the part's job takes both", self.readme)
+        self.assertIn("an auto-merge that it still has is disabled", self.readme)
         self.assertIn("dependency-name: CrankyAnt/SharedWorkflows", (self.kit / "dependabot.yml").read_text(encoding="utf-8"))
         self.assertIn("CrankyAnt/SharedWorkflows", self.readme)
 
@@ -330,10 +329,8 @@ class SelectionConsumerKitPinSourceTests(unittest.TestCase):
         kit = self.KIT.relative_to(REPOSITORY_ROOT).as_posix()
         templates = {Path(path).name: (REPOSITORY_ROOT / path).read_text(encoding="utf-8")
                      for path in sorted(tracked_files(REPOSITORY_ROOT, [kit])) if re.fullmatch(rf"{re.escape(kit)}/[^/]+\.ya?ml", path)}
-        self.assertEqual({"validation.yml", "validation-workflow.yml", "full-recording.yml", "apply-additions.yml"}, set(templates))
-        self.assertEqual({"validation-workflow.yml": [".github/workflows/validate.yml"],
-                          "full-recording.yml": [".github/workflows/full-recording.yml"],
-                          "apply-additions.yml": [".github/workflows/full-recording.yml"]}, pin_sources(readme))
+        self.assertEqual({"validation.yml", "validation-workflow.yml"}, set(templates))
+        self.assertEqual({"validation-workflow.yml": [".github/workflows/validate.yml"]}, pin_sources(readme))
         self.assertEqual([], kit_pin_problems(readme, templates, tracked_workflows(REPOSITORY_ROOT)))
 
     def test_a_pin_source_that_pins_every_action_of_its_template_passes(self) -> None:

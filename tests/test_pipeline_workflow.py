@@ -3,10 +3,14 @@ the decision of its hygiene job in a consumer, which holds no pipeline of its ow
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
 import subprocess
 import sys
 import unittest
 
+from tests.ci_policy_support import read_workflow
 from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT, PipelineFixture, plan_program, read_outputs
 from tests.workflow_commands import script_invocations
 
@@ -49,6 +53,41 @@ class PipelineInvocationTests(unittest.TestCase):
     def test_the_verdict_gets_the_needs_context_and_writes_its_summary(self) -> None:
         options = plan_program.parser().parse_args(self.invocations[1])
         self.assertEqual(("x/needs.json", "x"), (options.needs, options.summary))
+
+
+@unittest.skipUnless(sys.platform != "win32" and shutil.which("bash") and shutil.which("python3"), "the plan step runs in Bash with python3 off Windows")
+class PlanStepRunTests(PipelineFixture):
+    """The plan step of the pipeline, run in Bash as Actions runs it, on a fixture consumer."""
+
+    CONFIGURED = "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    paths: [src/]\n"
+
+    def run_step(self, event: str, head: str, base: str = "") -> dict:
+        step = next(step for step in read_workflow(WORKFLOW)[1]["jobs"]["plan"]["steps"] if step.get("id") == "plan")
+        outputs = self.directory / "plan-output"
+        outputs.unlink(missing_ok=True)
+        environment = {**os.environ, "RESOURCE_PATH": str(REPOSITORY_ROOT / "actions" / "pipeline"), "BASE": base, "HEAD": head, "COMPARE": "direct",
+                       "WORKFLOW": "CI", "EVENT": event, "PULL_REQUEST": "", "RUN_ID": "7", "RUNNER_TEMP": str(self.directory),
+                       "GITHUB_OUTPUT": str(outputs), "GITHUB_STEP_SUMMARY": str(self.directory / "plan-summary.md")}
+        ran = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]], cwd=self.repository, env=environment, capture_output=True, text=True)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        return json.loads(read_outputs(outputs)["plan"])
+
+    def test_a_dependabot_merged_run_plans_the_dispatched_commit_against_its_first_parent_as_a_push_would(self) -> None:
+        self.commit({CONFIGURATION: self.CONFIGURED, "src/a.py": "a\n", "docs/guide.md": "guide\n"})
+        merged = self.commit({"src/a.py": "b\n"})
+        later = self.commit({"docs/guide.md": "more\n"})
+        dispatched = self.run_step("repository_dispatch", merged)
+        self.assertTrue(dispatched["compared"])
+        self.assertEqual({"run": True, "reason": "src/a.py changed"}, {key: dispatched["parts"]["custom"][key] for key in ("run", "reason")})
+        self.assertEqual(dispatched["parts"], self.run_step("push", merged, base=f"{merged}^")["parts"])
+        unaffected = self.run_step("repository_dispatch", later)
+        self.assertEqual((False, "no changed path matches its paths"), (unaffected["parts"]["custom"]["run"], unaffected["parts"]["custom"]["reason"]))
+
+    def test_a_dispatched_commit_without_a_parent_runs_every_part(self) -> None:
+        root = self.commit({CONFIGURATION: self.CONFIGURED})
+        plan = self.run_step("repository_dispatch", root)
+        self.assertFalse(plan["compared"])
+        self.assertEqual((True, "the changed files are unknown"), (plan["parts"]["custom"]["run"], plan["parts"]["custom"]["reason"]))
 
 
 class ConsumerCheckInvocationTests(unittest.TestCase):

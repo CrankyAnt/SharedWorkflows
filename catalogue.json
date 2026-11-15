@@ -53,11 +53,11 @@
     },
     {
       "name": "Pipeline",
-      "purpose": "Reads a repository's configuration file, runs repository hygiene and the shared parts that the file switches on and a change can affect, and reports one verdict as the required check.",
-      "workflows": [".github/workflows/pipeline.yml"],
-      "steps": ["actions/pipeline"],
+      "purpose": "Reads a repository's configuration file, runs repository hygiene and the shared parts that the file switches on and a change can affect, and reports one verdict as the required check; the automation workflow, which the fixed caller automation.yml calls, runs the parts that write and that the file switches on, which are dependabot-auto-merge, issue-title, additions and full-recording.",
+      "workflows": [".github/workflows/pipeline.yml", ".github/workflows/automation.yml"],
+      "steps": ["actions/pipeline", "actions/issue-title"],
       "required_checks": ["ci / verdict"],
-      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, and the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, of which ci.yml calls the pipeline on pull requests and on pushes to main.",
+      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, and the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, of which ci.yml calls the pipeline on pull requests, on pushes to main and on the dispatch dependabot-merged.",
       "applies": "Every repository; until a repository holds the fixed callers, it adopts the other shared parts through their consumer kits.",
       "consumer_kit": "actions/pipeline/consumer-kit"
     },

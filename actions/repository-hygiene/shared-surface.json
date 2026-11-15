@@ -8,6 +8,7 @@
     ".github/workflows/suite-verdict.yml",
     ".github/workflows/python-tests.yml",
     ".github/workflows/pipeline.yml",
+    ".github/workflows/automation.yml",
     ".github/workflows/release.yml",
     "catalogue.json",
     "actions/publication-checks",
@@ -19,6 +20,7 @@
     "actions/python-tests",
     "actions/pipeline",
     "actions/dotnet-test",
+    "actions/issue-title",
     "actions/repository-ruleset"
   ]
 }

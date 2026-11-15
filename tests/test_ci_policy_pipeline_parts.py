@@ -85,7 +85,8 @@ class PartJobTests(unittest.TestCase):
                     self.assertNotIn(forbidden, section)
                 checkouts = [step for step in self.steps(part) if str(step.get("uses", "")).startswith("actions/checkout@")]
                 self.assertEqual(1, len(checkouts))
-                self.assertEqual({"persist-credentials": "false"}, {key: str(item) for key, item in checkouts[0]["with"].items()})
+                self.assertEqual({"ref": "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}", "persist-credentials": "false"}, {key: str(item) for key, item in checkouts[0]["with"].items()},
+                                 "without credentials, at the dispatched commit on a dependabot-merged run")
 
     def test_each_part_reaches_its_shared_steps_at_the_pipeline_s_own_revision(self) -> None:
         for part, shared in SHARED_STEPS.items():

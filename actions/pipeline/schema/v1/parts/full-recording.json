@@ -1,0 +1,20 @@
+{
+  "description": "The full recording: records every entry file of the suite list every two weeks and proposes the changed stored lists as a pull request that merges itself once its required checks have passed. `suites` names the suite list and `validation-workflow` the workflow that runs the suites on a pull request. Invented example: {\"suites\": \"ci/suites.json\", \"validation-workflow\": \".github/workflows/validation.yml\"}.",
+  "workflow": "automation.yml",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "suites",
+      "validation-workflow"
+    ],
+    "properties": {
+      "suites": {
+        "$ref": "#/$defs/file"
+      },
+      "validation-workflow": {
+        "$ref": "#/$defs/workflow"
+      }
+    }
+  }
+}

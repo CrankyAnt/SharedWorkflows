@@ -12,6 +12,9 @@ from tests.ci_policy_support import REPOSITORY_ROOT
 SHARED_POLICY = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "zizmor-policy.yml"
 SHARED_SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 SHARED_CI = REPOSITORY_ROOT / "actions"
+# The shared actions that no template calls any more, but that a workflow which a consumer installed from an earlier
+# template still calls at v1: the additions workflow and the full recording, whose templates left the kit.
+INSTALLED_EARLIER = {"actions/repository-hygiene", "actions/suite-selection"}
 
 
 def shared_workflows() -> set[str]:
@@ -36,7 +39,7 @@ class ZizmorPolicyTests(unittest.TestCase):
     def test_zizmor_policies_grant_ref_pin_to_exactly_the_shared_workflows(self) -> None:
         shared_workflow_exceptions = {f"CrankyAnt/SharedWorkflows/{workflow}" for workflow in shared_workflows()}
         expected_exceptions = {
-            SHARED_POLICY: shared_workflow_exceptions | {f"CrankyAnt/SharedWorkflows/{action}" for action in consumer_actions()},
+            SHARED_POLICY: shared_workflow_exceptions | {f"CrankyAnt/SharedWorkflows/{action}" for action in consumer_actions() | INSTALLED_EARLIER},
         }
         for policy_path, expected in expected_exceptions.items():
             policy = policy_path.read_text(encoding="utf-8")

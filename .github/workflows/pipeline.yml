@@ -17,22 +17,37 @@ jobs:
       - name: Load the plan program from this workflow revision
         id: resources
         uses: $/actions/pipeline
+      - name: Load the dispatch check from this workflow revision
+        id: selection
+        uses: $/actions/suite-selection
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        id: dispatch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
       - name: Check the configuration file and decide which parts run
         id: plan
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'repository_dispatch' && github.event.client_payload.sha) || github.sha }}
           COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
           WORKFLOW: ${{ github.workflow }}
           EVENT: ${{ github.event_name }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           RUN_ID: ${{ github.run_id }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . --base "$BASE" --head "$HEAD" --compare "$COMPARE" --workflow "$WORKFLOW" --event "$EVENT" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+        run: |
+          # A dependabot-merged run is a push of the dispatched commit: its base is that commit's first parent.
+          if [ "$EVENT" = repository_dispatch ]; then BASE="$(git rev-parse --verify --quiet "$HEAD^" || true)"; fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . --base "$BASE" --head "$HEAD" --compare "$COMPARE" --workflow "$WORKFLOW" --event "$EVENT" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   custom:
     needs: plan
@@ -46,6 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           persist-credentials: false
       # One place per known setup, each with one step per tool, so that any list of setups installs in its listed order.
       - name: Set up Python for setup 1
@@ -130,6 +146,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           persist-credentials: false
       - name: Set up the .NET SDK
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
@@ -163,6 +180,7 @@ jobs:
         uses: $/actions/python-tests
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -202,6 +220,7 @@ jobs:
         uses: $/actions/python-tests
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -243,16 +262,25 @@ jobs:
         uses: $/actions/pipeline
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check that the dispatched commit is on the default branch
+        id: dispatch
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PAYLOAD: ${{ github.event.client_payload.sha }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
       - name: Look up the tested tree of the pushed commit's pull request
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
         env:
           SELECTION_PATH: ${{ steps.selection.outputs.path }}
           GITHUB_TOKEN: ${{ github.token }}
           WORKFLOW: ${{ github.workflow_ref }}
-          SHA: ${{ github.sha }}
-          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Decide which checks the changed files can affect
@@ -265,7 +293,7 @@ jobs:
           COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
         run: |
           case "$EVENT" in
-            push) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
             *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
           esac
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --markdown-definition ".github/workflows/pipeline.yml#step:links" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
@@ -381,7 +409,7 @@ jobs:
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --summary "$GITHUB_STEP_SUMMARY"
       - name: Install the pinned tools and verify their checksums
         id: install
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           ACTIONLINT: ${{ steps.changes.outputs.actionlint }}

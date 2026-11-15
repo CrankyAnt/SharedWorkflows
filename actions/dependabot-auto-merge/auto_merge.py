@@ -1,7 +1,7 @@
 """Decide whether a Dependabot pull request merges automatically, and merge it once its required checks have passed.
 
     python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--summary FILE] pull-request --number N
-    python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--summary FILE] workflow-run --head-branch BRANCH
+    python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--summary FILE] workflow-run --head-branch BRANCH [--disable-auto-merge]
 
 The reusable workflow runs ``pull-request`` on a Dependabot ``pull_request`` event and ``workflow-run`` when a
 workflow that produces a required check completes for a Dependabot pull request. Both read the pull request, its
@@ -24,7 +24,9 @@ with the reason.
 again for each open Dependabot pull request of the head branch and, on an automatic decision, requests a squash merge
 bound to the head commit that the decision read. A merge refused because a required check is pending or failed,
 because the head moved, or because the pull request is already merged ends the run successfully. After a merge it
-made itself, it sends one ``repository_dispatch`` event of type ``dependabot-merged`` with the merged commit.
+made itself, it sends one ``repository_dispatch`` event of type ``dependabot-merged`` with the merged commit. With
+``--disable-auto-merge``, for a caller that no pull request event reaches, it also disables the auto-merge that a pull
+request still has when the decision is not automatic, as ``pull-request`` does.
 """
 
 from __future__ import annotations
@@ -438,12 +440,17 @@ def _refusal(github: GitHub, repository: str, number: int, error: GitHubError) -
     return None
 
 
-def _merge(github: GitHub, repository: str, pull_request: dict, suite_list: str | None) -> Result:
+def _merge(github: GitHub, repository: str, pull_request: dict, suite_list: str | None, disable: bool = False) -> Result:
     number = int(pull_request["number"])
     reading = _read_and_decide(github, repository, pull_request, suite_list)
     decision = reading.decision
     if decision.outcome is not Outcome.AUTOMATIC:
-        return Result(decision, "nothing merged and nothing dispatched.")
+        if not disable:
+            return Result(decision, "nothing merged and nothing dispatched.")
+        try:
+            return Result(decision, _disable_if_enabled(github, pull_request, "nothing merged and nothing dispatched."))
+        except GitHubError as error:
+            return Result(decision.failed(), f"auto-merge could not be disabled: {error}")
     if not reading.head:
         return Result(decision, "nothing merged and nothing dispatched; the head moved while the decision read the commits.")
     try:
@@ -461,8 +468,9 @@ def _merge(github: GitHub, repository: str, pull_request: dict, suite_list: str 
     return Result(decision, f"merged `{reading.head[:7]}` with the {MERGE_METHOD} method as `{sha}` and sent `{DISPATCH_EVENT}` with that commit.")
 
 
-def run_workflow_run(github: GitHub, repository: str, head_branch: str, suite_list: str | None = None) -> list[Result]:
-    """When a required-check workflow completed: decide again for each open Dependabot pull request of the branch, and merge."""
+def run_workflow_run(github: GitHub, repository: str, head_branch: str, suite_list: str | None = None, disable: bool = False) -> list[Result]:
+    """When a required-check workflow completed: decide again for each open Dependabot pull request of the branch, and merge;
+    with ``disable``, a pull request that does not merge on its own loses an auto-merge it still has."""
     owner = repository.partition("/")[0]
     try:
         pulls = github.open_pull_requests(repository, f"{owner}:{head_branch}")
@@ -471,7 +479,7 @@ def run_workflow_run(github: GitHub, repository: str, head_branch: str, suite_li
     candidates = [pull for pull in pulls if (pull.get("user") or {}).get("login") == BOT]
     if not candidates:
         return [Result(Decision(Outcome.NO_PULL_REQUEST, f"no open pull request by `{BOT}` has the head branch `{head_branch}`."), "nothing merged and nothing dispatched.")]
-    return [_merge(github, repository, pull, suite_list) for pull in candidates]
+    return [_merge(github, repository, pull, suite_list, disable) for pull in candidates]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -485,6 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
     pull_request.add_argument("--number", required=True, type=int, help="the pull request number")
     workflow_run = events.add_parser("workflow-run", help="decide again when a required-check workflow completed, and merge")
     workflow_run.add_argument("--head-branch", required=True, help="the head branch of the completed run")
+    workflow_run.add_argument("--disable-auto-merge", action="store_true", help="disable an auto-merge that a pull request still has when it does not merge on its own")
     return parser
 
 
@@ -494,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.event == "pull-request":
         results = [run_pull_request(GitHub(), arguments.repository, arguments.number, suite_list)]
     else:
-        results = run_workflow_run(GitHub(), arguments.repository, arguments.head_branch, suite_list)
+        results = run_workflow_run(GitHub(), arguments.repository, arguments.head_branch, suite_list, arguments.disable_auto_merge)
     summary = "\n".join(result.summary for result in results)
     print(summary)
     if arguments.summary:

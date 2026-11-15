@@ -1,0 +1,16 @@
+{
+  "description": "Issue-title normalisation: gives an opened issue the title prefix of its category. `categories` names the repository's category file, a JSON object with the component categories under `product_categories` and the categories without components under `generic_forms`. Invented example: {\"categories\": \"intake/categories.json\"}.",
+  "workflow": "automation.yml",
+  "configuration": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "categories"
+    ],
+    "properties": {
+      "categories": {
+        "$ref": "#/$defs/file"
+      }
+    }
+  }
+}

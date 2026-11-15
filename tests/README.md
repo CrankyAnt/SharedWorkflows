@@ -20,9 +20,11 @@ The `pipeline` suite (`tests/test_pipeline_*.py`) runs the plan program of the p
 
 The `dotnet-test` suite (`tests/test_dotnet_test.py`) starts the script of the part `dotnet-test` on a fixture repository in a temporary directory, with a stand-in for the `dotnet` command first on `PATH` that writes the TRX reports of a test run, so it builds nothing, restores no package and needs only Python. The fixture project `tests/fixtures/dotnet_test` is no input of a suite: `ci.yml` runs the part `dotnet-test` on it, and the parts `python-verify` and `python-test` on `tests/fixtures/python_tests`.
 
+The automation workflow, `automation.yml`, has its contract in `ci-policy`: `tests/test_ci_policy_automation.py` holds the job-level conditions of its parts, the events of its plan, the two properties of the additions job and what the fixed caller and `automation-caller.yml` give it, `tests/test_ci_policy_additions.py` the additions job beside the rebuild workflow, and `tests/test_ci_policy_full_recording.py` the jobs of the full recording. In the `pipeline` suite, `tests/test_automation_invocations.py` parses the workflow's invocations with the programs' own parsers and runs the plan of the workflow's parts on fixture consumers, and `tests/test_issue_title.py` starts the issue-title program, `actions/issue-title/issue_title.py`, on fixture events, an invented category file and fixture component folders, with a local HTTP server that stands in for the GitHub API; both need only Python and Git.
+
 ### Adding a suite
 
-A new suite is one item in `tests/suites.json` with `name`, `entries`, `command`, `setups`, `os` for a Windows suite, and `entry_selection` for a suite selected per entry file. It has no `paths` at first, so it runs on every change. The recording `check` of its first run names its reads as additions; apply them with `recording.py apply`, as "Validation" in `docs/maintaining.md` says, in the change that adds the suite. A suite whose entry files need a setup that no suite has yet also needs that setup in the shard job of `validate.yml` and of `full-recording.yml`, which `ci-policy` keeps equal.
+A new suite is one item in `tests/suites.json` with `name`, `entries`, `command`, `setups`, `os` for a Windows suite, and `entry_selection` for a suite selected per entry file. It has no `paths` at first, so it runs on every change. The recording `check` of its first run names its reads as additions; apply them with `recording.py apply`, as "Validation" in `docs/maintaining.md` says, in the change that adds the suite. A suite whose entry files need a setup that no suite has yet also needs that setup in the shard job of `validate.yml` and in the full-recording jobs of `automation.yml`, which `ci-policy` keeps equal.
 
 A new entry file in an existing suite joins that suite's `entries` the same way, with its own list from the additions of its first run.
 
@@ -32,7 +34,7 @@ A test lists tracked paths with `git ls-files` and a pathspec of what its result
 
 ### Removing a suite
 
-A suite leaves `tests/suites.json` with its entry files, unless another suite names them. A setup that no other suite needs leaves the shard jobs of `validate.yml` and `full-recording.yml`.
+A suite leaves `tests/suites.json` with its entry files, unless another suite names them. A setup that no other suite needs leaves the shard jobs of `validate.yml` and the full-recording jobs of `automation.yml`.
 
 ## Recording-step tests
 
@@ -58,7 +60,7 @@ The `-v` output of a `python -m unittest` entry file lists every skipped case wi
 
 ### Tools the suites need
 
-The suites need Python, and selected publication entry files need Node.js and npm. Selected hygiene, consumer-kit and publication entry files also need tools that a checkout does not contain:
+The suites need Python, and selected publication entry files need Node.js and npm. Selected hygiene and publication entry files also need tools that a checkout does not contain, and selected consumer-kit entry files need Bash:
 
 - Hygiene (`hygiene`). Only the actionlint, zizmor, Gitleaks and REUSE entry files need installed executables; the actionlint entry file also needs ShellCheck. Other hygiene entry files use repository files, Git or fixture archives. Those entry files take tools from `HYGIENE_TOOLS` when set, otherwise from `PATH`, and skip when a required executable is missing. Install the pinned versions for the platform, `windows-x64` or `linux-x64`, into an empty directory outside the repository, and set `HYGIENE_TOOLS` to it:
 
@@ -66,7 +68,7 @@ The suites need Python, and selected publication entry files need Node.js and np
   python actions/repository-hygiene/install_tools.py --pins actions/repository-hygiene/pins.json --platform <platform> --destination <directory>
   ```
 
-- Consumer kit templates (`consumer-kit-templates`). The suite states the setups `actionlint` and `zizmor` for the case of `tests/test_consumer_kit_apply_additions.py` that runs actionlint, with ShellCheck, and zizmor over the installed additions workflow. It takes the tools from `HYGIENE_TOOLS` or `PATH`, as the hygiene entry files do, and skips without them. The run cases of the same entry file need Bash and `jq` and skip on Windows. They also run this repository's own additions workflow, which `ci-policy` keeps equal to the template apart from the stated substitutions, beside the plan, push and comment steps of `rebuild-etw-consumer.yml`: which of the two automatic routes acts on a failed run, their bounds, their pushes onto a branch that moved, and the rebuild workflow's comment.
+- Consumer kit templates (`consumer-kit-templates`). The run cases of `tests/test_automation_additions.py` and `tests/test_automation_full_recording.py` run the shell steps of the additions jobs and of the full recording's closing job in `automation.yml` with Bash against a fixture repository, a local remote and a stand-in `gh`; they need Bash, those of the additions jobs also `jq`, and skip on Windows. The cases of the additions jobs run the steps as a consumer with its own suite list runs them, and then with this repository's suite list beside the plan, push and comment steps of `rebuild-etw-consumer.yml`: which of the two automatic routes acts on a failed run, their bounds, their pushes onto a branch that moved, and the rebuild workflow's comment.
 - Publication checks (`publication-checks`). `tests/test_publication_references.py` runs the reference check on fixture repositories against a local HTTP server that stands in for the owner's public repository list, and needs only Node.js and Git. The two commitlint cases skip unless `PUBLICATION_CHECKS_TOOLS` names a directory where `npm ci` installed the locked toolchain; they do not look on `PATH`. Copy `package.json` and `package-lock.json` from `actions/publication-checks` into an empty directory outside the repository, install the toolchain there with the command of the `commitlint` setup, and set `PUBLICATION_CHECKS_TOOLS` to that directory. `--userconfig /dev/null` keeps the user's npm configuration out of the install; on Windows, `NUL` takes the place of `/dev/null`. A local run needs a Node.js version within `engines.node` of the part's `package.json`; CI runs the version that `node.version` in the pins file pins:
 
   ```text

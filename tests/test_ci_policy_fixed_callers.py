@@ -16,7 +16,7 @@ SHARED = "CrankyAnt/SharedWorkflows/.github/workflows/"
 # The trigger classes of the spec: per fixed caller its events and the shared workflow it calls. The read class gets
 # read permissions only, and the release class exactly the rights with which the release part publishes and attests.
 CLASSES = {
-    "ci.yml": {"class": "read", "events": {"pull_request", "push"}, "calls": "pipeline.yml"},
+    "ci.yml": {"class": "read", "events": {"pull_request", "push", "repository_dispatch"}, "calls": "pipeline.yml"},
     "automation.yml": {"class": "write", "events": {"workflow_run", "schedule", "workflow_dispatch", "issues"}, "calls": "automation.yml"},
     "release.yml": {"class": "release", "events": {"push", "workflow_dispatch"}, "calls": "release.yml",
                     "rights": {"attestations": "write", "contents": "write", "id-token": "write"}},
@@ -66,7 +66,9 @@ def reach_problems(caller: dict, pipeline: dict) -> list[str]:
     """Each way a caller of the pipeline keeps a job of the pipeline from starting: an event it does not run on, or a
     permission of a job that the caller's job does not grant."""
     on = caller.get("on") if isinstance(caller.get("on"), dict) else {}
-    problems = [f"the caller does not run on {event}" for event in ("pull_request", "push") if event not in on]
+    problems = [f"the caller does not run on {event}" for event in ("pull_request", "push", "repository_dispatch") if event not in on]
+    if "repository_dispatch" in on and on["repository_dispatch"] != {"types": "[dependabot-merged]"}:
+        problems.append("the caller runs on other dispatches than dependabot-merged")
     callers = [job for job in caller.get("jobs", {}).values() if str(job.get("uses", "")).endswith("/pipeline.yml@v1")]
     if len(callers) != 1:
         return [*problems, "the caller does not call the pipeline at v1 in one job"]
@@ -113,16 +115,16 @@ class TemplateTests(unittest.TestCase):
                 self.assertRegex(promoted, r"^\d{4}-\d{2}-\d{2}$")
                 self.assertNotEqual(self.templates[name], previous_versions()[name])
 
-    def test_the_read_caller_runs_on_pull_requests_and_pushes_to_main(self) -> None:
+    def test_the_read_caller_runs_on_pull_requests_pushes_to_main_and_the_dispatch_after_a_dependabot_merge(self) -> None:
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "ci.yml")
-        self.assertEqual({"pull_request": None, "push": {"branches": "[main]"}}, caller["on"])
+        self.assertEqual({"pull_request": None, "push": {"branches": "[main]"}, "repository_dispatch": {"types": "[dependabot-merged]"}}, caller["on"])
         self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, caller["jobs"]["ci"]["permissions"])
 
     def test_the_write_caller_runs_on_the_automation_events_and_only_on_opened_issues(self) -> None:
         text, caller = read_workflow(REPOSITORY_ROOT / KIT / "automation.yml")
         self.assertEqual({"workflows": "[CI]", "types": "[completed]"}, caller["on"]["workflow_run"])
         self.assertEqual({"types": "[opened]"}, caller["on"]["issues"])
-        self.assertIsNone(caller["on"]["workflow_dispatch"])
+        self.assertEqual(["part", "run-id", "verify-token"], list(caller["on"]["workflow_dispatch"]["inputs"]))
         self.assertEqual(1, text.count("- cron: "))
 
     def test_the_release_caller_runs_on_tag_pushes_only_and_by_hand(self) -> None:
@@ -142,7 +144,8 @@ class TemplateTests(unittest.TestCase):
             ("ci.yml", ci.replace("permissions: {}\n", "permissions: read-all\n"), ["ci.yml does not set permissions: {} at the top"]),
             ("automation.yml", automation.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  pull_request:\n"),
              ["automation.yml starts on pull_request, which is outside the write class"]),
-            ("automation.yml", automation.replace("  workflow_dispatch:\n", ""), ["automation.yml does not start on workflow_dispatch"]),
+            ("automation.yml", automation[:automation.index("  workflow_dispatch:\n")] + automation[automation.index("  issues:\n"):],
+             ["automation.yml does not start on workflow_dispatch"]),
             ("release.yml", self.templates["release.yml"].replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  schedule:\n    - cron: \"0 0 * * *\"\n"),
              ["release.yml starts on schedule, which is outside the release class"]),
             ("release.yml", self.templates["release.yml"].replace("      id-token: write\n", ""),
@@ -188,6 +191,11 @@ class ReachTests(unittest.TestCase):
         self.assertEqual(["the job repository-hygiene needs issues: read, which the caller does not grant"], reach_problems(older, self.pipeline))
         without_push = ci_definition().read_yaml(self.template.replace("  push:\n    branches: [main]\n", ""), "an invented older version")
         self.assertEqual(["the caller does not run on push"], reach_problems(without_push, self.pipeline))
+        without_dispatch = ci_definition().read_yaml(self.template.replace("  repository_dispatch:\n    types: [dependabot-merged]\n", ""), "an invented older version")
+        self.assertEqual(["the caller does not run on repository_dispatch"], reach_problems(without_dispatch, self.pipeline),
+                         "without it, a commit that Dependabot auto-merge merged with the workflow token gets no run on main")
+        any_dispatch = ci_definition().read_yaml(self.template.replace("    types: [dependabot-merged]\n", "    types: [dependabot-merged, deploy]\n"), "an invented older version")
+        self.assertEqual(["the caller runs on other dispatches than dependabot-merged"], reach_problems(any_dispatch, self.pipeline))
         elsewhere = ci_definition().read_yaml(self.template.replace("pipeline.yml@v1", "pipeline.yml@v0"), "an invented older version")
         self.assertEqual(["the caller does not call the pipeline at v1 in one job"], reach_problems(elsewhere, self.pipeline))
 

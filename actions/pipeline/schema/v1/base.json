@@ -56,6 +56,12 @@
       "minLength": 1,
       "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))"
     },
+    "file": {
+      "description": "The path of a file of the repository, relative to the repository root, with `/` separators. Invented example: \"ci/suites.json\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))"
+    },
     "local-workflow": {
       "oneOf": [
         {

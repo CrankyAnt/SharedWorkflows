@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plan the pipeline from a repository's configuration file, and give its verdict.
 
-    python3 plan.py plan    [--root DIR] [--schemas DIR] [--base SHA --head SHA [--compare merge-base|direct]]
+    python3 plan.py plan    [--root DIR] [--schemas DIR] [--shared-workflow FILE] [--base SHA --head SHA [--compare merge-base|direct]]
                             [--workflow NAME] [--event NAME] [--pull-request NUMBER] [--run-id ID] [--github-output FILE] [--summary FILE]
     python3 plan.py verdict --needs FILE [--summary FILE]
     python3 plan.py schema  [--schemas DIR] [--check]
@@ -11,7 +11,8 @@ runs. The schema folder holds one folder per schema version, ``v<N>``, with the 
 fragment per part, ``parts/<part>.json``: its ``description`` and either the schema of its ``configuration`` or
 ``"always": true`` for a part that runs in every pipeline run, which the configuration file cannot state. A fragment
 with ``"workflow": "<file>.yml"`` is a part whose job is in that shared workflow and not in the pipeline: the
-configuration file states it under ``parts`` like any other part, and the plan and the verdict leave it out. Beside them,
+configuration file states it under ``parts`` like any other part, and the plan and the verdict leave it out; with ``--shared-workflow`` set to that file,
+``plan`` decides on the parts of that workflow alone. Beside them,
 ``setups.json`` holds the known setups by name, each with the ``tool`` and the ``version`` that a job installs; the
 definition ``setup`` of the base accepts those names only. The highest version is the current one; the plan reads it and
 the one before.
@@ -49,6 +50,7 @@ CONFIGURATION = ".github/ci-config.yml"
 SCHEMAS = PART_FOLDER / "schema"
 ASSEMBLED = "ci-config.schema.json"
 SETUPS = "setups.json"
+PIPELINE = "pipeline.yml"
 PLAN_JOB = "plan"
 FAILING_RESULTS = ("failure", "cancelled")
 ALL_ZERO = re.compile(r"^0+$")
@@ -80,6 +82,10 @@ class SchemaVersion:
     always: frozenset[str]
     setups: dict = field(default_factory=dict)
     workflows: dict = field(default_factory=dict)
+
+    def parts_of(self, workflow: str) -> list[str]:
+        """The parts whose job runs in a shared workflow, by name; a part without a stated workflow runs in the pipeline."""
+        return [name for name in self.parts if self.workflows.get(name, PIPELINE) == workflow]
 
     @property
     def parts(self) -> list[str]:
@@ -420,7 +426,7 @@ def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, cha
     return (True, f"{matched} changed") if matched else (False, "no changed path matches its paths")
 
 
-def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str) -> dict:
+def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str, workflow: str = PIPELINE) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
@@ -430,7 +436,7 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     before = base_configuration(root, start) if changed is not None else None
     parts, base_parts = stated_parts(configuration), stated_parts(before)
     decisions = {}
-    for name in version.pipeline_parts:
+    for name in version.parts_of(workflow):
         run, reason = decide(name, version, parts, base_parts, changed)
         decisions[name] = {"run": run, "reason": reason, "config": parts.get(name, {})}
         if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
@@ -479,9 +485,9 @@ def concurrency(parts: list[str], workflow: str, event: str, pull_request: str, 
 def run_plan(options: argparse.Namespace) -> int:
     try:
         versions = schema_versions(Path(options.schemas))
-        groups = concurrency(versions[max(versions)].pipeline_parts, options.workflow, options.event, options.pull_request, options.run_id)
+        groups = concurrency(versions[max(versions)].parts_of(options.shared_workflow), options.workflow, options.event, options.pull_request, options.run_id)
         append(options.github_output, f"concurrency={json.dumps(groups, separators=(',', ':'))}\n")
-        plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare)
+        plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare, options.shared_workflow)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
         print(f"The plan failed: {CONFIGURATION} cannot be used.")
@@ -590,6 +596,7 @@ def parser() -> argparse.ArgumentParser:
     planning = commands.add_parser("plan", help="check the configuration file and decide per part whether it runs")
     planning.add_argument("--root", default=".", help="the repository's checkout")
     planning.add_argument("--schemas", default=str(SCHEMAS), help="the schema folder")
+    planning.add_argument("--shared-workflow", default=PIPELINE, help="the file name of the shared workflow whose parts the plan decides on")
     planning.add_argument("--base", help="the commit the head is compared with")
     planning.add_argument("--head", help="the commit under test")
     planning.add_argument("--compare", choices=("merge-base", "direct"), default="direct", help="compare the head with its merge base with the base, or with the base itself")

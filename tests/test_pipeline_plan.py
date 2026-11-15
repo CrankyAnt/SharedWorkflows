@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from tests.pipeline_fixtures import CONFIGURATION, PipelineFixture, git
+from tests.pipeline_fixtures import CONFIGURATION, FIXTURE_PARTS, PipelineFixture, git
 
 
 class ConfigurationTests(PipelineFixture):
@@ -214,6 +214,67 @@ class ConcurrencyTests(PipelineFixture):
         self.assertEqual(1, outcome.status)
         self.assertNotIn("plan", outcome.outputs)
         self.assertEqual({"group": "CI-fixture-floor-pr-3", "cancel-in-progress": True}, json.loads(outcome.outputs["concurrency"])["fixture-floor"])
+
+
+class SharedWorkflowPlanTests(PipelineFixture):
+    """The plan of another shared workflow than the pipeline, asked for with ``--shared-workflow``: it decides on the
+    parts whose fragment names that workflow, and on those alone."""
+
+    PARTS = {**FIXTURE_PARTS,
+             "fixture-merge": {"description": "An invented part of another shared workflow.", "workflow": "automation.yml",
+                               "configuration": {"type": "object", "additionalProperties": False, "properties": {"list": {"type": "string"}}}},
+             "fixture-label": {"description": "A second invented part of that workflow.", "workflow": "automation.yml",
+                               "configuration": {"type": "object", "additionalProperties": False, "properties": {}}}}
+    STATED = "version: 1\nparts:\n  fixture-build: {}\n  fixture-merge:\n    list: lists/suites.json\n"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = self.schema_folder("other", versions=(1,), parts=self.PARTS)
+
+    def test_the_pipeline_s_plan_leaves_out_a_part_of_another_workflow_that_the_configuration_states(self) -> None:
+        self.commit({CONFIGURATION: self.STATED})
+        outcome = self.plan("--workflow", "CI", "--event", "push", "--run-id", "7")
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual(["fixture-build", "fixture-floor", "fixture-test"], list(outcome.plan["parts"]))
+        self.assertEqual(["fixture-build", "fixture-floor", "fixture-test"], sorted(json.loads(outcome.outputs["concurrency"])))
+        self.assertNotIn("fixture-merge", outcome.summary)
+
+    def test_the_plan_of_the_named_workflow_decides_on_its_parts_alone(self) -> None:
+        self.commit({CONFIGURATION: self.STATED})
+        outcome = self.plan("--shared-workflow", "automation.yml", "--workflow", "Automation", "--event", "schedule", "--run-id", "7")
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual({"fixture-label": {"run": False, "reason": "switched off", "config": {}},
+                          "fixture-merge": {"run": True, "reason": "switched on", "config": {"list": "lists/suites.json"}}}, outcome.plan["parts"])
+        self.assertEqual({"fixture-label": {"group": "Automation-fixture-label-run-7", "cancel-in-progress": False},
+                          "fixture-merge": {"group": "Automation-fixture-merge-run-7", "cancel-in-progress": False}}, json.loads(outcome.outputs["concurrency"]))
+        self.assertNotIn("fixture-floor", outcome.summary, "a part that always runs in the pipeline does not run in another workflow")
+
+    def test_a_setting_that_a_part_of_another_workflow_does_not_have_fails_both_plans(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  fixture-merge:\n    lists: x\n"})
+        for arguments in ((), ("--shared-workflow", "automation.yml")):
+            with self.subTest(arguments=arguments):
+                outcome = self.plan(*arguments)
+                self.assertEqual(1, outcome.status)
+                self.assertIn("parts.fixture-merge.lists: is not a setting of the part fixture-merge", outcome.summary)
+
+    def test_a_part_of_another_workflow_that_is_switched_off_compared_with_the_base_is_named_by_both_plans(self) -> None:
+        base = self.commit({CONFIGURATION: self.STATED})
+        head = self.commit({CONFIGURATION: "version: 1\nparts:\n  fixture-build: {}\n"})
+        for arguments in ((), ("--shared-workflow", "automation.yml")):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(["fixture-merge"], self.plan("--base", base, "--head", head, *arguments).plan["switched-off"])
+
+    def test_a_fragment_that_names_no_workflow_file_or_always_runs_in_another_workflow_fails(self) -> None:
+        configuration = {"type": "object", "additionalProperties": False, "properties": {}}
+        for fragment, message in (({"description": "x", "workflow": "automation", "configuration": configuration}, "workflow names a workflow file, such as release.yml"),
+                                  ({"description": "x", "workflow": 3, "configuration": configuration}, "workflow names a workflow file, such as release.yml"),
+                                  ({"description": "x", "workflow": "automation.yml", "always": True}, "a part that always runs is a part of the pipeline")):
+            with self.subTest(fragment=fragment):
+                self.schemas = self.schema_folder(f"broken-{len(str(fragment))}", versions=(1,), parts={"fixture-merge": fragment})
+                self.commit({CONFIGURATION: "version: 1\n"})
+                outcome = self.plan()
+                self.assertEqual(1, outcome.status)
+                self.assertIn(message, outcome.summary)
 
 
 class ComparisonWithTheBaseTests(PipelineFixture):

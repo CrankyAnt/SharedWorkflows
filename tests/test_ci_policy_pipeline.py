@@ -8,7 +8,7 @@ import json
 import re
 import unittest
 
-from tests.ci_policy_support import REPOSITORY_ROOT, condition_holds, flow_items, read_workflow, tracked_files
+from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, condition_holds, flow_items, read_workflow, tracked_files
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 PIPELINE = WORKFLOWS / "pipeline.yml"
@@ -18,20 +18,16 @@ HYGIENE = "repository-hygiene"
 HYGIENE_WORKFLOW = WORKFLOWS / "repository-hygiene.yml"
 # The steps of the hygiene job of repository-hygiene.yml that the pipeline's job leaves out, each with its reason.
 LEFT_OUT = {
-    "Check that the dispatched commit is on the default branch": "the pipeline has no dependabot-merged run",
     "Restore the passed checks of the pull request": "the pipeline has no edited run that reuses passed checks",
     "Record the passed checks for an edit of the pull request": "the pipeline has no edited run that reuses passed checks",
     "Store the passed checks in the pull request's cache": "the pipeline has no edited run that reuses passed checks",
 }
 # The steps that differ between the two jobs, each with its reason; every other step is equal in both.
 DIFFERENT = {
-    "actions/checkout": "the pipeline has no dependabot-merged run, whose commit the other job checks out",
-    "Look up the tested tree of the pushed commit's pull request": "the pipeline has no dependabot-merged run",
-    "Decide which checks the changed files can affect": "the pipeline has no inputs, no dependabot-merged run and no record of an edited run",
+    "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run",
     "Check the pull request title": "the pipeline reads the current title through the API, for a re-run after a corrected title",
     "Dependabot coverage of tracked package files": "the pipeline has no input coverage-exclude",
     "Relative links in tracked Markdown": "the pipeline has no input link-exclude",
-    "Install the pinned tools and verify their checksums": "the pipeline has no dependabot-merged run, whose dispatch check the other job waits for",
     "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona",
     "Gitleaks over all reachable history": "the pipeline takes the Gitleaks files by their fixed names, not from inputs",
 }
@@ -329,7 +325,10 @@ def other_workflow_problems(name: str, fragment: dict, workflows: dict[str, dict
     problems = []
     if PLAN not in needed(job):
         problems.append(f"{name} does not need {PLAN}")
-    if str(job.get("if", "")) != f"${{{{ fromJSON(needs.plan.outputs.plan).parts['{name}'].run }}}}":
+    decision = f"fromJSON(needs.plan.outputs.plan).parts['{name}'].run }}}}"
+    condition = str(job.get("if", ""))
+    # The plan's decision alone, or behind the events of the job in parentheses, as a job of the automation workflow holds it.
+    if condition != "${{ " + decision and not (condition.startswith("${{ (") and condition.endswith(") && " + decision)):
         problems.append(f"{name} does not run on the plan's decision for {name} alone")
     return problems
 
@@ -343,7 +342,8 @@ class OtherWorkflowTests(unittest.TestCase):
         self.workflows = {path.rsplit("/", 1)[1]: read_workflow(REPOSITORY_ROOT / path)[1] for path in sorted(tracked_files(REPOSITORY_ROOT, [".github/workflows"]))}
 
     def test_every_part_of_another_workflow_is_a_job_of_that_workflow_that_its_plan_starts(self) -> None:
-        self.assertEqual({"github-release": "release.yml"}, {name: fragment["workflow"] for name, fragment in self.elsewhere.items()})
+        self.assertEqual({"additions": "automation.yml", "dependabot-auto-merge": "automation.yml", "full-recording": "automation.yml",
+                          "github-release": "release.yml", "issue-title": "automation.yml"}, {name: fragment["workflow"] for name, fragment in self.elsewhere.items()})
         for name, fragment in self.elsewhere.items():
             with self.subTest(part=name):
                 self.assertEqual([], other_workflow_problems(name, fragment, self.workflows))
@@ -355,12 +355,16 @@ class OtherWorkflowTests(unittest.TestCase):
         fragment = {"description": "x", "workflow": "invented.yml", "configuration": {}}
         shared = {"on": {"workflow_call": None}, "jobs": {"plan": {}, "invented-release": good}}
         self.assertEqual([], other_workflow_problems("invented-release", fragment, {"invented.yml": shared}))
+        behind_events = {**good, "if": "${{ (github.event_name == 'schedule') && fromJSON(needs.plan.outputs.plan).parts['invented-release'].run }}"}
+        self.assertEqual([], other_workflow_problems("invented-release", fragment, {"invented.yml": {**shared, "jobs": {"plan": {}, "invented-release": behind_events}}}))
         for workflows, problem in (
             ({}, "invented-release names the workflow invented.yml, which is no tracked workflow"),
             ({"invented.yml": {**shared, "on": {"push": None}}}, "invented-release names the workflow invented.yml, which is no shared workflow"),
             ({"invented.yml": {**shared, "jobs": {"plan": {}}}}, "invented.yml has no job invented-release"),
             ({"invented.yml": {**shared, "jobs": {"invented-release": {**good, "needs": "other"}}}}, "invented-release does not need plan"),
             ({"invented.yml": {**shared, "jobs": {"invented-release": {**good, "if": "always()"}}}}, "invented-release does not run on the plan's decision for invented-release alone"),
+            ({"invented.yml": {**shared, "jobs": {"invented-release": {**good, "if": "${{ (github.event_name == 'push') || fromJSON(needs.plan.outputs.plan).parts['invented-release'].run }}"}}}},
+             "invented-release does not run on the plan's decision for invented-release alone"),
         ):
             with self.subTest(problem=problem):
                 self.assertEqual([problem], other_workflow_problems("invented-release", fragment, workflows))
@@ -422,12 +426,80 @@ class HygieneStepTests(unittest.TestCase):
                 self.assertIn('--event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"', step["run"])
 
 
+DISPATCHED = "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}"
+DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
+
+
+def dispatch_problems(jobs: dict) -> list[str]:
+    """Each way a dependabot-merged run would not be a push of the dispatched commit behind the dispatch check: a checkout
+    of another commit, or a plan or hygiene checks that do not wait for the check."""
+    problems = []
+    for name, job in jobs.items():
+        for step in job.get("steps", []):
+            if str(step.get("uses", "")).startswith("actions/checkout@") and (step.get("with") or {}).get("ref") != DISPATCHED:
+                problems.append(f"{name} does not check out the dispatched commit")
+    for name, guarded in ((PLAN, "plan"), (HYGIENE, "install")):
+        steps = jobs[name]["steps"]
+        names = [str(step.get("name") or step.get("id") or step.get("uses")) for step in steps]
+        checkout = next((index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")), None)
+        if DISPATCH_CHECK not in names or checkout is None or names.index(DISPATCH_CHECK) != checkout + 1:
+            problems.append(f"{name} does not check the dispatched commit right after its checkout")
+            continue
+        check = steps[names.index(DISPATCH_CHECK)]
+        if check.get("if") != "github.event_name == 'repository_dispatch' && github.event.client_payload.sha" or "check-dispatch --root . --sha" not in str(check.get("run")):
+            problems.append(f"{name} does not run the dispatch check on a dispatched commit")
+        later = next(step for step in steps if step.get("id") == guarded)
+        if name == HYGIENE and "steps.dispatch.outcome == 'success'" not in str(later.get("if")):
+            problems.append(f"{name} installs its tools after a failed dispatch check")
+        if steps.index(later) < names.index(DISPATCH_CHECK):
+            problems.append(f"{name} runs {guarded} before the dispatch check")
+    return problems
+
+
+class DispatchTests(unittest.TestCase):
+    """A dependabot-merged run: the pipeline treats it as a push of the dispatched commit, behind the dispatch check."""
+
+    def setUp(self) -> None:
+        self.text, pipeline = read_workflow(PIPELINE)
+        self.jobs = pipeline["jobs"]
+
+    def test_every_checkout_takes_the_dispatched_commit_and_the_plan_and_hygiene_wait_for_the_dispatch_check(self) -> None:
+        self.assertEqual([], dispatch_problems(self.jobs))
+
+    def test_a_pipeline_that_drops_a_part_of_the_route_is_named(self) -> None:
+        def changed(old: str, new: str, count: int = 1) -> dict:
+            self.assertGreaterEqual(self.text.count(old), count, old)
+            return ci_definition().read_yaml(self.text.replace(old, new, count), "a changed pipeline.yml")["jobs"]
+
+        ref = f"          ref: {DISPATCHED}\n"
+        self.assertEqual(["plan does not check out the dispatched commit"], dispatch_problems(changed(ref, "", 1)))
+        self.assertEqual(6, self.text.count(ref), "every checkout of the pipeline")
+        check = self.text[self.text.index(f"      - name: {DISPATCH_CHECK}\n"):]
+        check = check[:check.index("\n      - ", 1) + 1]
+        self.assertEqual(2, self.text.count(check))
+        self.assertEqual(["plan does not check the dispatched commit right after its checkout"], dispatch_problems(changed(check, "", 1)))
+        self.assertEqual(["repository-hygiene installs its tools after a failed dispatch check"],
+                         dispatch_problems(changed("if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' "
+                                                   "&& github.event.client_payload.sha)) }}", "if: ${{ !cancelled() }}")))
+
+    def test_the_plan_takes_the_dispatched_commit_as_its_head_and_that_commit_s_first_parent_as_its_base(self) -> None:
+        plan = next(step for step in self.jobs[PLAN]["steps"] if step.get("id") == "plan")
+        self.assertEqual("${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'repository_dispatch' "
+                         "&& github.event.client_payload.sha) || github.sha }}", plan["env"]["HEAD"])
+        self.assertIn('if [ "$EVENT" = repository_dispatch ]; then BASE="$(git rev-parse --verify --quiet "$HEAD^" || true)"; fi\n', plan["run"])
+        self.assertLess(plan["run"].index('BASE="$(git rev-parse'), plan["run"].index("plan.py"))
+
+    def test_the_checks_of_the_hygiene_job_decide_on_a_dispatch_as_on_a_push(self) -> None:
+        changes = next(step for step in self.jobs[HYGIENE]["steps"] if step.get("id") == "changes")
+        self.assertIn('push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;', changes["run"])
+
+
 class CallerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text, self.caller = read_workflow(CALLER)
 
-    def test_the_caller_runs_on_pull_requests_and_main_pushes_only(self) -> None:
-        self.assertIn("\non:\n  pull_request:\n  push:\n    branches: [main]\n\npermissions: {}\n", self.text)
+    def test_the_caller_runs_on_pull_requests_main_pushes_and_the_dispatch_after_a_dependabot_merge_only(self) -> None:
+        self.assertIn("\non:\n  pull_request:\n  push:\n    branches: [main]\n  repository_dispatch:\n    types: [dependabot-merged]\n\npermissions: {}\n", self.text)
 
     def test_the_caller_calls_the_pipeline_by_local_path_as_its_one_job_ci_so_that_the_verdict_s_check_is_ci_verdict(self) -> None:
         self.assertEqual(["ci"], list(self.caller["jobs"]))
