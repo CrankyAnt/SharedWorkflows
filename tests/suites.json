@@ -88,6 +88,9 @@
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
         "actions/pipeline/action.yml",
         "actions/pipeline/plan.py",
+        "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+        "actions/pipeline/schema/v1/setups.json",
         "actions/publication-checks/action.yml",
         "actions/publication-checks/package-lock.json",
         "actions/publication-checks/package.json",
@@ -514,6 +517,9 @@
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/setups.json",
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_pipeline.py"
@@ -623,6 +629,7 @@
         "tests/test_hygiene_zizmor_surface.py/**",
         "tests/test_link_check.py/**",
         "tests/test_pin_updater.py/**",
+        "tests/test_pipeline_custom.py/**",
         "tests/test_pipeline_plan.py/**",
         "tests/test_pipeline_schema.py/**",
         "tests/test_pipeline_verdict.py/**",
@@ -763,6 +770,7 @@
           "tests/test_hygiene_zizmor_surface.py/**",
           "tests/test_link_check.py/**",
           "tests/test_pin_updater.py/**",
+          "tests/test_pipeline_custom.py/**",
           "tests/test_pipeline_plan.py/**",
           "tests/test_pipeline_schema.py/**",
           "tests/test_pipeline_verdict.py/**",
@@ -1722,6 +1730,10 @@
         },
         {
           "path": "tests/test_pin_updater.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_custom.py",
           "kind": "any"
         },
         {
@@ -3115,6 +3127,10 @@
           },
           {
             "path": "tests/test_pin_updater.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_custom.py",
             "kind": "any"
           },
           {
@@ -8515,6 +8531,7 @@
         "tests/test_hygiene_zizmor_surface.py/**",
         "tests/test_link_check.py/**",
         "tests/test_pin_updater.py/**",
+        "tests/test_pipeline_custom.py/**",
         "tests/test_pipeline_plan.py/**",
         "tests/test_pipeline_schema.py/**",
         "tests/test_pipeline_verdict.py/**",
@@ -8644,6 +8661,7 @@
           "tests/test_hygiene_zizmor_surface.py/**",
           "tests/test_link_check.py/**",
           "tests/test_pin_updater.py/**",
+          "tests/test_pipeline_custom.py/**",
           "tests/test_pipeline_plan.py/**",
           "tests/test_pipeline_schema.py/**",
           "tests/test_pipeline_verdict.py/**",
@@ -9522,6 +9540,10 @@
         },
         {
           "path": "tests/test_pin_updater.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_custom.py",
           "kind": "any"
         },
         {
@@ -11157,6 +11179,10 @@
           },
           {
             "path": "tests/test_pin_updater.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_custom.py",
             "kind": "any"
           },
           {
@@ -15947,6 +15973,7 @@
         "tests/test_pipeline_plan.py": [
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/pipeline_fixtures.py",
           "tests/test_pipeline_plan.py"
@@ -15956,7 +15983,9 @@
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/pipeline_fixtures.py",
           "tests/test_pipeline_schema.py"
@@ -15964,6 +15993,7 @@
         "tests/test_pipeline_verdict.py": [
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/pipeline_fixtures.py",
           "tests/test_pipeline_verdict.py"
@@ -15972,6 +16002,7 @@
           ".github/workflows/pipeline.yml",
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/hygiene.py",
           "actions/repository-hygiene/install_tools.py",
@@ -15989,6 +16020,10 @@
         "actions/pipeline/schema/v1/parts"
       ],
       "entry_directory_memberships": {
+        "tests/test_pipeline_custom.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
+        ],
         "tests/test_pipeline_schema.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1",
@@ -15996,6 +16031,10 @@
         ]
       },
       "existence_reads": [
+        {
+          "path": "-c",
+          "kind": "any"
+        },
         {
           "path": "actions",
           "kind": "directory"
@@ -16125,6 +16164,26 @@
           "kind": "any"
         },
         {
+          "path": "tests/ci_policy_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/ci_policy_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/ci_policy_support.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/fixtures/custom/absent.sh",
+          "kind": "any"
+        },
+        {
           "path": "tests/pipeline_fixtures",
           "kind": "directory"
         },
@@ -16138,6 +16197,22 @@
         },
         {
           "path": "tests/pipeline_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_custom",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_pipeline_custom.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_custom.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_custom.so",
           "kind": "any"
         },
         {
@@ -16222,6 +16297,112 @@
         }
       ],
       "entry_existence_reads": {
+        "tests/test_pipeline_custom.py": [
+          {
+            "path": "-c",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/fixtures/custom/absent.sh",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_custom",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_pipeline_custom.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_custom.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_custom.so",
+            "kind": "any"
+          }
+        ],
         "tests/test_pipeline_plan.py": [
           {
             "path": "actions",
@@ -16702,6 +16883,12 @@
         "tests"
       ],
       "entry_lookup_directories": {
+        "tests/test_pipeline_custom.py": [
+          ".",
+          "actions/pipeline",
+          "actions/repository-hygiene",
+          "tests"
+        ],
         "tests/test_pipeline_plan.py": [
           ".",
           "actions/pipeline",
