@@ -16,6 +16,16 @@
       "additionalProperties": false,
       "properties": {}
     },
+    "dependabot": {
+      "description": "The repository's Dependabot ecosystems, each under its name with the directories of its package files; a directory starts with `/`. `.github/dependabot.yml` is generated from it, one entry per ecosystem and directory in this order, and repository hygiene fails while the file differs. Without ecosystems the repository holds no Dependabot configuration. Invented example: {\"github-actions\": [\"/\"], \"pip\": [\"/\", \"/tools/report\"]}.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {"type": "string", "pattern": "^/"}
+      }
+    },
     "local-workflows": {
       "description": "The register of the repository's workflows that are no fixed caller: one entry per workflow file.",
       "type": "array",

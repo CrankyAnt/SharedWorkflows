@@ -26,7 +26,8 @@
         "tests/test_ci_policy_reuse.py",
         "tests/test_ci_policy_python_tests_caller.py",
         "tests/test_ci_policy_apply_additions.py",
-        "tests/test_ci_policy_pipeline.py"
+        "tests/test_ci_policy_pipeline.py",
+        "tests/test_ci_policy_fixed_callers.py"
       ],
       "command": [
         "python3",
@@ -87,6 +88,10 @@
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
         "actions/pipeline/action.yml",
+        "actions/pipeline/consumer-kit/automation.yml",
+        "actions/pipeline/consumer-kit/ci.yml",
+        "actions/pipeline/consumer-kit/fixed-callers.json",
+        "actions/pipeline/consumer-kit/release.yml",
         "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/parts/custom.json",
         "actions/pipeline/schema/v1/parts/repository-hygiene.json",
@@ -147,6 +152,7 @@
         "tests/test_ci_policy_apply_additions.py",
         "tests/test_ci_policy_auto_merge_caller.py",
         "tests/test_ci_policy_etw_consumer.py",
+        "tests/test_ci_policy_fixed_callers.py",
         "tests/test_ci_policy_full_recording.py",
         "tests/test_ci_policy_hygiene_caller.py",
         "tests/test_ci_policy_hygiene_core.py",
@@ -523,6 +529,17 @@
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_pipeline.py"
+        ],
+        "tests/test_ci_policy_fixed_callers.py": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/pipeline.yml",
+          "actions/pipeline/consumer-kit/automation.yml",
+          "actions/pipeline/consumer-kit/ci.yml",
+          "actions/pipeline/consumer-kit/fixed-callers.json",
+          "actions/pipeline/consumer-kit/release.yml",
+          "actions/suite-selection/ci_definition.py",
+          "tests/ci_policy_support.py",
+          "tests/test_ci_policy_fixed_callers.py"
         ]
       },
       "directory_memberships": [
@@ -4434,7 +4451,8 @@
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_templates.py",
         "tests/test_consumer_kit_validation_workflow.py",
-        "tests/test_consumer_kit_python_tests.py"
+        "tests/test_consumer_kit_python_tests.py",
+        "tests/test_consumer_kit_fixed_callers.py"
       ],
       "command": [
         "python3",
@@ -4485,6 +4503,10 @@
         "actions/dependabot-auto-merge/consumer-kit/README.md",
         "actions/dependabot-auto-merge/consumer-kit/dependabot-auto-merge.yml",
         "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
+        "actions/pipeline/consumer-kit/README.md",
+        "actions/pipeline/consumer-kit/automation.yml",
+        "actions/pipeline/consumer-kit/ci.yml",
+        "actions/pipeline/consumer-kit/release.yml",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-tests/consumer-kit/README.md",
@@ -4527,6 +4549,7 @@
         "tests/test_consumer_kit_apply_additions.py",
         "tests/test_consumer_kit_auto_merge.py",
         "tests/test_consumer_kit_dependabot.py",
+        "tests/test_consumer_kit_fixed_callers.py",
         "tests/test_consumer_kit_full_recording.py",
         "tests/test_consumer_kit_hygiene.py",
         "tests/test_consumer_kit_install_by_need.py",
@@ -4787,6 +4810,17 @@
           "catalogue.json",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_python_tests.py"
+        ],
+        "tests/test_consumer_kit_fixed_callers.py": [
+          ".github/workflows/ci.yml",
+          "actions/pipeline/consumer-kit/README.md",
+          "actions/pipeline/consumer-kit/automation.yml",
+          "actions/pipeline/consumer-kit/ci.yml",
+          "actions/pipeline/consumer-kit/release.yml",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "catalogue.json",
+          "tests/consumer_kit_support.py",
+          "tests/test_consumer_kit_fixed_callers.py"
         ]
       },
       "directory_memberships": [
@@ -15916,7 +15950,10 @@
         "tests/test_pipeline_plan.py",
         "tests/test_pipeline_schema.py",
         "tests/test_pipeline_verdict.py",
-        "tests/test_pipeline_workflow.py"
+        "tests/test_pipeline_workflow.py",
+        "tests/test_pipeline_callers.py",
+        "tests/test_pipeline_register.py",
+        "tests/test_pipeline_dependabot.py"
       ],
       "command": [
         "python3",
@@ -15931,6 +15968,7 @@
       "paths": [
         ".github/ci-config.yml",
         ".github/workflows/pipeline.yml",
+        "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/base.json",
         "actions/pipeline/schema/v1/ci-config.schema.json",
@@ -15945,10 +15983,15 @@
         "actions/repository-hygiene/pins.py",
         "actions/suite-selection/ci_definition.py",
         "tests/ci_policy_support.py",
+        "tests/consumer_checks_fixtures.py",
+        "tests/consumer_kit_support.py",
         "tests/fixtures/custom/fail.sh",
         "tests/pipeline_fixtures.py",
+        "tests/test_pipeline_callers.py",
         "tests/test_pipeline_custom.py",
+        "tests/test_pipeline_dependabot.py",
         "tests/test_pipeline_plan.py",
+        "tests/test_pipeline_register.py",
         "tests/test_pipeline_schema.py",
         "tests/test_pipeline_verdict.py",
         "tests/test_pipeline_workflow.py",
@@ -16012,6 +16055,37 @@
           "tests/pipeline_fixtures.py",
           "tests/test_pipeline_workflow.py",
           "tests/workflow_commands.py"
+        ],
+        "tests/test_pipeline_callers.py": [
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_checks_fixtures.py",
+          "tests/pipeline_fixtures.py",
+          "tests/test_pipeline_callers.py"
+        ],
+        "tests/test_pipeline_register.py": [
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_checks_fixtures.py",
+          "tests/pipeline_fixtures.py",
+          "tests/test_pipeline_register.py"
+        ],
+        "tests/test_pipeline_dependabot.py": [
+          "actions/pipeline/consumer_checks.py",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "tests/consumer_checks_fixtures.py",
+          "tests/consumer_kit_support.py",
+          "tests/pipeline_fixtures.py",
+          "tests/test_pipeline_dependabot.py"
         ]
       },
       "directory_memberships": [

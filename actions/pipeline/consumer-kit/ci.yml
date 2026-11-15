@@ -1,0 +1,17 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  ci:
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/pipeline.yml@v1

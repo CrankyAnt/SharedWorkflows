@@ -1,0 +1,14 @@
+name: Release
+
+on:
+  push:
+    tags: ["**"]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/release.yml@v1

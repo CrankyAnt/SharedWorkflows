@@ -120,6 +120,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      issues: read
       pull-requests: read
     concurrency:
       group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['repository-hygiene'].group || format('repository-hygiene-run-{0}', github.run_id) }}
@@ -131,6 +132,9 @@ jobs:
       - name: Load the push lookup from this workflow revision
         id: selection
         uses: $/actions/suite-selection
+      - name: Load the fixed callers and the schema from this workflow revision
+        id: pipeline
+        uses: $/actions/pipeline
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -233,6 +237,30 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
+      - name: Fixed callers and local workflows
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" callers --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Issues of the local workflow register
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" register --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Generated Dependabot configuration
+        if: ${{ !cancelled() }}
+        env:
+          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" dependabot --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
       - name: Dependabot coverage of tracked package files
         id: coverage
         if: ${{ !cancelled() && steps.changes.outputs.packages == 'true' }}

@@ -57,9 +57,9 @@
       "workflows": [".github/workflows/pipeline.yml"],
       "steps": ["actions/pipeline"],
       "required_checks": ["ci / verdict"],
-      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, and a caller ci.yml whose job ci calls the pipeline on pull requests and on pushes to main.",
-      "applies": "Every repository; the fixed callers and their adoption follow in a later version of this catalogue, and until then the other shared parts are adopted through their consumer kits.",
-      "consumer_kit": null
+      "needs": "A configuration file .github/ci-config.yml that matches the schema actions/pipeline/schema/v1/ci-config.schema.json, whose smallest form is the line version: 1, and the fixed callers ci.yml, automation.yml and release.yml, each equal to its template in the consumer kit, of which ci.yml calls the pipeline on pull requests and on pushes to main.",
+      "applies": "Every repository; until a repository holds the fixed callers, it adopts the other shared parts through their consumer kits.",
+      "consumer_kit": "actions/pipeline/consumer-kit"
     }
   ]
 }

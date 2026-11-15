@@ -17,6 +17,9 @@ sys.path.insert(0, str(HYGIENE_FOLDER))
 import hygiene  # noqa: E402
 import install_tools  # noqa: E402
 
+sys.path.insert(0, str(REPOSITORY_ROOT / "actions" / "pipeline"))
+import consumer_checks  # noqa: E402
+
 
 class PipelineInvocationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -46,6 +49,18 @@ class PipelineInvocationTests(unittest.TestCase):
     def test_the_verdict_gets_the_needs_context_and_writes_its_summary(self) -> None:
         options = plan_program.parser().parse_args(self.invocations[1])
         self.assertEqual(("x/needs.json", "x"), (options.needs, options.summary))
+
+
+class ConsumerCheckInvocationTests(unittest.TestCase):
+    def test_the_hygiene_job_starts_the_three_consumer_checks_with_options_that_the_program_accepts(self) -> None:
+        invocations = script_invocations(WORKFLOW, "consumer_checks.py")
+        self.assertEqual(["callers", "register", "dependabot"], [tokens[0] for tokens in invocations])
+        for tokens in invocations:
+            with self.subTest(command=tokens[0]):
+                options = consumer_checks.parser().parse_args(tokens)
+                self.assertEqual(("x", "x", "x", "."), (options.event, options.author, options.summary, options.root))
+                self.assertEqual((str(consumer_checks.KIT), str(plan_program.SCHEMAS)), (options.kit, options.schemas),
+                                 "the checks read the templates and the schema of the pipeline's own revision")
 
 
 class HygieneInvocationTests(PipelineFixture):

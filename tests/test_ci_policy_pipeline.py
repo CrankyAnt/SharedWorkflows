@@ -34,6 +34,13 @@ DIFFERENT = {
     "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona",
     "Gitleaks over all reachable history": "the pipeline takes the Gitleaks files by their fixed names, not from inputs",
 }
+# The steps that only the pipeline's hygiene job holds, each with its reason.
+PIPELINE_ONLY = {
+    "Load the fixed callers and the schema from this workflow revision": "a caller of repository-hygiene.yml holds a caller of its own and no configuration file",
+    "Fixed callers and local workflows": "a caller of repository-hygiene.yml holds a caller of its own and no configuration file",
+    "Issues of the local workflow register": "a caller of repository-hygiene.yml holds no configuration file",
+    "Generated Dependabot configuration": "a caller of repository-hygiene.yml holds no configuration file",
+}
 # The jobs of the pipeline that are no shared part.
 PLAN, VERDICT = "plan", "verdict"
 # The free job, the known setups, and the definition that a setting refers to when it names code of the repository to run.
@@ -49,9 +56,10 @@ def step_key(step: dict) -> str:
     return str(step.get("name") or str(step["uses"]).split("@", 1)[0])
 
 
-def hygiene_step_problems(shared: list[dict], pipeline: list[dict], left_out: dict[str, str], different: dict[str, str]) -> list[str]:
+def hygiene_step_problems(shared: list[dict], pipeline: list[dict], left_out: dict[str, str], different: dict[str, str], pipeline_only: dict[str, str] | None = None) -> list[str]:
     """Each way the pipeline's hygiene job is out of step with the hygiene job of the shared workflow: a step without a
     counterpart, a step that differs, or a stated difference that no longer exists."""
+    pipeline_only = PIPELINE_ONLY if pipeline_only is None else pipeline_only
     ours = {step_key(step): step for step in pipeline}
     theirs = {step_key(step): step for step in shared}
     problems = []
@@ -67,7 +75,9 @@ def hygiene_step_problems(shared: list[dict], pipeline: list[dict], left_out: di
         elif ours[key] != step:
             problems.append(f"{key}: the step differs between the two jobs")
     problems += [f"{key}: listed as a difference, but the shared workflow has no such step" for key in [*left_out, *different] if key not in theirs]
-    problems += [f"{key}: only the pipeline's hygiene job has this step" for key in ours if key not in theirs]
+    problems += [f"{key}: only the pipeline's hygiene job has this step" for key in ours if key not in theirs and key not in pipeline_only]
+    problems += [f"{key}: listed as a step of the pipeline alone, but the shared workflow has this step" for key in pipeline_only if key in theirs]
+    problems += [f"{key}: listed as a step of the pipeline alone, but the pipeline has no such step" for key in pipeline_only if key not in ours]
     order = [key for key in theirs if key in ours]
     if order != [key for key in ours if key in theirs]:
         problems.append("the steps that both jobs hold are in a different order")
@@ -189,7 +199,7 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual([problem], part_job_problems("invented-test", {**good, **change}))
 
     def test_repository_hygiene_has_read_rights_only_and_keeps_no_checkout_credentials(self) -> None:
-        self.assertEqual({"actions": "read", "contents": "read", "pull-requests": "read"}, self.jobs[HYGIENE]["permissions"])
+        self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, self.jobs[HYGIENE]["permissions"])
         checkouts = re.findall(r"- uses: actions/checkout@[0-9a-f]{40} # v[\d.]+\n        with:\n((?:          .*\n)+)", self.text)
         self.assertEqual(self.text.count("actions/checkout@"), len(checkouts))
         for options in checkouts:
@@ -327,6 +337,28 @@ class HygieneStepTests(unittest.TestCase):
         self.assertEqual(["An extra step: only the pipeline's hygiene job has this step"],
                          hygiene_step_problems(self.shared, [*self.pipeline, {"name": "An extra step", "run": "extra"}], LEFT_OUT, DIFFERENT))
 
+    def test_a_step_of_the_pipeline_alone_is_stated_with_its_reason(self) -> None:
+        only = [step_key(step) for step in self.pipeline if step_key(step) not in {step_key(other) for other in self.shared}]
+        self.assertEqual(list(PIPELINE_ONLY), only)
+        callers = "Fixed callers and local workflows"
+        self.assertEqual([f"{callers}: only the pipeline's hygiene job has this step"],
+                         hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {key: reason for key, reason in PIPELINE_ONLY.items() if key != callers}))
+        self.assertEqual(["A removed check: listed as a step of the pipeline alone, but the pipeline has no such step"],
+                         hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, "A removed check": "none"}))
+        moved = "Check every pull request commit"
+        self.assertEqual([f"{moved}: listed as a step of the pipeline alone, but the shared workflow has this step"],
+                         hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, moved: "none"}))
+
+    def test_the_consumer_checks_run_whatever_the_earlier_checks_found_and_read_github_with_the_job_s_token(self) -> None:
+        checks = [step for step in self.pipeline if "consumer_checks.py" in str(step.get("run", ""))]
+        self.assertEqual(["Fixed callers and local workflows", "Issues of the local workflow register", "Generated Dependabot configuration"], [step["name"] for step in checks])
+        for step in checks:
+            with self.subTest(step=step["name"]):
+                self.assertEqual("${{ !cancelled() }}", step["if"])
+                self.assertEqual({"RESOURCE_PATH": "${{ steps.pipeline.outputs.path }}", "GITHUB_TOKEN": "${{ github.token }}", "EVENT": "${{ github.event_name }}",
+                                  "PR_AUTHOR": "${{ github.event.pull_request.user.login }}"}, step["env"])
+                self.assertIn('--event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"', step["run"])
+
 
 class CallerTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -338,7 +370,7 @@ class CallerTests(unittest.TestCase):
     def test_the_caller_calls_the_pipeline_by_local_path_as_its_one_job_ci_so_that_the_verdict_s_check_is_ci_verdict(self) -> None:
         self.assertEqual(["ci"], list(self.caller["jobs"]))
         job = self.caller["jobs"]["ci"]
-        self.assertEqual({"permissions": {"actions": "read", "contents": "read", "pull-requests": "read"}, "uses": "$/.github/workflows/pipeline.yml"}, job)
+        self.assertEqual({"permissions": {"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, "uses": "$/.github/workflows/pipeline.yml"}, job)
         self.assertIn(VERDICT, read_workflow(PIPELINE)[1]["jobs"])
         for text in ("@v1", "run:", "secrets", "with:", "pull_request_target"):
             self.assertNotIn(text, self.text)

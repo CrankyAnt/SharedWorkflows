@@ -242,8 +242,8 @@ class CatalogueTests(unittest.TestCase):
 
     def test_an_entry_that_names_a_missing_workflow_step_or_consumer_kit_fails(self) -> None:
         first = self.catalogue["parts"][0]
-        # Without the consumer kit of repository hygiene, no consumer kit leads to the ruleset template.
-        unreached = ["actions/repository-ruleset holds no step and no consumer kit leads to it"]
+        # Without the consumer kit of repository hygiene, the consumer kit of the pipeline still leads to the ruleset template.
+        unreached: list[str] = []
         for key, value, problem, more in (
             ("workflows", [*first["workflows"], ".github/workflows/missing.yml"], "the workflow .github/workflows/missing.yml is no shared workflow", []),
             ("steps", [*first["steps"], "actions/missing"], "the step actions/missing is no shared step", []),
@@ -252,6 +252,8 @@ class CatalogueTests(unittest.TestCase):
             with self.subTest(key=key):
                 catalogue = {"parts": [{**first, key: value}, *self.catalogue["parts"][1:]]}
                 self.assertEqual([f"{first['name']}: {problem}", *more], catalogue_problems(catalogue, self.surface, self.tracked))
+        without_leading_kits = {"parts": [{**entry, "consumer_kit": None} if entry["name"] in ("Repository hygiene", "Pipeline") else entry for entry in self.catalogue["parts"]]}
+        self.assertEqual(["actions/repository-ruleset holds no step and no consumer kit leads to it"], catalogue_problems(without_leading_kits, self.surface, self.tracked))
 
     def test_the_suite_selection_names_its_consumer_kit(self) -> None:
         entries = {entry["name"]: entry for entry in self.catalogue["parts"]}

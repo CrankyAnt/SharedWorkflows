@@ -16,7 +16,7 @@ The shared parts, with one row per shared step:
 | Python language step | none | Python language step, `python-language-step/`; a job that installs Python calls its action | `python-language-step/python_language_step.py` | `python-language-step` |
 | Python tests | `python-tests.yml` | Python tests, `python-tests/` | `python-tests/python_tests.py` | `python-tests` |
 | Python tests | `python-tests.yml` runs it from the working directory | Python language step, `python-language-step/` | `python-language-step/python_language_step.py` | `python-language-step` |
-| Pipeline | `pipeline.yml` | Pipeline, `pipeline/`; its job of repository hygiene loads `repository-hygiene/`, `suite-selection/` and `publication-checks/` | `pipeline/plan.py` | `pipeline` |
+| Pipeline | `pipeline.yml` | Pipeline, `pipeline/`; its job of repository hygiene loads `repository-hygiene/`, `suite-selection/` and `publication-checks/` | `pipeline/plan.py`, `pipeline/consumer_checks.py` | `pipeline` |
 
 The repository workflows run only for this repository, and no caller calls them. Each runs scripts from a part folder:
 
@@ -603,17 +603,19 @@ The exit code is 0 when the step passed, 1 when it failed, and 2 for an input th
 
 `pipeline.yml` is the pipeline: the shared workflow that the caller `ci.yml` calls on pull requests and on pushes to `main`. It takes no input and no secret. Its jobs are `plan`, one job per shared part under that part's name, and `verdict`. In a caller whose job is `ci`, the verdict's check is `ci / verdict`, the one check of the pipeline that a ruleset requires. No job calls a reusable workflow, so a caller and the pipeline are the only two levels.
 
-[plan.py](../actions/pipeline/plan.py) in the part folder `actions/pipeline/` holds the three commands `plan`, `verdict` and `schema`.
+A consumer calls the pipeline from the fixed caller `ci.yml`, one of the three [fixed callers](#fixed-callers). This repository's own `ci.yml` equals that template apart from the local path of the pipeline.
+
+[plan.py](../actions/pipeline/plan.py) in the part folder `actions/pipeline/` holds the three commands `plan`, `verdict` and `schema`. [consumer_checks.py](../actions/pipeline/consumer_checks.py) holds the three [consumer checks](#the-consumer-checks) of the hygiene job.
 
 #### The configuration file
 
-A repository's configuration file is `.github/ci-config.yml`. It holds `version`, the shared parts it switches on under `parts`, each under its name with its values, and the local workflow register `local-workflows`. The smallest valid file is the line `version: 1`. A part that the file does not state is switched off. An entry of the register is temporary, with `workflow`, `request` and `waits-for`, or permanent, with `workflow` and `declined-request`.
+A repository's configuration file is `.github/ci-config.yml`. It holds `version`, the shared parts it switches on under `parts`, each under its name with its values, the repository's Dependabot ecosystems under `dependabot`, each with the directories of its package files, and the local workflow register `local-workflows`. The smallest valid file is the line `version: 1`. A part that the file does not state is switched off. An entry of the register is temporary, with `workflow`, `request` and `waits-for`, or permanent, with `workflow` and `declined-request`.
 
 The schema lives in `actions/pipeline/schema/`, one folder `v<N>` per schema version:
 
 | File | What it holds |
 | --- | --- |
-| `base.json` | The schema of the file apart from the parts: `version`, `parts`, `local-workflows`, and the definitions that a fragment refers to: `paths` as `#/$defs/paths`, `setups` as `#/$defs/setups`, whose items are the definition `setup`, and `script` as `#/$defs/script`. |
+| `base.json` | The schema of the file apart from the parts: `version`, `parts`, `dependabot`, `local-workflows`, and the definitions that a fragment refers to: `paths` as `#/$defs/paths`, `setups` as `#/$defs/setups`, whose items are the definition `setup`, and `script` as `#/$defs/script`. |
 | `setups.json` | The known setups by name, each with the `tool` and the `version` that a job installs. The definition `setup` accepts these names only. |
 | `parts/<part>.json` | The fragment of one shared part: its `description` and either `configuration`, the schema of the part's values as an object without additional properties, or `"always": true` for a part that runs in every pipeline run. |
 | `ci-config.schema.json` | The schema assembled from the base and the fragments, for a reader and an editor. `plan.py schema` writes it, and `plan.py schema --check` fails while it differs. |
@@ -641,13 +643,45 @@ A pattern of `paths` that ends in `/` matches everything under that folder; `*` 
 
 #### Repository hygiene in the pipeline
 
-The job `repository-hygiene` needs `plan` only for its concurrency and runs under `!cancelled()`, so it runs after a failed plan too, and it reads nothing of the configuration file. It runs the checks of [Repository hygiene](#repository-hygiene) with these differences from `repository-hygiene.yml`:
+The job `repository-hygiene` needs `plan` only for its concurrency and runs under `!cancelled()`, so it runs after a failed plan too, and it reads nothing of the plan. It runs the checks of [Repository hygiene](#repository-hygiene) with these differences from `repository-hygiene.yml`:
 
 - It has no inputs. Gitleaks takes `.gitleaks.toml` as its configuration and `.gitleaks-baseline.json` as its baseline when the repository holds them under those names; zizmor runs with its default persona, and no package file or Markdown file is excluded.
 - The title check reads the pull request's current title through the API. A corrected title or body starts no run, because the caller does not run on `edited`; a re-run of the job checks the new text, in the title check and in the reference check, which reads the current title and body in both workflows.
 - It has no `dependabot-merged` run and no record of passed checks for an `edited` run.
+- It runs the three [consumer checks](#the-consumer-checks), which read the configuration file themselves. `repository-hygiene.yml` has none of them: its callers hold a caller of their own and no configuration file.
 
-`tests/test_ci_policy_pipeline.py` compares the steps of the two jobs: a step of `repository-hygiene.yml` without an equal step in the pipeline fails, unless the test's lists `LEFT_OUT` and `DIFFERENT` name it with its reason. A change to a hygiene check therefore changes both workflows in the same change.
+`tests/test_ci_policy_pipeline.py` compares the steps of the two jobs: a step of `repository-hygiene.yml` without an equal step in the pipeline fails, unless the test's lists `LEFT_OUT` and `DIFFERENT` name it with its reason, and a step that only the pipeline holds fails unless `PIPELINE_ONLY` names it. A change to a hygiene check therefore changes both workflows in the same change.
+
+#### Fixed callers
+
+The consumer kit of the pipeline, `actions/pipeline/consumer-kit/`, holds the templates of the three fixed callers, which every consumer holds byte for byte:
+
+| Template | Trigger class | Events | Calls at `v1` | Permissions of its job | Secrets |
+| --- | --- | --- | --- | --- | --- |
+| `ci.yml` | read | `pull_request`, `push` to `main` | `pipeline.yml` | `actions`, `contents`, `issues` and `pull-requests`, all `read` | none |
+| `automation.yml` | write | `workflow_run` of `CI`, `schedule`, `workflow_dispatch`, `issues` of type `opened` | `automation.yml` | `actions: read`, `contents: write`, `issues: write`, `pull-requests: write` | `PUBLICATION_CHECKS_APP_PRIVATE_KEY`, by name |
+| `release.yml` | release | `push` of a tag, `workflow_dispatch` | `release.yml` | `contents: write` | none |
+
+Each template sets `permissions: {}` at the top and holds one job, named after the file, that runs no step. `tests/test_ci_policy_fixed_callers.py` fails on `pull_request_target`, on `secrets: inherit`, on a secret passed under another name, on an event outside the caller's trigger class and on a write permission in the read caller, for the templates and for each previous version. It also fails when the template or the previous version of `ci.yml` does not grant a permission that a job of `pipeline.yml` holds, so a consumer on either version starts every job of the pipeline.
+
+The kit's record `fixed-callers.json` holds two keys. `previous` names each caller whose template a promotion changed, with the date of that promotion as `YYYY-MM-DD`; the version before the change is `previous/<caller>` in the kit. `sync-branch` is the branch of the pull request with which the sync brings a consumer's fixed callers up to date. [Change a fixed caller](#change-a-fixed-caller) keeps the record.
+
+#### The consumer checks
+
+Three steps of the job `repository-hygiene` run a command of `consumer_checks.py` each, on every event and after any earlier failure. They read the templates, the record and the schema from the pipeline's own revision, and GitHub with the job's token, for which the job holds `issues: read` and `pull-requests: read`.
+
+| Command | Finding |
+| --- | --- |
+| `callers` | A fixed caller under `.github/workflows/` is missing or differs from its template. A caller that equals `previous/<caller>` passes up to and including the same day of the month after the promotion date in the record, or that month's last day when it is shorter, with a notice; after that day it is a finding. With such a finding the summary links the consumer's open pull request on the sync's branch, or says that none is open and links the templates at `v1`. |
+| `callers` | A file `*.yml` or `*.yaml` directly under `.github/workflows/` that is no fixed caller and that no entry of `local-workflows` names, with the link to the catalogue at `v1`, which holds the decision rule. |
+| `register` | A temporary entry whose `request`, or a permanent entry whose `declined-request`, is no issue of the repository or is a pull request; a permanent entry whose issue is open; an issue that GitHub does not let the job read. |
+| `dependabot` | `.github/dependabot.yml` is missing or differs from the file generated from `dependabot`, `.github/dependabot.yaml` exists, or either exists while the configuration file states no ecosystems. The summary holds the expected content. |
+
+The generated file holds one `updates` entry per ecosystem and directory, in the order of the configuration file, with the weekly schedule, the cooldown of seven days and the group `minor-and-patch` of this repository's own entries; the `github-actions` entry ignores the repository of the shared parts.
+
+A configuration file that is missing or does not match its schema is a finding of each command; `plan` names every mismatch. A finding fails the step only on a pull request whose author is not `dependabot[bot]`. On a Dependabot pull request and on a push, each finding is a notice and the summary says why it does not fail the run. The exit code is 0 when the command passed, 1 when a finding failed it and 2 when the kit or its record cannot be read.
+
+In the repository that the template of `ci.yml` calls, which is this repository, each command passes without a check and says so: it holds the templates and the shared workflows, not a consumer's callers. The commands take that repository's name from the template, so no consumer can claim it.
 
 #### The free job
 
@@ -687,7 +721,7 @@ Every change to a kit's templates, `actions/*/consumer-kit/*.yml`, updates that 
 - Every change: [Validation](#validation) and [Apply recorded additions](#apply-recorded-additions).
 - `v1`: [Promote v1 by hand](#promote-v1-by-hand), [Roll v1 back](#roll-v1-back), [The ruleset on v1](#the-ruleset-on-v1), to read it back or replace the deploy key, and [Act on a failed `promote-v1.yml` run](#act-on-a-failed-promote-v1yml-run).
 - Consumers: [Find the consumers](#find-the-consumers), [Onboard a consumer](#onboard-a-consumer) and [A skipped suite in a consumer](#a-skipped-suite-in-a-consumer).
-- The shared parts: [Add a part](#add-a-part), [Add a part to the pipeline](#add-a-part-to-the-pipeline), [Add a setup](#add-a-setup), [Change a naming rule](#change-a-naming-rule), [Change a hygiene check](#change-a-hygiene-check), [Add or remove a pinned tool](#add-or-remove-a-pinned-tool), [Change an auto-merge rule](#change-an-auto-merge-rule), [Change a selection rule](#change-a-selection-rule), [Change a selection workflow](#change-a-selection-workflow), [Change a check name](#change-a-check-name) and [Change the suite-list format](#change-the-suite-list-format).
+- The shared parts: [Add a part](#add-a-part), [Add a part to the pipeline](#add-a-part-to-the-pipeline), [Add a setup](#add-a-setup), [Change a fixed caller](#change-a-fixed-caller), [Change a naming rule](#change-a-naming-rule), [Change a hygiene check](#change-a-hygiene-check), [Add or remove a pinned tool](#add-or-remove-a-pinned-tool), [Change an auto-merge rule](#change-an-auto-merge-rule), [Change a selection rule](#change-a-selection-rule), [Change a selection workflow](#change-a-selection-workflow), [Change a check name](#change-a-check-name) and [Change the suite-list format](#change-the-suite-list-format).
 - The recording step: [Change the ETW consumer](#change-the-etw-consumer), [Renew the stored strace recordings](#renew-the-stored-strace-recordings) and [Renew the standard-library names](#renew-the-standard-library-names).
 - This repository's own files: [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline).
 - The GitHub App: [Rotate the App's private key](#rotate-the-apps-private-key) and [Replace the App](#replace-the-app).
@@ -922,6 +956,16 @@ A part without a shared workflow, such as the Python language step, is a shared 
 - In step 5, the catalogue entry has `"workflows": []` and the part's path under `steps`, and the kit's template, named after the part, holds the step that calls `CrankyAnt/SharedWorkflows/actions/<folder>@v1`.
 - In step 7, the `AGENTS.md` line of the caller whose job runs the step names the step.
 
+### Change a fixed caller
+
+A change to a template is a template-class change: it reaches consumers through a promotion by hand, and the sync then opens a pull request in each consumer. Hygiene accepts the version before the change for one month after that promotion.
+
+1. Copy the template as it is at `v1` to `actions/pipeline/consumer-kit/previous/<caller>`, replacing a previous version there, and then change the template. A change that reaches consumers together with an earlier one that `v1` does not hold yet keeps the previous version as it is.
+2. Set `previous.<caller>` in `fixed-callers.json` to the date of the planned promotion.
+3. Keep the caller within its trigger class: a new event, permission or secret changes the table under [Fixed callers](#fixed-callers), the kit's `README.md` and the rules in `tests/test_ci_policy_fixed_callers.py`, and this repository's own `ci.yml` follows a change to the template of `ci.yml`.
+4. Validate as [Validation](#validation) says, and promote as [Promote v1 by hand](#promote-v1-by-hand) says on the recorded date. When the promotion happens on another day, correct the date in a second change and promote that.
+5. A month after the promotion, remove `previous/<caller>` and its line in the record in the next change to the kit.
+
 ### Change a naming rule
 
 The rules are the naming conventions that the agents of every consumer write by: Conventional Branch for branch names and Conventional Commits for commit subjects and pull request titles. The checks keep a subset of them.
@@ -1057,7 +1101,7 @@ Renew the recordings when `strace`'s output changes, or when a stored fixture's 
 
 ### Change a check name
 
-A check of a job in a shared workflow is named `<caller job> / <shared job>` and a ruleset matches it by that exact string, as [Calling the workflows](#calling-the-workflows) says. A changed job id in a shared workflow or a caller template therefore changes a check name in every consumer, and a ruleset that still requires the old name blocks every pull request. The required checks are `hygiene / hygiene` and `validation / validation`, and in a consumer of Python tests `tests / tests`; `select / select`, `auto-merge / auto-merge` and `auto-merge / merge` here, and `select / select`, `dependabot-auto-merge / auto-merge` and `dependabot-auto-merge / merge` in a consumer, are checks that no ruleset requires. The pipeline's required check is `ci / verdict`, from the job id `ci` in `ci.yml` and `verdict` in `pipeline.yml`, which `tests/test_ci_policy_pipeline.py` pins; `ci / plan` and `ci / repository-hygiene` are required by no ruleset.
+A check of a job in a shared workflow is named `<caller job> / <shared job>` and a ruleset matches it by that exact string, as [Calling the workflows](#calling-the-workflows) says. A changed job id in a shared workflow or a caller template therefore changes a check name in every consumer, and a ruleset that still requires the old name blocks every pull request. The required checks are `hygiene / hygiene` and `validation / validation`, and in a consumer of Python tests `tests / tests`; `select / select`, `auto-merge / auto-merge` and `auto-merge / merge` here, and `select / select`, `dependabot-auto-merge / auto-merge` and `dependabot-auto-merge / merge` in a consumer, are checks that no ruleset requires. The pipeline's required check is `ci / verdict`, from the job id `ci` in `ci.yml`, here and in the template of the fixed caller, and `verdict` in `pipeline.yml`, which `tests/test_ci_policy_pipeline.py` and `tests/test_ci_policy_fixed_callers.py` pin; `ci / plan` and `ci / repository-hygiene` are required by no ruleset.
 
 1. Change every binding of the name in one pull request. `git grep -n '<old name>'` and `git grep -n '<old job id>:'` find them in the tree:
    - the job ids of the shared workflows: `hygiene` in `repository-hygiene.yml`, `validation` in `suite-verdict.yml`, `auto-merge` and `merge` in `dependabot-auto-merge.yml`, and `tests` in `python-tests.yml`;

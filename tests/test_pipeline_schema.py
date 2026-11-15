@@ -76,7 +76,7 @@ class RepositoryHygieneTests(PipelineFixture):
     def test_the_schema_has_no_setting_for_repository_hygiene(self) -> None:
         schema = json.loads((SCHEMAS / "v1" / "ci-config.schema.json").read_text(encoding="utf-8"))
         self.assertNotIn("hygiene", json.dumps({key: value for key, value in schema.items() if key != "properties"}))
-        self.assertEqual(["local-workflows", "parts", "version"], sorted(schema["properties"]))
+        self.assertEqual(["dependabot", "local-workflows", "parts", "version"], sorted(schema["properties"]))
         self.assertNotIn("repository-hygiene", schema["properties"]["parts"]["properties"])
         self.assertIs(False, schema["properties"]["parts"]["additionalProperties"])
         self.assertIs(False, schema["additionalProperties"])

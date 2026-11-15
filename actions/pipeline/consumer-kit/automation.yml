@@ -1,0 +1,25 @@
+name: Automation
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] the shared workflow checks out and runs no code of the pull request while it holds a write token
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    # Mondays at 03:17 UTC.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  automation:
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    secrets:
+      PUBLICATION_CHECKS_APP_PRIVATE_KEY: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1

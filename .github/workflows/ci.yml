@@ -12,5 +12,6 @@ jobs:
     permissions:
       actions: read
       contents: read
+      issues: read
       pull-requests: read
     uses: $/.github/workflows/pipeline.yml
