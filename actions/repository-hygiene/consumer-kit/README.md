@@ -68,6 +68,7 @@ The merge settings are the fields of [merge-settings.json](../../sync/merge-sett
 - `allow_merge_commit` is `true`: an integration branch reaches the default branch with a merge commit whose subject is the pull request title.
 - `allow_rebase_merge` is `false`: a pull request merges by squash or with a merge commit only.
 - `allow_auto_merge` is `true`: the sync pull request and the full recording's pull request merge themselves once their required checks have passed.
+- `delete_branch_on_merge` is `true`: GitHub automatically deletes the pull request's head branch after merge.
 - `squash_merge_commit_title` is `PR_TITLE`: a squash commit's subject is the pull request title.
 - `squash_merge_commit_message` is `BLANK`: a squash commit has an empty body.
 - `merge_commit_title` is `PR_TITLE`: a merge commit's subject is the pull request title.
@@ -76,8 +77,8 @@ The merge settings are the fields of [merge-settings.json](../../sync/merge-sett
 Set them and read them back with:
 
 ```text
-gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_merge_commit=true -F allow_rebase_merge=false -F allow_auto_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
-gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, allow_auto_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
+gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_merge_commit=true -F allow_rebase_merge=false -F allow_auto_merge=true -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
+gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, allow_auto_merge, delete_branch_on_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
 ```
 
 ### Default-branch ruleset

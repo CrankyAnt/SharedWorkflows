@@ -185,11 +185,18 @@ class ReachTests(SyncFixture):
 
     def test_a_repository_without_a_configuration_file_has_not_adopted_and_gets_no_pull_request(self) -> None:
         consumer = self.consumer({CONFIGURATION: None, CI: "name: its own workflow\n"})
+        consumer.settings["delete_branch_on_merge"] = False
         synced = self.run_sync()
         self.assertEqual(0, synced.status)
         self.assertEqual([], self.api.writes)
         self.assertIn(f"`{CONSUMER}` holds no `{CONFIGURATION}`", synced.summary)
         self.assertEqual([], consumer.pulls)
+        local = self.local()
+        self.assertEqual(0, local.status, local.stderr)
+        self.assertNotIn("delete_branch_on_merge", synced.summary + local.summary)
+        self.assertFalse(consumer.settings["delete_branch_on_merge"])
+        self.assertEqual([], self.api.writes)
+        self.assertEqual([], [request for request in self.api.requests if request[1].startswith(f"/repos/{CONSUMER}/rulesets")])
 
     def test_an_archived_repository_and_the_run_s_own_repository_are_left_alone(self) -> None:
         self.consumer({CI: "name: other\n"}).archived = True

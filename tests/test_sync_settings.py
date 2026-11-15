@@ -67,6 +67,26 @@ class AppTokenTests(SyncFixture):
 
 
 class LocalModeTests(SyncFixture):
+    def test_the_local_mode_corrects_merged_branch_deletion_with_the_owner_token(self) -> None:
+        consumer = self.consumer()
+        consumer.settings["delete_branch_on_merge"] = False
+        synced = self.start("sync", "--local", "--repository", CONSUMER, token=OWNER_TOKEN)
+        self.assertEqual(0, synced.status, synced.stderr)
+        self.assertTrue(consumer.settings["delete_branch_on_merge"])
+        self.assertIn("Corrected: `delete_branch_on_merge` is `false`, expected `true`.", synced.summary)
+        written = settings_writes(self.api.writes)
+        self.assertEqual(1, len(written))
+        self.assertEqual(("PATCH", f"/repos/{CONSUMER}", {"delete_branch_on_merge": True}, OWNER_TOKEN),
+                         (written[0].method, written[0].path, written[0].body, written[0].token))
+
+    def test_matching_merged_branch_deletion_needs_no_comparison_finding_or_write(self) -> None:
+        consumer = self.consumer()
+        consumer.settings["delete_branch_on_merge"] = True
+        for synced in (self.run_sync(), self.local()):
+            self.assertEqual(0, synced.status, synced.stderr)
+            self.assertNotIn("delete_branch_on_merge", synced.summary)
+        self.assertEqual([], settings_writes(self.api.writes))
+
     def test_the_local_mode_corrects_the_merge_settings_and_the_ruleset_with_the_owner_s_token(self) -> None:
         consumer = self.consumer()
         consumer.settings.update(allow_rebase_merge=True, allow_auto_merge=False)
@@ -119,6 +139,17 @@ class IssueTests(SyncFixture):
 
     def titles(self) -> list[str]:
         return [issue["title"] for issue in self.management.issues]
+
+    def test_merged_branch_deletion_difference_is_reported_once_without_settings_writes(self) -> None:
+        consumer = self.consumer()
+        consumer.settings["delete_branch_on_merge"] = False
+        for _ in range(2):
+            synced = self.start("sync", "--own-repository", MANAGEMENT)
+            self.assertEqual(0, synced.status, synced.stderr)
+        self.assertEqual([f"Settings differ: {CONSUMER}"], self.titles())
+        self.assertIn("- `delete_branch_on_merge` is `false`, expected `true`", self.management.issues[0]["body"])
+        self.assertEqual([], settings_writes(self.api.writes))
+        self.assertFalse(consumer.settings["delete_branch_on_merge"])
 
     def test_a_run_without_findings_opens_no_issue(self) -> None:
         self.consumer()
