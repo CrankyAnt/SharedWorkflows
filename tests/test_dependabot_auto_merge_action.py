@@ -12,6 +12,10 @@ class ActionTests(unittest.TestCase):
         self.assertIn("using: composite", action)
         self.assertNotIn("checkout", action)
 
+    def test_the_consumer_kit_names_dependabot(self) -> None:
+        kit = (REPOSITORY_ROOT / "actions/dependabot-auto-merge/consumer-kit/README.md").read_text(encoding="utf-8")
+        self.assertIn("Dependabot", kit)
+
 
 if __name__ == "__main__":
     unittest.main()
