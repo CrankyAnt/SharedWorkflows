@@ -16365,6 +16365,9 @@
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
           "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
@@ -16438,10 +16441,12 @@
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
           "actions/pipeline/schema/v1/ci-config.schema.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
           "actions/pipeline/schema/v1/parts/dotnet-test.json",
           "actions/pipeline/schema/v1/parts/python-test.json",
           "actions/pipeline/schema/v1/parts/python-verify.json",
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/setups.json",
           "actions/python-tests/python_tests.py",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/fixtures/dotnet_test/Greeting.Tests.csproj",
@@ -16469,6 +16474,10 @@
         "tests/test_pipeline_dependabot.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
+        ],
+        "tests/test_pipeline_parts.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
         ]
       },
       "existence_reads": [
@@ -16479,6 +16488,22 @@
         {
           "path": "actions",
           "kind": "directory"
+        },
+        {
+          "path": "actions/dotnet-test/dotnet_test",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/dotnet-test/dotnet_test.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/dotnet-test/dotnet_test.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/dotnet-test/dotnet_test.so",
+          "kind": "any"
         },
         {
           "path": "actions/pipeline",
@@ -16514,6 +16539,22 @@
         },
         {
           "path": "actions/pipeline/plan.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/python-tests/python_tests",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/python-tests/python_tests.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/python-tests/python_tests.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/python-tests/python_tests.so",
           "kind": "any"
         },
         {
@@ -16734,6 +16775,22 @@
         },
         {
           "path": "tests/test_pipeline_dependabot.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_parts",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_pipeline_parts.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_parts.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_pipeline_parts.so",
           "kind": "any"
         },
         {
@@ -17785,11 +17842,143 @@
             "path": "tests/test_pipeline_dependabot.so",
             "kind": "any"
           }
+        ],
+        "tests/test_pipeline_parts.py": [
+          {
+            "path": "actions/dotnet-test/dotnet_test",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/dotnet-test/dotnet_test.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/dotnet-test/dotnet_test.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/dotnet-test/dotnet_test.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/plan.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/pipeline/plan.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/python-tests/python_tests",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/python-tests/python_tests.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/python-tests/python_tests.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/python-tests/python_tests.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/pipeline_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_parts",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_pipeline_parts.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_parts.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_pipeline_parts.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/workflow_commands.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/workflow_commands.so",
+            "kind": "any"
+          }
         ]
       },
       "lookup_directories": [
         ".",
+        "actions/dotnet-test",
         "actions/pipeline",
+        "actions/python-tests",
         "actions/repository-hygiene",
         "tests"
       ],
@@ -17841,6 +18030,14 @@
           "actions/pipeline",
           "actions/repository-hygiene",
           "tests"
+        ],
+        "tests/test_pipeline_parts.py": [
+          ".",
+          "actions/dotnet-test",
+          "actions/pipeline",
+          "actions/python-tests",
+          "actions/repository-hygiene",
+          "tests"
         ]
       }
     },
@@ -17857,6 +18054,61 @@
       ],
       "setups": [
         "python"
+      ],
+      "paths": [
+        "actions/dotnet-test/dotnet_test.py",
+        "tests/test_dotnet_test.py"
+      ],
+      "existence_reads": [
+        {
+          "path": "actions",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/dotnet-test",
+          "kind": "directory"
+        },
+        {
+          "path": "tests",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/__init__.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_dotnet_test",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_dotnet_test.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_dotnet_test.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_dotnet_test.so",
+          "kind": "any"
+        }
+      ],
+      "lookup_directories": [
+        ".",
+        "actions/dotnet-test",
+        "tests"
       ]
     },
     {
@@ -20108,6 +20360,9 @@
     ".": [
       "_sysconfigdata__linux_x86_64-linux-gnu",
       "tests"
+    ],
+    "actions/dotnet-test": [
+      "python_tests"
     ],
     "actions/pipeline": [
       "tests"
