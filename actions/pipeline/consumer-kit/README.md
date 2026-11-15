@@ -22,7 +22,7 @@ No caller starts on `pull_request_target`, and none inherits secrets.
 
 ## The CI guide
 
-Copy [docs/agents/ci.md](docs/agents/ci.md) to `docs/agents/ci.md`. It points to the catalogue and the schema of the configuration file at `v1`, holds no rule of its own and ends with the heading `## Repository choices`. Up to and including that heading it is equal byte for byte in every repository, as a fixed caller is. Below the heading the repository records, each with its reason, the choices that no file states, such as a deviation of its ruleset from the [ruleset template](../../repository-ruleset/README.md). A choice that a shared part reads is a value in the configuration file, and work that no shared part covers follows the decision rule in the catalogue; neither goes below the heading.
+Copy [docs/agents/ci.md](docs/agents/ci.md) to `docs/agents/ci.md`. Its fixed part holds the pointer to the catalogue and the schema of the configuration file at `v1`, and the CI principles. The principles apply to the script of the free job and the registered local workflows. The fixed part ends with the heading `## Repository choices`. Up to and including that heading it is equal byte for byte in every repository, as a fixed caller is. Below the heading the repository records, each with its reason, the choices that no file states, such as a deviation of its ruleset from the [ruleset template](../../repository-ruleset/README.md). A choice that a shared part reads is a value in the configuration file, and work that no shared part covers follows the decision rule in the catalogue; neither goes below the heading.
 
 ## The configuration file
 

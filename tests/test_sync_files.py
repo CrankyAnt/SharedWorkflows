@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 
 from tests.consumer_checks_fixtures import SHARED, SYNC_BRANCH, WORKFLOWS, template
-from tests.pipeline_fixtures import CONFIGURATION, write
+from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, write
 from tests.sync_fixtures import APP_TOKEN, CONSUMER, DEPENDABOT, MANAGEMENT, OTHER, CI_GUIDE, CI_GUIDE_TEXT, SyncFixture
 from tests.test_pipeline_dependabot import GENERATED, STATED
 
@@ -118,6 +118,18 @@ class RepositoryChoicesTests(SyncFixture):
         self.assertEqual(0, synced.status, synced.stderr)
         self.assertEqual(1, len(consumer.pulls))
         self.assertEqual(self.TEMPLATE + self.CHOICES, consumer.files(SYNC_BRANCH)[CI_GUIDE])
+
+    def test_the_real_previous_guide_is_updated_and_keeps_the_consumer_choices(self) -> None:
+        kit = PART_FOLDER / "consumer-kit"
+        current = (kit / CI_GUIDE).read_text(encoding="utf-8")
+        previous = (kit / "previous" / CI_GUIDE).read_text(encoding="utf-8")
+        self.assertNotEqual(current, previous)
+        write(self.kit, CI_GUIDE, current)
+        consumer = self.consumer({CI_GUIDE: previous + self.CHOICES})
+        synced = self.run_sync()
+        self.assertEqual(0, synced.status, synced.stdout + synced.stderr)
+        self.assertEqual(1, len(consumer.pulls))
+        self.assertEqual(current + self.CHOICES, consumer.files(SYNC_BRANCH)[CI_GUIDE])
 
     def test_a_document_without_the_heading_becomes_the_template(self) -> None:
         consumer = self.consumer({CI_GUIDE: "# CI\n\nOur own rules.\n"})

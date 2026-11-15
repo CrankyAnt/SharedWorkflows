@@ -4,8 +4,10 @@ configuration file."""
 
 from __future__ import annotations
 
+import calendar
 import json
 import unittest
+from datetime import date, timedelta
 
 from tests.consumer_checks_fixtures import CALLERS, CONSUMER, SHARED, SYNC_BRANCH, WORKFLOWS, Checked, ConsumerFixture, template
 from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, write
@@ -294,6 +296,26 @@ class RealKitTests(ConsumerFixture):
         self.assertEqual(0, self.check("callers").status)
         self.consumer({CI_GUIDE: template_text.replace("catalogue", "list", 1)})
         self.assertEqual(1, self.check("callers").status)
+
+    def test_the_real_guides_follow_the_recorded_transition(self) -> None:
+        record = json.loads((REAL_KIT / "fixed-callers.json").read_text(encoding="utf-8"))
+        promoted = date.fromisoformat(record["previous"][CI_GUIDE])
+        year, month = promoted.year + (promoted.month == 12), promoted.month % 12 + 1
+        expires = date(year, month, min(promoted.day, calendar.monthrange(year, month)[1]))
+        choices = "\nThe repository keeps its own choice.\n"
+        current = (REAL_KIT / CI_GUIDE).read_text(encoding="utf-8")
+        previous = (REAL_KIT / "previous" / CI_GUIDE).read_text(encoding="utf-8")
+        self.assertNotEqual(current, previous)
+        self.consumer({CI_GUIDE: previous + choices})
+        for today, expected in ((promoted, 0), (expires, 0), (expires + timedelta(days=1), 1)):
+            with self.subTest(today=today):
+                checked = self.check("callers", "--today", today.isoformat())
+                self.assertEqual(expected, checked.status, checked.stdout + checked.stderr)
+        self.consumer({CI_GUIDE: current + choices})
+        for today in (promoted, expires + timedelta(days=1)):
+            with self.subTest(today=today):
+                checked = self.check("callers", "--today", today.isoformat())
+                self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
 
     def test_a_consumer_without_the_kit_s_ci_guide_fails(self) -> None:
         self.consumer({CI_GUIDE: None})
