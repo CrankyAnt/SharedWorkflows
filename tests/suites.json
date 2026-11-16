@@ -439,6 +439,7 @@
           "tests/test_ci_policy_hygiene_updater.py"
         ],
         "tests/test_ci_policy_hygiene_validate.py": [
+          ".github/ci-config.yml",
           ".github/workflows/validate.yml",
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
@@ -550,6 +551,7 @@
           "actions/recording/stdlib_module_names.json",
           "actions/recording/stdlib_names.py",
           "actions/recording/toolchain_probes.json",
+          "actions/repository-hygiene/action.yml",
           "actions/suite-selection/action.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
@@ -1121,6 +1123,7 @@
         "tests/test_setup_ci_publication.py/**",
         "tests/test_setup_ci_templates.py/**",
         "tests/test_setup_ci_validation_workflow.py/**",
+        "tests/test_suite_jobs_pinned_tools.py/**",
         "tests/test_suite_selection.py/**",
         "tests/test_suite_selection_caller_entries.py/**",
         "tests/test_suite_selection_code_boundary.py/**",
@@ -1345,6 +1348,7 @@
           "tests/test_setup_ci_publication.py/**",
           "tests/test_setup_ci_templates.py/**",
           "tests/test_setup_ci_validation_workflow.py/**",
+          "tests/test_suite_jobs_pinned_tools.py/**",
           "tests/test_suite_selection.py/**",
           "tests/test_suite_selection_caller_entries.py/**",
           "tests/test_suite_selection_code_boundary.py/**",
@@ -2849,6 +2853,10 @@
         },
         {
           "path": "tests/test_setup_ci_validation_workflow.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools.py",
           "kind": "any"
         },
         {
@@ -4652,6 +4660,10 @@
           },
           {
             "path": "tests/test_setup_ci_validation_workflow.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_jobs_pinned_tools.py",
             "kind": "any"
           },
           {
@@ -9332,6 +9344,18 @@
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/schema/v1/base.json",
+        "actions/pipeline/schema/v1/parts/additions.json",
+        "actions/pipeline/schema/v1/parts/custom.json",
+        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+        "actions/pipeline/schema/v1/parts/dotnet-test.json",
+        "actions/pipeline/schema/v1/parts/full-recording.json",
+        "actions/pipeline/schema/v1/parts/github-release.json",
+        "actions/pipeline/schema/v1/parts/issue-title.json",
+        "actions/pipeline/schema/v1/parts/node-test.json",
+        "actions/pipeline/schema/v1/parts/python-test.json",
+        "actions/pipeline/schema/v1/parts/python-verify.json",
+        "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+        "actions/pipeline/schema/v1/parts/suite-selection.json",
         "actions/pipeline/schema/v1/setups.json",
         "actions/publication-checks/action.yml",
         "actions/python-language-step/action.yml",
@@ -10153,7 +10177,23 @@
         "tests/test_recording_full_close.py": [
           ".github/workflows/automation.yml",
           ".github/workflows/full-recording.yml",
+          "actions/pipeline/plan.py",
+          "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/parts/suite-selection.json",
+          "actions/pipeline/schema/v1/setups.json",
           "actions/recording/recording.py",
+          "actions/repository-hygiene/dependabot_coverage.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
@@ -10296,6 +10336,7 @@
           "tests/test_suite_selection_reuse.py"
         ],
         "tests/test_recording_setups.py": [
+          ".github/workflows/suite-jobs.yml",
           "actions/recording/recording.py",
           "actions/recording/stdlib_module_names.json",
           "actions/recording/toolchain_probes.json",
@@ -10303,6 +10344,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
+          "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/test_recording_setups.py"
@@ -10329,6 +10371,8 @@
         "actions/dotnet-test/action.yml/**",
         "actions/node-test/action.yml/**",
         "actions/pipeline/action.yml/**",
+        "actions/pipeline/schema",
+        "actions/pipeline/schema/v1/parts",
         "actions/publication-checks/action.yml/**",
         "actions/python-language-step/action.yml/**",
         "actions/python-tests/action.yml/**",
@@ -10588,6 +10632,7 @@
         "tests/test_setup_ci_publication.py/**",
         "tests/test_setup_ci_templates.py/**",
         "tests/test_setup_ci_validation_workflow.py/**",
+        "tests/test_suite_jobs_pinned_tools.py/**",
         "tests/test_suite_selection.py/**",
         "tests/test_suite_selection_caller_entries.py/**",
         "tests/test_suite_selection_code_boundary.py/**",
@@ -10756,6 +10801,7 @@
           "tests/test_setup_ci_publication.py/**",
           "tests/test_setup_ci_templates.py/**",
           "tests/test_setup_ci_validation_workflow.py/**",
+          "tests/test_suite_jobs_pinned_tools.py/**",
           "tests/test_suite_selection.py/**",
           "tests/test_suite_selection_caller_entries.py/**",
           "tests/test_suite_selection_code_boundary.py/**",
@@ -10899,6 +10945,10 @@
           "tests/fixtures/recording_strace/commands/full-runners/plain.lookups",
           "tests/fixtures/recording_strace/commands/full-runners/skip.lookups"
         ],
+        "tests/test_recording_full_close.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
+        ],
         "tests/test_recording_lookups.py": [
           "."
         ],
@@ -11015,6 +11065,10 @@
         {
           "path": "actions/pipeline/plan.so",
           "kind": "any"
+        },
+        {
+          "path": "actions/pipeline/schema/v1",
+          "kind": "directory"
         },
         {
           "path": "actions/publication-checks/action.yml",
@@ -12130,6 +12184,10 @@
         },
         {
           "path": "tests/test_setup_ci_validation_workflow.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools.py",
           "kind": "any"
         },
         {
@@ -13900,6 +13958,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_suite_jobs_pinned_tools.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection.py",
             "kind": "any"
           },
@@ -14486,8 +14548,36 @@
             "kind": "directory"
           },
           {
+            "path": "actions/pipeline",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/schema/v1",
+            "kind": "directory"
+          },
+          {
             "path": "actions/recording",
             "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
+            "kind": "any"
           },
           {
             "path": "actions/suite-selection",
@@ -15790,7 +15880,9 @@
         ],
         "tests/test_recording_full_close.py": [
           ".",
+          "actions/pipeline",
           "actions/recording",
+          "actions/repository-hygiene",
           "actions/suite-selection",
           "tests"
         ],
@@ -18327,8 +18419,54 @@
         "python",
         "gitleaks"
       ],
+      "paths": [
+        "actions/repository-hygiene/pins.json",
+        "tests/test_suite_jobs_pinned_tools.py"
+      ],
       "extra_paths": [
         "actions/repository-hygiene/pins.json"
+      ],
+      "existence_reads": [
+        {
+          "path": "tests",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/__init__.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools.so",
+          "kind": "any"
+        }
+      ],
+      "lookup_directories": [
+        ".",
+        "tests"
       ]
     },
     {
@@ -24469,6 +24607,7 @@
       },
       "entry_selection": true,
       "paths": [
+        ".github/workflows/suite-jobs.yml",
         "actions/recording/action.yml",
         "actions/recording/etw-consumer/Program.cs",
         "actions/recording/etw-consumer/build/EtwConsumer.deps.json",
@@ -24484,6 +24623,7 @@
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/revisions.py",
         "actions/suite-selection/suite_selection.py",
+        "tests/ci_policy_support.py",
         "tests/etw_access.ps1",
         "tests/record_etw_fixture.py",
         "tests/recording_fixtures.py",
@@ -24517,6 +24657,7 @@
           "tests/test_windows_recording.py"
         ],
         "tests/test_recording_setups.py": [
+          ".github/workflows/suite-jobs.yml",
           "actions/recording/etw-consumer/build/EtwConsumer.deps.json",
           "actions/recording/etw-consumer/build/EtwConsumer.dll",
           "actions/recording/etw-consumer/build/EtwConsumer.runtimeconfig.json",
@@ -24529,6 +24670,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
+          "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/test_recording_setups.py"
@@ -24674,6 +24816,18 @@
         {
           "path": "tests",
           "kind": "directory"
+        },
+        {
+          "path": "tests/ci_policy_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/ci_policy_support.cp313-win_amd64.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/ci_policy_support.pyd",
+          "kind": "any"
         },
         {
           "path": "tests/recording_fixtures",
@@ -25065,6 +25219,18 @@
             "kind": "any"
           },
           {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.cp313-win_amd64.pyd",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.pyd",
+            "kind": "any"
+          },
+          {
             "path": "tests/recording_fixtures",
             "kind": "directory"
           },
@@ -25139,8 +25305,34 @@
         "python",
         "gitleaks"
       ],
+      "paths": [
+        "actions/repository-hygiene/pins.json",
+        "tests/test_suite_jobs_pinned_tools.py"
+      ],
       "extra_paths": [
         "actions/repository-hygiene/pins.json"
+      ],
+      "existence_reads": [
+        {
+          "path": "tests",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools.cp313-win_amd64.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_jobs_pinned_tools.pyd",
+          "kind": "any"
+        }
+      ],
+      "lookup_directories": [
+        ".",
+        "tests"
       ]
     }
   ],
