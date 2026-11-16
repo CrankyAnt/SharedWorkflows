@@ -18,12 +18,6 @@
       "tool": "dotnet",
       "version-file": "actions/recording/etw-consumer/global.json#/sdk/version"
     },
-    "node": {
-      "script": "tests/setups/node.py",
-      "recorded": false,
-      "tool": "node",
-      "version-file": "actions/repository-hygiene/pins.json#/node/version"
-    },
     "actionlint": {
       "script": "tests/setups/pinned-tool.sh"
     },
@@ -40,9 +34,7 @@
       "script": "tests/setups/pinned-tool.sh"
     },
     "commitlint": {
-      "script": "tests/setups/commitlint.sh",
-      "tool": "node",
-      "version-file": "actions/repository-hygiene/pins.json#/node/version"
+      "script": "tests/setups/commitlint.sh"
     }
   },
   "suites": [
@@ -18470,6 +18462,25 @@
       ]
     },
     {
+      "name": "pinned-node",
+      "entries": [
+        "tests/test_suite_jobs_pinned_node.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python",
+        "node"
+      ],
+      "extra_paths": [
+        "actions/repository-hygiene/pins.json"
+      ]
+    },
+    {
       "name": "python-language-step",
       "entries": [
         "tests/test_python_language_step.py"
@@ -25333,6 +25344,26 @@
       "lookup_directories": [
         ".",
         "tests"
+      ]
+    },
+    {
+      "name": "pinned-node-windows",
+      "entries": [
+        "tests/test_suite_jobs_pinned_node.py"
+      ],
+      "os": "windows",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python",
+        "node"
+      ],
+      "extra_paths": [
+        "actions/repository-hygiene/pins.json"
       ]
     }
   ],
