@@ -313,7 +313,7 @@ class PinnedNodeLinuxJobTests(unittest.TestCase):
 
     def test_the_entry_file_that_states_node_finds_the_node_that_the_job_installed_and_no_other_entry_file_does(self) -> None:
         fixture = PinnedNodeFixture(self.addCleanup, "node", "#!/bin/sh\necho v24.9.0\n")
-        based = fixture.run_with_path(fixture.environment()["PATH"], "base", "--file", str(fixture.base / "recording-environment.json"))
+        based = fixture.run("base", "--file", str(fixture.base / "recording-environment.json"))
         self.assertEqual(based.returncode, 0, based.stdout + based.stderr)
         # The job's action puts Node.js on the PATH of the steps after the recording step, which wrote the job's environment.
         job_path = str(fixture.installed) + os.pathsep + str(fixture.stand_in / "bin") + os.pathsep + os.environ["PATH"]
