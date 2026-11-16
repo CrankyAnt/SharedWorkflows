@@ -1,15 +1,34 @@
 name: Shared .NET test step
-description: Build a .NET test project or solution and run its tests with the .NET SDK that the job installed.
+description: Build a .NET test project or solution and run its tests, or its console test program, with the .NET SDK that the job installed.
 inputs:
   project:
     description: The test project or the solution, as a path relative to the repository root.
     required: true
+  console-runner:
+    description: Whether the project is a console test program, which runs with dotnet run and whose exit code is the result. Without it, false.
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
-    - shell: bash
+    - if: inputs.console-runner == 'false'
+      shell: bash
       env:
         RESOURCE_PATH: ${{ github.action_path }}
         PROJECT: ${{ inputs.project }}
         PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
       run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/dotnet_test.py" --project "$PROJECT"
+    - if: inputs.console-runner == 'true'
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        PROJECT: ${{ inputs.project }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+      run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/dotnet_test.py" --project "$PROJECT" --console-runner
+    - if: inputs.console-runner != 'true' && inputs.console-runner != 'false'
+      shell: bash
+      env:
+        CONSOLE_RUNNER: ${{ inputs.console-runner }}
+      run: |
+        echo "::error title=dotnet-test::the input console-runner is $CONSOLE_RUNNER; it is true or false"
+        exit 2

@@ -56,7 +56,7 @@ PARTS = {
                       name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=True,
                       fixture_folder="working-directory", paths=["tests/fixtures/python_tests/", "actions/python-tests/"]),
     DOTNET_TEST: Part(shared_steps=["actions/dotnet-test"], name="${{ matrix.project['project'] }}", runner_label=True,
-                      fixture_folder="project", paths=["tests/fixtures/dotnet_test/", "actions/dotnet-test/"]),
+                      fixture_folder="project", paths=["tests/fixtures/dotnet_test/", "tests/fixtures/dotnet_console/", "actions/dotnet-test/"]),
     NODE_TEST: Part(shared_steps=["actions/node-test", "actions/node-test"], name="${{ matrix.project['working-directory'] }}", runner_label=True,
                     fixture_folder="working-directory", paths=["tests/fixtures/node_test/", "actions/node-test/"], cache_lines=(NO_PACKAGE_MANAGER_CACHE,)),
 }
@@ -203,7 +203,8 @@ class PartJobTests(unittest.TestCase):
         self.assertRegex(setup["uses"], r"^actions/setup-dotnet@[0-9a-f]{40}$")
         self.assertEqual({"dotnet-version": f"${{{{ {value('sdk-version')} }}}}"}, setup["with"])
         self.assertEqual("$/actions/dotnet-test", step["uses"])
-        self.assertEqual({"project": f"${{{{ {value('project')} }}}}"}, step["with"])
+        self.assertEqual({"project": f"${{{{ {value('project')} }}}}", "console-runner": f"${{{{ {value('console-runner')} == true }}}}"}, step["with"],
+                         "each item's own console-runner reaches the step, false for an item that states none")
 
     def test_node_test_checks_the_project_installs_the_node_of_its_nvmrc_and_runs_the_npm_commands_on_the_configured_runner(self) -> None:
         job = self.jobs[NODE_TEST]
@@ -300,15 +301,24 @@ class DotnetTestStepTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text, self.action = read_workflow(REPOSITORY_ROOT / "actions" / "dotnet-test" / "action.yml")
 
-    def test_the_step_runs_its_script_on_the_job_s_python_with_the_project_of_its_one_input(self) -> None:
+    def test_the_step_runs_its_script_on_the_job_s_python_with_the_project_and_with_the_console_runner_only_when_its_input_says_so(self) -> None:
         self.assertEqual("composite", self.action["runs"]["using"])
-        self.assertEqual(["project"], list(self.action["inputs"]))
+        self.assertEqual(["project", "console-runner"], list(self.action["inputs"]))
         self.assertEqual("true", str(self.action["inputs"]["project"]["required"]))
-        (run,) = self.action["runs"]["steps"]
-        self.assertEqual("bash", run["shell"])
-        self.assertEqual({"RESOURCE_PATH": "${{ github.action_path }}", "PROJECT": "${{ inputs.project }}",
-                          "PYTHON": "${{ runner.os == 'Windows' && 'python' || 'python3' }}"}, run["env"])
-        self.assertEqual('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/dotnet_test.py" --project "$PROJECT"', run["run"])
+        self.assertEqual(("false", "false"), (str(self.action["inputs"]["console-runner"]["required"]).lower(), self.action["inputs"]["console-runner"]["default"]),
+                         "a caller that names no console-runner builds and tests as before")
+        tests, console, unknown = self.action["runs"]["steps"]
+        command = 'PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/dotnet_test.py" --project "$PROJECT"'
+        self.assertEqual("inputs.console-runner != 'true' && inputs.console-runner != 'false'", unknown["if"], "another value fails the step")
+        self.assertIn("exit 2", unknown["run"])
+        self.assertNotIn("dotnet_test.py", unknown["run"])
+        for run, condition, line in ((tests, "inputs.console-runner == 'false'", command), (console, "inputs.console-runner == 'true'", command + " --console-runner")):
+            with self.subTest(condition=condition):
+                self.assertEqual(condition, run["if"], "exactly one of the two steps runs")
+                self.assertEqual("bash", run["shell"])
+                self.assertEqual({"RESOURCE_PATH": "${{ github.action_path }}", "PROJECT": "${{ inputs.project }}",
+                                  "PYTHON": "${{ runner.os == 'Windows' && 'python' || 'python3' }}"}, run["env"])
+                self.assertEqual(line, run["run"])
 
     def test_the_step_installs_no_sdk_and_checks_out_nothing(self) -> None:
         for text in ("uses:", "setup-dotnet", "dotnet-version", "checkout"):

@@ -157,6 +157,7 @@ jobs:
         uses: $/actions/dotnet-test
         with:
           project: ${{ matrix.project['project'] }}
+          console-runner: ${{ matrix.project['console-runner'] == true }}
 
   node-test:
     needs: plan

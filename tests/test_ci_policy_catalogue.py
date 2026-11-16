@@ -236,7 +236,7 @@ class PageTests(CatalogueFixture):
     def test_a_page_names_nothing_that_exists_only_in_this_repository(self) -> None:
         for part in self.fragments:
             text = json.dumps(self.entries[part])
-            for own in ("tests/", "python_tests", "dotnet_test", "node_test", "maintaining.md", "validate.yml"):
+            for own in ("tests/", "python_tests", "dotnet_test", "dotnet_console", "node_test", "maintaining.md", "validate.yml"):
                 with self.subTest(part=part, own=own):
                     self.assertNotIn(own, text)
 

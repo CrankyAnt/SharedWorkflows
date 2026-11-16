@@ -166,12 +166,12 @@
     },
     {
       "name": "dotnet-test",
-      "purpose": "A job of the pipeline per configured test project or solution that installs a .NET SDK version, builds it, runs its tests with dotnet test and fails when no test ran.",
+      "purpose": "A job of the pipeline per configured test project or solution that installs a .NET SDK version, builds it, runs its tests with dotnet test and fails when no test ran; for a project that is a console test program, a project without a test framework whose exit code is the result, the job builds it and runs it with dotnet run.",
       "configuration": "actions/pipeline/schema/v1/parts/dotnet-test.json",
       "workflows": [],
       "steps": ["actions/dotnet-test"],
       "required_checks": [],
-      "needs": "The pipeline, a .NET test project or a solution that dotnet test runs, and parts.dotnet-test in .github/ci-config.yml with projects, a list of one or more items that each name sdk-version and project and optionally runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/dotnet-test.json states every setting.",
+      "needs": "The pipeline, a .NET test project or a solution that dotnet test runs, or a console test program that dotnet run runs and that exits with a non-zero code when a check fails, and parts.dotnet-test in .github/ci-config.yml with projects, a list of one or more items that each name sdk-version and project and optionally runner-label, the label of a GitHub-hosted runner, and console-runner, true for an item whose project is a console test program; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/dotnet-test.json states every setting.",
       "applies": "A repository with .NET tests that runs the pipeline.",
       "consumer_kit": null,
       "audience": "consumer"
