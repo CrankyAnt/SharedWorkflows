@@ -64,10 +64,11 @@ PARTS = {
                  {"python-version": "3.11"}],
         runner_label=True, fixture="python_tests", paths=["tests/fixtures/python_tests/", "actions/python-tests/"]),
     DOTNET_TEST: Part(
-        settings=["project", "runner-label", "sdk-version"], required=["project", "sdk-version"], smallest={"sdk-version": "10.0.x", "project": "Shop.sln"},
+        settings=["console-runner", "project", "runner-label", "sdk-version"], required=["project", "sdk-version"], smallest={"sdk-version": "10.0.x", "project": "Shop.sln"},
         several=[{"sdk-version": "10.0.x", "project": "tests/Shop.Tests/Shop.Tests.csproj", "runner-label": "windows-2025"},
-                 {"sdk-version": "9.0.305", "project": "tests/Legacy.Tests/Legacy.Tests.csproj"}],
-        runner_label=True, fixture="dotnet_test", paths=["tests/fixtures/dotnet_test/", "actions/dotnet-test/"]),
+                 {"sdk-version": "10.0.x", "project": "tests/Shop.Checks/Shop.Checks.csproj", "console-runner": True},
+                 {"sdk-version": "9.0.305", "project": "tests/Legacy.Tests/Legacy.Tests.csproj", "console-runner": False}],
+        runner_label=True, fixture="dotnet_test", paths=["tests/fixtures/dotnet_test/", "tests/fixtures/dotnet_console/", "actions/dotnet-test/"]),
     NODE_TEST: Part(
         settings=["runner-label", "working-directory"], required=["working-directory"], smallest={"working-directory": "web"},
         several=[{"working-directory": "web", "runner-label": "windows-2025"}, {"working-directory": "."}],
@@ -213,7 +214,18 @@ class RejectedProjectTests(RealSchemaFixture):
             ({"sdk-version": "10.0.x", "project": "../Shop.sln"}, "project: does not match the pattern"),
             ({"sdk-version": "10.0.x", "project": "--version"}, "project: does not match the pattern"),
             ({"sdk-version": "10.0.x", "project": "Shop.sln", "configuration": "Release"}, "configuration: is not a setting here"),
+            ({"sdk-version": "10.0.x", "project": "Shop.Checks.csproj", "console-runner": "true"}, "console-runner: expected true or false, found a string"),
+            ({"sdk-version": "10.0.x", "project": "Shop.Checks.csproj", "console-runner": 1}, "console-runner: expected true or false, found a whole number"),
         ))
+
+    def test_console_runner_is_a_setting_of_a_dotnet_test_project_and_not_of_the_part(self) -> None:
+        project = {"sdk-version": "10.0.x", "project": "Shop.Checks.csproj"}
+        for value in (True, False):
+            with self.subTest(value=value):
+                outcome = self.assert_accepted(configuration(DOTNET_TEST, {**project, "console-runner": value}))
+                self.assertEqual([{**project, "console-runner": value}], outcome.plan["parts"][DOTNET_TEST]["config"]["projects"], "the value reaches the job")
+        self.assert_rejected(configuration(DOTNET_TEST, project, **{"console-runner": True}),
+                             f"parts.{DOTNET_TEST}.console-runner: is not a setting of the part {DOTNET_TEST}")
 
     def test_a_node_test_project_that_the_job_cannot_run_with_is_rejected_with_the_place_of_the_value(self) -> None:
         self.assert_each_rejected(NODE_TEST, (
@@ -276,10 +288,17 @@ class OwnConfigurationTests(unittest.TestCase):
                 self.assertTrue((REPOSITORY_ROOT / "tests/fixtures/python_tests/pyproject.toml").is_file())
         self.assertEqual("dev", self.parts[PYTHON_TEST]["projects"][0]["install"], "the dev extra of the fixture holds pytest")
 
-    def test_the_dotnet_part_runs_on_its_fixture_project(self) -> None:
-        (project,) = self.parts[DOTNET_TEST]["projects"]
-        self.assertTrue(project["project"].startswith("tests/fixtures/dotnet_test/"))
-        self.assertTrue((REPOSITORY_ROOT / project["project"]).is_file())
+    def test_the_dotnet_part_runs_on_its_fixture_test_project_and_on_its_fixture_console_test_program(self) -> None:
+        tests, console = self.parts[DOTNET_TEST]["projects"]
+        self.assertTrue(tests["project"].startswith("tests/fixtures/dotnet_test/"))
+        self.assertNotIn("console-runner", tests)
+        self.assertTrue(console["project"].startswith("tests/fixtures/dotnet_console/"))
+        self.assertIs(True, console["console-runner"])
+        for project in (tests, console):
+            self.assertTrue((REPOSITORY_ROOT / project["project"]).is_file())
+        program = (REPOSITORY_ROOT / console["project"]).read_text(encoding="utf-8")
+        self.assertIn("<OutputType>Exe</OutputType>", program)
+        self.assertNotIn("PackageReference", program, "a console test program has no test framework")
 
     def test_the_node_part_runs_on_its_fixture_project_with_a_lockfile_a_build_and_a_test(self) -> None:
         (project,) = self.parts[NODE_TEST]["projects"]
@@ -318,10 +337,13 @@ class InvocationTests(unittest.TestCase):
         for tokens in (invocations[0], invocations[2]):
             self.assertEqual("x", python_tests.parse_arguments(tokens).install, "the value reaches --install with an equals sign, so a leading - stays a value")
 
-    def test_the_dotnet_step_hands_the_project_to_its_script(self) -> None:
+    def test_the_dotnet_step_hands_the_project_to_its_script_and_the_console_runner_only_for_a_console_test_program(self) -> None:
         action = REPOSITORY_ROOT / "actions" / "dotnet-test" / "action.yml"
-        (tokens,) = script_invocations(action, "dotnet_test.py")
-        self.assertEqual("x", dotnet_test.build_parser().parse_args(tokens).project)
+        tests, console = script_invocations(action, "dotnet_test.py")
+        for tokens, console_runner in ((tests, False), (console, True)):
+            with self.subTest(console_runner=console_runner):
+                options = dotnet_test.build_parser().parse_args(tokens)
+                self.assertEqual(("x", console_runner), (options.project, options.console_runner))
 
     def test_the_node_step_hands_the_command_and_the_working_directory_to_its_script(self) -> None:
         action = REPOSITORY_ROOT / "actions" / "node-test" / "action.yml"

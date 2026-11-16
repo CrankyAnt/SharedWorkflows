@@ -37,8 +37,12 @@ parts:
     projects:
       - sdk-version: "10.0.x"
         project: tests/fixtures/dotnet_test/Greeting.Tests.csproj
+      - sdk-version: "10.0.x"
+        project: tests/fixtures/dotnet_console/Greeting.Checks.csproj
+        console-runner: true
     paths:
       - tests/fixtures/dotnet_test/
+      - tests/fixtures/dotnet_console/
       - actions/dotnet-test/
       - actions/pipeline/
       - .github/workflows/pipeline.yml

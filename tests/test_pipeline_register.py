@@ -212,6 +212,18 @@ class SwitchOverTests(ConsumerFixture):
                 self.assertEqual(1, checked.status, checked.stdout)
                 self.assertIn("waits for the setting `runner-label` of the part `custom`, which exists now", checked.summary)
 
+    def test_an_entry_or_a_free_job_that_waits_for_the_console_runner_of_dotnet_test_fails_in_the_real_schema(self) -> None:
+        self.schemas = SCHEMAS
+        for kind, text in (("entry", self.WAITING.replace("fixture-build", "dotnet-test.console-runner")),
+                           ("free job", "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    request: 12\n    waits-for: dotnet-test.console-runner\n")):
+            with self.subTest(kind=kind):
+                self.consumer({CONFIGURATION: text})
+                checked = self.check("register")
+                self.assertEqual(1, checked.status, checked.stdout)
+                self.assertIn("waits for the setting `console-runner` of the part `dotnet-test`, which exists now", checked.summary)
+        self.consumer({CONFIGURATION: self.WAITING.replace("fixture-build", "dotnet-test.configuration")})
+        self.assertEqual(0, self.check("register").status, "a setting that the part lacks keeps the entry")
+
     def test_an_entry_that_waits_for_a_setting_passes_while_the_part_lacks_it(self) -> None:
         for waits_for in ("fixture-test.depth", "fixture-build.level", "fixture-floor.level", "fixture-release.level"):
             with self.subTest(waits_for=waits_for):

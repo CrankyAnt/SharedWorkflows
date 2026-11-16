@@ -72,7 +72,7 @@
           }
         },
         "dotnet-test": {
-          "description": "The tests of one or more .NET test projects or solutions, each in a job of its own: dotnet build and then dotnet test, with the .NET SDK version the project names; a job fails when no test ran. Invented example: {\"projects\": [{\"sdk-version\": \"10.0.x\", \"project\": \"tests/Shop.Tests/Shop.Tests.csproj\"}], \"paths\": [\"src/\", \"tests/\"]}.",
+          "description": "The tests of one or more .NET test projects or solutions, each in a job of its own: dotnet build and then dotnet test, with the .NET SDK version the project names; a job fails when no test ran. A project that is a console test program states console-runner: its job runs dotnet build and then dotnet run, and the program's exit code is the result. Invented example: {\"projects\": [{\"sdk-version\": \"10.0.x\", \"project\": \"tests/Shop.Tests/Shop.Tests.csproj\"}, {\"sdk-version\": \"10.0.x\", \"project\": \"tests/Shop.Checks/Shop.Checks.csproj\", \"console-runner\": true}], \"paths\": [\"src/\", \"tests/\"]}.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -97,12 +97,16 @@
                     "$ref": "#/$defs/dotnet-sdk-version"
                   },
                   "project": {
-                    "description": "The test project or the solution that is built and tested, as a path relative to the repository root.",
+                    "description": "The test project or the solution that is built and tested, as a path relative to the repository root; with console-runner, the project of the console test program.",
                     "$ref": "#/$defs/relative-path"
                   },
                   "runner-label": {
                     "description": "The label of the GitHub-hosted runner of the item's job. Without it, ubuntu-26.04.",
                     "$ref": "#/$defs/runner-label"
+                  },
+                  "console-runner": {
+                    "description": "The project is a console test program: a project without a test framework that exits with a non-zero code when a check fails. The job runs dotnet build and then dotnet run --project <project> --no-build in place of dotnet test, takes the program's exit code as the result and makes no check that a test ran. Without it, false.",
+                    "type": "boolean"
                   }
                 }
               }

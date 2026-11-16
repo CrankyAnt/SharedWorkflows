@@ -1,6 +1,6 @@
 """The script of the part dotnet-test, started as a process with a stand-in for the ``dotnet`` command: it builds the
 configured project and then runs its tests, the exit codes of the two commands decide its own, and a run that executed
-no test fails."""
+no test fails; a console test program runs with ``dotnet run`` in place of the tests, and its exit code is the result."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ SCRIPT = PART_FOLDER / "dotnet_test.py"
 PROJECT = "tests/Shop.Tests/Shop.Tests.csproj"
 
 # The stand-in appends its working directory and its arguments to the log and ends with the exit code that the
-# environment names for its first argument: STAND_IN_BUILD for ``dotnet build``, STAND_IN_TEST for ``dotnet test``.
+# environment names for its first argument: STAND_IN_BUILD for ``dotnet build``, STAND_IN_TEST for ``dotnet test``,
+# STAND_IN_RUN for ``dotnet run``.
 # ``dotnet test`` writes one TRX report per number in STAND_IN_EXECUTED, the executed tests of one test assembly, into
 # the directory after ``--results-directory``; STAND_IN_REPORT replaces the text of each report.
 STAND_IN = """\
@@ -40,6 +41,7 @@ sys.exit(int(os.environ.get("STAND_IN_" + arguments[0].upper(), "0")))
 """
 BUILD = f"build {PROJECT}|11"
 TEST = f"test {PROJECT} --no-build --logger trx --results-directory <results>|11"
+RUN = f"run --project {PROJECT} --no-build|11"
 
 
 class DotnetTestFixture(unittest.TestCase):
@@ -135,7 +137,7 @@ class NoTestRanTests(DotnetTestFixture):
 
     def assert_no_test_ran(self, completed: subprocess.CompletedProcess[str]) -> None:
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
-        self.assertEqual(2, len(self.commands()), "the tests were started")
+        self.assertEqual([f"{self.repository}|{BUILD}", f"{self.repository}|{TEST}"], self.commands(), "the tests were started, and no dotnet run")
         self.assertIn(f"::error title=dotnet-test::no test ran in {PROJECT}", completed.stderr)
         self.assertIn("is a test project", completed.stderr)
 
@@ -164,6 +166,51 @@ class NoTestRanTests(DotnetTestFixture):
         self.assertEqual(1, completed.returncode)
         self.assertIn(f"the tests of {PROJECT} failed", completed.stderr)
         self.assertNotIn("no test ran", completed.stderr)
+
+
+class ConsoleRunnerTests(DotnetTestFixture):
+    """A console test program: the script builds it and runs it with ``dotnet run``, and its exit code is the result."""
+
+    def test_it_builds_the_project_and_then_runs_the_program_from_the_repository_root_and_runs_no_dotnet_test(self) -> None:
+        completed = self.run_script("--project", PROJECT, "--console-runner")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual([f"{self.repository}|{BUILD}", f"{self.repository}|{RUN}"], self.commands(), "each command runs without the logo and without telemetry")
+        self.assertIn(f"+ dotnet build {PROJECT}", completed.stdout)
+        self.assertIn(f"+ dotnet run --project {PROJECT} --no-build", completed.stdout)
+        self.assertIn("stand-in output of dotnet run", completed.stdout, "the output of the program reaches the job's log")
+
+    def test_a_program_that_ends_with_zero_passes_although_no_report_exists(self) -> None:
+        completed = self.run_script("--project", PROJECT, "--console-runner", executed="")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual([], list(self.temporary.iterdir()), "the script asked for no results directory")
+        self.assertNotIn("no test ran", completed.stdout + completed.stderr)
+        self.assertNotIn("::error", completed.stderr)
+
+    def test_a_program_that_ends_with_another_exit_code_fails_the_script_with_exit_code_1(self) -> None:
+        for code in (1, 3):
+            with self.subTest(code=code):
+                self.log.unlink(missing_ok=True)
+                completed = self.run_script("--project", PROJECT, "--console-runner", run=code)
+                self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+                self.assertEqual([f"{self.repository}|{BUILD}", f"{self.repository}|{RUN}"], self.commands())
+                self.assertIn(f"::error title=dotnet-test::the console test program {PROJECT} failed: it ended with exit code {code}", completed.stderr)
+                self.assertNotIn("the build of", completed.stderr)
+
+    def test_a_failed_build_fails_the_script_names_the_build_and_does_not_run_the_program(self) -> None:
+        completed = self.run_script("--project", PROJECT, "--console-runner", build=1)
+        self.assertEqual(1, completed.returncode)
+        self.assertEqual([f"{self.repository}|{BUILD}"], self.commands())
+        self.assertIn(f"::error title=dotnet-test::the build of {PROJECT} failed", completed.stderr)
+        self.assertNotIn("console test program", completed.stderr)
+
+    def test_a_project_that_does_not_exist_or_a_job_without_dotnet_fails_with_exit_code_2_before_any_command_runs(self) -> None:
+        completed = self.run_script("--project", "tests/Missing.Checks/Missing.Checks.csproj", "--console-runner")
+        self.assertEqual(2, completed.returncode)
+        self.assertIn("is no file of the repository", completed.stderr)
+        completed = self.run_script("--project", PROJECT, "--console-runner", path=str(self.directory / "empty"))
+        self.assertEqual(2, completed.returncode)
+        self.assertIn("::error title=dotnet-test::dotnet is not on PATH", completed.stderr)
+        self.assertEqual([], self.commands())
 
 
 if __name__ == "__main__":
