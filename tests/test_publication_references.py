@@ -199,9 +199,12 @@ class PublicationReferenceTests(PublicationFixture):
                 self.assertIn(f"pull request body, line 1, column 5: {NOT_PUBLIC}", output)
 
     def test_a_refused_page_is_requested_again_and_then_passes(self) -> None:
-        for status in (403, 429):
-            with self.subTest(status):
-                api = self._list(["PublicTool"], refusals=[(status, {"retry-after": "0"}, b'{"message": "secondary rate limit"}')])
+        # A reset an hour away is beyond the wait limit, so the third case passes only when `retry-after` in fractional
+        # seconds is honoured.
+        far_reset = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(time.time()) + 3600)}
+        for status, headers in ((403, {"retry-after": "0"}), (429, {"retry-after": "0"}), (403, {"retry-after": "0.5", **far_reset})):
+            with self.subTest(status=status, headers=headers):
+                api = self._list(["PublicTool"], refusals=[(status, headers, b'{"message": "secondary rate limit"}')])
                 result = self._check(api, body=f"See {OWNER}/PublicTool.")
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
                 listing = api.requests_of(LIST_PATH)
