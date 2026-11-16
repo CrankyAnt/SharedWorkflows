@@ -4,6 +4,13 @@ const fs = require("node:fs");
 const PAGE_SIZE = 100;
 const PAGE_LIMIT = 100;
 const TIMEOUT_MILLISECONDS = 30000;
+// A page of the list answered with a rate-limit status is requested again after each backoff, so at most three times
+// in all.
+const RETRIED_STATUSES = new Set([403, 429]);
+const BACKOFF_SECONDS = [1, 2];
+const RETRY_WAIT_LIMIT_SECONDS = 60;
+const MESSAGE_LIMIT = 300;
+const RATE_LIMIT_HEADERS = ["x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-used", "x-ratelimit-reset", "x-ratelimit-resource", "retry-after"];
 
 class UnreadableList extends Error {}
 class UnreadablePullRequest extends Error {}
@@ -27,6 +34,14 @@ function pullRequestEvent() {
   return event;
 }
 
+// The API address and the headers of every request, with the job's token when there is one.
+function apiRequest() {
+  const api = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/+$/, "");
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "publication-checks" };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  return { api, headers };
+}
+
 // The pull request as it is now, read with the job's token: a run that is started again after a corrected title or
 // body checks the corrected text, which the event file of the first run does not hold.
 async function currentPullRequest(event) {
@@ -34,9 +49,7 @@ async function currentPullRequest(event) {
   if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("GITHUB_REPOSITORY names no repository");
   const number = event.pull_request.number ?? event.number;
   if (!Number.isInteger(number)) throw new Error("the pull request event in GITHUB_EVENT_PATH names no pull request number");
-  const api = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/+$/, "");
-  const headers = { Accept: "application/vnd.github+json", "User-Agent": "publication-checks" };
-  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const { api, headers } = apiRequest();
   let response;
   let pullRequest;
   try {
@@ -89,23 +102,67 @@ function references(owner, sources) {
   return result;
 }
 
-// The owner's public repositories, read without a login: the request carries no credentials, so the answer holds
-// public repositories only.
+// Why a refused answer was refused: its status, GitHub's message and the rate-limit headers it carried. The message
+// is GitHub's own text about the request, never a text that the check reads.
+async function refusalReason(response) {
+  const details = [];
+  let message;
+  try {
+    message = JSON.parse(await response.text())?.message;
+  } catch {
+    message = undefined;
+  }
+  if (typeof message === "string" && message.trim()) details.push(message.replace(/\s+/g, " ").trim().slice(0, MESSAGE_LIMIT));
+  for (const name of RATE_LIMIT_HEADERS) {
+    const value = response.headers.get(name);
+    if (value !== null) details.push(`${name}: ${value}`);
+  }
+  return details.length === 0 ? `HTTP ${response.status}` : `HTTP ${response.status} (${details.join("; ")})`;
+}
+
+// The seconds to wait before a refused page is requested again, as GitHub advises: `retry-after` when present,
+// otherwise until `x-ratelimit-reset` when no request remains, otherwise a short fixed backoff.
+function retryWait(response, attempt) {
+  const retryAfter = secondsHeader(response, "retry-after");
+  if (retryAfter !== undefined) return retryAfter;
+  const reset = secondsHeader(response, "x-ratelimit-reset");
+  if (response.headers.get("x-ratelimit-remaining")?.trim() === "0" && reset !== undefined) {
+    return Math.max(0, reset - Date.now() / 1000);
+  }
+  return BACKOFF_SECONDS[attempt];
+}
+
+// A header that states a number of seconds, or undefined when it is absent or states something else.
+function secondsHeader(response, name) {
+  const value = response.headers.get(name);
+  return value !== null && /^\s*\d+(\.\d+)?\s*$/.test(value) ? Number(value) : undefined;
+}
+
+// The owner's public repositories. The request carries the job's token when there is one, which GitHub limits per
+// repository rather than per runner address; a login never widens the list, because only an entry that states it is
+// not private, with a public visibility or none, counts as public.
 async function publicRepositories(owner) {
-  const api = (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/+$/, "");
+  const { api, headers } = apiRequest();
   const names = new Set();
   for (let page = 1; page <= PAGE_LIMIT; page += 1) {
     let response;
     let listed;
-    try {
-      response = await fetch(`${api}/users/${encodeURIComponent(owner)}/repos?type=owner&per_page=${PAGE_SIZE}&page=${page}`, {
-        headers: { Accept: "application/vnd.github+json", "User-Agent": "publication-checks" },
-        signal: AbortSignal.timeout(TIMEOUT_MILLISECONDS),
-      });
-    } catch (error) {
-      throw new UnreadableList(`request failed (${error.cause?.code ?? error.name})`);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await fetch(`${api}/users/${encodeURIComponent(owner)}/repos?type=owner&per_page=${PAGE_SIZE}&page=${page}`, {
+          headers,
+          signal: AbortSignal.timeout(TIMEOUT_MILLISECONDS),
+        });
+      } catch (error) {
+        throw new UnreadableList(`request failed (${error.cause?.code ?? error.name})`);
+      }
+      if (response.ok) break;
+      if (!RETRIED_STATUSES.has(response.status) || attempt >= BACKOFF_SECONDS.length) throw new UnreadableList(await refusalReason(response));
+      const wait = retryWait(response, attempt);
+      if (wait > RETRY_WAIT_LIMIT_SECONDS) throw new UnreadableList(await refusalReason(response));
+      await response.arrayBuffer().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, wait * 1000));
     }
-    if (!response.ok) throw new UnreadableList(`HTTP ${response.status}`);
     try {
       listed = await response.json();
     } catch {
@@ -115,7 +172,9 @@ async function publicRepositories(owner) {
       throw new UnreadableList("the answer is not the expected JSON list");
     }
     for (const repository of listed) {
-      if (repository.private !== true) names.add(repository.name.toLowerCase());
+      if (repository.private === false && (repository.visibility === undefined || repository.visibility === "public")) {
+        names.add(repository.name.toLowerCase());
+      }
     }
     if (listed.length < PAGE_SIZE) return names;
   }
