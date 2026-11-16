@@ -30,7 +30,7 @@ the commands.
     python3 recording.py exec [--output <directory>] --entry <file> --suites <suite list> [--root <repository>] [--suite <name>] -- <command> ...
     python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ...
     python3 recording.py setups [--output <directory>] --suites <suite list> [--root <repository>] [--work <directory>] --phase before|recorded
-                                [--setup <name>] ... [--tool <tool>=<path>] ...
+                                [--setup <name>] ... [--tool <tool>=<path>] ... [--pinned <tool>=<directory>] ...
     python3 recording.py check [--output <directory>] --suites <suite list> [--root <repository>] [--summary <file>]
     python3 recording.py keep --additions <additions> <passed list>
     python3 recording.py apply [--root <repository>] [--suites <suite list>] [--keep-lists <selection> | --keep-all-lists] <additions or results> ...
@@ -398,10 +398,17 @@ def default_work() -> Path:
 def run_setups(options: argparse.Namespace) -> int:
     """Run the setups that the job names, as the suite list defines them and in its order: with ``--phase before`` those
     that run before the recording starts, outside it; with ``--phase recorded``, after ``start``, the others under the
-    recording, and then record what every setup of the job provides."""
+    recording, and then record what every setup of the job provides. A pinned tool is a setup without a script, which
+    the job installed itself: ``--pinned`` names its directory, which the entry files that state it get on their PATH."""
     root = options.root.resolve()
     suite_list = suite_selection.load_suite_list(options.suites)
-    undefined = [name for name in options.setup if name not in suite_list.setups_by_name]
+    pinned = dict(item.partition("=")[::2] for item in options.pinned)
+    for name, directory in pinned.items():
+        if name not in suite_selection.PINNED_TOOLS or not directory:
+            raise RecordingError(f"--pinned takes <tool>=<directory> with one of {', '.join(suite_selection.PINNED_TOOLS)}, not {name}={directory}")
+        if name in suite_list.setups_by_name:
+            raise RecordingError(f"the suite list {options.suites} defines the setup {name}, so it is no pinned tool of this job")
+    undefined = [name for name in options.setup if name not in suite_list.setups_by_name and name not in pinned]
     if undefined:
         raise RecordingError(f"the suite list {options.suites} defines no setup {undefined[0]}; state it under setups with its script")
     work = (options.work or default_work()).resolve()
@@ -446,6 +453,9 @@ def run_setups(options: argparse.Namespace) -> int:
     if output is not None:
         for setup in setups:
             provide(output, setup.name, *stated_provisions(work / f"{setup.name}.provides", setup.name))
+        for name in options.setup:
+            if name in pinned:
+                provide(output, name, [pinned[name]], [], [])
     return 0
 
 
@@ -2617,6 +2627,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     setting.add_argument("--setup", action="append", default=[], help="a setup of this job (repeatable)")
     setting.add_argument("--tool", action="append", default=[], help="<tool>=<path> of a tool that the job installed for its "
                          "setups: the interpreter of python, the directory of node's programs, the root of dotnet (repeatable)")
+    setting.add_argument("--pinned", action="append", default=[], help="<tool>=<directory> of a pinned tool that the job "
+                         "installed: the directory that the entry files which state the tool get on their PATH (repeatable)")
     checking = commands.add_parser("check", help="compare the recording with the suite list")
     checking.add_argument("--output", type=Path)
     checking.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")

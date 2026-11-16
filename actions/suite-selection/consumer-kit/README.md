@@ -14,7 +14,7 @@ It needs:
 
 - a validation workflow, if the repository has one: its suites move into the suite list and its setups into `setups`, and the suite jobs replace the workflow, as [Switching it on](#switching-it-on) states;
 - suites whose entry files run one at a time with one command each, such as a test module with `python3 -m unittest`;
-- runner labels with `strace`, `jq` and the system `python3` for every Linux suite, and with administrator rights, `python` and `dotnet` for every Windows suite, as GitHub's hosted runners have them, `ubuntu-26.04` and `windows-2025` by default; the recording step installs nothing, so a tool that a suite needs beyond these comes from its [setups](#setups);
+- runner labels with `strace`, `jq` and the system `python3` for every Linux suite, and with administrator rights, `python` and `dotnet` for every Windows suite, as GitHub's hosted runners have them, `ubuntu-26.04` and `windows-2025` by default; the recording step installs nothing, so a tool that a suite needs beyond these comes from its [setups](#setups) or from the [pinned tools](#pinned-tools);
 - for the additions part and the full recording, a GitHub App that may push a branch and open a pull request in the repository, as [The full recording](#the-full-recording) states.
 
 ## When a repository adopted it earlier
@@ -23,7 +23,7 @@ A repository that adopted the suite selection with an earlier kit has an install
 
 - It registers both files under `local-workflows` of its configuration file, as the [pipeline kit](../../pipeline/consumer-kit/README.md#the-configuration-file) states. The required check stays `validation / validation`, so the ruleset stays as it is.
 - It switches to the current form:
-  1. it moves each setup step of its validation workflow into a script, and states the script under `setups` of its suite list, with `tool` and its `version` or `version-file` for a setup that installs Python, Node.js or .NET, and with the `SETUP_PROVIDES` lines of the script for what the setup gives the entry files;
+  1. it moves each setup step of its validation workflow into a script, and states the script under `setups` of its suite list, with `tool` and its `version` or `version-file` for a setup that installs Python, Node.js or .NET, and with the `SETUP_PROVIDES` lines of the script for what the setup gives the entry files; a setup that installs Node.js or Gitleaks at the versions of the shared pins file becomes a [pinned tool](#pinned-tools) instead: its definition leaves the suite list, and the configuration file names it under `pinned-tools`;
   2. it states `jobs` in its suite list where the runner labels or the checkout depth differ from the defaults;
   3. it switches `suite-selection` on in its configuration file, as [Switching it on](#switching-it-on) shows;
   4. it removes `validation.yml` and its validation workflow.
@@ -53,6 +53,7 @@ parts:
   suite-selection:
     suites: .github/suites.json
     language-steps: [python]
+    pinned-tools: [gitleaks]
   additions:
     suites: .github/suites.json
   full-recording:
@@ -62,6 +63,7 @@ parts:
 
 - `suites` is the path of the suite list, which the repository writes as [The suite list](#the-suite-list) states.
 - `language-steps: [python]` runs the Python language step in shard 1 of the suite jobs. Drop it in a repository without Python files.
+- `pinned-tools`, optional, names the [pinned tools](#pinned-tools) of the suite jobs, `node` or `gitleaks`, each once. The example names Gitleaks; its suite list then defines no setup of that name.
 - `validation-workflow` is the fixed caller `ci.yml`, the workflow that runs the suites on a pull request. The full recording names it.
 
 The configuration file and the fixed callers reach the default branch before the pull request that adopts the suite selection, as [Additions](#additions) states. The suite jobs run in `CI`, so a repository gets its suite jobs with the part on, and no other workflow of its own runs them.
@@ -114,12 +116,12 @@ The example is invented. The repository writes these fields:
 - `setups`: an object with one setup per name, in the order the setups run. A setup has these keys:
   - `script`: exactly one script, a tracked repository path that ends in `.py`, `.sh` or `.ps1`. It runs from the repository root, on the job's own Python, in Bash or in PowerShell.
   - `recorded`: `true` by default. `false` runs the script before the recording starts, outside it, for a setup that cannot run traced, such as one that uses `sudo` or starts a service.
-  - `tool`: optional, one of `python`, `node` or `dotnet`, with exactly one of `version`, a text, or `version-file`, a tracked JSON file and a key path in the form `<JSON file>#/<key>/<key>`. The suite job installs that tool with its pinned action before the recording starts, and the script gets its location. A suite list holds one version per tool; two setups that give the same tool different versions make it invalid.
-  - With `setups` present, every setup that a suite states must be defined.
+  - `tool`: optional, one of `python`, `node` or `dotnet`, with exactly one of `version`, a text, or `version-file`, a tracked JSON file and a key path in the form `<JSON file>#/<key>/<key>`. The suite job installs that tool with its pinned action before the recording starts, and the script gets its location. A suite list holds one version per tool; two setups that give the same tool different versions make it invalid, and so does a `tool: node` setup while `pinned-tools` names `node`.
+  - With `setups` present, every setup that a suite states must be defined, unless the configuration file names it as a pinned tool.
 - `name`: lowercase letters, digits and hyphens, unique in the suite list; it is the key in the selection's outputs and in the gates.
 - `entries`: the suite's entry files, as repository paths or as glob patterns over the tracked files. An entry file is a file in any language, such as a test module, a script or a test project file.
 - `command`: the program and its arguments that run one entry file, a non-empty list; the job appends the entry file's path.
-- `setups`: the names of the setups that the suite needs, as [Setups](#setups) states.
+- `setups`: the names of the setups that the suite needs, as [Setups](#setups) and [Pinned tools](#pinned-tools) state.
 - `os`: `linux`, the default, or `windows`.
 - `entry_selection`: `true` for a suite selected per entry file; each entry file then runs when a changed file matches its own lists. A suite without the key is selected as a whole.
 - `entry_setups`: with `entry_selection`, more setups per entry file, an object keyed by an entry file.
@@ -160,22 +162,38 @@ A setup that gives nothing writes no line. A setup step writes nothing to `$GITH
 
 `exec --entry` fails when the job did not install a setup that the entry file states. What a test writes outside what its setups provide, such as `$HOME` or the shared checkout, is no input of selection; a result that depends on such a write is a flaky result. A job that records restores no cache that holds build or test results and turns off build servers and node reuse.
 
+### Pinned tools
+
+A pinned tool is a setup that the suite jobs give at the version of the shared pins file, so the repository states no version for it. The configuration file names the pinned tools under `pinned-tools` of the part `suite-selection`: `node`, for Node.js, and `gitleaks`, for Gitleaks. The suite list defines no setup of such a name. A suite states the pinned tool under `setups`, or an entry file under `entry_setups`, as it states any other setup, and the suite job gives it only to the entry files that state it, on their `PATH`, in the order of the stated setups.
+
+- `node` is installed by the pinned action at the Node.js version of the pins file, as a setup with `tool: node` is, and the entry files get the directory of its programs.
+- `gitleaks` is installed from the pins file before the recording starts, outside it, for the platform of the job's system, and the entry files get its directory. A sha256 that differs from the pin, or a platform that the pins file has no asset for, fails the job before any entry file runs.
+
+The rules:
+
+- A suite that states `node` or `gitleaks` while `pinned-tools` does not name it makes `select` fail with the undefined setup, as it does for any other setup. A suite list that defines a setup of a name that `pinned-tools` names fails `select` as well, and so does a `tool: node` setup beside a pinned `node`.
+- A name outside `node` and `gitleaks` in `pinned-tools`, or the same name twice, fails the check of the configuration file.
+- The commands that only read the suite list accept the two names without a definition. `select` decides on them.
+- A passed result is reused only with the same pin: the version, and for Gitleaks its assets with their sha256. A version change in the shared pins file selects no unit by itself, which is an accepted miss of the selection; the next change that selects a unit, or the full recording, runs it with the new version.
+- A setup whose definition the suite list removes, so that its name becomes a pinned tool, runs the entry files that state it, as a changed setup definition does.
+
 ## The suite jobs
 
 The suite jobs are the shared workflow `suite-jobs.yml` at `v1`, which the pipeline's part `suite-selection` calls: one job per Linux shard, named `shard <n>`, and one Windows job. They run on the runner labels and with the fetch depth that the suite list's `jobs` states. Each job runs the same steps in this order, on Linux and on Windows:
 
 1. the checkout;
 2. the recording step;
-3. the tools that the job's setups name, each installed by its pinned action;
-4. the setups with `recorded: false`, in the order of the suite list, outside the recording;
-5. the start of the recording;
-6. the other setups, in the order of the suite list, under the recording, with what they provide;
-7. the entry files that the job runs, two at a time on Linux and one after another on Windows, each under the recording and in a log group of its own;
-8. the check of the recording against the suite list;
-9. on Linux shard 1, the Python language step, when `language-steps` names Python;
-10. on a pull request, the list of the entry files that passed, and its upload for a later head.
+3. the tools that the job's setups name, each installed by its pinned action, Node.js among them when `node` is a pinned tool;
+4. the pinned Gitleaks, when `gitleaks` is a pinned tool of the job, installed outside the recording;
+5. the setups with `recorded: false`, in the order of the suite list, outside the recording;
+6. the start of the recording;
+7. the other setups, in the order of the suite list, under the recording, with what they provide;
+8. the entry files that the job runs, two at a time on Linux and one after another on Windows, each under the recording and in a log group of its own;
+9. the check of the recording against the suite list;
+10. on Linux shard 1, the Python language step, when `language-steps` names Python;
+11. on a pull request, the list of the entry files that passed, and its upload for a later head.
 
-A shard runs only the setups that its entry files state. When an entry file fails, its job fails after every entry file of the job has run.
+A shard runs only the setups that its entry files state, and the pinned tools among them. When an entry file fails, its job fails after every entry file of the job has run.
 
 ## Jobs and checks
 
@@ -196,13 +214,13 @@ The required check is `ci / verdict`; none of the other checks is required on it
 A change to what runs a suite selects it as well:
 
 - a changed `command`, `setups`, `os` or `entry_selection` of a suite runs every entry file of the suite, and a changed `entries` or `entry_setups` the entry files it adds or changes; a removal from the stored lists or the extra reads runs what it was removed from;
-- a changed setup definition in `setups`, such as its `script`, `tool` or `version`, runs the entry files that state the setup; so does a changed script file or version file of a setup;
+- a changed setup definition in `setups`, such as its `script`, `tool` or `version`, runs the entry files that state the setup; so does a changed script file or version file of a setup, and so does a definition that the suite list removes to make its name a [pinned tool](#pinned-tools);
 - a changed `jobs` entry runs the entry files of its system;
 - a change of the shared suite jobs or of the shared recording step reaches the repository through the shared digest: `select` takes it, and every suite runs once, as [When `v1` moves](#when-v1-moves) states.
 
 A changed `on` or `concurrency`, a name or comment, the job that runs `select`, and a step after the entry files that only stores or reports results select nothing.
 
-The `select` job's summary lists every suite with its decision and reason. On a pull request, a later head reuses a passed result whose reads, command, setup versions, runner label, shared digest and tracked ignore rules did not change; a re-run reuses nothing.
+The `select` job's summary lists every suite with its decision and reason. On a pull request, a later head reuses a passed result whose reads, command, setup versions, pins of its pinned tools, runner label, shared digest and tracked ignore rules did not change; a re-run reuses nothing.
 
 ## The recording and its check
 
@@ -255,7 +273,7 @@ The full recording is the safety net of the stored lists and the only route that
 
 The job `full-recording` assigns every entry file to shards with `select --full`. The job `full-recording-jobs` calls the shared workflow `suite-jobs.yml` with `full: true`, which runs the suite jobs of [The suite jobs](#the-suite-jobs) in the full-recording mode: each shard runs its setups and entry files under the recording, and the Windows job runs every Windows entry file in one job. The runner labels, the fetch depth and the setups are those of the suite list. The job `full-recording-close` on `ubuntu-slim` joins the results and replaces the stored lists of each entry file that exited with `0` and whose test report reports no skipped test, keeps the others with the reason, and writes the duration estimates: it corrects each measurement for the speed of its shard job, which `start --job` names, and changes a stored estimate only when the corrected value differs from it by more than 25%. On the default branch it applies the results to the suite list of the default branch's tip as `close` fetches it, and proposes the changed suite list as the pull request `chore: update the recorded path lists` from `chore/update-recorded-lists`, a commit onto that tip, with the report as its body. It then asks GitHub to merge that pull request by squash once its required checks have passed, with `gh pr merge --auto --squash` bound to the pushed commit, so that a head which moved since the push does not merge on that request. The repository setting [Allow auto-merge](#repository-settings) must allow it. When the default branch moved during the run, `close` selects the change since the recorded commit as a push would select it, and each entry file that the change selects keeps its stored reads beside the recorded ones, with the reason in the report; when that selection fails, every entry file keeps them. A result for a suite or an entry file that the tip no longer holds is left out and named in the report. A run on another branch applies to the commit it started from, uploads the joined result as the artifact `full-recording-joined` and opens no pull request.
 
-The setups are the suite list's, as [Setups](#setups) states; the full recording names no setup of its own. A setup that cannot run in the full recording is a question for the suite list, not for the workflow.
+The setups are the suite list's, as [Setups](#setups) states, and the pinned tools are those of the configuration file, as [Pinned tools](#pinned-tools) states; the full recording names no setup of its own. A setup that cannot run in the full recording is a question for the suite list, not for the workflow.
 
 A run started by hand on the default branch with the input `verify-token` set to `true` mints the App's token even when the suite list did not change, and its run summary reports whether that succeeded; this verifies a new private key. Without a change it proposes no pull request.
 

@@ -30,9 +30,6 @@
     "zizmor": {
       "script": "tests/setups/pinned-tool.sh"
     },
-    "gitleaks": {
-      "script": "tests/setups/pinned-tool.sh"
-    },
     "reuse": {
       "script": "tests/setups/pinned-tool.sh"
     },
@@ -16102,6 +16099,11 @@
           "tests/workflow_commands.py"
         ]
       },
+      "entry_extra_paths": {
+        "tests/test_hygiene_gitleaks.py": [
+          "actions/repository-hygiene/pins.json"
+        ]
+      },
       "directory_memberships": [
         "**",
         ".",
@@ -18309,6 +18311,25 @@
           "tests"
         ]
       }
+    },
+    {
+      "name": "pinned-tools",
+      "entries": [
+        "tests/test_suite_jobs_pinned_tools.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python",
+        "gitleaks"
+      ],
+      "extra_paths": [
+        "actions/repository-hygiene/pins.json"
+      ]
     },
     {
       "name": "python-language-step",
@@ -25101,6 +25122,26 @@
           "tests"
         ]
       }
+    },
+    {
+      "name": "pinned-tools-windows",
+      "entries": [
+        "tests/test_suite_jobs_pinned_tools.py"
+      ],
+      "os": "windows",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python",
+        "gitleaks"
+      ],
+      "extra_paths": [
+        "actions/repository-hygiene/pins.json"
+      ]
     }
   ],
   "module_lookups": {

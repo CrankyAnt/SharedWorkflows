@@ -69,6 +69,9 @@ SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_select
                         "os", "command", "setups", "entry_setups", "entry_durations"})
 TOP_LEVEL_KEYS = ("always", "jobs", "setups", "suites", "module_lookups")
 TOOLS = ("python", "node", "dotnet")  # the tools that a suite job installs with its pinned action, outside the recording
+# The pinned tools: the setups that the suite jobs give at the version of the pins file when the configuration file names
+# them under pinned-tools of the suite selection. A suite list defines no setup of such a name.
+PINNED_TOOLS = ("node", "gitleaks")
 SCRIPT_SUFFIXES = (".py", ".sh", ".ps1")  # a setup script runs on the job's Python, in Bash or in PowerShell
 SETUP_KEYS = frozenset({"script", "recorded", "tool", "version", "version-file"})
 JOB_DEFAULTS = {"linux": {"runner": "ubuntu-26.04", "fetch-depth": 1}, "windows": {"runner": "windows-2025", "fetch-depth": 1}}
@@ -250,12 +253,22 @@ class Setup:
 
 
 @dataclass(frozen=True)
+class PinnedTool:
+    """A pinned tool that the configuration file names: its version of the pins file and what its pin holds, as text."""
+
+    name: str
+    version: str
+    pin: str
+
+
+@dataclass(frozen=True)
 class SuiteList:
     always: tuple[str, ...]
     suites: tuple[Suite, ...]
     module_lookups: tuple[tuple[str, tuple[str, ...]], ...] = ()  # per checkout directory, the module lookups of every entry file
     setups: tuple[Setup, ...] | None = None  # the setups as data, in the order they run; None when the suite list states none
     jobs: tuple[tuple[str, tuple[tuple[str, object], ...]], ...] = ()  # per operating system, what the suite list states of its job
+    pinned: tuple[PinnedTool, ...] = ()  # the pinned tools that the configuration file names
 
     @functools.cached_property
     def setups_by_name(self) -> dict[str, Setup]:
@@ -465,14 +478,19 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
         else:
             suites.append(Suite(name, entries, **common))
     if setup_data is not None:
-        defined = {setup.name for setup in setup_data}
-        for index, suite in enumerate(suites, start=1):
-            stated = [("setups", name) for name in suite.setups or ()]
-            stated += [(f"entry_setups ({entry})", name) for entry, names in suite.entry_setups for name in names]
-            for key, name in stated:
-                if name not in defined:
-                    raise SuiteListError(f"{source}: suites[{index}] ({suite.name}): {key} names the setup {name}, which setups lacks")
+        # A pinned tool is no setup of the suite list: select decides on it with the configuration file's names.
+        check_stated_setups(suites, {setup.name for setup in setup_data} | set(PINNED_TOOLS), source)
     return SuiteList(always, tuple(suites), module_lookups, setup_data, job_data)
+
+
+def check_stated_setups(suites, known: set[str], source: str) -> None:
+    """Fail on the first setup that a suite or one of its entry files states and ``known`` lacks."""
+    for index, suite in enumerate(suites, start=1):
+        stated = [("setups", name) for name in suite.setups or ()]
+        stated += [(f"entry_setups ({entry})", name) for entry, names in suite.entry_setups for name in names]
+        for key, name in stated:
+            if name not in known:
+                raise SuiteListError(f"{source}: suites[{index}] ({suite.name}): {key} names the setup {name}, which setups lacks")
 
 
 def _setups(value, location: str) -> tuple[Setup, ...]:
@@ -540,9 +558,42 @@ def _jobs(value, location: str) -> tuple[tuple[str, tuple[tuple[str, object], ..
     return tuple(jobs)
 
 
+def with_pinned_tools(suite_list: SuiteList, names: list[str], pins: Path | None, source: str = "the suite list") -> SuiteList:
+    """The suite list with the pinned tools that the configuration file names, each with its version of the pins file.
+    A pinned tool is a setup that the suite jobs give: the suite list defines none of its name, and none that installs
+    Node.js beside the pinned Node.js. A suite that states a pinned tool which the configuration file does not name states
+    an undefined setup."""
+    for name in names:
+        if name in suite_list.setups_by_name:
+            raise SuiteListError(f"{source}: setups ({name}): pinned-tools names {name}, so the suite jobs give this setup; remove it from setups")
+    if "node" in names:
+        own = next((setup.name for setup in suite_list.setups or () if setup.tool == "node"), None)
+        if own is not None:
+            raise SuiteListError(f"{source}: setups ({own}): the tool node stands beside node in pinned-tools; a suite list holds one version per tool")
+    if suite_list.setups is not None:
+        check_stated_setups(suite_list.suites, set(suite_list.setups_by_name) | set(names), source)
+    if not names:
+        return suite_list
+    if pins is None:
+        raise SuiteListError("select needs --pins, the pins file, with --pinned-tool")
+    try:
+        document = json.loads(pins.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SuiteListError(f"the pins file {pins} cannot be read as JSON: {error}") from error
+    pinned = []
+    for name in dict.fromkeys(names):
+        pin = (document.get("node") if name == "node" else document.get("tools", {}).get(name)) if isinstance(document, dict) else None
+        version = pin.get("version") if isinstance(pin, dict) else None
+        if not isinstance(version, str) or not version:
+            raise SuiteListError(f"the pins file {pins} holds no version of {name}")
+        pinned.append(PinnedTool(name, version, json.dumps(pin, sort_keys=True)))
+    return dataclasses.replace(suite_list, pinned=tuple(pinned))
+
+
 def tool_versions(suite_list: SuiteList, root: Path) -> dict[str, str]:
-    """The version of each tool that a setup of the suite list names, read from its version file where it names one."""
-    versions: dict[str, str] = {}
+    """The version of each tool that a setup of the suite list names, read from its version file where it names one, and
+    of Node.js as a pinned tool."""
+    versions: dict[str, str] = {tool.name: tool.version for tool in suite_list.pinned if tool.name in TOOLS}
     for setup in suite_list.setups or ():
         if setup.tool is None or setup.tool in versions:
             continue
@@ -1259,14 +1310,20 @@ def assign_shards(units: list[tuple[Suite, str, float]], bound: float = SHARD_BO
 def shard_document(units: list[tuple[Suite, str, float]], estimate: float, suite_list: SuiteList | None = None,
                    tools: dict[str, str] | None = None) -> dict:
     """The estimate, the setups and the entry files with their suite's command of one job; for a suite list that states
-    its setups as data, also the tools that the job's setups name, each with its version from ``tools``."""
+    its setups as data, also the tools that the job's setups name, each with its version from ``tools``; and the pinned
+    tools among the job's setups, when it has any."""
     setups: list[str] = []
     for suite, entry, _ in units:
         setups += [setup for setup in suite.setups_of(entry) if setup not in setups]
-    named = {}
-    if suite_list is not None and suite_list.setups is not None:
-        stated = [suite_list.setups_by_name[setup].tool for setup in setups]
-        named = {"tools": {tool: (tools or {})[tool] for tool in dict.fromkeys(stated) if tool is not None}}
+    named: dict = {}
+    pinned = [tool.name for tool in suite_list.pinned if tool.name in setups] if suite_list is not None else []
+    if suite_list is not None and (suite_list.setups is not None or pinned):
+        # The tool that the job's action installs for a setup: the one its definition names, or the pinned tool itself.
+        defined = {name: setup.tool for name, setup in suite_list.setups_by_name.items()}
+        stated = [name if name in pinned else defined.get(name) for name in setups]
+        named = {"tools": {tool: (tools or {})[tool] for tool in dict.fromkeys(stated) if tool in TOOLS}}
+    if pinned:
+        named["pinned"] = pinned
     return {"estimate": estimate, "setups": setups, **named,
             "entries": [{"suite": suite.name, "entry": entry, "command": list(suite.command) if suite.command is not None else None}
                         for suite, entry, _ in units]}
@@ -1557,6 +1614,9 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     selecting.add_argument("--runner-label", action="append", default=[], help="<os>=<label> of the job that runs that system's units (repeatable)")
     selecting.add_argument("--setup-version", action="append", default=[], help="<setup>=<version> that a setup pins (repeatable)")
     selecting.add_argument("--shared-lookup", type=Path, help="the shared lookup from the shared-lookup command")
+    selecting.add_argument("--pinned-tool", action="append", default=[], choices=PINNED_TOOLS,
+                           help="a pinned tool that the configuration file names under pinned-tools (repeatable)")
+    selecting.add_argument("--pins", type=Path, help="the pins file that holds the version of each pinned tool; needed with --pinned-tool")
     looking = commands.add_parser("lookup", help="find the tested tree of a pushed commit's pull request")
     looking.add_argument("--root", type=Path, required=True)
     looking.add_argument("--sha", required=True, help="the pushed commit, or client_payload.sha of a dependabot-merged run")
@@ -1620,6 +1680,7 @@ def run_select(options: argparse.Namespace) -> int:
     root = options.root.resolve()
     tracked = tracked_files(root)
     suite_list = resolve_entries(load_suite_list(options.suites), tracked, str(options.suites))
+    suite_list = with_pinned_tools(suite_list, options.pinned_tool, options.pins, str(options.suites))
     if options.full:
         return write_selection(options, suite_list, every_suite(suite_list, FULL_REASON), [], full=True)
     found = sides = None
@@ -1666,6 +1727,8 @@ def run_select(options: argparse.Namespace) -> int:
             labels = {name: json.dumps(suite_list.job(name), sort_keys=True) for name in OPERATING_SYSTEMS} | labels
             versions = {setup.name: json.dumps(setup.entry() | {"installed": tools.get(setup.tool or "")}, sort_keys=True)
                         for setup in suite_list.setups or ()} | versions
+        # A pinned tool counts with what its pin holds: a passed result with another version or asset is not reused.
+        versions = {tool.name: tool.pin for tool in suite_list.pinned} | versions
         with record_errors() as reuse:
             tree = reuse.Tree(reuse.tree_entries(root), matches)
             units = reuse_units(selection, suite_list, tree, versions, labels, shared_lookup.digest if shared_lookup is not None else "",

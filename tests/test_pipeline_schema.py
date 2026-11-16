@@ -158,6 +158,47 @@ only with its two exclusions."""
         self.assertEqual(1, document["version"])
 
 
+class PinnedToolsSettingTests(PipelineFixture):
+    """The setting ``pinned-tools`` of the suite selection in the real schema."""
+
+    PART = "version: 1\nparts:\n  suite-selection:\n    suites: ci/suites.json\n"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = SCHEMAS
+
+    def test_the_part_takes_the_pinned_tools_node_and_gitleaks_and_runs_without_the_setting(self) -> None:
+        for setting, config in (("    pinned-tools: [node, gitleaks]\n", {"pinned-tools": ["node", "gitleaks"]}),
+                                ("    pinned-tools:\n      - gitleaks\n", {"pinned-tools": ["gitleaks"]}),
+                                ("    pinned-tools: []\n", {"pinned-tools": []}), ("", {})):
+            with self.subTest(setting=setting):
+                self.commit({CONFIGURATION: self.PART + setting})
+                outcome = self.plan()
+                self.assertEqual(0, outcome.status, outcome.summary)
+                self.assertEqual({"suites": "ci/suites.json"} | config, outcome.plan["parts"]["suite-selection"]["config"])
+
+    def test_a_name_outside_the_pinned_tools_a_repeated_name_or_another_form_fails_the_plan(self) -> None:
+        for setting in ("[actionlint]", "[node, zizmor]", "[gitleaks, gitleaks]", "[node, gitleaks, node]", "gitleaks", "[1]"):
+            with self.subTest(setting=setting):
+                self.commit({CONFIGURATION: self.PART + f"    pinned-tools: {setting}\n"})
+                outcome = self.plan()
+                self.assertNotEqual(0, outcome.status, outcome.summary)
+                self.assertIn("parts.suite-selection.pinned-tools", outcome.summary)
+
+    def test_the_setting_command_prints_the_pinned_tools_that_the_full_recording_reads(self) -> None:
+        self.commit({CONFIGURATION: self.PART + "    pinned-tools: [node, gitleaks]\n"})
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = plan_program.main(["setting", "--root", str(self.repository), "--schemas", str(self.schemas), "--part", "suite-selection",
+                                        "--setting", "pinned-tools"])
+        self.assertEqual((0, "node\ngitleaks\n", ""), (status, stdout.getvalue(), stderr.getvalue()))
+
+    def test_the_fragment_knows_the_setting_under_the_name_that_a_consumer_waits_for(self) -> None:
+        fragment = json.loads((SCHEMAS / "v1" / "parts" / "suite-selection.json").read_text(encoding="utf-8"))
+        self.assertEqual({"type": "array", "uniqueItems": True, "items": {"type": "string", "enum": ["node", "gitleaks"]}},
+                         {key: value for key, value in fragment["configuration"]["properties"]["pinned-tools"].items() if key != "description"})
+
+
 class SettingCommandTests(PipelineFixture):
     """``plan.py setting``, with which the pipeline's hygiene job reads an exclusion from the configuration file itself."""
 

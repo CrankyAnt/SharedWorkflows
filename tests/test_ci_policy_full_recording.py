@@ -59,9 +59,13 @@ class FullRecordingWorkflowTests(unittest.TestCase):
         select = steps[step_index(steps, "suite_selection.py")]
         self.assertEqual("select", select["id"])
         self.assertEqual("$/actions/suite-selection", next(step for step in steps if step.get("id") == "selection")["uses"])
-        self.assertEqual('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" '
-                         'select --root . --suites "$SUITES" --full --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"',
-                         select["run"])
+        self.assertEqual('python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --full "$@" '
+                         '--json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"', select["run"].splitlines()[-1].strip())
+        self.assertIn('export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache"\n', select["run"])
+        self.assertIn('pinned="$(python3 "$SELECTION/../pipeline/plan.py" setting --part suite-selection --setting pinned-tools)"\n', select["run"],
+                      "the full recording gives the pinned tools that the suite selection's configuration names")
+        self.assertIn('for tool in $pinned; do set -- "$@" --pinned-tool "$tool" --pins "$SELECTION/../repository-hygiene/pins.json"; done\n',
+                      select["run"])
         self.assertEqual({"SELECTION": "${{ steps.selection.outputs.path }}", "SUITES": f"${{{{ {PLANNED}.config.suites }}}}"}, select["env"])
         self.assertEqual({"run": "${{ steps.week.outputs.run }}", "suites": f"${{{{ {PLANNED}.config.suites }}}}",
                           "validation-workflow": f"${{{{ {PLANNED}.config.validation-workflow }}}}",
@@ -190,7 +194,12 @@ class ClosingJobTests(unittest.TestCase):
                           "REPORT": "${{ runner.temp }}/full-recording-report.md"}, apply["env"])
         self.assertIn('if [ "$head" != "$RECORDED" ]; then', apply["run"])
         self.assertIn('python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --base "$RECORDED" --head "$head" '
-                      '--compare direct --workflow "$VALIDATION_WORKFLOW" --json-output "$RUNNER_TEMP/moved-selection.txt"', apply["run"])
+                      '--compare direct --workflow "$VALIDATION_WORKFLOW" "$@" --json-output "$RUNNER_TEMP/moved-selection.txt"', apply["run"])
+        self.assertIn('python3 "$SELECTION/../pipeline/plan.py" setting --part suite-selection --setting pinned-tools)" || return\n'
+                      '    set --\n'
+                      '    for tool in $pinned; do set -- "$@" --pinned-tool "$tool" --pins "$SELECTION/../repository-hygiene/pins.json"; done\n',
+                      apply["run"], "the selection of the moved branch knows the pinned tools as the selection of a pull request does")
+        self.assertIn("  if select_moved; then\n", apply["run"], "a setting or a selection that fails keeps every stored read")
         self.assertIn('set -- --keep-lists "$RUNNER_TEMP/moved-selection.txt"', apply["run"])
         self.assertIn("set -- --keep-all-lists", apply["run"])
 

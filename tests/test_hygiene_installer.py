@@ -90,6 +90,26 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaisesRegex(self.installer.InstallError, "no tool gamma"):
             self.installer.install(pins, "test-x64", self.root / "tools", ["gamma"], base_url=self.releases.as_uri())
 
+    def test_without_a_platform_the_installer_takes_that_of_the_machine(self) -> None:
+        for system, processor, expected in (("Linux", "x86_64", "linux-x64"), ("Windows", "AMD64", "windows-x64"), ("Linux", "aarch64", "linux-arm64"),
+                                            ("Windows", "ARM64", "windows-arm64"), ("Darwin", "arm64", "macos-arm64"), ("FreeBSD", "riscv64", "freebsd-riscv64")):
+            with self.subTest(system=system, processor=processor):
+                self.assertEqual(expected, self.installer.machine_platform(system, processor))
+        own = self.installer.machine_platform()
+        sha_a = self._release("fixture/alpha", "1.2.3", "alpha_1.2.3_test.tar.gz", {"alpha": b"alpha"})
+        pins = self._pins(sha_a, "0" * 64)
+        pins["tools"]["alpha"]["platforms"] = {own: pins["tools"]["alpha"]["platforms"]["test-x64"]}
+        pins_path = self.root / "pins.json"
+        pins_path.write_text(json.dumps(pins), encoding="utf-8")
+        script = [sys.executable, str(RESOURCES / "install_tools.py"), "--pins", str(pins_path), "--release-base-url", self.releases.as_uri()]
+        installed = subprocess.run([*script, "--destination", str(self.root / "tools"), "--tool", "alpha"], capture_output=True, text=True)
+        self.assertEqual(0, installed.returncode, installed.stderr)
+        self.assertEqual(b"alpha", (self.root / "tools" / "alpha").read_bytes())
+        missing = subprocess.run([*script, "--destination", str(self.root / "other"), "--tool", "beta"], capture_output=True, text=True)
+        self.assertEqual(1, missing.returncode)
+        self.assertIn(f"the pins file holds no {own} entry for beta 2.0.0", missing.stderr, "the error names the tool and the platform")
+        self.assertFalse((self.root / "other").exists(), "nothing is installed for a platform without an asset")
+
     def test_only_selected_tools_are_installed(self) -> None:
         sha_a = self._release("fixture/alpha", "1.2.3", "alpha_1.2.3_test.tar.gz", {"alpha": b"alpha"})
         destination = self.root / "tools"
