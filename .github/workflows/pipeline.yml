@@ -581,6 +581,7 @@ jobs:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config.suites }}
           LANGUAGE_STEPS: ${{ join(fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config['language-steps'] || fromJSON('[]'), ' ') }}
+          PINNED_TOOLS: ${{ join(fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config['pinned-tools'] || fromJSON('[]'), ' ') }}
           WORKFLOW: ${{ github.workflow_ref }}
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
@@ -589,6 +590,7 @@ jobs:
         run: |
           set --
           for step in $LANGUAGE_STEPS; do set -- "$@" --language-step "$step"; done
+          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$RESOURCE_PATH/../repository-hygiene/pins.json"; done
           case "$EVENT" in
             push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;
             pull_request) set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT" ;;

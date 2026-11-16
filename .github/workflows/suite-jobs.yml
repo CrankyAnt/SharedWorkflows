@@ -81,10 +81,23 @@ jobs:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/tools/dotnet
         with:
           dotnet-version: ${{ matrix.shard.tools.dotnet }}
+      # The pinned tools among the shard's setups: Node.js is the tool above, at the version of the pins file; Gitleaks
+      # comes from the asset that the pins file of this revision names for the job's system, after its sha256 check.
+      - id: hygiene
+        if: contains(matrix.shard.pinned, 'gitleaks')
+        uses: $/actions/repository-hygiene
+        with:
+          include-node-version: "false"
+      - name: Install the pinned Gitleaks outside the recording
+        if: contains(matrix.shard.pinned, 'gitleaks')
+        env:
+          HYGIENE: ${{ steps.hygiene.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$HYGIENE/install_tools.py" --pins "$HYGIENE/pins.json" --destination "$RUNNER_TEMP/setups/gitleaks" --tool gitleaks
       - name: Run the setups that start before the recording
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           SETUPS: ${{ join(matrix.shard.setups, ' ') }}
+          PINNED: ${{ matrix.shard.pinned && join(matrix.shard.pinned, ' ') || '' }}
           PYTHON_PATH: ${{ steps.python.outputs.python-path }}
           NODE: ${{ matrix.shard.tools.node }}
           DOTNET: ${{ matrix.shard.tools.dotnet }}
@@ -97,6 +110,11 @@ jobs:
           if [ -n "$PYTHON_PATH" ]; then printf '%s\n' --tool "python=$PYTHON_PATH" >> "$options"; fi
           if [ -n "$NODE" ]; then printf '%s\n' --tool "node=$(dirname "$(command -v node)")" >> "$options"; fi
           if [ -n "$DOTNET" ]; then printf '%s\n' --tool "dotnet=$DOTNET_ROOT" >> "$options"; fi
+          # A pinned tool is a setup without a script: the entry files that state it get its directory.
+          for pinned in $PINNED; do
+            if [ "$pinned" = node ]; then directory="$(dirname "$(command -v node)")"; else directory="$RUNNER_TEMP/setups/$pinned"; fi
+            printf '%s\n' --pinned "$pinned=$directory" >> "$options"
+          done
           mapfile -t setups < "$options"
           python3 "$RECORDING/recording.py" setups --suites "$SUITES" --phase before "${setups[@]}"
       - name: Start the recording
@@ -224,6 +242,22 @@ jobs:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}\tools\dotnet
         with:
           dotnet-version: ${{ fromJSON(env.TOOLS).dotnet }}
+      # The pinned tools among the job's setups: Node.js is the tool above, at the version of the pins file; Gitleaks
+      # comes from the asset that the pins file of this revision names for the job's system, after its sha256 check.
+      - id: hygiene
+        if: contains(fromJSON(env.WINDOWS).pinned, 'gitleaks')
+        uses: $/actions/repository-hygiene
+        with:
+          include-node-version: "false"
+      - name: Install the pinned Gitleaks outside the recording
+        if: contains(fromJSON(env.WINDOWS).pinned, 'gitleaks')
+        shell: pwsh
+        env:
+          HYGIENE: ${{ steps.hygiene.outputs.path }}
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}\repo-pycache
+        run: |
+          python "$env:HYGIENE\install_tools.py" --pins "$env:HYGIENE\pins.json" --destination "$env:RUNNER_TEMP\setups\gitleaks" --tool gitleaks
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run the setups that start before the recording
         shell: pwsh
         env:
@@ -238,6 +272,11 @@ jobs:
           if ($env:PYTHON_PATH) { $options += @('--tool', "python=$env:PYTHON_PATH") }
           if ($tools.node) { $options += @('--tool', "node=$(Split-Path -Parent (Get-Command node).Source)") }
           if ($tools.dotnet) { $options += @('--tool', "dotnet=$env:DOTNET_ROOT") }
+          # A pinned tool is a setup without a script: the entry files that state it get its directory.
+          foreach ($pinned in @($job.pinned | Where-Object { $_ })) {
+            $directory = if ($pinned -eq 'node') { Split-Path -Parent (Get-Command node).Source } else { "$env:RUNNER_TEMP\setups\$pinned" }
+            $options += @('--pinned', "$pinned=$directory")
+          }
           Set-Content -Path "$env:RUNNER_TEMP\setup-options.txt" -Value $options -Encoding utf8
           python "$env:RECORDING\recording.py" setups --suites $env:SUITES --phase before @options
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

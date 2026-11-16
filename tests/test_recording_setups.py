@@ -5,12 +5,22 @@ file sees of what they provide."""
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import sys
 import textwrap
 import unittest
 from pathlib import Path
 
+from tests.ci_policy_support import read_workflow
 from tests.recording_fixtures import RecordingFixture, requires_etw, suite
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SUITE_JOBS = REPOSITORY_ROOT / ".github" / "workflows" / "suite-jobs.yml"
+BEFORE_STEP = "Run the setups that start before the recording"
+START_STEP = "Start the recording"
+RECORDED_STEP = "Run the setups under the recording and provide what every setup gives"
 
 ON_WINDOWS = sys.platform == "win32"
 # Each script appends its name and what it got to the file that ORDER names, and states what it provides.
@@ -63,9 +73,10 @@ class SetupFixture(RecordingFixture):
 
     extra: dict[str, str] = {}
 
-    def setups(self, phase: str, *names: str, tools: tuple[str, ...] = ("python=/tools/python3",)):
+    def setups(self, phase: str, *names: str, tools: tuple[str, ...] = ("python=/tools/python3",), pinned: tuple[str, ...] = ()):
         options = [option for name in names or ("first", "traced", "last") for option in ("--setup", name)]
         options += [option for tool in tools for option in ("--tool", tool)]
+        options += [option for tool in pinned for option in ("--pinned", tool)]
         return self.run("setups", "--output", str(self.output), "--suites", "suites.json", "--work", str(self.work), "--phase", phase, *options)
 
     def ordered(self) -> list[str]:
@@ -173,6 +184,182 @@ class SetupOrderTests(unittest.TestCase):
         failed = self.fixture.setups("recorded")
         self.assertEqual(failed.returncode, 2)
         self.assertIn("the setup traced states `folder=/x`; a line is path=<directory>, variable=<name>=<value> or python=<interpreter>", failed.stderr)
+
+
+PATH_ENTRY = """\
+import os
+
+print("PATH", [os.path.basename(path) for path in os.environ["PATH"].split(os.pathsep)[:2]])
+"""
+
+
+class PinnedToolFixture(SetupFixture):
+    """A fixture repository with two entry files: one states the pinned tool gitleaks after a setup of the suite list, and
+    one states that setup alone. The suite list defines no setup gitleaks."""
+
+    def __init__(self, cleanup) -> None:
+        RecordingFixture.__init__(self, cleanup, {"ci/setup.py": SCRIPT, "checks/pinned.py": PATH_ENTRY, "checks/plain.py": PATH_ENTRY},
+                                  [suite("unit", ["checks/pinned.py"], command=[Path(sys.executable).name], setups=["last", "gitleaks"]),
+                                   suite("plain", ["checks/plain.py"], command=[Path(sys.executable).name], setups=["last"])])
+        document = self.suites()
+        (self.root / "suites.json").write_text(json.dumps({"always": [], "setups": SETUPS, "suites": document["suites"]}, indent=2) + "\n",
+                                               encoding="utf-8")
+        self.work = self.base / "setups"
+        self.order = self.base / "order.txt"
+        self.tool = self.base / "installed" / "gitleaks"
+        self.tool.mkdir(parents=True)
+
+    def run_job(self, *pinned: str) -> None:
+        for step in (lambda: self.setups("before", "last", "gitleaks", pinned=pinned), self.start,
+                     lambda: self.setups("recorded", "last", "gitleaks", pinned=pinned)):
+            done = step()
+            assert done.returncode == 0, done.stdout + done.stderr
+
+
+@unittest.skipIf(ON_WINDOWS, "the fixture's recording runs under the stand-in strace")
+class PinnedToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = PinnedToolFixture(self.addCleanup)
+
+    def test_only_the_entry_file_that_states_a_pinned_tool_gets_its_directory(self) -> None:
+        fixture = self.fixture
+        fixture.run_job(f"gitleaks={fixture.tool}")
+        self.assertEqual([line.split()[0] for line in fixture.ordered()], ["last"], "a pinned tool runs no script")
+        self.assertEqual(fixture.stand_in_calls(), [], "and nothing of it runs under the recording")
+        pinned = fixture.exec_entry("checks/pinned.py", sys.executable, "checks/pinned.py")
+        self.assertEqual(pinned.returncode, 0, pinned.stdout + pinned.stderr)
+        self.assertIn("PATH ['last', 'gitleaks']", pinned.stdout)
+        plain = fixture.exec_entry("checks/plain.py", sys.executable, "checks/plain.py")
+        self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+        self.assertIn("PATH ['last',", plain.stdout)
+        self.assertNotIn("gitleaks", plain.stdout)
+
+    def test_a_pinned_tool_that_the_job_did_not_install_is_an_undefined_setup(self) -> None:
+        failed = self.fixture.setups("before", "last", "gitleaks")
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("the suite list suites.json defines no setup gitleaks", failed.stderr)
+
+    def test_an_entry_file_fails_when_its_job_gave_no_pinned_tool(self) -> None:
+        fixture = self.fixture
+        for step in (lambda: fixture.setups("before", "last"), fixture.start, lambda: fixture.setups("recorded", "last")):
+            self.assertEqual(step().returncode, 0)
+        failed = fixture.exec_entry("checks/pinned.py", sys.executable, "checks/pinned.py")
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("the setup gitleaks that checks/pinned.py states was not installed in this job", failed.stderr)
+
+    def test_a_missing_directory_or_a_name_that_is_no_pinned_tool_fails(self) -> None:
+        fixture = self.fixture
+        refused = fixture.setups("before", "last", pinned=("actionlint=/x",))
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn("--pinned takes <tool>=<directory> with one of node, gitleaks, not actionlint=/x", refused.stderr)
+        self.assertEqual(fixture.setups("before", "last", "gitleaks", pinned=(f"gitleaks={fixture.base / 'absent'}",)).returncode, 0)
+        self.assertEqual(fixture.start().returncode, 0)
+        failed = fixture.setups("recorded", "last", "gitleaks", pinned=(f"gitleaks={fixture.base / 'absent'}",))
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("of the setup gitleaks is missing or not absolute", failed.stderr)
+
+    def test_a_setup_of_the_suite_list_is_no_pinned_tool(self) -> None:
+        failed = self.fixture.setups("before", "last", pinned=(f"node={self.fixture.tool}",))
+        self.assertEqual(failed.returncode, 0, failed.stderr)
+        document = self.fixture.suites()
+        document["setups"]["gitleaks"] = {"script": "ci/setup.py"}
+        (self.fixture.root / "suites.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        failed = self.fixture.setups("before", "last", "gitleaks", pinned=(f"gitleaks={self.fixture.tool}",))
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("the suite list suites.json defines the setup gitleaks, so it is no pinned tool of this job", failed.stderr)
+
+
+WHICH_NODE = """\
+import shutil
+
+print("NODE", shutil.which("node"))
+"""
+
+
+class PinnedNodeFixture(RecordingFixture):
+    """A fixture repository whose suite list defines no setup: one entry file states the pinned tool node and one states
+    nothing. ``installed`` stands for the directory of the programs of the Node.js that the job's action installed."""
+
+    def __init__(self, cleanup, program: str, content: str) -> None:
+        command = [Path(sys.executable).name]
+        super().__init__(cleanup, {"checks/node.py": WHICH_NODE, "checks/plain.py": WHICH_NODE},
+                         [suite("unit", ["checks/node.py"], command=command, setups=["node"]), suite("plain", ["checks/plain.py"], command=command, setups=[])])
+        document = self.suites()
+        (self.root / "suites.json").write_text(json.dumps({"always": [], "setups": {}, "suites": document["suites"]}, indent=2) + "\n", encoding="utf-8")
+        self.installed = self.base / "toolcache" / "node" / "bin"
+        self.installed.mkdir(parents=True)
+        (self.installed / program).write_text(content, encoding="utf-8")
+        (self.installed / program).chmod(0o755)
+
+    def job_environment(self, **step: str) -> dict[str, str]:
+        """The environment of a step of the suite job: the runner's temporary directory holds the recording and the setups."""
+        return self.environment() | {"RUNNER_TEMP": str(self.base), "RECORDING": str(REPOSITORY_ROOT / "actions" / "recording"), "SUITES": "suites.json"} | step
+
+    def options(self) -> list[str]:
+        return (self.base / "setup-options.txt").read_text(encoding="utf-8-sig").splitlines()
+
+
+def job_step(job: str, name: str) -> str:
+    """The commands of one step of a suite job, as the shared workflow states them."""
+    (step,) = [step for step in read_workflow(SUITE_JOBS)[1]["jobs"][job]["steps"] if step.get("name") == name]
+    return step["run"]
+
+
+@unittest.skipIf(ON_WINDOWS, "the fixture's recording runs under the stand-in strace")
+@unittest.skipUnless(shutil.which("bash"), "the steps of the Linux suite job run in Bash")
+class PinnedNodeLinuxJobTests(unittest.TestCase):
+    """The steps of the Linux suite job around its setups, run in Bash as Actions runs them, for a shard whose entry file
+    states the pinned tool node."""
+
+    def test_the_entry_file_that_states_node_finds_the_node_that_the_job_installed_and_no_other_entry_file_does(self) -> None:
+        fixture = PinnedNodeFixture(self.addCleanup, "node", "#!/bin/sh\necho v24.9.0\n")
+        based = fixture.run("base", "--file", str(fixture.base / "recording-environment.json"))
+        self.assertEqual(based.returncode, 0, based.stdout + based.stderr)
+        # The job's action puts Node.js on the PATH of the steps after the recording step, which wrote the job's environment.
+        job_path = str(fixture.installed) + os.pathsep + str(fixture.stand_in / "bin") + os.pathsep + os.environ["PATH"]
+        for name, step in ((BEFORE_STEP, {"SETUPS": "node", "PINNED": "node", "PYTHON_PATH": "", "NODE": "24.9.0", "DOTNET": ""}),
+                           (START_STEP, {"FULL": "false", "JOB": "shard-1"}), (RECORDED_STEP, {})):
+            ran = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", job_step("linux", name)], cwd=fixture.root, capture_output=True, text=True,
+                                 env=fixture.job_environment(PATH=job_path, **step))
+            self.assertEqual(ran.returncode, 0, f"{name}: {ran.stdout}{ran.stderr}")
+        self.assertEqual(["--setup", "node", "--tool", f"node={fixture.installed}", "--pinned", f"node={fixture.installed}"], fixture.options())
+        stating = fixture.exec_entry("checks/node.py", sys.executable, "checks/node.py")
+        self.assertEqual(stating.returncode, 0, stating.stdout + stating.stderr)
+        self.assertIn(f"NODE {fixture.installed / 'node'}\n", stating.stdout, "the pinned Node.js is first on the PATH of the entry file that states it")
+        plain = fixture.exec_entry("checks/plain.py", sys.executable, "checks/plain.py")
+        self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+        self.assertNotIn(str(fixture.installed), plain.stdout, "an entry file that does not state node gets nothing of the pinned tool")
+
+    def test_a_shard_without_a_pinned_tool_writes_no_pinned_option(self) -> None:
+        fixture = PinnedNodeFixture(self.addCleanup, "node", "#!/bin/sh\necho v24.9.0\n")
+        ran = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", job_step("linux", BEFORE_STEP)], cwd=fixture.root, capture_output=True, text=True,
+                             env=fixture.job_environment(SETUPS="", PINNED="", PYTHON_PATH="", NODE="", DOTNET=""))
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        self.assertEqual([], fixture.options())
+
+
+@unittest.skipUnless(ON_WINDOWS and shutil.which("pwsh"), "the step of the Windows suite job runs in PowerShell on Windows")
+class PinnedNodeWindowsJobTests(unittest.TestCase):
+    """The step of the Windows suite job that names its setups, run in PowerShell as Actions runs it, for a job whose entry
+    file states the pinned tool node. The step starts no recording."""
+
+    def before(self, fixture: PinnedNodeFixture, job: dict) -> subprocess.CompletedProcess[str]:
+        path = str(fixture.installed) + os.pathsep + os.environ["PATH"]
+        environment = fixture.job_environment(PATH=path, WINDOWS=json.dumps(job), TOOLS=json.dumps(job.get("tools", {})), PYTHON_PATH="")
+        return subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", job_step("windows", BEFORE_STEP)], cwd=fixture.root,
+                              capture_output=True, text=True, env=environment)
+
+    def test_the_job_gives_the_directory_of_the_node_that_its_action_installed_as_the_pinned_tool(self) -> None:
+        fixture = PinnedNodeFixture(self.addCleanup, "node.cmd", "@echo v24.9.0\r\n")
+        ran = self.before(fixture, {"setups": ["node"], "pinned": ["node"], "tools": {"node": "24.9.0"}, "entries": []})
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        self.assertEqual(["--setup", "node", "--tool", f"node={fixture.installed}", "--pinned", f"node={fixture.installed}"], fixture.options())
+
+    def test_a_job_without_a_pinned_tool_writes_no_pinned_option(self) -> None:
+        fixture = PinnedNodeFixture(self.addCleanup, "node.cmd", "@echo v24.9.0\r\n")
+        ran = self.before(fixture, {"setups": [], "tools": {}, "entries": []})
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        self.assertEqual([], fixture.options())
 
 
 @requires_etw

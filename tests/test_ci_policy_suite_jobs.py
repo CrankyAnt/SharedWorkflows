@@ -97,6 +97,7 @@ class SuiteJobsWorkflowTests(unittest.TestCase):
             pinned = len(re.findall(action_pin_pattern(action).replace(r"^[ \t]*- uses: ", r"^[ \t]*(?:- )?uses: "), self.text))
             self.assertEqual(self.text.count(f"uses: {action}@"), pinned, f"every use of {action} is pinned to a SHA with its version")
         self.assertEqual(4, self.text.count("uses: $/actions/recording\n"))
+        self.assertEqual(2, self.text.count("uses: $/actions/repository-hygiene\n"), "each job loads the installer and the pins file of its own revision")
         self.assertEqual(1, self.text.count("uses: $/actions/python-language-step\n"))
         self.assertEqual([], re.findall(r"uses: \./", self.text))
         self.assertNotIn("@v1", self.text)
@@ -114,9 +115,12 @@ class SuiteJobsWorkflowTests(unittest.TestCase):
         for name in own:
             with self.subTest(setup=name):
                 self.assertIsNone(re.search(rf"\b{re.escape(name)}\b", self.text), "a setup is data of the suite list, with its one script")
-        for own_text in ("tests/", "pins.json", "global.json", "install_tools", "npm ci", "3.13", "ubuntu-", "windows-20", "--path", "--variable"):
+        for own_text in ("tests/", "global.json", "npm ci", "3.13", "ubuntu-", "windows-20", "--path", "--variable", "--platform"):
             with self.subTest(text=own_text):
                 self.assertNotIn(own_text, self.text)
+        for shared_text in ("pins.json", "install_tools"):
+            with self.subTest(text=shared_text):
+                self.assertEqual(2, self.text.count(shared_text), "only the step of each job that installs the pinned Gitleaks names the shared pins")
         for action, version in TOOLS.values():
             self.assertEqual(2, len(re.findall(rf"uses: {action}@[0-9a-f]{{40}} # v[\d.]+\n(?:        .*\n)*?          {version}: \$\{{\{{ ", self.text)),
                              f"{action} takes its version from the job's tools in both jobs")
@@ -195,6 +199,35 @@ class RecordedJobTests(unittest.TestCase):
                 self.assertNotIn("--tool", recorded["run"], "the second phase reads the options that the first wrote")
         self.assertEqual("${{ join(matrix.shard.setups, ' ') }}", self.jobs["linux"]["steps"][self.order("linux")["before"]]["env"]["SETUPS"])
         self.assertIn("foreach ($setup in @($job.setups))", self.jobs["windows"]["steps"][self.order("windows")["before"]]["run"])
+
+    def test_a_pinned_tool_is_installed_only_for_a_job_whose_setups_name_it_from_the_pins_of_this_revision_outside_the_recording(self) -> None:
+        named = {"linux": "contains(matrix.shard.pinned, 'gitleaks')", "windows": "contains(fromJSON(env.WINDOWS).pinned, 'gitleaks')"}
+        installer = {"linux": 'python3 "$HYGIENE/install_tools.py" --pins "$HYGIENE/pins.json" --destination "$RUNNER_TEMP/setups/gitleaks" --tool gitleaks',
+                     "windows": 'python "$env:HYGIENE\\install_tools.py" --pins "$env:HYGIENE\\pins.json" '
+                                '--destination "$env:RUNNER_TEMP\\setups\\gitleaks" --tool gitleaks'}
+        for job in JOBS:
+            with self.subTest(job=job):
+                steps = self.jobs[job]["steps"]
+                order = self.order(job)
+                load = self.index(job, lambda step: step.get("uses") == "$/actions/repository-hygiene")
+                install = self.index(job, lambda step: "install_tools.py" in str(step.get("run", "")))
+                self.assertEqual({"id": "hygiene", "if": named[job], "uses": "$/actions/repository-hygiene", "with": {"include-node-version": "false"}},
+                                 steps[load])
+                self.assertEqual(load + 1, install)
+                self.assertEqual(named[job], steps[install]["if"], "a job installs the pinned tool only when one of its entry files states it")
+                self.assertEqual("${{ steps.hygiene.outputs.path }}", steps[install]["env"]["HYGIENE"])
+                self.assertIn(installer[job], steps[install]["run"], "the installer takes the asset of the job's own system and checks its sha256")
+                self.assertLess(order["dotnet"], load)
+                self.assertLess(install, order["before"], "the install is no read of the recording")
+                before, recorded = steps[order["before"]], steps[order["recorded"]]
+                self.assertIn("--pinned", before["run"], "the entry files that state a pinned tool get its directory")
+                self.assertNotIn("--pinned", recorded["run"], "the second phase reads the options that the first wrote")
+        linux, windows = (self.jobs[job]["steps"][self.order(job)["before"]] for job in JOBS)
+        self.assertEqual("${{ matrix.shard.pinned && join(matrix.shard.pinned, ' ') || '' }}", linux["env"]["PINNED"])
+        self.assertIn('if [ "$pinned" = node ]; then directory="$(dirname "$(command -v node)")"; else directory="$RUNNER_TEMP/setups/$pinned"; fi',
+                      linux["run"], "the pinned Node.js is the tool that the job's action installed")
+        self.assertIn("foreach ($pinned in @($job.pinned | Where-Object { $_ }))", windows["run"])
+        self.assertIn("if ($pinned -eq 'node') { Split-Path -Parent (Get-Command node).Source }", windows["run"])
 
     def test_no_step_changes_the_job_s_environment_or_installs_into_the_system(self) -> None:
         for forbidden in ("GITHUB_PATH", "GITHUB_ENV", "apt-get", "sudo "):
@@ -345,11 +378,16 @@ class PipelinePartTests(unittest.TestCase):
                 if step_key(step) == SELECT_STEP:
                     self.assertEqual(f"${{{{ {PLANNED}.config.suites }}}}", step["env"]["SUITES"])
                     self.assertEqual(f"${{{{ join({PLANNED}.config['language-steps'] || fromJSON('[]'), ' ') }}}}", step["env"]["LANGUAGE_STEPS"])
-                    self.assertEqual(set(theirs["env"]) - {"RUNNER_LABELS", "SETUP_VERSIONS"}, set(step["env"]),
-                                     "the runner labels and the setups are data of the suite list")
+                    self.assertEqual(f"${{{{ join({PLANNED}.config['pinned-tools'] || fromJSON('[]'), ' ') }}}}", step["env"]["PINNED_TOOLS"])
+                    self.assertEqual(set(theirs["env"]) - {"RUNNER_LABELS", "SETUP_VERSIONS"} | {"PINNED_TOOLS"}, set(step["env"]),
+                                     "the runner labels and the setups are data of the suite list, and the pinned tools a setting of the part")
+                    pinned = '\n          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$RESOURCE_PATH/../repository-hygiene/pins.json"; done'
+                    self.assertEqual(1, self.text.count(pinned), "select takes the pinned tools with the pins file of this revision")
                     without = re.sub(r"\n +for (?:label|version) in [^\n]+", "", theirs["run"])
+                    ours_run = step["run"].replace(pinned.replace("\n          ", "\n"), "")
+                    self.assertNotEqual(ours_run, step["run"])
                     self.assertEqual(re.sub(r"\s+", " ", without).replace("pull_request) set", "pull_request) set").strip(),
-                                     re.sub(r"\s+", " ", step["run"]).replace(" ;; *)", " ;; *)").strip())
+                                     re.sub(r"\s+", " ", ours_run).replace(" ;; *)", " ;; *)").strip())
                 else:
                     self.assertEqual(theirs, step, "a step of the selection is equal in both workflows")
         self.assertEqual(shared["permissions"], ours["permissions"])

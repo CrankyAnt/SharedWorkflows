@@ -414,6 +414,25 @@ class ReuseTests(FixtureRepository):
         self.assertEqual(runs(self.select_head(first, labels=self.LABELS[:3] + ("windows=windows-2026",) + self.LABELS[4:])),
                          ["windows"], "the runner label")
 
+    def test_a_moved_pin_of_a_pinned_tool_makes_only_the_units_that_state_it_run(self) -> None:
+        pins = self.root.parent / "pins.json"
+
+        def select_pinned(head: str, version: str) -> dict[str, str]:
+            pins.write_text(json.dumps({"node": {"version": version}}), encoding="utf-8")
+            return self.select_head(head, "--pinned-tool", "node", "--pins", str(pins))
+
+        first = self.head({"src/feature.py": "feature v2\n", "src/other.py": "other v2\n"})
+        outputs = select_pinned(first, "24.9.0")
+        self.assertTrue(self.store(outputs, self.ALL + [("per-entry", "tests/test_two.py")], 9001))
+        later = self.head({"README.md": "a change no suite reads\n"})
+        same = select_pinned(later, "24.9.0")
+        self.assertEqual((same["shards"], same["windows"]), ("[]", ""), "the same pin reuses every passed result")
+        moved = select_pinned(later, "24.10.0")
+        self.assertEqual([unit["entries"] for unit in json.loads(moved["units"]).values()], [["tests/test_two.py"]],
+                         "only the entry file that states node runs again")
+        self.assertEqual(sorted(json.loads(moved["reused"]).values()), [9001] * 4)
+        self.assertEqual(json.loads(moved["shards"])[0]["tools"], {"node": "24.10.0"})
+
     def test_an_entry_file_of_a_suite_selected_per_entry_file_is_a_unit_of_its_own(self) -> None:
         self.first_head_passes()
         later = self.head({"src/other.py": "other v2\n"})

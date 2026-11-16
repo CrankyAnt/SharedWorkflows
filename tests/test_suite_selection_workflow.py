@@ -48,6 +48,7 @@ class SelectionReadsTheWorkflowTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, str(REPOSITORY_ROOT / "actions/suite-selection/suite_selection.py"), "select", "--root", ".",
                  "--suites", "tests/suites.json", "--workflow", ".github/workflows/ci.yml", "--language-step", "python",
+                 "--pinned-tool", "gitleaks", "--pins", "actions/repository-hygiene/pins.json",
                  "--changed-file", "actions/python-language-step/python_language_step.py", "--json-output", str(output)],
                 cwd=checkout, capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(0, result.returncode, result.stderr)

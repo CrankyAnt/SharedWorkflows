@@ -220,5 +220,121 @@ class SetupChangeTests(FixtureRepository):
         self.assertEqual(self.changed(), [])
 
 
+PINS = {"node": {"version": "24.9.0"},
+        "tools": {"gitleaks": {"repository": "gitleaks/gitleaks", "version": "8.30.1",
+                               "platforms": {"linux-x64": {"sha256": "a" * 64}, "windows-x64": {"sha256": "b" * 64}}}}}
+PINNED_SETUPS = {"python": SETUPS["python"], "linter": SETUPS["linter"]}
+PINNED_SUITES = [
+    {"name": "unit", "entries": ["checks/test_a.py", "checks/test_b.py"], "command": ["python3"], "setups": ["python"],
+     "entry_setups": {"checks/test_b.py": ["linter", "gitleaks"]}, "entry_selection": True, "paths": ["src/**"],
+     "entry_paths": {"checks/test_a.py": ["src/**"], "checks/test_b.py": ["src/**"]}},
+    {"name": "web", "entries": ["checks/test_c.py"], "command": ["node"], "setups": ["node"], "paths": ["web/**"]},
+    {"name": "desktop", "entries": ["checks/test_win.py"], "os": "windows", "command": ["python"], "setups": ["python", "gitleaks"], "paths": ["src/**"]},
+]
+BOTH = ("--pinned-tool", "node", "--pinned-tool", "gitleaks")
+
+
+class PinnedToolTests(FixtureRepository):
+    """The pinned tools that the configuration file names: setups that the suite jobs give at the version of the pins file."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.pins = self.root.parent / f"{self.root.name}-pins.json"
+        self.addCleanup(lambda: self.pins.unlink(missing_ok=True))
+        self.write_pins(PINS)
+        self.write_suites(self.pinned())
+        self.base = self.commit()
+
+    @staticmethod
+    def pinned(setups: dict | None = None, suites: list | None = None) -> dict:
+        return {"always": [], "setups": PINNED_SETUPS if setups is None else setups, "suites": PINNED_SUITES if suites is None else suites}
+
+    def write_pins(self, pins: dict) -> None:
+        self.pins.write_text(json.dumps(pins), encoding="utf-8")
+
+    def select(self, *arguments: str) -> tuple[int, dict[str, str], str]:
+        return super().select("--pins", str(self.pins), *arguments)
+
+    def refused(self, *arguments: str) -> str:
+        code, outputs, text = self.select("--full", *arguments)
+        self.assertEqual((code, outputs), (2, {}), text)
+        return text
+
+    def test_each_job_gets_the_pinned_tools_that_its_entry_files_state(self) -> None:
+        outputs = self.outputs("--full", *BOTH)
+        shards = json.loads(outputs["shards"])
+        self.assertEqual(len(shards), 1)
+        self.assertEqual(shards[0]["setups"], ["python", "linter", "gitleaks", "node"])
+        self.assertEqual(shards[0]["pinned"], ["node", "gitleaks"])
+        self.assertEqual(shards[0]["tools"], {"python": "3.13", "node": "24.9.0"}, "the job installs Node.js at node.version of the pins file")
+        windows = json.loads(outputs["windows"])
+        self.assertEqual((windows["pinned"], windows["tools"]), (["gitleaks"], {"python": "3.13"}),
+                         "a job installs only the pinned tools that one of its entry files states")
+
+    def test_a_job_whose_entry_files_state_no_pinned_tool_gets_none(self) -> None:
+        write(self.root, "web/page.js", "x\n")
+        outputs = self.outputs("--base", self.base, "--head", self.commit(), "--compare", "direct", *BOTH)
+        (shard,) = json.loads(outputs["shards"])
+        self.assertEqual((shard["setups"], shard["pinned"], shard["tools"]), (["node"], ["node"], {"node": "24.9.0"}))
+        self.write_suites(self.pinned(suites=[PINNED_SUITES[0] | {"entry_setups": {}}]))
+        git(self.root, "add", "-A")
+        (shard,) = json.loads(self.outputs("--full", *BOTH)["shards"])
+        self.assertNotIn("pinned", shard)
+        self.assertEqual(shard["tools"], {"python": "3.13"})
+
+    def test_without_pinned_tools_the_outputs_hold_no_trace_of_them(self) -> None:
+        self.write_suites(document())
+        git(self.root, "add", "-A")
+        named, plain = self.outputs("--full", "--pinned-tool", "gitleaks"), self.outputs("--full")
+        self.assertEqual(named, plain, "a pinned tool that no entry file states changes no output")
+        self.assertEqual(set(json.loads(plain["shards"])[0]), {"shard", "estimate", "setups", "tools", "entries"})
+        self.assertEqual(set(json.loads(plain["windows"])), {"estimate", "setups", "tools", "entries"})
+
+    def test_a_setup_of_the_suite_list_named_after_a_pinned_tool_fails_select(self) -> None:
+        self.write_suites(self.pinned(setups=PINNED_SETUPS | {"gitleaks": {"script": "ci/setups/linter.sh"}}))
+        git(self.root, "add", "-A")
+        self.assertIn("setups (gitleaks): pinned-tools names gitleaks, so the suite jobs give this setup; remove it from setups", self.refused(*BOTH))
+        self.assertEqual(self.select("--full", "--pinned-tool", "node")[0], 0, "without the name in pinned-tools the setup is the suite list's own")
+
+    def test_a_setup_that_installs_node_beside_the_pinned_node_fails_select(self) -> None:
+        self.write_suites(self.pinned(setups=PINNED_SETUPS | {"packages": {"script": "ci/setups/linter.sh", "tool": "node", "version": "24.1.0"}}))
+        git(self.root, "add", "-A")
+        self.assertIn("setups (packages): the tool node stands beside node in pinned-tools; a suite list holds one version per tool", self.refused(*BOTH))
+
+    def test_a_stated_pinned_tool_that_nothing_names_fails_select_as_an_undefined_setup(self) -> None:
+        self.assertIn("suites[1] (unit): entry_setups (checks/test_b.py) names the setup gitleaks, which setups lacks", self.refused("--pinned-tool", "node"))
+        self.assertIn("suites[2] (web): setups names the setup node, which setups lacks", self.refused("--pinned-tool", "gitleaks"))
+        self.assertIn("names the setup gitleaks, which setups lacks", self.refused())
+
+    def test_a_name_outside_the_pinned_tools_is_refused(self) -> None:
+        stream = io.StringIO()
+        with redirect_stderr(stream), self.assertRaises(SystemExit):
+            suite_selection.main(["select", "--root", str(self.root), "--suites", str(self.root / "suites.json"), "--full", "--pinned-tool", "actionlint"])
+        self.assertIn("invalid choice: 'actionlint'", stream.getvalue())
+
+    def test_a_pins_file_without_the_version_fails_select(self) -> None:
+        self.write_pins({"node": {"version": "24.9.0"}, "tools": {}})
+        self.assertIn("holds no version of gitleaks", self.refused(*BOTH))
+        code, _, text = FixtureRepository.select(self, "--full", *BOTH)
+        self.assertEqual(code, 2)
+        self.assertIn("select needs --pins, the pins file, with --pinned-tool", text)
+
+    def test_a_moved_pin_alone_selects_no_unit(self) -> None:
+        write(self.root, "notes.txt", "x\n")
+        head = self.commit()
+        before = self.outputs("--base", self.base, "--head", head, "--compare", "direct", *BOTH)
+        self.write_pins({"node": {"version": "25.0.0"}, "tools": {"gitleaks": PINS["tools"]["gitleaks"] | {"version": "9.0.0"}}})
+        after = self.outputs("--base", self.base, "--head", head, "--compare", "direct", *BOTH)
+        self.assertEqual((before["shards"], before["windows"]), ("[]", ""))
+        self.assertEqual(after, before)
+
+    def test_a_setup_that_becomes_a_pinned_tool_runs_the_entry_files_that_state_it(self) -> None:
+        self.write_suites(self.pinned(setups=PINNED_SETUPS | {"gitleaks": {"script": "ci/setups/linter.sh"}}))
+        self.base = self.commit()
+        self.write_suites(self.pinned())
+        self.assertEqual(self.running("--base", self.base, "--head", self.commit(), "--compare", "direct", *BOTH),
+                         ["checks/test_b.py", "checks/test_win.py"])
+
+
 if __name__ == "__main__":
     unittest.main()

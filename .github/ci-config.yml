@@ -59,6 +59,7 @@ parts:
   suite-selection:
     suites: tests/suites.json
     language-steps: [python]
+    pinned-tools: [gitleaks]
   dependabot-auto-merge:
     suites: tests/suites.json
   issue-title:

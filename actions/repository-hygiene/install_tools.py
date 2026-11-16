@@ -1,7 +1,8 @@
 """Download the pinned tools for one platform, verify each asset's sha256 and place the executables in one directory.
 
-    python3 install_tools.py --pins pins.json --platform linux-x64 --destination DIR [--tool NAME ...]
+    python3 install_tools.py --pins pins.json [--platform linux-x64] --destination DIR [--tool NAME ...]
 
+Without ``--platform`` the platform is that of the machine: its system and its processor, such as ``windows-x64``.
 A sha256 mismatch stops the run before anything is extracted, so a tool that does not match its pin never runs.
 """
 
@@ -11,6 +12,7 @@ import argparse
 import hashlib
 import io
 import os
+import platform
 import shutil
 import stat
 import subprocess
@@ -26,6 +28,17 @@ from pins import DEFAULT_RELEASE_BASE_URL, PinsError, asset_url, load_pins, rend
 
 class InstallError(RuntimeError):
     """A tool could not be installed from its pinned asset."""
+
+
+SYSTEMS = {"Linux": "linux", "Windows": "windows", "Darwin": "macos"}
+PROCESSORS = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}
+
+
+def machine_platform(system: str | None = None, processor: str | None = None) -> str:
+    """The platform key of this machine in the pins file: its system and its processor, such as ``linux-x64``. A system
+    or a processor that the pins file has no name for keeps its own name, so the error for a missing entry names it."""
+    system, processor = system or platform.system(), processor or platform.machine()
+    return f"{SYSTEMS.get(system, system.lower())}-{PROCESSORS.get(processor.lower(), processor.lower())}"
 
 
 def download(url: str) -> bytes:
@@ -133,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     """The command line of this script; the part's tests parse the workflow's invocations with it."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pins", type=Path, required=True)
-    parser.add_argument("--platform", required=True, help="a platform key of the pins file, for example linux-x64")
+    parser.add_argument("--platform", default=None, help="a platform key of the pins file, for example linux-x64 (default: this machine's)")
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--tool", action="append", dest="tools", help="install only this tool; repeatable")
     parser.add_argument("--release-base-url", default=os.environ.get("HYGIENE_RELEASE_BASE_URL", DEFAULT_RELEASE_BASE_URL), help=argparse.SUPPRESS)
@@ -145,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
-        install(load_pins(arguments.pins), arguments.platform, arguments.destination, arguments.tools, arguments.release_base_url,
+        install(load_pins(arguments.pins), arguments.platform or machine_platform(), arguments.destination, arguments.tools, arguments.release_base_url,
                 python_find_links=arguments.python_find_links)
     except (PinsError, InstallError) as error:
         print(f"::error::{error}", file=sys.stderr)

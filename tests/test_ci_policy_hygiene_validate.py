@@ -1,5 +1,6 @@
 """The suite list states each suite's command and setups, and defines every stated setup as data with one script: the
-tools that a pinned action installs, the pinned tools of the hygiene suite and the commitlint toolchain."""
+tools that a pinned action installs, the pinned tools of the hygiene suite and the commitlint toolchain. The pinned tool
+that the configuration file names is a setup that the suite jobs give, which the suite list does not define."""
 
 from __future__ import annotations
 
@@ -11,7 +12,9 @@ from tests.ci_policy_support import REPOSITORY_ROOT, tracked_files
 SUITES = REPOSITORY_ROOT / "tests" / "suites.json"
 SCRIPTS = "tests/setups"
 PINS = "actions/repository-hygiene/pins.json#/node/version"
-PINNED_TOOLS = ("actionlint", "zizmor", "gitleaks", "reuse", "ruff", "mypy")
+PINNED_TOOLS = ("actionlint", "zizmor", "reuse", "ruff", "mypy")
+CONFIGURATION = REPOSITORY_ROOT / ".github" / "ci-config.yml"
+GIVEN_BY_THE_SUITE_JOBS = {"gitleaks"}  # pinned-tools of the suite selection in the configuration file
 
 
 def suite_list() -> dict:
@@ -57,7 +60,21 @@ class SuiteSetupTests(unittest.TestCase):
 
     def test_every_stated_setup_is_defined_and_every_defined_setup_is_stated(self) -> None:
         stated = set().union(*(stated_setups(suite) for suite in suites()))
-        self.assertEqual(stated, set(self.setups))
+        self.assertEqual(stated - GIVEN_BY_THE_SUITE_JOBS, set(self.setups))
+
+    def test_the_pinned_gitleaks_is_a_setup_of_the_suite_jobs_that_a_linux_and_a_windows_entry_file_run(self) -> None:
+        self.assertIn("\n  suite-selection:\n    suites: tests/suites.json\n    language-steps: [python]\n    pinned-tools: [gitleaks]\n",
+                      CONFIGURATION.read_text(encoding="utf-8"))
+        self.assertEqual(set(), GIVEN_BY_THE_SUITE_JOBS & set(self.setups), "the suite list defines no setup of a pinned tool's name")
+        proof = {suite["name"]: suite for suite in suites() if suite["entries"] == ["tests/test_suite_jobs_pinned_tools.py"]}
+        self.assertEqual({"pinned-tools": "linux", "pinned-tools-windows": "windows"}, {name: suite.get("os", "linux") for name, suite in proof.items()})
+        for name, suite in proof.items():
+            with self.subTest(suite=name):
+                self.assertEqual(["python", "gitleaks"], suite["setups"])
+                self.assertEqual(["actions/repository-hygiene/pins.json"], suite["extra_paths"],
+                                 "no recording sees the job install the pinned tool, so the pins file is a stated read")
+        hygiene = next(suite for suite in suites() if suite["name"] == "hygiene")
+        self.assertEqual({"tests/test_hygiene_gitleaks.py": ["actions/repository-hygiene/pins.json"]}, hygiene["entry_extra_paths"])
 
     def test_every_setup_has_one_tracked_script_in_the_folder_of_the_setups_and_every_script_there_serves_one(self) -> None:
         tracked = {path for path in tracked_files(REPOSITORY_ROOT, [SCRIPTS])}

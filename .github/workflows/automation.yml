@@ -460,7 +460,15 @@ jobs:
         env:
           SELECTION: ${{ steps.selection.outputs.path }}
           SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['full-recording'].config.suites }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --full --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -euo pipefail
+          export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache"
+          # The pinned tools are a setting of the suite selection, which this workflow's plan leaves out; the plan program
+          # and the pins file stand beside the suite selection in this workflow's revision.
+          pinned="$(python3 "$SELECTION/../pipeline/plan.py" setting --part suite-selection --setting pinned-tools)"
+          set --
+          for tool in $pinned; do set -- "$@" --pinned-tool "$tool" --pins "$SELECTION/../repository-hygiene/pins.json"; done
+          python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --full "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   # The suite jobs are the one reusable workflow that this workflow calls: the pipeline runs the same jobs on a pull
   # request and a push, so their steps stand once. The suite list gives the setups, the runner labels and the fetch depth.
@@ -519,7 +527,15 @@ jobs:
           head="$(git rev-parse HEAD)"
           if [ "$head" != "$RECORDED" ]; then
             printf 'The default branch moved from %s to %s during the run; the lists apply to %s.\n\n' "$RECORDED" "$head" "$head" >> "$REPORT"
-            if PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --base "$RECORDED" --head "$head" --compare direct --workflow "$VALIDATION_WORKFLOW" --json-output "$RUNNER_TEMP/moved-selection.txt" >&2; then
+            # The selection knows the pinned tools that the suite selection's configuration names, as a pull request's does.
+            select_moved() {
+              local pinned tool
+              pinned="$(PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/../pipeline/plan.py" setting --part suite-selection --setting pinned-tools)" || return
+              set --
+              for tool in $pinned; do set -- "$@" --pinned-tool "$tool" --pins "$SELECTION/../repository-hygiene/pins.json"; done
+              PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --base "$RECORDED" --head "$head" --compare direct --workflow "$VALIDATION_WORKFLOW" "$@" --json-output "$RUNNER_TEMP/moved-selection.txt" >&2
+            }
+            if select_moved; then
               set -- --keep-lists "$RUNNER_TEMP/moved-selection.txt"
             else
               printf 'The change could not be selected, so every entry file keeps its stored reads.\n\n' >> "$REPORT"
