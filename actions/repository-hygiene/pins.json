@@ -1,7 +1,7 @@
 {
   "$schema": "./pins.schema.json",
   "node": {
-    "version": "24.22.2"
+    "version": "24.22.3"
   },
   "tools": {
     "actionlint": {
@@ -183,7 +183,7 @@
     },
     "reuse": {
       "requirement": "reuse[charset-normalizer]",
-      "version": "6.2.0",
+      "version": "6.3.0",
       "build": [
         "poetry-core"
       ],
@@ -224,10 +224,10 @@
           ]
         },
         "click": {
-          "version": "8.5.0",
+          "version": "8.5.1",
           "sha256": [
-            "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
-            "ba0d2089de75ea0310e2dde03160e6ca10009947fb95a182f9b54021bb272e34"
+            "8bb5376d2006950386f8c6427613334a2acadc5f559cb80e638d00b4df957e37",
+            "9bbfada76703fd1d784b83eea012e3e8c6a001a876543ef104fa56aaaeb072b4"
           ]
         },
         "jinja2": {
@@ -284,9 +284,10 @@
           ]
         },
         "reuse": {
-          "version": "6.2.0",
+          "version": "6.3.0",
           "sha256": [
-            "4feae057a2334c9a513e6933cdb9be819d8b822f3b5b435a36138bd218897d23"
+            "5a6ca437057c07ca22a67256520e2783ab03b5524d3a4535603c3d49e3d4b001",
+            "be6b598aa6d5cdf44af0da265572a72f0adcd30033857af874fd8607188259c1"
           ]
         },
         "tomlkit": {
@@ -300,7 +301,7 @@
     },
     "ruff": {
       "requirement": "ruff",
-      "version": "0.17.3",
+      "version": "0.17.4",
       "build": [
         "maturin"
       ],
@@ -314,11 +315,11 @@
           ]
         },
         "ruff": {
-          "version": "0.17.3",
+          "version": "0.17.4",
           "sha256": [
-            "56b8ffb3f3b3cbccb8b76b71b38261b7ed982ef5d20f5b447b1b61a7f4949b24",
-            "7fa4b0f931cdbcb8a52044f370a3eb429fb42eb88807b0e800fcaa98dd42b24e",
-            "a57049c8addb3662073859bb55a7ad35aa54f8a7c9ed268911d1333c5aadaaa9"
+            "2cd025509b2e15721b426fc70fd946d71f43b3db3b08e946dfec2d696d911690",
+            "67c5a894fc054cf41f75f7afa24815de5a74329d97634126c2a1015740ff4e8c",
+            "f32d178b50e826e00f6c6c1be3f56333068acb9b67fe167143527fa9b81e890d"
           ]
         }
       }
