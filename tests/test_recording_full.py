@@ -119,6 +119,29 @@ class FullRecordingTests(unittest.TestCase):
         # The written suite list loads: a second apply of the same result reads it and exits 0.
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
 
+    def test_the_full_recording_removes_the_keys_of_a_file_that_no_path_entry_names_and_writes_a_suite_list_that_loads(self) -> None:
+        # tests/ok.py has a stored list, the two other entry files have none; tests/gone.py is named by no entry.
+        gone = "tests/gone.py"
+        fixture = RUNNERS.fixture(self.addCleanup, [suite("paths", ENTRIES, entry_selection=True, paths=["tests/ok.py", STALE],
+                                                          entry_paths={"tests/ok.py": ["tests/ok.py"], gone: [STALE]},
+                                                          entry_directory_memberships={gone: ["data"]},
+                                                          entry_existence_reads={gone: [{"path": "gone-probe", "kind": "any"}]},
+                                                          entry_lookup_directories={gone: ["data"]}, entry_durations={gone: 2.0})])
+        checked = fixture.record(ENTRIES, full=True)
+        self.assertEqual(0, checked.returncode, checked.stderr)
+        applied = fixture.apply(fixture.output / "full-recording.json")
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertIn(f"paths: removed the stored lists and the estimate of {gone}: no entry names it", applied.stdout)
+        stored = fixture.suite("paths")
+        self.assertEqual(ENTRIES, stored["entries"])
+        self.assertEqual(ENTRIES, list(stored["entry_paths"]))
+        for field in ("entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories"):
+            self.assertNotIn(gone, stored.get(field, {}))
+        self.assertEqual(["tests/ok.py"], list(stored["entry_durations"]))
+        self.assertNotIn(STALE, stored["paths"])
+        # The written suite list loads: a second apply of the same result reads it and exits 0.
+        self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
+
     def test_a_pull_request_run_of_a_glob_suite_reports_additions_that_apply_and_then_cover_every_read(self) -> None:
         for stored in ({}, {"paths": ["tests/ok.py"], "entry_paths": {"tests/ok.py": ["tests/ok.py"]}}):
             with self.subTest(stored=stored):

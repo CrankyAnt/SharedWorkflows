@@ -148,8 +148,9 @@ class Suite:
         return frozenset(entry for entry, _ in self.entry_paths)
 
     def lacks_list(self, entry: str) -> bool:
-        """Whether an entry file of a stored suite selected per entry file has no stored list of its own: a file that a
-        pattern of ``entries`` matches and whose reads no recording has stored yet. Its inputs are unknown."""
+        """Whether an entry file of a stored suite selected per entry file has no stored list of its own: an entry file,
+        named by path or matched by a pattern of ``entries``, whose reads no recording has stored yet. Its inputs are
+        unknown."""
         return self.entry_selection and self.paths is not None and entry not in self._entries_with_list
 
     def setups_of(self, entry: str) -> tuple[str, ...]:
@@ -411,15 +412,15 @@ def glob_entries(entries) -> tuple[str, ...]:
 
 def _entry_keys(value: dict, entries: tuple[str, ...], location: str, *, recorded: bool) -> tuple[str, ...]:
     """The keys of a per-entry field, checked against the entries. A key names an entry or a file that a glob entry
-    matches. In a suite with a glob entry, a field that the recording writes (``recorded``) may also hold a key that names
-    no entry file any more, of a deleted or renamed file: the next apply removes it. The keys of a suite without a glob
-    entry come in entry order, those of a suite with one in the order the field states them."""
+    matches. A field that the recording writes (``recorded``) may also hold a key that names no entry file any more, of a
+    deleted or renamed file, in any suite: the next apply removes it. The keys of a suite without a glob entry come in
+    entry order, followed by such keys in the order the field states them; those of a suite with one come in the order
+    the field states them."""
     patterns = glob_entries(entries)
-    if not (recorded and patterns):
-        unknown = sorted(key for key in value if key not in entries and not any(matches(pattern, key) for pattern in patterns))
-        if unknown:
-            raise SuiteListError(f"{location} names {', '.join(unknown)}, which the entries lack")
-    return tuple(value) if patterns else tuple(entry for entry in entries if entry in value)
+    unknown = [key for key in value if key not in entries and not any(matches(pattern, key) for pattern in patterns)]
+    if unknown and not recorded:
+        raise SuiteListError(f"{location} names {', '.join(sorted(unknown))}, which the entries lack")
+    return tuple(value) if patterns else tuple(entry for entry in entries if entry in value) + tuple(unknown)
 
 
 def _per_entry_file(value, entries: tuple[str, ...], location: str, read, *, recorded: bool) -> tuple[tuple[str, object], ...]:
@@ -466,7 +467,7 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
         entry_selection = item.get("entry_selection", False)
         if not isinstance(entry_selection, bool):
             raise SuiteListError(f"{location} ({name}): entry_selection must be true or false")
-        entry_paths = (_per_entry(item.get("entry_paths"), entries, f"{location} ({name}): entry_paths", recorded=True, complete=True)
+        entry_paths = (_per_entry(item.get("entry_paths"), entries, f"{location} ({name}): entry_paths", recorded=True)
                        if "entry_paths" in item else ())
         entry_extra_paths = (_per_entry(item.get("entry_extra_paths"), entries, f"{location} ({name}): entry_extra_paths", recorded=False)
                              if "entry_extra_paths" in item else ())
@@ -652,16 +653,12 @@ def _module_lookups(value, location: str) -> tuple[tuple[str, tuple[str, ...]], 
     return tuple((directory, _strings(names, f"{location} ({directory})")) for directory, names in value.items())
 
 
-def _per_entry(value, entries: tuple[str, ...], location: str, *, recorded: bool,
-               complete: bool = False) -> tuple[tuple[str, tuple[str, ...]], ...]:
+def _per_entry(value, entries: tuple[str, ...], location: str, *, recorded: bool) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """A mapping from entry file to a list of patterns; ``_entry_keys`` states which keys it may hold and their order.
-    With ``complete``, every entry file named by path needs a key; a file that a glob entry matches may lack one."""
+    An entry file may lack a key: in ``entry_paths`` it then has no stored list, as ``Suite.lacks_list`` states."""
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise SuiteListError(f"{location} must be an object with one list of patterns per entry file")
     keys = _entry_keys(value, entries, location, recorded=recorded)
-    patterns = glob_entries(entries)
-    if complete and any(entry not in value for entry in entries if entry not in patterns):
-        raise SuiteListError(f"{location} must name every entry file")
     return tuple((entry, _strings(value[entry], f"{location} ({entry})")) for entry in keys)
 
 
@@ -708,14 +705,12 @@ def expand_entries(entries: tuple[str, ...], tracked: set[str], location: str) -
 
 
 def resolve_entries(suite_list: SuiteList, tracked: set[str], source: str = "the suite list") -> SuiteList:
-    """The suite list with every entry pattern expanded to the tracked files it matches. A suite with a pattern loses
-    the keys of its recorded per-entry fields that name no entry file any more, so nothing that selects reads them."""
+    """The suite list with every entry pattern expanded to the tracked files it matches. A suite loses the keys of its
+    recorded per-entry fields that name no entry file any more, so nothing that selects reads them."""
     suites = []
     for index, suite in enumerate(suite_list.suites, start=1):
         entries = expand_entries(suite.entries, tracked, f"{source}: suites[{index}] ({suite.name})")
-        current = {}
-        if glob_entries(suite.entries):
-            current = {field: tuple(pair for pair in getattr(suite, field) if pair[0] in entries) for field in RECORDED_ENTRY_FIELDS}
+        current = {field: tuple(pair for pair in getattr(suite, field) if pair[0] in entries) for field in RECORDED_ENTRY_FIELDS}
         suites.append(dataclasses.replace(suite, entries=entries, **current))
     for setup in suite_list.setups or ():
         for file, what in zip(setup.files, ("script", "version file")):

@@ -180,35 +180,64 @@ class SuiteListTests(unittest.TestCase):
                 rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list(json.dumps(document)))
                 self.assertEqual(json.loads(rendered), document)
 
-    def test_a_recorded_field_of_a_glob_suite_may_hold_the_key_of_a_file_that_no_entry_names_any_more(self) -> None:
+    def path_suite(self, **fields) -> dict:
+        """The suite of ``glob_suite`` with each entry file named by path."""
+        document = self.glob_suite(**fields)
+        document["suites"][0]["entries"] = ["tests/test_a.py", "tests/test_b.py"]
+        return document
+
+    def namings(self) -> tuple:
+        """The suite of ``glob_suite`` and of ``path_suite``, each with the name of how it names its entry files."""
+        return (("glob", self.glob_suite), ("path", self.path_suite))
+
+    def test_a_recorded_field_may_hold_the_key_of_a_file_that_no_entry_names_any_more(self) -> None:
         gone = "old/test_gone.py"
         for field, value in (("entry_paths", ["lib/gone.py"]), ("entry_directory_memberships", ["lib"]),
                              ("entry_existence_reads", [{"path": "probe", "kind": "any"}]), ("entry_lookup_directories", ["tests"]),
                              ("entry_durations", 2.5)):
-            with self.subTest(field=field):
-                document = self.glob_suite()
-                document["suites"][0][field] = {**document["suites"][0].get(field, {}), gone: value}
-                rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list(json.dumps(document)))
-                self.assertEqual(json.loads(rendered), document)
-                # The same key in a suite that names every entry file by path is invalid, as before.
-                document["suites"][0]["entries"] = ["tests/test_a.py", "tests/test_b.py"]
-                with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} names {gone}, which the entries lack"):
-                    suite_selection.parse_suite_list(json.dumps(document))
+            for naming, build in self.namings():
+                with self.subTest(field=field, naming=naming):
+                    document = build()
+                    document["suites"][0][field] = {**document["suites"][0].get(field, {}), gone: value}
+                    parsed = suite_selection.parse_suite_list(json.dumps(document))
+                    self.assertEqual(json.loads(suite_selection.render_suite_list(parsed)), document, "the key renders back until apply removes it")
+                    resolved = suite_selection.resolve_entries(parsed, {"tests/test_a.py", "tests/test_b.py"}).suites[0]
+                    self.assertNotIn(gone, dict(getattr(resolved, field)), "nothing that selects reads the key")
 
     def test_a_field_that_the_repository_writes_rejects_a_key_that_is_no_entry_path_and_that_no_pattern_matches(self) -> None:
         for field in ("entry_extra_paths", "entry_setups"):
-            with self.subTest(field=field):
-                document = self.glob_suite(**{field: {"old/test_gone.py": ["x"]}})
-                with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} names old/test_gone.py, which the entries lack"):
-                    suite_selection.parse_suite_list(json.dumps(document))
+            for naming, build in self.namings():
+                with self.subTest(field=field, naming=naming):
+                    document = build(**{field: {"old/test_gone.py": ["x"]}})
+                    with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} names old/test_gone.py, which the entries lack"):
+                        suite_selection.parse_suite_list(json.dumps(document))
 
-    def test_an_entry_file_named_by_path_beside_a_glob_entry_needs_its_stored_list(self) -> None:
-        document = self.glob_suite()
-        document["suites"][0]["entries"].append("checks/x.py")
-        with self.assertRaisesRegex(suite_selection.SuiteListError, r"\(unit\): entry_paths must name every entry file"):
-            suite_selection.parse_suite_list(json.dumps(document))
-        document["suites"][0]["entry_paths"]["checks/x.py"] = []
-        self.assertEqual(len(suite_selection.parse_suite_list(json.dumps(document)).suites[0].entry_paths), 3)
+    def test_select_passes_on_a_stale_key_of_a_suite_with_only_path_entries_and_selects_nothing_on_it(self) -> None:
+        document = self.path_suite(entry_durations={"old/test_gone.py": 3.0})
+        document["suites"][0]["entry_paths"]["old/test_gone.py"] = ["gone/**"]
+        with tempfile.TemporaryDirectory() as directory:
+            for path in ("suites.json", "tests/test_a.py", "tests/test_b.py"):
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text("", encoding="utf-8")
+            suites = Path(directory) / "suites.json"
+            suites.write_text(json.dumps(document), encoding="utf-8")
+            report = io.StringIO()
+            with redirect_stdout(report), mock.patch("sys.stderr", io.StringIO()):
+                code = suite_selection.main(["select", "--root", directory, "--suites", str(suites), "--changed-file", "gone/x.py"])
+        self.assertEqual(code, 0)
+        self.assertIn("unit: skip", report.getvalue())
+
+    def test_an_entry_file_named_by_path_may_lack_its_stored_list(self) -> None:
+        for naming, build in self.namings():
+            with self.subTest(naming=naming):
+                document = build()
+                document["suites"][0]["entries"].append("checks/x.py")
+                text = json.dumps(document, indent=2) + "\n"
+                parsed = suite_selection.parse_suite_list(text)
+                self.assertEqual(suite_selection.render_suite_list(parsed), text)
+                unit = parsed.suites[0]
+                self.assertTrue(unit.lacks_list("checks/x.py"))
+                self.assertFalse(unit.lacks_list("tests/test_a.py"))
 
 
 class SelectionTests(FixtureRepositoryTests):
@@ -1767,12 +1796,22 @@ class EntrySelectionTests(FixtureRepositoryTests):
         pair = suite_selection.select(self.suite_list(document), ["guides/intro.md"], root=self.root).decisions[0]
         self.assertEqual((pair.run, pair.entries, pair.reason), (True, ("checks/test_app.py", "checks/beta.py"), "runs on every change: no stored path list"))
 
+    def test_an_entry_file_named_by_path_without_a_stored_list_runs_on_every_change_and_the_others_on_their_own_lists(self) -> None:
+        document = json.loads(json.dumps(PAIR_SUITES))
+        del document["suites"][0]["entry_paths"]["checks/beta.py"]
+        suite_list = self.suite_list(document)
+        pair = suite_selection.select(suite_list, ["stray.txt"], root=self.root).decisions[0]
+        self.assertEqual((pair.run, pair.entries, pair.reason), (True, ("checks/beta.py",), "`checks/beta.py` runs on every change: no stored path list"))
+        both = suite_selection.select(suite_list, ["guides/intro.md"], root=self.root).decisions[0]
+        self.assertEqual((both.run, both.entries), (True, ("checks/test_app.py", "checks/beta.py")))
+        self.assertIn("`guides/intro.md` matches `guides/**` of `checks/test_app.py`", both.reason)
+
     def test_the_suite_list_rejects_entry_lists_that_do_not_fit_the_entries(self) -> None:
         base = PAIR_SUITES["suites"][0]
         for change, message in (
             ({"entry_selection": False}, "entry_paths needs entry_selection"),
-            ({"entry_paths": {"checks/test_app.py": ["checks/test_app.py"]}}, "must name every entry file"),
             ({"entry_extra_paths": {"checks/other.py": ["x"]}}, "names checks/other.py, which the entries lack"),
+            ({"entry_setups": {"checks/other.py": ["x"]}}, "names checks/other.py, which the entries lack"),
             ({"entry_selection": "yes"}, "entry_selection must be true or false"),
         ):
             with self.subTest(change=change):
