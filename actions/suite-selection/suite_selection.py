@@ -67,6 +67,8 @@ SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_select
                         "entry_extra_paths", "directory_memberships", "entry_directory_memberships", "existence_reads", "entry_existence_reads",
                         "extra_directory_memberships", "extra_existence_reads", "lookup_directories", "entry_lookup_directories",
                         "os", "command", "setups", "entry_setups", "entry_durations"})
+# The per-entry fields that the recording writes; the repository writes entry_extra_paths and entry_setups.
+RECORDED_ENTRY_FIELDS = ("entry_paths", "entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories", "entry_durations")
 TOP_LEVEL_KEYS = ("always", "jobs", "setups", "suites", "module_lookups")
 TOOLS = ("python", "node", "dotnet")  # the tools that a suite job installs with its pinned action, outside the recording
 # The pinned tools: the setups that the suite jobs give at the version of the pins file when the configuration file names
@@ -134,6 +136,15 @@ class Suite:
     entry_setups: tuple[tuple[str, tuple[str, ...]], ...] = ()  # further setups per entry file of a suite selected per entry
     entry_durations: tuple[tuple[str, float], ...] = ()  # the duration estimate per entry file, in seconds of traced test time
     os: str = "linux"  # the operating system its entry files run on: linux or windows
+
+    @functools.cached_property
+    def _entries_with_list(self) -> frozenset[str]:
+        return frozenset(entry for entry, _ in self.entry_paths)
+
+    def lacks_list(self, entry: str) -> bool:
+        """Whether an entry file of a stored suite selected per entry file has no stored list of its own: a file that a
+        pattern of ``entries`` matches and whose reads no recording has stored yet. Its inputs are unknown."""
+        return self.entry_selection and self.paths is not None and entry not in self._entries_with_list
 
     def setups_of(self, entry: str) -> tuple[str, ...]:
         """The setups one entry file needs: the suite's and the entry file's own."""
@@ -371,10 +382,7 @@ def _membership_patterns(value, location: str) -> tuple[str, ...]:
 def _entry_existence_reads(value, entries: tuple[str, ...], location: str):
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise SuiteListError(f"{location} must be an object with existence reads per entry file")
-    unknown = sorted(set(value) - set(entries))
-    if unknown:
-        raise SuiteListError(f"{location} names {', '.join(unknown)}, which the entries lack")
-    return tuple((entry, _existence_reads(value[entry], f"{location} ({entry})")) for entry in entries if entry in value)
+    return tuple((entry, _existence_reads(value[entry], f"{location} ({entry})")) for entry in _entry_keys(value, entries, location, recorded=True))
 
 
 def _command(value, location: str) -> tuple[str, ...]:
@@ -390,14 +398,29 @@ def _duration(value, location: str) -> float:
     return value
 
 
-def _per_entry_file(value, entries: tuple[str, ...], location: str, read) -> tuple[tuple[str, object], ...]:
-    """A mapping from entry file to a value, in key order; a key names an entry or a file that a glob entry matches."""
+def glob_entries(entries) -> tuple[str, ...]:
+    """The entries that are glob patterns."""
+    return tuple(entry for entry in entries if any(character in entry for character in GLOB_CHARACTERS))
+
+
+def _entry_keys(value: dict, entries: tuple[str, ...], location: str, *, recorded: bool) -> tuple[str, ...]:
+    """The keys of a per-entry field, checked against the entries. A key names an entry or a file that a glob entry
+    matches. In a suite with a glob entry, a field that the recording writes (``recorded``) may also hold a key that names
+    no entry file any more, of a deleted or renamed file: the next apply removes it. The keys of a suite without a glob
+    entry come in entry order, those of a suite with one in the order the field states them."""
+    patterns = glob_entries(entries)
+    if not (recorded and patterns):
+        unknown = sorted(key for key in value if key not in entries and not any(matches(pattern, key) for pattern in patterns))
+        if unknown:
+            raise SuiteListError(f"{location} names {', '.join(unknown)}, which the entries lack")
+    return tuple(value) if patterns else tuple(entry for entry in entries if entry in value)
+
+
+def _per_entry_file(value, entries: tuple[str, ...], location: str, read, *, recorded: bool) -> tuple[tuple[str, object], ...]:
+    """A mapping from entry file to a value, in key order; ``_entry_keys`` states which keys it may hold."""
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise SuiteListError(f"{location} must be an object with one value per entry file")
-    patterns = [entry for entry in entries if any(character in entry for character in GLOB_CHARACTERS)]
-    unknown = sorted(key for key in value if key not in entries and not any(matches(pattern, key) for pattern in patterns))
-    if unknown:
-        raise SuiteListError(f"{location} names {', '.join(unknown)}, which the entries lack")
+    _entry_keys(value, entries, location, recorded=recorded)
     return tuple((key, read(item, f"{location} ({key})")) for key, item in value.items())
 
 
@@ -437,24 +460,26 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
         entry_selection = item.get("entry_selection", False)
         if not isinstance(entry_selection, bool):
             raise SuiteListError(f"{location} ({name}): entry_selection must be true or false")
-        entry_paths = _per_entry(item.get("entry_paths"), entries, f"{location} ({name}): entry_paths") if "entry_paths" in item else ()
-        entry_extra_paths = _per_entry(item.get("entry_extra_paths"), entries, f"{location} ({name}): entry_extra_paths", complete=False) if "entry_extra_paths" in item else ()
+        entry_paths = (_per_entry(item.get("entry_paths"), entries, f"{location} ({name}): entry_paths", recorded=True, complete=True)
+                       if "entry_paths" in item else ())
+        entry_extra_paths = (_per_entry(item.get("entry_extra_paths"), entries, f"{location} ({name}): entry_extra_paths", recorded=False)
+                             if "entry_extra_paths" in item else ())
         memberships = _strings(item["directory_memberships"], f"{location} ({name}): directory_memberships") if "directory_memberships" in item else ()
-        entry_memberships = _per_entry(item["entry_directory_memberships"], entries, f"{location} ({name}): entry_directory_memberships", complete=False) if "entry_directory_memberships" in item else ()
+        entry_memberships = _per_entry(item["entry_directory_memberships"], entries, f"{location} ({name}): entry_directory_memberships", recorded=True) if "entry_directory_memberships" in item else ()
         existence = _existence_reads(item["existence_reads"], f"{location} ({name}): existence_reads") if "existence_reads" in item else ()
         entry_existence = _entry_existence_reads(item["entry_existence_reads"], entries, f"{location} ({name}): entry_existence_reads") if "entry_existence_reads" in item else ()
         extra_memberships = _membership_patterns(item["extra_directory_memberships"], f"{location} ({name}): extra_directory_memberships") if "extra_directory_memberships" in item else ()
         extra_existence = _existence_reads(item["extra_existence_reads"], f"{location} ({name}): extra_existence_reads") if "extra_existence_reads" in item else ()
         lookup_directories = _strings(item["lookup_directories"], f"{location} ({name}): lookup_directories") if "lookup_directories" in item else ()
-        entry_lookup_directories = (_per_entry(item["entry_lookup_directories"], entries, f"{location} ({name}): entry_lookup_directories", complete=False)
+        entry_lookup_directories = (_per_entry(item["entry_lookup_directories"], entries, f"{location} ({name}): entry_lookup_directories", recorded=True)
                                     if "entry_lookup_directories" in item else ())
         operating_system = item.get("os", "linux")
         if operating_system not in OPERATING_SYSTEMS:
             raise SuiteListError(f"{location} ({name}): os must be one of {', '.join(OPERATING_SYSTEMS)}")
         command = _command(item["command"], f"{location} ({name}): command") if "command" in item else None
         setups = _strings(item["setups"], f"{location} ({name}): setups") if "setups" in item else None
-        entry_setups = _per_entry_file(item["entry_setups"], entries, f"{location} ({name}): entry_setups", _strings) if "entry_setups" in item else ()
-        entry_durations = _per_entry_file(item["entry_durations"], entries, f"{location} ({name}): entry_durations", _duration) if "entry_durations" in item else ()
+        entry_setups = _per_entry_file(item["entry_setups"], entries, f"{location} ({name}): entry_setups", _strings, recorded=False) if "entry_setups" in item else ()
+        entry_durations = _per_entry_file(item["entry_durations"], entries, f"{location} ({name}): entry_durations", _duration, recorded=True) if "entry_durations" in item else ()
         if entry_existence and not entry_selection:
             raise SuiteListError(f"{location} ({name}): entry_existence_reads needs entry_selection")
         if entry_memberships and not entry_selection:
@@ -465,7 +490,7 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
             raise SuiteListError(f"{location} ({name}): entry_paths needs entry_selection")
         if entry_setups and not entry_selection:
             raise SuiteListError(f"{location} ({name}): entry_setups needs entry_selection")
-        if has_paths and entry_selection and not entry_paths:
+        if has_paths and entry_selection and "entry_paths" not in item:
             raise SuiteListError(f"{location} ({name}): a stored suite with entry_selection needs entry_paths")
         common = dict(extra_paths=extra_paths, entry_selection=entry_selection, entry_extra_paths=entry_extra_paths,
                       directory_memberships=memberships, entry_directory_memberships=entry_memberships, existence_reads=existence,
@@ -621,16 +646,17 @@ def _module_lookups(value, location: str) -> tuple[tuple[str, tuple[str, ...]], 
     return tuple((directory, _strings(names, f"{location} ({directory})")) for directory, names in value.items())
 
 
-def _per_entry(value, entries: tuple[str, ...], location: str, *, complete: bool = True) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """A mapping from entry file to a list of patterns, in entry order; with ``complete``, every entry needs a key."""
+def _per_entry(value, entries: tuple[str, ...], location: str, *, recorded: bool,
+               complete: bool = False) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """A mapping from entry file to a list of patterns; ``_entry_keys`` states which keys it may hold and their order.
+    With ``complete``, every entry file named by path needs a key; a file that a glob entry matches may lack one."""
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise SuiteListError(f"{location} must be an object with one list of patterns per entry file")
-    unknown = sorted(set(value) - set(entries))
-    if unknown:
-        raise SuiteListError(f"{location} names {', '.join(unknown)}, which the entries lack")
-    if complete and set(value) != set(entries):
+    keys = _entry_keys(value, entries, location, recorded=recorded)
+    patterns = glob_entries(entries)
+    if complete and any(entry not in value for entry in entries if entry not in patterns):
         raise SuiteListError(f"{location} must name every entry file")
-    return tuple((entry, _strings(value[entry], f"{location} ({entry})")) for entry in entries if entry in value)
+    return tuple((entry, _strings(value[entry], f"{location} ({entry})")) for entry in keys)
 
 
 def load_suite_list(path: Path) -> SuiteList:
@@ -676,11 +702,15 @@ def expand_entries(entries: tuple[str, ...], tracked: set[str], location: str) -
 
 
 def resolve_entries(suite_list: SuiteList, tracked: set[str], source: str = "the suite list") -> SuiteList:
-    """The suite list with every entry pattern expanded to the tracked files it matches."""
+    """The suite list with every entry pattern expanded to the tracked files it matches. A suite with a pattern loses
+    the keys of its recorded per-entry fields that name no entry file any more, so nothing that selects reads them."""
     suites = []
     for index, suite in enumerate(suite_list.suites, start=1):
         entries = expand_entries(suite.entries, tracked, f"{source}: suites[{index}] ({suite.name})")
-        suites.append(dataclasses.replace(suite, entries=entries))
+        current = {}
+        if glob_entries(suite.entries):
+            current = {field: tuple(pair for pair in getattr(suite, field) if pair[0] in entries) for field in RECORDED_ENTRY_FIELDS}
+        suites.append(dataclasses.replace(suite, entries=entries, **current))
     for setup in suite_list.setups or ():
         for file, what in zip(setup.files, ("script", "version file")):
             if file not in tracked:
@@ -1164,6 +1194,10 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
             selected = []
             reasons = []
             for entry, patterns in basis.entry_patterns:
+                if basis.suite.lacks_list(entry):
+                    selected.append(entry)
+                    reasons.append(f"`{entry}` {NO_PATH_LIST_REASON}")
+                    continue
                 match = first_match(patterns, changed)
                 if match is None:
                     membership = next((value for value in dict(basis.entry_memberships).get(entry, ())
@@ -1422,6 +1456,8 @@ def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dic
         always = suite_list.always + decision.definition_reads
         if suite.entry_selection:
             for entry in decision.entries:
+                if suite.lacks_list(entry):
+                    continue  # its inputs are unknown, so no passed result of it is reused
                 reads = tree.reads(dict(basis.entry_patterns)[entry] + always, dict(basis.entry_memberships).get(entry, ()),
                                    dict(basis.entry_existence_reads).get(entry, ()), lookups(dict(basis.entry_lookup_directories).get(entry, ())))
                 units.append((reuse.unit_key(reads, suite.command, suite.setups_of(entry), versions, labels.get(suite.os, ""),

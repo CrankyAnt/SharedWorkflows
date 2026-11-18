@@ -76,6 +76,93 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual({"tests/c1.py": ["a.txt"], "tests/c2.py": ["b.txt"]}, fixture.suite("new")["entry_paths"])
 
+    def assert_loads_unchanged(self, fixture: RecordingFixture) -> None:
+        """The written suite list loads: a further apply reads it, finds nothing to add and leaves it as it is."""
+        written = (fixture.root / "suites.json").read_text(encoding="utf-8")
+        again = fixture.apply(self.write(fixture, "nothing.json", additions()))
+        self.assertEqual(0, again.returncode, again.stderr)
+        self.assertEqual("No additions to apply.\n", again.stdout)
+        self.assertEqual(written, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+
+    def test_apply_stores_a_list_per_matched_file_of_a_glob_suite_and_keeps_the_pattern(self) -> None:
+        matched = ["tests/c1.py", "tests/c2.py", "tests/c3.py", "tests/c4.py"]
+        fixture = self.fixture([suite("glob", ["tests/c*.py"], entry_selection=True)])
+        change = additions({"suite": "glob", "create": True, "recorded_entries": matched,
+                            "entries": {entry: reads([entry, "lib/x.py"]) for entry in matched}})
+        applied = fixture.apply(self.write(fixture, "additions.json", change))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        stored = fixture.suite("glob")
+        self.assertEqual(["tests/c*.py"], stored["entries"])
+        self.assertEqual({entry: ["lib/x.py", entry] for entry in matched}, stored["entry_paths"])
+        self.assertEqual(["lib/x.py", *matched], stored["paths"])
+        self.assert_loads_unchanged(fixture)
+
+    def test_apply_adds_the_key_of_a_new_matched_file_to_a_glob_suite_with_stored_lists(self) -> None:
+        listed = ["tests/c1.py", "tests/c2.py", "tests/c3.py"]
+        fixture = self.fixture([suite("glob", ["tests/c*.py"], entry_selection=True, paths=listed, entry_paths={entry: [entry] for entry in listed},
+                                      entry_extra_paths={"tests/c4.py": ["docs/**"]})])
+        change = additions({"suite": "glob", "create": False, "recorded_entries": ["tests/c4.py"],
+                            "entries": {"tests/c4.py": reads(["tests/c4.py", "lib/x.py"], [("probe", "any")], ["fixtures"])}})
+        applied = fixture.apply(self.write(fixture, "additions.json", change))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        stored = fixture.suite("glob")
+        self.assertEqual(["tests/c*.py"], stored["entries"])
+        self.assertEqual({**{entry: [entry] for entry in listed}, "tests/c4.py": ["lib/x.py", "tests/c4.py"]}, stored["entry_paths"])
+        self.assertEqual({"tests/c4.py": [{"path": "probe", "kind": "any"}]}, stored["entry_existence_reads"])
+        self.assertEqual({"tests/c4.py": ["fixtures"]}, stored["entry_directory_memberships"])
+        self.assertEqual({"tests/c4.py": ["docs/**"]}, stored["entry_extra_paths"])
+        self.assert_loads_unchanged(fixture)
+
+    def test_a_full_recording_without_a_result_for_a_matched_file_without_a_list_leaves_it_without_one(self) -> None:
+        listed = ["tests/c1.py", "tests/c2.py", "tests/c3.py"]
+        fixture = self.fixture([suite("glob", ["tests/c*.py"], entry_selection=True, paths=listed, entry_paths={entry: [entry] for entry in listed})])
+        result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "glob", "entry": entry, "exit_code": 0, "skipped": 0, "seconds": 1.65, "reads": reads([entry])} for entry in listed]}
+        applied = fixture.apply(self.write(fixture, "full.json", result))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertIn("glob: left tests/c4.py without a stored list: it was not recorded", applied.stdout)
+        self.assertNotIn("kept the list of tests/c4.py", applied.stdout)
+        self.assertEqual(listed, list(fixture.suite("glob")["entry_paths"]))
+        self.assert_loads_unchanged(fixture)
+
+    def stale_suite(self) -> dict:
+        """A glob suite whose recorded fields each hold the key of a file that no entry names any more."""
+        gone = "tests/gone.py"
+        return suite("glob", ["tests/c1.py", "tests/c?.py"], entry_selection=True, paths=["tests/c1.py", "only/gone.txt"],
+                     entry_paths={**{f"tests/c{number}.py": [f"tests/c{number}.py"] for number in (1, 2, 3, 4)}, gone: ["only/gone.txt"]},
+                     entry_directory_memberships={gone: ["gone-directory"]}, entry_existence_reads={gone: [{"path": "gone-probe", "kind": "any"}]},
+                     entry_lookup_directories={gone: ["gone-lookups"]}, entry_durations={"tests/c1.py": 1.0, gone: 3.0},
+                     directory_memberships=["gone-directory"], existence_reads=[{"path": "gone-probe", "kind": "any"}],
+                     lookup_directories=["gone-lookups"])
+
+    def assert_stale_keys_gone(self, fixture: RecordingFixture, applied) -> None:
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertIn("glob: removed the stored lists and the estimate of tests/gone.py: no entry names it", applied.stdout)
+        stored = fixture.suite("glob")
+        self.assertEqual(["tests/c1.py", "tests/c?.py"], stored["entries"])
+        self.assertEqual({"tests/c1.py", "tests/c2.py", "tests/c3.py", "tests/c4.py"}, set(stored["entry_paths"]))
+        for field in ("entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories",
+                      "directory_memberships", "existence_reads", "lookup_directories"):
+            self.assertNotIn(field, stored)
+        self.assertNotIn("tests/gone.py", stored["entry_durations"])
+        self.assertNotIn("only/gone.txt", stored["paths"])
+
+    def test_apply_removes_the_keys_of_a_file_that_no_entry_of_a_glob_suite_names_any_more(self) -> None:
+        fixture = self.fixture([self.stale_suite()])
+        self.assert_stale_keys_gone(fixture, fixture.apply(self.write(fixture, "additions.json", additions())))
+        self.assertEqual({"tests/c1.py": 1.0}, fixture.suite("glob")["entry_durations"])
+        self.assert_loads_unchanged(fixture)
+
+    def test_the_apply_of_a_full_recording_removes_the_keys_of_a_file_that_no_entry_of_a_glob_suite_names_any_more(self) -> None:
+        fixture = self.fixture([self.stale_suite()])
+        result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "glob", "entry": "tests/c2.py", "exit_code": 0, "skipped": 0, "seconds": 3.3, "reads": reads(["tests/c2.py", "lib/y.py"])}]}
+        applied = fixture.apply(self.write(fixture, "full.json", result))
+        self.assert_stale_keys_gone(fixture, applied)
+        self.assertEqual(["lib/y.py", "tests/c2.py"], fixture.suite("glob")["entry_paths"]["tests/c2.py"])
+        self.assertEqual({"tests/c1.py": 1.0, "tests/c2.py": 2.0}, fixture.suite("glob")["entry_durations"])
+        self.assert_loads_unchanged(fixture)
+
     def test_apply_writes_duration_estimates_converted_by_the_wide_to_mid_ratio(self) -> None:
         fixture = self.fixture()
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [

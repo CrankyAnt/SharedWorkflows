@@ -116,7 +116,6 @@ class SuiteListTests(unittest.TestCase):
             ({"entry_durations": {"x.py": -1}}, "entry_durations (x.py) must be a number of seconds, zero or more"),
             ({"entry_durations": {"x.py": "3"}}, "entry_durations (x.py) must be a number of seconds"),
             ({"entry_durations": {"x.py": True}}, "entry_durations (x.py) must be a number of seconds"),
-            ({"entry_durations": {"checks/deep/y.py": 1}}, "names checks/deep/y.py, which the entries lack"),
             ({"os": "macos"}, "(a): os must be one of linux, windows"),
         ):
             with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
@@ -159,6 +158,57 @@ class SuiteListTests(unittest.TestCase):
         self.assertEqual(parsed.suites[2].paths, ("x.py",))
         self.assertEqual(parsed.suites[2].extra_paths, ("guides/**",))
         self.assertEqual(suite_selection.render_suite_list(parsed), text, "entries without paths and extra_paths render back the same")
+
+    def glob_suite(self, **fields) -> dict:
+        """A suite list whose one suite names its entry files through a pattern and stores a list per matched file."""
+        return {"always": [], "suites": [{"name": "unit", "entries": ["tests/test_*.py"], "entry_selection": True, "paths": ["lib/a.py", "lib/b.py"],
+                                         "entry_paths": {"tests/test_a.py": ["lib/a.py"], "tests/test_b.py": ["lib/b.py"]}, **fields}]}
+
+    def test_a_glob_entry_takes_per_entry_fields_keyed_by_the_files_it_matches(self) -> None:
+        text = json.dumps(self.glob_suite(), indent=2) + "\n"
+        parsed = suite_selection.parse_suite_list(text)
+        self.assertEqual(dict(parsed.suites[0].entry_paths), {"tests/test_a.py": ("lib/a.py",), "tests/test_b.py": ("lib/b.py",)})
+        self.assertEqual(suite_selection.render_suite_list(parsed), text, "the pattern and the keys of the matched files render back the same")
+        for field, value in (("entry_extra_paths", {"tests/test_b.py": ["docs/**"]}),
+                             ("entry_directory_memberships", {"tests/test_b.py": ["lib"]}),
+                             ("entry_existence_reads", {"tests/test_b.py": [{"path": "probe", "kind": "any"}]}),
+                             ("entry_lookup_directories", {"tests/test_b.py": ["tests"]}),
+                             ("entry_setups", {"tests/test_b.py": ["node"]}),
+                             ("entry_durations", {"tests/test_b.py": 2.5})):
+            with self.subTest(field=field):
+                document = self.glob_suite(**{field: value})
+                rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list(json.dumps(document)))
+                self.assertEqual(json.loads(rendered), document)
+
+    def test_a_recorded_field_of_a_glob_suite_may_hold_the_key_of_a_file_that_no_entry_names_any_more(self) -> None:
+        gone = "old/test_gone.py"
+        for field, value in (("entry_paths", ["lib/gone.py"]), ("entry_directory_memberships", ["lib"]),
+                             ("entry_existence_reads", [{"path": "probe", "kind": "any"}]), ("entry_lookup_directories", ["tests"]),
+                             ("entry_durations", 2.5)):
+            with self.subTest(field=field):
+                document = self.glob_suite()
+                document["suites"][0][field] = {**document["suites"][0].get(field, {}), gone: value}
+                rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list(json.dumps(document)))
+                self.assertEqual(json.loads(rendered), document)
+                # The same key in a suite that names every entry file by path is invalid, as before.
+                document["suites"][0]["entries"] = ["tests/test_a.py", "tests/test_b.py"]
+                with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} names {gone}, which the entries lack"):
+                    suite_selection.parse_suite_list(json.dumps(document))
+
+    def test_a_field_that_the_repository_writes_rejects_a_key_that_is_no_entry_path_and_that_no_pattern_matches(self) -> None:
+        for field in ("entry_extra_paths", "entry_setups"):
+            with self.subTest(field=field):
+                document = self.glob_suite(**{field: {"old/test_gone.py": ["x"]}})
+                with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} names old/test_gone.py, which the entries lack"):
+                    suite_selection.parse_suite_list(json.dumps(document))
+
+    def test_an_entry_file_named_by_path_beside_a_glob_entry_needs_its_stored_list(self) -> None:
+        document = self.glob_suite()
+        document["suites"][0]["entries"].append("checks/x.py")
+        with self.assertRaisesRegex(suite_selection.SuiteListError, r"\(unit\): entry_paths must name every entry file"):
+            suite_selection.parse_suite_list(json.dumps(document))
+        document["suites"][0]["entry_paths"]["checks/x.py"] = []
+        self.assertEqual(len(suite_selection.parse_suite_list(json.dumps(document)).suites[0].entry_paths), 3)
 
 
 class SelectionTests(FixtureRepositoryTests):
@@ -437,6 +487,89 @@ class StoredListSelectionTests(FixtureRepositoryTests):
         self.assertEqual(code, 0, error)
         self.assertIn("stored: run (`src/old.txt` matches `src/old.txt`)", printed)
         self.assertFalse(any("archive" in call.args[0] for call in run.call_args_list), "no revision is extracted")
+
+
+class GlobEntrySelectionTests(FixtureRepositoryTests):
+    """The selection command on a suite that names its entry files through a pattern and stores a list per matched file."""
+
+    SUITES = {"always": [], "suites": [
+        {"name": "unit", "entries": ["tests/test_*.py"], "entry_selection": True, "paths": ["lib/a.py", "lib/b.py"],
+         "entry_paths": {"tests/test_a.py": ["lib/a.py"], "tests/test_b.py": ["lib/b.py"]}}]}
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.outputs = Path(self.temporary.name) / "outputs.txt"
+        write(self.root, "checks/suites.json", json.dumps(self.SUITES, indent=2) + "\n")
+        for path in ("tests/test_a.py", "tests/test_b.py", "lib/a.py", "lib/b.py"):
+            write(self.root, path)
+        git(self.root, "init", "-q", "-b", "main")
+        git(self.root, "config", "core.autocrlf", "false")
+        self.commit("base")
+
+    def commit(self, message: str) -> None:
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", message)
+
+    def select(self, changed: str) -> tuple[str, str]:
+        """The line of the suite in the report and its selected entry files, for one changed file."""
+        self.outputs.write_text("", encoding="utf-8")
+        output, error = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), mock.patch("sys.stderr", error):
+            code = suite_selection.main(["select", "--root", str(self.root), "--suites", str(self.root / "checks" / "suites.json"),
+                                         "--changed-file", changed, "--github-output", str(self.outputs)])
+        self.assertEqual(code, 0, error.getvalue())
+        outputs = dict(line.split("=", 1) for line in self.outputs.read_text(encoding="utf-8").splitlines())
+        return next(line for line in output.getvalue().splitlines() if line.startswith("unit: ")), outputs["unit-entries"]
+
+    def test_a_change_that_reaches_the_stored_list_of_one_matched_file_runs_that_entry_file_alone(self) -> None:
+        line, entries = self.select("lib/a.py")
+        self.assertEqual(entries, "tests/test_a.py")
+        self.assertIn("`lib/a.py` matches `lib/a.py` of `tests/test_a.py`", line)
+        self.assertEqual(self.select("stray.txt"), ("unit: skip (no changed file matches the path list of any of its entry files)", ""))
+
+    def test_a_matched_file_without_a_stored_list_runs_on_every_change_beside_the_entry_files_selected_on_their_lists(self) -> None:
+        write(self.root, "tests/test_new.py")
+        self.commit("a new test file that the pattern matches")
+        line, entries = self.select("stray.txt")
+        self.assertEqual(entries, "tests/test_new.py", "a change that no stored list reads runs the file without a list alone")
+        self.assertIn("unit: run (`tests/test_new.py` runs on every change: no stored path list;", line)
+        line, entries = self.select("lib/b.py")
+        self.assertEqual(entries, "tests/test_b.py tests/test_new.py")
+        self.assertIn("`lib/b.py` matches `lib/b.py` of `tests/test_b.py` and 1 more", line)
+
+    def test_no_passed_result_of_a_matched_file_without_a_stored_list_is_reused(self) -> None:
+        import reuse
+
+        files = {"tests/test_a.py": "a", "tests/test_b.py": "b", "tests/test_new.py": "new", "lib/a.py": "a", "lib/b.py": "b"}
+        suite_list = suite_selection.resolve_entries(suite_selection.parse_suite_list(json.dumps(self.SUITES)), set(files))
+        selection = suite_selection.every_suite(suite_list, "test")
+        self.assertEqual(selection.decisions[0].entries, ("tests/test_a.py", "tests/test_b.py", "tests/test_new.py"))
+        units = suite_selection.reuse_units(selection, suite_list, reuse.Tree(files, suite_selection.matches), {}, {}, ignore_content={})
+        self.assertEqual([entries for _, _, entries in units], [("tests/test_a.py",), ("tests/test_b.py",)],
+                         "the file without a list has unknown inputs, so it gets no reuse key")
+
+    def test_the_estimate_of_a_file_that_no_entry_names_any_more_does_not_count_toward_the_mean(self) -> None:
+        document = json.loads(json.dumps(self.SUITES))
+        document["suites"][0]["entry_durations"] = {"tests/test_a.py": 2.0, "old/test_gone.py": 98.0}
+        tracked = {"tests/test_a.py", "tests/test_b.py"}
+        suite_list = suite_selection.resolve_entries(suite_selection.parse_suite_list(json.dumps(document)), tracked)
+        units = suite_selection.selected_units(suite_selection.every_suite(suite_list, "test"), suite_list, "linux")
+        self.assertEqual([(entry, estimate) for _, entry, estimate in units], [("tests/test_a.py", 2.0), ("tests/test_b.py", 2.0)])
+
+    def test_a_list_keyed_by_the_pattern_itself_is_the_list_of_no_matched_file(self) -> None:
+        # Such a hand-written key loads; no recording writes it. Every matched file then has no list of its own.
+        document = json.loads(json.dumps(self.SUITES))
+        document["suites"][0]["entry_paths"] = {"tests/test_*.py": ["lib/a.py"]}
+        suite_list = suite_selection.resolve_entries(suite_selection.parse_suite_list(json.dumps(document)), {"tests/test_a.py", "tests/test_b.py"})
+        decision = suite_selection.select(suite_list, ["stray.txt"]).decisions[0]
+        self.assertEqual(decision.entries, ("tests/test_a.py", "tests/test_b.py"))
+        self.assertIn("`tests/test_a.py` runs on every change: no stored path list", decision.reason)
+
+    def test_a_stored_key_of_a_deleted_file_is_ignored(self) -> None:
+        (self.root / "tests" / "test_b.py").unlink()
+        self.commit("delete a matched file")
+        self.assertEqual(self.select("lib/b.py"), ("unit: skip (no changed file matches the path list of any of its entry files)", ""))
+        self.assertEqual(self.select("lib/a.py")[1], "tests/test_a.py")
 
 
 class DirectoryMembershipSelectionTests(unittest.TestCase):
