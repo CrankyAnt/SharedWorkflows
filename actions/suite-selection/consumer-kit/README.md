@@ -124,11 +124,16 @@ The example is invented. The repository writes these fields:
 - `setups`: the names of the setups that the suite needs, as [Setups](#setups) and [Pinned tools](#pinned-tools) state.
 - `os`: `linux`, the default, or `windows`.
 - `entry_selection`: `true` for a suite selected per entry file; each entry file then runs when a changed file matches its own lists. A suite without the key is selected as a whole.
-- `entry_setups`: with `entry_selection`, more setups per entry file, an object keyed by an entry file.
+- `entry_setups`: with `entry_selection`, more setups per entry file, an object keyed by entry file.
 - `always`: patterns of paths whose change can affect every suite. The CI caller, the full recording and the suite list are none; without such a path `always` is empty.
 - The extra reads, only for a read that no recording sees, such as the repository reads of a setup, each pattern no wider than that read. They add to the stored lists and never remove from them: `extra_paths` (file content), `entry_extra_paths` (file content of some entry files, an object with a list per entry file), `extra_directory_memberships` (glob patterns whose added, removed or renamed paths the suite notices) and `extra_existence_reads` (objects with a `path` and a `kind` of `file`, `directory` or `any`, for a path whose appearance or disappearance the suite notices).
 
 The recording writes the stored lists and nobody edits them by hand: `paths`, `directory_memberships`, `existence_reads` and `lookup_directories`, per entry file `entry_paths`, `entry_directory_memberships`, `entry_existence_reads` and `entry_lookup_directories`, the module lookups under `module_lookups` and the duration estimates `entry_durations`. A suite without `paths` runs on every change until its lists are recorded.
+
+A key of a per-entry field is an entry file named by path in `entries`, or a tracked file that a glob pattern of `entries` matches. This holds for each of them: `entry_paths`, `entry_extra_paths`, `entry_directory_memberships`, `entry_existence_reads`, `entry_lookup_directories`, `entry_setups` and `entry_durations`. The recording keeps the patterns of `entries` as they are and keys the stored lists by entry file. Two rules follow for a suite with a pattern in `entries`:
+
+- A file that the pattern matches and that has no stored list yet, such as a new test file, runs on every change, with a reason that names the missing list, until its additions are applied as [Additions](#additions) states. The suite list stays valid, and the other entry files are selected on their own lists. An entry file named by path needs its stored list once the suite has `paths`.
+- A key that names no entry file any more, as the key of a deleted or renamed test file does, leaves the suite list valid in the fields that the recording writes. The selection ignores it, and the next applied additions or the next full recording remove it. In `entry_extra_paths` and `entry_setups`, which the repository writes, a key that is neither an entry path nor matched by a pattern makes the suite list invalid.
 
 Patterns use GitHub's path-filter glob syntax: `**` crosses directory separators, `*` and `?` do not. Any other key, an entry file or pattern that matches no tracked file, or a malformed extra read makes the suite list invalid and fails `select`; it never runs more instead.
 

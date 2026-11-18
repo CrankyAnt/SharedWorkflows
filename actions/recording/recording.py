@@ -1746,9 +1746,9 @@ class Stored:
 
 def stored_lists(suite: suite_selection.Suite, entry: str, always: tuple[str, ...], tracked: frozenset[str] = frozenset(),
                  lookups: dict[str, tuple[str, ...]] | None = None) -> Stored | None:
-    """The stored lists that select one entry file of a suite, or None when the suite has no stored path list;
+    """The stored lists that select one entry file of a suite, or None when the suite or the entry file has none;
     ``lookups`` are the module lookups of the suite list."""
-    if suite.paths is None:
+    if suite.paths is None or suite.lacks_list(entry):
         return None
     patterns, memberships, existence = suite.patterns_of(entry), suite.memberships_of(entry), suite.existence_reads_of(entry)
     return Stored(tuple(patterns) + always, tuple(memberships), tuple((read.path.replace("\\", "/").strip("/"), read.kind) for read in existence), tracked,
@@ -1954,7 +1954,7 @@ def additions_document(list_path: str, suite_list: suite_selection.SuiteList, re
         item = suites.setdefault(suite.name, {"suite": suite.name, "create": suite.paths is None, "recorded_entries": []})
         item["recorded_entries"] = sorted(set(item["recorded_entries"]) | {entry})
         if suite.entry_selection:
-            if not missing.empty() or suite.paths is None:
+            if not missing.empty() or suite.paths is None or suite.lacks_list(entry):
                 item.setdefault("entries", {})[entry] = missing.document()
         else:
             total = Reads.of(item.get("reads", {}))
@@ -2227,11 +2227,21 @@ def canonical_order(item: dict) -> None:
         item["entry_durations"] = {entry: item["entry_durations"][entry] for entry in sorted(item["entry_durations"], key=by_entry)}
 
 
-def raw_entries(suite: suite_selection.Suite, entry: str) -> str:
-    if suite.entry_selection and entry not in suite.entries:
-        raise RecordingError(f"the suite {suite.name} names {entry} only through a pattern; a suite selected per entry file "
-                             "needs its entry files named one by one to store their lists")
-    return entry
+def drop_stale_keys(item: dict, suite: suite_selection.Suite) -> list[str]:
+    """In a suite that names entry files through a pattern, remove from the per-entry fields that the recording writes
+    every key that names no entry file any more, the key of a deleted or renamed file, and return those keys. ``suite``
+    is the suite with its patterns expanded to the tracked files."""
+    if not suite_selection.glob_entries(item["entries"]):
+        return []
+    stale: set[str] = set()
+    for key in suite_selection.RECORDED_ENTRY_FIELDS:
+        gone = [entry for entry in item.get(key, {}) if entry not in suite.entries]
+        for entry in gone:
+            del item[key][entry]
+        stale.update(gone)
+        if gone and not item[key] and key != "entry_paths":
+            del item[key]
+    return sorted(stale)
 
 
 def is_string_list(value: object) -> bool:
@@ -2323,7 +2333,8 @@ def run_apply(options: argparse.Namespace) -> int:
         report = apply_additions(documents, raw, resolved, items, lookups)
     else:
         report = apply_full(documents, raw, resolved, items, lookups, kept_lists(options, resolved))
-    for item in items.values():
+    for name, item in items.items():
+        report += [f"{name}: removed the stored lists and the estimate of {entry}: no entry names it" for entry in drop_stale_keys(item, resolved[name])]
         join_entry_lists(item)
         canonical_order(item)
     document = suite_selection.suite_list_document(raw, [items[suite.name] for suite in raw.suites],
@@ -2371,7 +2382,7 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
         if not change["reads"].empty() or (change["create"] and not suite.entry_selection):
             add_reads(item, change["reads"].document(), None)
         for entry, reads in sorted(change["entries"].items()):
-            add_reads(item, reads.document(), raw_entries(suite, entry))
+            add_reads(item, reads.document(), entry)
             add_lookups(lookups, reads)
         add_lookups(lookups, change["reads"])
         count = len(change["reads"].document()["paths"]) + sum(len(reads.paths) for reads in change["entries"].values())
@@ -2498,13 +2509,15 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
             start_list(item, suite, suite.entries, {entry for entry, result in recorded.items() if result is not None})
         if suite.entry_selection:
             for entry, result in recorded.items():
-                if result is None:
+                if result is None and suite.lacks_list(entry):
+                    report.append(f"{name}: left {entry} without a stored list: {list_reasons[entry]}")
+                elif result is None:
                     report.append(f"{name}: kept the list of {entry}: {list_reasons[entry]}")
                 elif list_reasons[entry] is None:
-                    replace_reads(item, result["reads"], raw_entries(suite, entry))
+                    replace_reads(item, result["reads"], entry)
                     replaced.add((name, entry))
                 else:
-                    add_reads(item, result["reads"], raw_entries(suite, entry))
+                    add_reads(item, result["reads"], entry)
                     report.append(f"{name}: kept the list of {entry}: {list_reasons[entry]}")
             continue
         union = Reads()

@@ -100,6 +100,42 @@ class FullRecordingTests(unittest.TestCase):
         self.assertIn("kept the list of tests/plain.py: its test runner reports no skip count", applied.stdout)
         self.assertNotIn("tests/ok.py", applied.stdout)
 
+    def test_the_full_recording_stores_a_list_per_matched_file_of_a_glob_suite_and_keeps_the_pattern(self) -> None:
+        # tests/ok.py has a stored list; the pattern matches the two other files, which have none; tests/gone.py is no file.
+        fixture = RUNNERS.fixture(self.addCleanup, [suite("glob", ["tests/*.py"], entry_selection=True, paths=["tests/ok.py", STALE],
+                                                          entry_paths={"tests/ok.py": ["tests/ok.py", STALE], "tests/gone.py": [STALE]},
+                                                          entry_durations={"tests/gone.py": 2.0})])
+        checked = fixture.record(ENTRIES, full=True)
+        self.assertEqual(0, checked.returncode, checked.stderr)
+        applied = fixture.apply(fixture.output / "full-recording.json")
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        stored = fixture.suite("glob")
+        self.assertEqual(["tests/*.py"], stored["entries"])
+        self.assertEqual(sorted(ENTRIES), list(stored["entry_paths"]))
+        self.assertNotIn(STALE, stored["paths"])
+        for name in ("ok", "skip", "plain"):
+            self.assertIn(f"data/{name}.txt", stored["entry_paths"][f"tests/{name}.py"])
+        self.assertEqual(["tests/ok.py"], list(stored["entry_durations"]))
+        # The written suite list loads: a second apply of the same result reads it and exits 0.
+        self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
+
+    def test_a_pull_request_run_of_a_glob_suite_reports_additions_that_apply_and_then_cover_every_read(self) -> None:
+        for stored in ({}, {"paths": ["tests/ok.py"], "entry_paths": {"tests/ok.py": ["tests/ok.py"]}}):
+            with self.subTest(stored=stored):
+                fixture = RUNNERS.fixture(self.addCleanup, [suite("glob", ["tests/*.py"], entry_selection=True, **stored)])
+                checked = fixture.record(ENTRIES)
+                self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
+                [change] = fixture.additions()["suites"]
+                # A matched file without a stored list reports every read, its own file included.
+                self.assertEqual(set(ENTRIES), set(change["entries"]))
+                self.assertLessEqual({"tests/plain.py", "data/plain.txt"}, set(change["entries"]["tests/plain.py"]["paths"]))
+                applied = fixture.apply()
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                self.assertEqual(["tests/*.py"], fixture.suite("glob")["entries"])
+                self.assertEqual(sorted(ENTRIES), list(fixture.suite("glob")["entry_paths"]))
+                again = fixture.check()
+                self.assertEqual(0, again.returncode, again.stdout + again.stderr)
+
     def test_a_whole_suite_keeps_its_list_while_one_entry_file_skipped_a_test(self) -> None:
         fixture = RUNNERS.fixture(self.addCleanup, [suite("whole", ["tests/ok.py", "tests/skip.py"], paths=[STALE])])
         self.assertEqual(0, fixture.record(["tests/ok.py", "tests/skip.py"], full=True).returncode)
