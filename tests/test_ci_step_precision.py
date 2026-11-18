@@ -334,11 +334,12 @@ class ExistenceSelectionTests(unittest.TestCase):
                                           current_tracked=frozenset({"data/required.txt"}))
         self.assertEqual(selected.decisions[0].entries, ("checks/one.py", "checks/two.py", "checks/three.py"))
 
-    def test_entry_existence_metadata_requires_known_entry_and_entry_selection(self):
+    def test_entry_existence_metadata_of_an_unknown_entry_selects_nothing_and_requires_entry_selection(self):
         document = self.document()
         document["suites"][0]["entry_existence_reads"] = {"checks/missing.py": [{"path": "data/a", "kind": "any"}]}
-        with self.assertRaisesRegex(suite_selection.SuiteListError, "which the entries lack"):
-            suite_selection.parse_suite_list(json.dumps(document))
+        parsed = suite_selection.parse_suite_list(json.dumps(document))
+        selected = suite_selection.select(parsed, ["data/a"], previous_tracked=frozenset(), current_tracked=frozenset({"data/a"}))
+        self.assertFalse(selected.decisions[0].run, "a key that names no entry file selects nothing")
         document = self.document()
         document["suites"][0]["entry_selection"] = False
         with self.assertRaisesRegex(suite_selection.SuiteListError, "entry_existence_reads needs entry_selection"):

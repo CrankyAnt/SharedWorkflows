@@ -166,6 +166,47 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual({"tests/c1.py": 1.0, "tests/c2.py": 2.0}, fixture.suite("glob")["entry_durations"])
         self.assert_loads_unchanged(fixture)
 
+    def path_stale_suite(self) -> dict:
+        """A suite with only path entries whose recorded fields each hold the key of a file that no entry names any more,
+        and whose entry file tests/c2.py has no stored list yet."""
+        gone = "tests/gone.py"
+        return suite("paths", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["tests/c1.py", "only/gone.txt"],
+                     entry_paths={"tests/c1.py": ["tests/c1.py"], gone: ["only/gone.txt"]},
+                     entry_directory_memberships={gone: ["gone-directory"]}, entry_existence_reads={gone: [{"path": "gone-probe", "kind": "any"}]},
+                     entry_lookup_directories={gone: ["gone-lookups"]}, entry_durations={"tests/c1.py": 1.0, gone: 3.0},
+                     directory_memberships=["gone-directory"], existence_reads=[{"path": "gone-probe", "kind": "any"}],
+                     lookup_directories=["gone-lookups"])
+
+    def assert_path_stale_keys_gone(self, fixture: RecordingFixture, applied) -> dict:
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertIn("paths: removed the stored lists and the estimate of tests/gone.py: no entry names it", applied.stdout)
+        stored = fixture.suite("paths")
+        self.assertEqual(["tests/c1.py", "tests/c2.py"], stored["entries"])
+        self.assertEqual({"tests/c1.py": ["tests/c1.py"], "tests/c2.py": ["lib/y.py", "tests/c2.py"]}, stored["entry_paths"])
+        for field in ("entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories",
+                      "directory_memberships", "existence_reads", "lookup_directories"):
+            self.assertNotIn(field, stored)
+        self.assertNotIn("tests/gone.py", stored["entry_durations"])
+        self.assertEqual(["lib/y.py", "tests/c1.py", "tests/c2.py"], stored["paths"])
+        self.assert_loads_unchanged(fixture)
+        return stored
+
+    def test_apply_of_additions_removes_the_keys_of_a_file_that_no_path_entry_names_and_adds_the_key_of_the_new_entry_file(self) -> None:
+        fixture = self.fixture([self.path_stale_suite()])
+        change = additions({"suite": "paths", "create": False, "recorded_entries": ["tests/c2.py"],
+                            "entries": {"tests/c2.py": reads(["tests/c2.py", "lib/y.py"])}})
+        stored = self.assert_path_stale_keys_gone(fixture, fixture.apply(self.write(fixture, "additions.json", change)))
+        self.assertEqual({"tests/c1.py": 1.0}, stored["entry_durations"])
+
+    def test_the_apply_of_a_full_recording_removes_the_keys_of_a_file_that_no_path_entry_names(self) -> None:
+        fixture = self.fixture([self.path_stale_suite()])
+        result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "paths", "entry": "tests/c2.py", "exit_code": 0, "skipped": 0, "seconds": 3.3, "reads": reads(["tests/c2.py", "lib/y.py"])}]}
+        applied = fixture.apply(self.write(fixture, "full.json", result))
+        stored = self.assert_path_stale_keys_gone(fixture, applied)
+        self.assertIn("paths: kept the list of tests/c1.py: it was not recorded", applied.stdout)
+        self.assertEqual({"tests/c1.py": 1.0, "tests/c2.py": 2.0}, stored["entry_durations"])
+
     def test_apply_writes_duration_estimates_converted_by_the_wide_to_mid_ratio(self) -> None:
         fixture = self.fixture()
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
@@ -714,12 +755,36 @@ class SuiteListMoveTests(unittest.TestCase):
                 self.assertEqual("No additions to apply.\n", self.apply(fixture))
                 self.assertEqual(after, fixture.suite("unit"))
 
-    def test_glob_to_path_with_a_key_of_a_file_that_no_path_names_makes_the_suite_list_invalid(self) -> None:
-        before = self.with_helper()
+    def test_glob_to_path_with_a_key_of_a_file_that_no_path_names_stays_valid_and_the_next_apply_removes_it(self) -> None:
+        before = self.with_helper(entry_durations={**self.DURATIONS, self.HELPER: 1.0})
+        after = dict(before, entries=[self.A, self.B])
         fixture = self.fixture(before, {**self.TRACKED, self.HELPER: ""})
-        code, error, _ = self.commit_and_select(fixture, dict(before, entries=[self.A, self.B]))
-        self.assertEqual(2, code)
-        self.assertIn(f"entry_paths names {self.HELPER}, which the entries lack", error)
+        self.assertEqual((0, self.SKIP_PER_ENTRY, []), self.commit_and_select(fixture, after))
+        self.assertIn(f"unit: removed the stored lists and the estimate of {self.HELPER}: no entry names it", self.apply(fixture))
+        self.assertEqual(dict(after, paths=self.UNION, entry_paths=self.ENTRY_PATHS, entry_durations=self.DURATIONS), fixture.suite("unit"))
+
+    def test_glob_to_path_with_a_new_test_file_whose_additions_are_not_applied_runs_it_until_they_are(self) -> None:
+        before = suite("unit", ["checks/test_*.py"], entry_selection=True, paths=self.UNION, entry_paths=self.ENTRY_PATHS, entry_durations=self.DURATIONS)
+        fixture = self.fixture(before, {**self.TRACKED, self.NEW: ""})
+        code, line, entries = self.commit_and_select(fixture, dict(before, entries=[self.A, self.B, self.NEW]))
+        self.assertEqual((0, [self.NEW]), (code, entries))
+        self.assertIn(f"`{self.NEW}` runs on every change: no stored path list", line)
+
+    def test_renaming_a_path_entry_by_changing_entries_alone_runs_the_renamed_file_and_its_additions_complete_the_suite_list(self) -> None:
+        before = self.per_entry([self.A, self.B])
+        fixture = self.fixture(before)
+        (fixture.root / self.B).unlink()
+        code, line, entries = self.commit_and_select(fixture, dict(before, entries=[self.A, self.NEW]), files={self.NEW: ""})
+        self.assertEqual((0, [self.NEW]), (code, entries), line)
+        self.assertIn(f"`{self.NEW}` runs on every change: no stored path list", line)
+        report = self.apply(fixture, {"suite": "unit", "create": False, "recorded_entries": [self.NEW],
+                                      "entries": {self.NEW: reads([self.NEW, "lib/b.py"])}})
+        self.assertIn(f"unit: removed the stored lists and the estimate of {self.B}: no entry names it", report)
+        self.assertEqual(suite("unit", [self.A, self.NEW], entry_selection=True, paths=[self.A, self.NEW, "lib/a.py", "lib/b.py"],
+                               entry_paths={self.A: self.ENTRY_PATHS[self.A], self.NEW: [self.NEW, "lib/b.py"]},
+                               entry_durations={self.A: self.DURATIONS[self.A]}), fixture.suite("unit"))
+        # The written suite list loads, and the renamed file is selected on its own list.
+        self.assertEqual((0, [self.NEW]), self.select(fixture, "--changed-file", "lib/b.py")[::2])
 
     def test_whole_to_per_entry_file_drops_the_stored_lists_and_the_next_run_runs_and_records_every_entry_file(self) -> None:
         before = suite("unit", [self.A, self.B], paths=self.UNION, directory_memberships=["lib"], existence_reads=[{"path": "probe", "kind": "any"}],

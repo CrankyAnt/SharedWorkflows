@@ -2228,11 +2228,9 @@ def canonical_order(item: dict) -> None:
 
 
 def drop_stale_keys(item: dict, suite: suite_selection.Suite) -> list[str]:
-    """In a suite that names entry files through a pattern, remove from the per-entry fields that the recording writes
-    every key that names no entry file any more, the key of a deleted or renamed file, and return those keys. ``suite``
-    is the suite with its patterns expanded to the tracked files."""
-    if not suite_selection.glob_entries(item["entries"]):
-        return []
+    """Remove from the per-entry fields that the recording writes every key that names no entry file any more, the key
+    of a deleted or renamed file, and return those keys. ``suite`` is the suite with its patterns expanded to the
+    tracked files."""
     stale: set[str] = set()
     for key in suite_selection.RECORDED_ENTRY_FIELDS:
         gone = [entry for entry in item.get(key, {}) if entry not in suite.entries]
