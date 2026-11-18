@@ -12,8 +12,9 @@ from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, expression_value, rea
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SELECTION_KIT = REPOSITORY_ROOT / "actions" / "suite-selection" / "consumer-kit"
 # What only this repository has: its suite list and tests, its own validation files, a local-path call of a shared
-# workflow or step, and a resolved action pin in place of `<pin>`. A consumer reads the README at `v1`.
-THIS_REPOSITORY_ONLY = re.compile(r"tests/|validate\.yml|maintaining\.md|\$/|@[0-9a-f]{40}")
+# workflow or step, and a resolved action pin in place of `<pin>`. A consumer reads the README at `v1`. The `tests/` in the
+# address of a source of the criteria is not this repository's folder.
+THIS_REPOSITORY_ONLY = re.compile(r"(?<!docs\.datadoghq\.com/)tests/|validate\.yml|maintaining\.md|\$/|@[0-9a-f]{40}")
 EARLIER_ADOPTION_HEADING = "## When a repository adopted it earlier"
 
 
@@ -53,6 +54,88 @@ class SelectionConsumerKitTest(unittest.TestCase):
 
     def test_the_readme_names_nothing_that_exists_only_in_this_repository(self) -> None:
         self.assertEqual([], THIS_REPOSITORY_ONLY.findall(self.readme))
+
+
+class SuiteListCriteriaDocumentationTest(unittest.TestCase):
+    """The criteria of the suite list: how a suite names its entry files, its unit of selection, and the moves between
+    the choices."""
+
+    HEADING = "### Naming entry files and the unit of selection"
+    MOVES = ("Path to glob", "Glob to path", "Whole to per entry file", "Per entry file to whole")
+    SOURCES = (
+        "https://docs.pytest.org/en/stable/explanation/goodpractices.html",
+        "https://docs.python.org/3/library/unittest.html#test-discovery",
+        "https://pkg.go.dev/cmd/go#hdr-Test_packages",
+        "https://jestjs.io/docs/configuration",
+        "https://maven.apache.org/surefire/maven-surefire-plugin/examples/inclusion-exclusion.html",
+        "https://doc.rust-lang.org/cargo/reference/cargo-targets.html",
+        "https://bazel.build/build/style-guide",
+        "https://bazel.build/reference/be/functions#glob",
+        "https://arxiv.org/abs/1810.05286",
+        "https://docs.develocity.ai/predictive-test-selection/",
+        "https://docs.datadoghq.com/tests/test_impact_analysis/",
+        "https://mir.cs.illinois.edu/~marinov/publications/LegunsenETAL16StaticRTS.pdf",
+        "https://users.ece.utexas.edu/~gligoric/papers/Gligoric15PhD.pdf",
+        "https://docs.develocity.ai/test-distribution/",
+    )
+
+    def setUp(self) -> None:
+        self.readme = (SELECTION_KIT / "README.md").read_text(encoding="utf-8")
+        suite_list = readme_section(self.readme, "## The suite list")
+        self.assertIn(self.HEADING + "\n", suite_list, "the criteria are a section of the suite list")
+        self.section = suite_list[suite_list.index(self.HEADING + "\n"):]
+
+    def paragraph(self, opening: str) -> str:
+        """The one paragraph or list item of the section that starts with ``opening``."""
+        (found,) = [block for block in re.split(r"\n(?=- )|\n\n", self.section) if block.startswith(opening)]
+        return found
+
+    def test_naming_by_glob_and_by_path_each_rest_on_the_listing_of_the_tracked_files(self) -> None:
+        self.assertIn("`git ls-files`", self.paragraph("**Naming entry files.**"))
+        by_glob, by_path = self.paragraph("- By glob"), self.paragraph("- By path")
+        self.assertIn("one pattern matches every entry file of the suite and no other tracked file", by_glob)
+        self.assertIn("a directory and a file-name rule with an extension", by_glob)
+        self.assertIn("`**` only for a directory tree that holds nothing but that suite's tests and their reserved helper places", by_glob)
+        for fact in ("share no such rule", "a helper, fixture or data file would match it", "one entry file"):
+            with self.subTest(fact=fact):
+                self.assertIn(fact, by_path)
+
+    def test_a_new_test_file_runs_from_its_push_under_a_glob_and_only_once_named_under_a_list_of_paths(self) -> None:
+        new = self.paragraph("A new test file")
+        self.assertIn("runs from the push that adds it", new)
+        self.assertIn("runs only once the list names it", new)
+
+    def test_the_unit_of_selection_rests_on_the_count_the_sum_of_the_estimates_and_the_equality_of_the_lists(self) -> None:
+        per_entry, whole = self.paragraph("- Per entry file"), self.paragraph("- As a whole")
+        self.assertIn("two or more entry files", per_entry)
+        self.assertIn("the sum of its `entry_durations` is one minute or more", per_entry)
+        for fact in ("one entry file", "the sum is under one minute", "stored lists are equal"):
+            with self.subTest(fact=fact):
+                self.assertIn(fact, whole)
+        start = self.paragraph("One minute is the starting value")
+        self.assertIn("(https://users.ece.utexas.edu/~gligoric/papers/Gligoric15PhD.pdf)", start)
+        self.assertIn("measured runs of the repository decide", start)
+        self.assertIn("(../../pipeline/consumer-kit/docs/agents/ci.md)", start)
+
+    def test_each_of_the_four_moves_states_its_sign_its_edit_and_what_the_next_run_runs_and_records(self) -> None:
+        for move in self.MOVES:
+            with self.subTest(move=move):
+                text = self.paragraph(f"- **{move}.**")
+                positions = [text.find(label) for label in ("Sign:", "Edit:", "Next run:")]
+                self.assertEqual(sorted(positions), positions)
+                self.assertNotIn(-1, positions)
+                self.assertRegex(text[positions[2]:], r"\bruns?\b")
+                self.assertRegex(text[positions[2]:], r"\brecords?\b")
+
+    def test_the_section_links_every_source_that_a_criterion_rests_on(self) -> None:
+        for source in self.SOURCES:
+            with self.subTest(source=source):
+                self.assertIn(f"]({source})", self.section)
+
+    def test_the_guidance_for_the_first_suite_list_points_to_the_criteria(self) -> None:
+        self.assertNotIn("where the repository selects per entry file", self.readme)
+        (first,) = [block for block in self.readme.split("\n\n") if block.startswith("Propose the first suite list")]
+        self.assertIn("(#naming-entry-files-and-the-unit-of-selection)", first)
 
 
 class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
