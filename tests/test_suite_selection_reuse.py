@@ -584,6 +584,27 @@ class ReuseTests(FixtureRepository):
         self.assertNotIn("pr-only", [units[key]["suite"] for key in json.loads(self.record.read_text(encoding="utf-8"))["passed"]])
 
 
+class WholeSuiteKeyTests(unittest.TestCase):
+    """The reuse key of a suite selected as a whole holds each entry file with its content."""
+
+    SUITES = {"always": [], "suites": [{"name": "unit", "entries": ["tests/test_*.py"], "paths": ["lib/a.py", "tests/test_a.py"]}]}
+
+    def key(self, files: dict[str, str]) -> str:
+        suite_list = suite_selection.resolve_entries(suite_selection.parse_suite_list(json.dumps(self.SUITES)), set(files))
+        units = suite_selection.reuse_units(suite_selection.every_suite(suite_list, "test"), suite_list, reuse.Tree(files, suite_selection.matches),
+                                            {}, {}, ignore_content={})
+        self.assertEqual([entries for _, _, entries in units], [tuple(sorted(file for file in files if file.startswith("tests/")))])
+        return units[0][0]
+
+    def test_the_key_changes_with_the_content_of_an_entry_file_that_the_stored_lists_do_not_match(self) -> None:
+        files = {"lib/a.py": "a", "tests/test_a.py": "a", "tests/test_new.py": "new", "stray.txt": "stray"}
+        key = self.key(files)
+        self.assertNotEqual(self.key(files | {"tests/test_new.py": "changed"}), key)
+        self.assertNotEqual(self.key({path: content for path, content in files.items() if path != "tests/test_new.py"}), key,
+                            "a tree without the entry file has another key")
+        self.assertEqual(self.key(files | {"stray.txt": "changed"}), key, "a file that is no read and no entry file leaves the key")
+
+
 class SharedDigestTests(unittest.TestCase):
     """The digest of the shared recording step, taken from a copy of the shared CI's part folders as a job fetches them."""
 

@@ -555,6 +555,10 @@ class Tree:
                 "lookups": [[directory, sorted(names), [name for name in membership_names(directory, self.files, self.matches)
                                                          if module_name(name) in names]] for directory, names in sorted(lookups)]}
 
+    def entry_files(self, entries) -> list:
+        """The entry files of a unit with their objects; an entry file that the tested tree lacks has none."""
+        return [[entry, self.entries.get(entry)] for entry in entries]
+
     def ignore_content(self, rules: IgnoreRules) -> dict:
         """The content of the ignore rules: the tracked ``.gitignore`` files and the tracked paths that they match, with
         their objects."""

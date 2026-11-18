@@ -130,9 +130,10 @@ The example is invented. The repository writes these fields:
 
 The recording writes the stored lists and nobody edits them by hand: `paths`, `directory_memberships`, `existence_reads` and `lookup_directories`, per entry file `entry_paths`, `entry_directory_memberships`, `entry_existence_reads` and `entry_lookup_directories`, the module lookups under `module_lookups` and the duration estimates `entry_durations`. A suite without `paths` runs on every change until its lists are recorded.
 
-A key of a per-entry field is an entry file named by path in `entries`, or a tracked file that a glob pattern of `entries` matches. This holds for each of them: `entry_paths`, `entry_extra_paths`, `entry_directory_memberships`, `entry_existence_reads`, `entry_lookup_directories`, `entry_setups` and `entry_durations`. The recording keeps the patterns of `entries` as they are and keys the stored lists by entry file. Two rules follow for a suite with a pattern in `entries`:
+A key of a per-entry field is an entry file named by path in `entries`, or a tracked file that a glob pattern of `entries` matches. This holds for each of them: `entry_paths`, `entry_extra_paths`, `entry_directory_memberships`, `entry_existence_reads`, `entry_lookup_directories`, `entry_setups` and `entry_durations`. The recording keeps the patterns of `entries` as they are and keys the stored lists by entry file. Three rules follow for a suite with a pattern in `entries`:
 
 - A file that the pattern matches and that has no stored list yet, such as a new test file, runs on every change, with a reason that names the missing list, until its additions are applied as [Additions](#additions) states. The suite list stays valid, and the other entry files are selected on their own lists. An entry file named by path needs its stored list once the suite has `paths`.
+- In a suite selected as a whole, a change that adds an entry file runs the suite, with every entry file: a new test file that the pattern matches, and a file that the change names by path in `entries`. A passed result of such a suite is reused only when each of its entry files is unchanged since the run that passed, whether its stored lists match the entry file or not.
 - A key that names no entry file any more, as the key of a deleted or renamed test file does, leaves the suite list valid in the fields that the recording writes. The selection ignores it, and the next applied additions or the next full recording remove it. In `entry_extra_paths` and `entry_setups`, which the repository writes, a key that is neither an entry path nor matched by a pattern makes the suite list invalid.
 
 Patterns use GitHub's path-filter glob syntax: `**` crosses directory separators, `*` and `?` do not. Any other key, an entry file or pattern that matches no tracked file, or a malformed extra read makes the suite list invalid and fails `select`; it never runs more instead.
@@ -218,14 +219,14 @@ The required check is `ci / verdict`; none of the other checks is required on it
 
 A change to what runs a suite selects it as well:
 
-- a changed `command`, `setups`, `os` or `entry_selection` of a suite runs every entry file of the suite, and a changed `entries` or `entry_setups` the entry files it adds or changes; a removal from the stored lists or the extra reads runs what it was removed from;
+- a changed `command`, `setups`, `os` or `entry_selection` of a suite runs every entry file of the suite, and a changed `entries` or `entry_setups` the entry files it adds or changes; a tracked file that a pattern of `entries` starts to match runs as an added entry file does, in a suite selected as a whole with every entry file of the suite; a removal from the stored lists or the extra reads runs what it was removed from;
 - a changed setup definition in `setups`, such as its `script`, `tool` or `version`, runs the entry files that state the setup; so does a changed script file or version file of a setup, and so does a definition that the suite list removes to make its name a [pinned tool](#pinned-tools);
 - a changed `jobs` entry runs the entry files of its system;
 - a change of the shared suite jobs or of the shared recording step reaches the repository through the shared digest: `select` takes it, and every suite runs once, as [When `v1` moves](#when-v1-moves) states.
 
 A changed `on` or `concurrency`, a name or comment, the job that runs `select`, and a step after the entry files that only stores or reports results select nothing.
 
-The `select` job's summary lists every suite with its decision and reason. On a pull request, a later head reuses a passed result whose reads, command, setup versions, pins of its pinned tools, runner label, shared digest and tracked ignore rules did not change; a re-run reuses nothing.
+The `select` job's summary lists every suite with its decision and reason. On a pull request, a later head reuses a passed result whose reads, command, setup versions, pins of its pinned tools, runner label, shared digest and tracked ignore rules did not change; for a suite selected as a whole, its entry files are unchanged as well; a re-run reuses nothing.
 
 ## The recording and its check
 
