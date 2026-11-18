@@ -186,12 +186,16 @@ class SuiteListTests(unittest.TestCase):
         document["suites"][0]["entries"] = ["tests/test_a.py", "tests/test_b.py"]
         return document
 
+    def namings(self) -> tuple:
+        """The suite of ``glob_suite`` and of ``path_suite``, each with the name of how it names its entry files."""
+        return (("glob", self.glob_suite), ("path", self.path_suite))
+
     def test_a_recorded_field_may_hold_the_key_of_a_file_that_no_entry_names_any_more(self) -> None:
         gone = "old/test_gone.py"
         for field, value in (("entry_paths", ["lib/gone.py"]), ("entry_directory_memberships", ["lib"]),
                              ("entry_existence_reads", [{"path": "probe", "kind": "any"}]), ("entry_lookup_directories", ["tests"]),
                              ("entry_durations", 2.5)):
-            for naming, build in (("glob", self.glob_suite), ("path", self.path_suite)):
+            for naming, build in self.namings():
                 with self.subTest(field=field, naming=naming):
                     document = build()
                     document["suites"][0][field] = {**document["suites"][0].get(field, {}), gone: value}
@@ -202,7 +206,7 @@ class SuiteListTests(unittest.TestCase):
 
     def test_a_field_that_the_repository_writes_rejects_a_key_that_is_no_entry_path_and_that_no_pattern_matches(self) -> None:
         for field in ("entry_extra_paths", "entry_setups"):
-            for naming, build in (("glob", self.glob_suite), ("path", self.path_suite)):
+            for naming, build in self.namings():
                 with self.subTest(field=field, naming=naming):
                     document = build(**{field: {"old/test_gone.py": ["x"]}})
                     with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} names old/test_gone.py, which the entries lack"):
@@ -224,7 +228,7 @@ class SuiteListTests(unittest.TestCase):
         self.assertIn("unit: skip", report.getvalue())
 
     def test_an_entry_file_named_by_path_may_lack_its_stored_list(self) -> None:
-        for naming, build in (("beside a glob entry", self.glob_suite), ("in a suite with only path entries", self.path_suite)):
+        for naming, build in self.namings():
             with self.subTest(naming=naming):
                 document = build()
                 document["suites"][0]["entries"].append("checks/x.py")

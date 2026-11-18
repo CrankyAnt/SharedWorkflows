@@ -149,7 +149,8 @@ class Suite:
 
     def lacks_list(self, entry: str) -> bool:
         """Whether an entry file of a stored suite selected per entry file has no stored list of its own: an entry file,
-        named by path or matched by a pattern of ``entries``, whose reads no recording has stored yet. Its inputs are unknown."""
+        named by path or matched by a pattern of ``entries``, whose reads no recording has stored yet. Its inputs are
+        unknown."""
         return self.entry_selection and self.paths is not None and entry not in self._entries_with_list
 
     def setups_of(self, entry: str) -> tuple[str, ...]:
