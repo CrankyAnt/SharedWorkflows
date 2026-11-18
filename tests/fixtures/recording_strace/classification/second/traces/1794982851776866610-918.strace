@@ -1,0 +1,900 @@
+925   execve("${BASE}/python/bin/python3", ["python3", "tests/no_copies.py"], []) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/python3", {st_mode=S_IFREG|0755, st_size=7477160, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", O_RDONLY) = 3<${BASE}/python/pyvenv.cfg>
+925   readlink("${BASE}/python/bin/python3", "/usr/bin/python3", 4096) = 16
+925   readlink("/usr/bin/python3", "python3.14", 4096) = 10
+925   readlink("/usr/bin/python3.14", 0x7ffda7612260, 4096) = -1 EINVAL (Invalid argument)
+925   readlink("/usr/bin/python3.14", 0x7ffda7612260, 4096) = -1 EINVAL (Invalid argument)
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/python3._pth", O_RDONLY) = -1 ENOENT (No such file or directory)
+925   getdents64(3</usr/lib/python3.14>, 0x1765d3c0 /* 199 entries */, 32768) = 6760
+925   getdents64(3</usr/lib/python3.14>, 0x1765d3c0 /* 0 entries */, 32768) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/__init__.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings", 0x7ffda7616ee0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", 0x7ffda7616ee0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib", 0x7ffda7616ee0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr", 0x7ffda7616ee0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache", {st_mode=S_IFDIR|0755, st_size=40, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/__init__.cpython-314.pyc.125219353964272", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/__init__.cpython-314.pyc.125219353964272>
+925   getdents64(3</usr/lib/python3.14/encodings>, 0x176aa070 /* 126 entries */, 32768) = 4264
+925   getdents64(3</usr/lib/python3.14/encodings>, 0x176aa070 /* 0 entries */, 32768) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/aliases.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/aliases.cpython-314.pyc.125219354341808", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/aliases.cpython-314.pyc.125219354341808>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/utf_8.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/utf_8.cpython-314.pyc.125219353964272", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/utf_8.cpython-314.pyc.125219353964272>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/pyvenv.cfg", 0x7ffda7616740, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", {st_mode=S_IFREG|0644, st_size=183, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/pyvenv.cfg>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.14/site-packages>
+925   getdents64(3<${BASE}/python/lib/python3.14/site-packages>, 0x17644cf0 /* 4 entries */, 32768) = 136
+925   getdents64(3<${BASE}/python/lib/python3.14/site-packages>, 0x17644cf0 /* 0 entries */, 32768) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared-lookups.pth", {st_mode=S_IFREG|0644, st_size=28, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared-lookups.pth", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.14/site-packages/shared-lookups.pth>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/utf_8_sig.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings", {st_mode=S_IFDIR|0755, st_size=100, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/utf_8_sig.cpython-314.pyc.125219354703136", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/encodings/utf_8_sig.cpython-314.pyc.125219354703136>
+925   getdents64(3</usr/lib/python3.14/lib-dynload>, 0x176c8310 /* 51 entries */, 32768) = 3264
+925   getdents64(3</usr/lib/python3.14/lib-dynload>, 0x176c8310 /* 0 entries */, 32768) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.14/site-packages>
+925   getdents64(3<${BASE}/python/lib/python3.14/site-packages>, 0x176c8310 /* 4 entries */, 32768) = 136
+925   getdents64(3<${BASE}/python/lib/python3.14/site-packages>, 0x176c8310 /* 0 entries */, 32768) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4010, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4010, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.py", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.py>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4010, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache${BASE}/python/lib/python3.14/site-packages", 0x7ffda7615f10, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache${BASE}/python/lib/python3.14", 0x7ffda7615f10, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache${BASE}/python/lib", 0x7ffda7615f10, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache${BASE}/python", 0x7ffda7615f10, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache${BASE}", 0x7ffda7615f10, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/tmp", 0x7ffda7615f10, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.cpython-314.pyc.125219354364816", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1794982851776866610-918/pycache${BASE}/python/lib/python3.14/site-packages/shared_lookup_report.cpython-314.pyc.125219354364816>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/local/lib/python3.14/dist-packages", 0x7ffda7616ab0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3/dist-packages", 0x7ffda7616ab0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/dist-packages", 0x7ffda7616ab0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.14/site-packages>
+925   getdents64(3<${BASE}/python/lib/python3.14/site-packages>, 0x176bbc00 /* 4 entries */, 32768) = 136
+925   getdents64(3<${BASE}/python/lib/python3.14/site-packages>, 0x176bbc00 /* 0 entries */, 32768) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared-lookups.pth", {st_mode=S_IFREG|0644, st_size=28, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages/shared-lookups.pth", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.14/site-packages/shared-lookups.pth>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/local/lib/python3.14/dist-packages", 0x7ffda7616ab0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3/dist-packages", 0x7ffda7616ab0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/dist-packages", 0x7ffda7616ab0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/lookups/1794982851776866610-918/925.tsv", O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC, 0666) = 3<${BASE}/recording/lookups/1794982851776866610-918/925.tsv>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/sitecustomize.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/sitecustomize.cpython-314.pyc.125219354469808", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/sitecustomize.cpython-314.pyc.125219354469808>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python", {st_mode=S_IFDIR|0755, st_size=160, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/no_copies.py", {st_mode=S_IFREG|0644, st_size=884, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/no_copies.py", O_RDONLY|O_CLOEXEC) = 4<${BASE}/repo/tests/no_copies.py>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/no_copies.py", {st_mode=S_IFREG|0644, st_size=884, ...}, 0) = 0
+925   readlink("tests/no_copies.py", 0x7ffda7605ac0, 4096) = -1 EINVAL (Invalid argument)
+925   readlink("${BASE}/repo/tests", 0x7ffda76066a0, 1023) = -1 EINVAL (Invalid argument)
+925   readlink("${BASE}/repo/tests/no_copies.py", 0x7ffda76066a0, 1023) = -1 EINVAL (Invalid argument)
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/no_copies.py", O_RDONLY) = 4<${BASE}/repo/tests/no_copies.py>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo", {st_mode=S_IFDIR|0755, st_size=260, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/repo/tests>
+925   getdents64(4<${BASE}/repo/tests>, 0x17644cf0 /* 28 entries */, 32768) = 992
+925   getdents64(4<${BASE}/repo/tests>, 0x17644cf0 /* 0 entries */, 32768) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/shutil.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/shutil.cpython-314.pyc.125219354470128", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/shutil.cpython-314.pyc.125219354470128>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/fnmatch.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=100, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/fnmatch.cpython-314.pyc.125219354472528", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/fnmatch.cpython-314.pyc.125219354472528>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/functools.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=120, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/functools.cpython-314.pyc.125219354472848", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/functools.cpython-314.pyc.125219354472848>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/collections/__init__.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/collections", 0x7ffda7614ef0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=140, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/collections/__init__.cpython-314.pyc.125219354744720", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/collections/__init__.cpython-314.pyc.125219354744720>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/keyword.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=160, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/keyword.cpython-314.pyc.125219353089232", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/keyword.cpython-314.pyc.125219353089232>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/operator.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=180, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/operator.cpython-314.pyc.125219353089552", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/operator.cpython-314.pyc.125219353089552>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/reprlib.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=200, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/reprlib.cpython-314.pyc.125219353090192", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/reprlib.cpython-314.pyc.125219353090192>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/types.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=220, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/types.cpython-314.pyc.125219353091792", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/types.cpython-314.pyc.125219353091792>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/__init__.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re", 0x7ffda7615990, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/__init__.cpython-314.pyc.125219353089872", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/__init__.cpython-314.pyc.125219353089872>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/enum.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=260, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/enum.cpython-314.pyc.125219353093872", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/enum.cpython-314.pyc.125219353093872>
+925   getdents64(4</usr/lib/python3.14/re>, 0x178f9eb0 /* 8 entries */, 32768) = 248
+925   getdents64(4</usr/lib/python3.14/re>, 0x178f9eb0 /* 0 entries */, 32768) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_compiler.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_compiler.cpython-314.pyc.125219353097072", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_compiler.cpython-314.pyc.125219353097072>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_parser.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_parser.cpython-314.pyc.125219353097872", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_parser.cpython-314.pyc.125219353097872>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_constants.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re", {st_mode=S_IFDIR|0755, st_size=100, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_constants.cpython-314.pyc.125219353099152", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_constants.cpython-314.pyc.125219353099152>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_casefix.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re", {st_mode=S_IFDIR|0755, st_size=120, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_casefix.cpython-314.pyc.125219352445136", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/re/_casefix.cpython-314.pyc.125219352445136>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/copyreg.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=280, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/copyreg.cpython-314.pyc.125219352445776", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/copyreg.cpython-314.pyc.125219352445776>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/bz2.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=300, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/bz2.cpython-314.pyc.125219352447216", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/bz2.cpython-314.pyc.125219352447216>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/__init__.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression", 0x7ffda7615320, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=320, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/__init__.cpython-314.pyc.125219352406032", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/__init__.cpython-314.pyc.125219352406032>
+925   getdents64(4</usr/lib/python3.14/compression>, 0x17853150 /* 10 entries */, 32768) = 296
+925   getdents64(4</usr/lib/python3.14/compression>, 0x17853150 /* 0 entries */, 32768) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common/__init__.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common", 0x7ffda7615990, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common/__init__.cpython-314.pyc.125219352406032", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common/__init__.cpython-314.pyc.125219352406032>
+925   getdents64(4</usr/lib/python3.14/compression/_common>, 0x17853150 /* 5 entries */, 32768) = 144
+925   getdents64(4</usr/lib/python3.14/compression/_common>, 0x17853150 /* 0 entries */, 32768) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common/_streams.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common/_streams.cpython-314.pyc.125219352406208", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/_common/_streams.cpython-314.pyc.125219352406208>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/lzma.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=340, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/lzma.cpython-314.pyc.125219352449456", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/lzma.cpython-314.pyc.125219352449456>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd/__init__.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd", 0x7ffda7615e40, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd/__init__.cpython-314.pyc.125219352351600", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd/__init__.cpython-314.pyc.125219352351600>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   getdents64(4</usr/lib/python3.14/compression/zstd>, 0x17853150 /* 5 entries */, 32768) = 144
+925   getdents64(4</usr/lib/python3.14/compression/zstd>, 0x17853150 /* 0 entries */, 32768) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd/_zstdfile.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd/_zstdfile.cpython-314.pyc.125219352352128", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/compression/zstd/_zstdfile.cpython-314.pyc.125219352352128>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/subprocess.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=360, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/subprocess.cpython-314.pyc.125219352451536", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/subprocess.cpython-314.pyc.125219352451536>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/locale.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=380, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/locale.cpython-314.pyc.125219352453616", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/locale.cpython-314.pyc.125219352453616>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/signal.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=400, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/signal.cpython-314.pyc.125219352454896", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/signal.cpython-314.pyc.125219352454896>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/threading.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=420, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/threading.cpython-314.pyc.125219352456176", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/threading.cpython-314.pyc.125219352456176>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/_weakrefset.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=440, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/_weakrefset.cpython-314.pyc.125219352456176", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/_weakrefset.cpython-314.pyc.125219352456176>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/warnings.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=460, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/warnings.cpython-314.pyc.125219352457616", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/warnings.cpython-314.pyc.125219352457616>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/_py_warnings.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=480, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/_py_warnings.cpython-314.pyc.125219352457936", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/_py_warnings.cpython-314.pyc.125219352457936>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/contextlib.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=500, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/contextlib.cpython-314.pyc.125219351806480", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/contextlib.cpython-314.pyc.125219351806480>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/selectors.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=520, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/selectors.cpython-314.pyc.125219351809040", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/selectors.cpython-314.pyc.125219351809040>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/tempfile.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=540, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/tempfile.cpython-314.pyc.125219351812080", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/tempfile.cpython-314.pyc.125219351812080>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/random.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/random.cpython-314.pyc.125219351813520", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/random.cpython-314.pyc.125219351813520>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/bisect.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=580, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/bisect.cpython-314.pyc.125219351814800", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/bisect.cpython-314.pyc.125219351814800>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/weakref.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=600, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/weakref.cpython-314.pyc.125219351815760", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/weakref.cpython-314.pyc.125219351815760>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "/usr", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib/__init__.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib", 0x7ffda7616ed0, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=620, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib/__init__.cpython-314.pyc.125219349722400", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib/__init__.cpython-314.pyc.125219349722400>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/glob.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14", {st_mode=S_IFDIR|0755, st_size=640, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/glob.cpython-314.pyc.125219351820080", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/glob.cpython-314.pyc.125219351820080>
+925   getdents64(4</usr/lib/python3.14/pathlib>, 0x178aa6d0 /* 7 entries */, 32768) = 208
+925   getdents64(4</usr/lib/python3.14/pathlib>, 0x178aa6d0 /* 0 entries */, 32768) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib/_os.cpython-314.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib/_os.cpython-314.pyc.125219349594480", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1794982851776866610-918/pycache/usr/lib/python3.14/pathlib/_os.cpython-314.pyc.125219349594480>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.14/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/y4kuujtm", O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC, 0600) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/y4kuujtm>
+925   openat(AT_FDCWD<${BASE}/repo>, "lib", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/repo/lib>
+925   getdents64(4<${BASE}/repo/lib>, 0x1795eb80 /* 6 entries */, 32768) = 176
+925   getdents64(4<${BASE}/repo/lib>, 0x1795eb80 /* 0 entries */, 32768) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files", 0x7ffda7617520, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=40, ...}, 0) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/relative.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "lib/relative.txt", {st_mode=S_IFREG|0644, st_size=9, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/relative.txt", 0x7ffda7617520, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/relative.txt", 0x7ffda7617520, 0) = -1 ENOENT (No such file or directory)
+925   openat(AT_FDCWD<${BASE}/repo>, "lib/relative.txt", O_RDONLY|O_CLOEXEC) = 4<${BASE}/repo/lib/relative.txt>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/relative.txt", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/relative.txt>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/worktree.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "lib/worktree.txt", {st_mode=S_IFREG|0644, st_size=9, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/worktree.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/worktree.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   openat(AT_FDCWD<${BASE}/repo>, "lib/worktree.txt", O_RDONLY|O_CLOEXEC) = 4<${BASE}/repo/lib/worktree.txt>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/worktree.txt", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/worktree.txt>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/copied.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "lib/copied.txt", {st_mode=S_IFREG|0644, st_size=7, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/copied.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/copied.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   openat(AT_FDCWD<${BASE}/repo>, "lib/copied.txt", O_RDONLY|O_CLOEXEC) = 4<${BASE}/repo/lib/copied.txt>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/copied.txt", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/copied.txt>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/helper.py", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "lib/helper.py", {st_mode=S_IFREG|0644, st_size=10, ...}, AT_SYMLINK_NOFOLLOW) = 0
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/helper.py", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/helper.py", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   openat(AT_FDCWD<${BASE}/repo>, "lib/helper.py", O_RDONLY|O_CLOEXEC) = 4<${BASE}/repo/lib/helper.py>
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/helper.py", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/helper.py>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "lib", {st_mode=S_IFDIR|0755, st_size=120, ...}, 0) = 0
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/copied.txt", O_RDONLY|O_CLOEXEC) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/copied.txt>
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/files/lib/absent-in-file-copy.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)
+925   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data/stat.txt", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data/stat.txt>
+925   vfork( <unfinished ...>
+926   execve("${BASE}/python/bin/git", ["git", "init", "-q", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other"], []) = -1 ENOENT (No such file or directory)
+926   execve("/usr/local/sbin/git", ["git", "init", "-q", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other"], []) = -1 ENOENT (No such file or directory)
+926   execve("/usr/local/bin/git", ["git", "init", "-q", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other"], []) = -1 ENOENT (No such file or directory)
+926   execve("/usr/sbin/git", ["git", "init", "-q", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other"], []) = -1 ENOENT (No such file or directory)
+926   execve("/usr/bin/git", ["git", "init", "-q", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other"], [] <unfinished ...>
+925   <... vfork resumed>)              = 926
+926   <... execve resumed>)             = 0
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   chdir("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other") = 0
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", X_OK) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", 0x7ffee5ae97f0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", 0x7ffee5ae9820, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", 0x7ffee5ae9700, 0) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/commondir", 0x7ffee5ae9760, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/commondir", 0x7ffee5ae97c0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   getdents64(3</usr/share/git-core/templates>, 0x5d17596fa430 /* 5 entries */, 32768) = 136
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/info", 0x7ffee5ae9870, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   getdents64(4</usr/share/git-core/templates/info>, 0x5d1759702520 /* 3 entries */, 32768) = 80
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/info/exclude", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/info/exclude", O_WRONLY|O_CREAT|O_EXCL, 0666) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/info/exclude>
+926   getdents64(4</usr/share/git-core/templates/info>, 0x5d1759702520 /* 0 entries */, 32768) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/description", 0x7ffee5ae9870, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/description", O_WRONLY|O_CREAT|O_EXCL, 0666) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/description>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks", 0x7ffee5ae9870, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   getdents64(4</usr/share/git-core/templates/hooks>, 0x5d1759702520 /* 16 entries */, 32768) = 664
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-receive.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-receive.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-receive.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/fsmonitor-watchman.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/fsmonitor-watchman.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/fsmonitor-watchman.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-merge-commit.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-merge-commit.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-merge-commit.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-commit.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-commit.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-commit.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/update.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/update.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/update.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/prepare-commit-msg.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/prepare-commit-msg.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/prepare-commit-msg.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-push.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-push.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-push.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-applypatch.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-applypatch.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-applypatch.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/commit-msg.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/commit-msg.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/commit-msg.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/sendemail-validate.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/sendemail-validate.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/sendemail-validate.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/push-to-checkout.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/push-to-checkout.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/push-to-checkout.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/applypatch-msg.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/applypatch-msg.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/applypatch-msg.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/post-update.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/post-update.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/post-update.sample>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-rebase.sample", 0x7ffee5ae96b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-rebase.sample", O_WRONLY|O_CREAT|O_EXCL, 0777) = 6<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/pre-rebase.sample>
+926   getdents64(4</usr/share/git-core/templates/hooks>, 0x5d1759702520 /* 0 entries */, 32768) = 0
+926   getdents64(3</usr/share/git-core/templates>, 0x5d17596fa430 /* 0 entries */, 32768) = 0
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", R_OK) = -1 ENOENT (No such file or directory)
+926   readlink("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", 0x7ffee5ae9936, 1) = -1 ENOENT (No such file or directory)
+926   readlink("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", 0x5d17596fa6a0, 97) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", R_OK) = 0
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", {st_mode=S_IFREG|0644, st_size=36, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", {st_mode=S_IFREG|0744, st_size=36, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   readlink("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", 0x5d17596fb9a0, 97) = -1 EINVAL (Invalid argument)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", R_OK) = 0
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   readlink("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", 0x5d17596fbb20, 97) = -1 EINVAL (Invalid argument)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", R_OK) = 0
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   readlink("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", 0x5d17596fbb20, 97) = -1 EINVAL (Invalid argument)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config.lock>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", R_OK) = 0
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/tyQSKzx", O_RDWR|O_CREAT|O_EXCL, 0600) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/tyQSKzx>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/tyQSKzx", {st_mode=S_IFLNK|0777, st_size=7, ...}, AT_SYMLINK_NOFOLLOW) = 0
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/CoNfIg", F_OK) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", R_OK) = -1 ENOENT (No such file or directory)
+926   readlink("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", 0x7ffee5ae98e6, 1) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/commondir", 0x7ffee5ae9680, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", 0x7ffee5ae9480, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/packed-refs", O_RDONLY) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=140, ...}, 0) = 0
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD.lock>
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", 0x7ffee5ae9530, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/packed-refs", 0x7ffee5ae9250, 0) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/packed-refs", 0x7ffee5ae91a0, 0) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads/master", 0x7ffee5ae94e0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/packed-refs", 0x7ffee5ae9200, 0) = -1 ENOENT (No such file or directory)
+926   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", 0x7ffee5ae95d0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+926   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+926   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/info/alternates", O_RDONLY) = -1 ENOENT (No such file or directory)
+925   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=926, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+925   vfork( <unfinished ...>
+927   execve("${BASE}/python/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "add", "-A"], []) = -1 ENOENT (No such file or directory)
+927   execve("/usr/local/sbin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "add", "-A"], []) = -1 ENOENT (No such file or directory)
+927   execve("/usr/local/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "add", "-A"], []) = -1 ENOENT (No such file or directory)
+927   execve("/usr/sbin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "add", "-A"], []) = -1 ENOENT (No such file or directory)
+927   execve("/usr/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "add", "-A"], [] <unfinished ...>
+925   <... vfork resumed>)              = 927
+927   <... execve resumed>)             = 0
+927   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+927   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+927   chdir("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other") = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=180, ...}, 0) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/commondir", 0x7ffc50abc010, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects", X_OK) = 0
+927   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs", X_OK) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=180, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffc50abc120, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=180, ...}, 0) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffc50abc100, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/alternates", O_RDONLY) = -1 ENOENT (No such file or directory)
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/repo", {st_mode=S_IFDIR|0755, st_size=260, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+927   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+927   access(".git/config", R_OK)       = 0
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+927   chdir("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other") = 0
+927   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+927   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+927   access(".git/config", R_OK)       = 0
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+927   readlink(".git/index", 0x6050592d3310, 33) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/index.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/index.lock>
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/index", O_RDONLY) = -1 ENOENT (No such file or directory)
+927   access("${BASE}/profile/.config/git/ignore", R_OK) = -1 ENOENT (No such file or directory)
+927   access(".git/info/exclude", R_OK) = 0
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/info/exclude", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/info/exclude>
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>
+927   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, 0x6050592d59e0 /* 4 entries */, 32768) = 96
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".gitignore", O_RDONLY|O_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/.git", 0x7ffc50abad40, 0) = -1 ENOENT (No such file or directory)
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/.git/HEAD", 0x7ffc50abac40, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data>
+927   getdents64(5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data>, 0x6050592df640 /* 3 entries */, 32768) = 80
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/.gitignore", O_RDONLY|O_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   getdents64(5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data>, 0x6050592df640 /* 0 entries */, 32768) = 0
+927   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, 0x6050592d59e0 /* 0 entries */, 32768) = 0
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/stat.txt", {st_mode=S_IFREG|0644, st_size=7, ...}, AT_SYMLINK_NOFOLLOW) = 0
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/stat.txt", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data/stat.txt>
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/profile/.config/git/attributes", O_RDONLY) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".gitattributes", O_RDONLY|O_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/info/attributes", O_RDONLY) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/.gitattributes", O_RDONLY|O_NOFOLLOW) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index.d/multi-pack-index-chain", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>
+927   getdents64(5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x6050592df640 /* 2 entries */, 32768) = 48
+927   getdents64(5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x6050592df640 /* 0 entries */, 32768) = 0
+927   access(".git/objects/00/1f1993905d81b471eeaa840432cf35aedaea61", F_OK) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/00/tmp_obj_POysJl", O_RDWR|O_CREAT|O_EXCL, 0444) = -1 ENOENT (No such file or directory)
+927   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/00/tmp_obj_1hCy56", O_RDWR|O_CREAT|O_EXCL, 0444) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/00/tmp_obj_1hCy56>
+927   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/index.lock", {st_mode=S_IFREG|0644, st_size=112, ...}, 0) = 0
+927   access(".git/hooks/post-index-change", X_OK) = -1 ENOENT (No such file or directory)
+925   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=927, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+925   vfork( <unfinished ...>
+928   execve("${BASE}/python/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "other"], []) = -1 ENOENT (No such file or directory)
+928   execve("/usr/local/sbin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "other"], []) = -1 ENOENT (No such file or directory)
+928   execve("/usr/local/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "other"], []) = -1 ENOENT (No such file or directory)
+928   execve("/usr/sbin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "other"], []) = -1 ENOENT (No such file or directory)
+928   execve("/usr/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "other"], [] <unfinished ...>
+925   <... vfork resumed>)              = 928
+928   <... execve resumed>)             = 0
+928   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+928   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+928   chdir("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other") = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=200, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/commondir", 0x7ffee67b5d70, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects", X_OK) = 0
+928   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs", X_OK) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffee67b5e80, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=200, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffee67b5e60, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/alternates", O_RDONLY) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/repo", {st_mode=S_IFDIR|0755, st_size=260, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+928   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+928   access(".git/config", R_OK)       = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+928   chdir("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other") = 0
+928   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+928   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+928   access(".git/config", R_OK)       = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffee67b4ec0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", 0x7ffee67b4f90, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", O_RDONLY) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/MERGE_HEAD", 0x7ffee67b51a0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/CHERRY_PICK_HEAD", 0x7ffee67b4fb0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4cd0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/tags/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/HEAD/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/index", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/index>
+928   readlink(".git/index", 0x64a4f0c0ff50, 33) = -1 EINVAL (Invalid argument)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/index.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/index.lock>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/stat.txt", {st_mode=S_IFREG|0644, st_size=7, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/stat.txt", O_RDONLY|O_CLOEXEC) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data/stat.txt>
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/profile/.config/git/attributes", O_RDONLY) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".gitattributes", O_RDONLY|O_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/info/attributes", O_RDONLY) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "data/.gitattributes", O_RDONLY|O_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index.d/multi-pack-index-chain", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>
+928   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x64a4f0c13be0 /* 2 entries */, 32768) = 48
+928   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x64a4f0c13be0 /* 0 entries */, 32768) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/00/1f1993905d81b471eeaa840432cf35aedaea61", {st_mode=S_IFREG|0444, st_size=22, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   access(".git/objects/5f/47a6d8635a16a6e8fe4c53fe16eadf657ceb8b", F_OK) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/5f/tmp_obj_pddBH4", O_RDWR|O_CREAT|O_EXCL, 0444) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/5f/tmp_obj_ASfyhn", O_RDWR|O_CREAT|O_EXCL, 0444) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/5f/tmp_obj_ASfyhn>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/5f/47a6d8635a16a6e8fe4c53fe16eadf657ceb8b", {st_mode=S_IFREG|0444, st_size=53, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   access(".git/objects/4b/6feb9b876112fbf87fc820b8521875599d8b34", F_OK) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/4b/tmp_obj_u7nwVD", O_RDWR|O_CREAT|O_EXCL, 0444) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/4b/tmp_obj_vzQftK", O_RDWR|O_CREAT|O_EXCL, 0444) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/4b/tmp_obj_vzQftK>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/index.lock", {st_mode=S_IFREG|0644, st_size=174, ...}, 0) = 0
+928   access(".git/hooks/post-index-change", X_OK) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/pre-commit", X_OK) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/COMMIT_EDITMSG", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/COMMIT_EDITMSG>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/tags/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/HEAD/HEAD", 0x7ffee67b4bc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b48e0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/4b/6feb9b876112fbf87fc820b8521875599d8b34", {st_mode=S_IFREG|0444, st_size=46, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   access(".git/hooks/prepare-commit-msg", X_OK) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/commit-msg", X_OK) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/COMMIT_EDITMSG", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/COMMIT_EDITMSG>
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>
+928   getdents64(3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>, 0x64a4f0c15d30 /* 4 entries */, 32768) = 104
+928   getdents64(3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>, 0x64a4f0c15d30 /* 0 entries */, 32768) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4920, 0) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/4b/6feb9b876112fbf87fc820b8521875599d8b34", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/4b/6feb9b876112fbf87fc820b8521875599d8b34>
+928   access(".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", F_OK) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/tmp_obj_79Xb8U", O_RDWR|O_CREAT|O_EXCL, 0444) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/tmp_obj_b5SfqP", O_RDWR|O_CREAT|O_EXCL, 0444) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/d3/tmp_obj_b5SfqP>
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f>
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f>
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/info/grafts", O_RDONLY) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/shallow", O_RDONLY) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/commit-graph", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/commit-graphs/commit-graph-chain", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=220, ...}, 0) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD.lock>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads", {st_mode=S_IFDIR|0755, st_size=40, ...}, 0) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads/master.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads/master.lock>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", 0x7ffee67b4e90, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4bb0, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4b40, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4b40, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4b00, 0) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs/HEAD", O_WRONLY|O_CREAT|O_APPEND, 0666) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs", 0x7ffee67b4d70, 0) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs/HEAD", O_WRONLY|O_CREAT|O_APPEND, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/logs/HEAD>
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs/refs/heads/master", O_WRONLY|O_CREAT|O_APPEND, 0666) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=260, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs/refs", 0x7ffee67b4d70, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs/refs/heads", 0x7ffee67b4d70, 0) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs/refs/heads/master", O_WRONLY|O_CREAT|O_APPEND, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/logs/refs/heads/master>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads/master", 0x7ffee67b4f60, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/CHERRY_PICK_HEAD", 0x7ffee67b4f60, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4c80, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/REVERT_HEAD", 0x7ffee67b4f60, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4c80, 0) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/AUTO_MERGE.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/AUTO_MERGE.lock>
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/AUTO_MERGE", 0x7ffee67b4d40, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4a60, 0) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b49b0, 0) = -1 ENOENT (No such file or directory)
+928   readlink(".git/packed-refs", 0x64a4f0c126b0, 33) = -1 ENOENT (No such file or directory)
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/packed-refs.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/packed-refs.lock>
+928   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", O_RDONLY) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+928   access(".git/hooks/reference-transaction", X_OK) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/rr-cache", 0x7ffee67b5110, 0) = -1 ENOENT (No such file or directory)
+928   clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x78bea2c40e50) = 929
+929   execve("/usr/lib/git-core/git", ["/usr/lib/git-core/git", "maintenance", "run", "--auto", "--quiet", "--detach"], []) = 0
+929   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+929   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/commondir", 0x7ffffe2bc1f0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+929   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects", X_OK) = 0
+929   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs", X_OK) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffffe2bc300, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffffe2bc2e0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/alternates", O_RDONLY) = -1 ENOENT (No such file or directory)
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+929   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+929   access(".git/config", R_OK)       = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+929   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+929   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+929   access(".git/config", R_OK)       = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/maintenance.lock", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/maintenance.lock>
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffffe2bbbc0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffffe2bbd40, 0) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>, 0x581f81b23d40 /* 4 entries */, 32768) = 104
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>, 0x581f81b23d40 /* 0 entries */, 32768) = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/bisect/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads>
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads>, 0x581f81b2c000 /* 3 entries */, 32768) = 80
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", {st_mode=S_IFREG|0644, st_size=41, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", O_RDONLY) = 5<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads/master>
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads>, 0x581f81b2c000 /* 0 entries */, 32768) = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index.d/multi-pack-index-chain", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x581f81b2c000 /* 2 entries */, 32768) = 48
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x581f81b2c000 /* 0 entries */, 32768) = 0
+929   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", {st_mode=S_IFREG|0444, st_size=123, ...}, AT_SYMLINK_NOFOLLOW) = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/rewritten/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/tags/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/tags>
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/tags>, 0x581f81b2c000 /* 2 entries */, 32768) = 48
+929   getdents64(4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/tags>, 0x581f81b2c000 /* 0 entries */, 32768) = 0
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/worktree/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+929   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/logs/HEAD", O_RDONLY) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/logs/HEAD>
+929   clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x723614c53e50) = 930
+928   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=929, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+928   access(".git/hooks/post-commit", X_OK) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/MERGE_AUTOSTASH", 0x7ffee67b50b0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+928   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffee67b4dd0, 0) = -1 ENOENT (No such file or directory)
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/17", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+925   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=928, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", O_RDONLY) = -1 ENOENT (No such file or directory)
+930   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffffe2bb500, 0) = -1 ENOENT (No such file or directory)
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", O_RDONLY|O_CLOEXEC <unfinished ...>
+925   vfork( <unfinished ...>
+930   <... openat resumed>)             = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f>
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", O_RDONLY|O_CLOEXEC) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f>
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/info/grafts", O_RDONLY) = -1 ENOENT (No such file or directory)
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/shallow", O_RDONLY) = -1 ENOENT (No such file or directory)
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/commit-graph", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/commit-graphs/commit-graph-chain", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", O_RDONLY|O_CLOEXEC) = 4<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f>
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/worktrees", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+930   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/rr-cache", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+931   execve("${BASE}/python/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "show", "-s", "HEAD:data/stat.txt"], []) = -1 ENOENT (No such file or directory)
+931   execve("/usr/local/sbin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "show", "-s", "HEAD:data/stat.txt"], []) = -1 ENOENT (No such file or directory)
+931   execve("/usr/local/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "show", "-s", "HEAD:data/stat.txt"], []) = -1 ENOENT (No such file or directory)
+931   execve("/usr/sbin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "show", "-s", "HEAD:data/stat.txt"], []) = -1 ENOENT (No such file or directory)
+931   execve("/usr/bin/git", ["git", "-C", "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", "show", "-s", "HEAD:data/stat.txt"], [] <unfinished ...>
+925   <... vfork resumed>)              = 931
+931   <... execve resumed>)             = 0
+931   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+931   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+931   chdir("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other") = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/commondir", 0x7ffde5f1ba10, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects", X_OK) = 0
+931   access("${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs", X_OK) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffde5f1bb20, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffde5f1bb00, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/alternates", O_RDONLY) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/repo", {st_mode=S_IFDIR|0755, st_size=260, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+931   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+931   access(".git/config", R_OK)       = 0
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+931   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+931   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+931   access(".git/config", R_OK)       = 0
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/config", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/config>
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/commondir", 0x7ffde5f1a5a0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", {st_mode=S_IFREG|0644, st_size=23, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/HEAD", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/HEAD>
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", {st_mode=S_IFREG|0644, st_size=41, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/master", O_RDONLY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs/heads/master>
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/HEAD", 0x7ffde5f1a140, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", O_RDONLY) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/tags/HEAD", 0x7ffde5f1a140, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19e60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/HEAD", 0x7ffde5f1a140, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19e60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/HEAD", 0x7ffde5f1a140, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19e60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/HEAD/HEAD", 0x7ffde5f1a140, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19e60, 0) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>
+931   getdents64(3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>, 0x5ef5c6f77c40 /* 4 entries */, 32768) = 104
+931   getdents64(3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/refs>, 0x5ef5c6f77c40 /* 0 entries */, 32768) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19c50, 0) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack/multi-pack-index.d/multi-pack-index-chain", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/pack", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>
+931   getdents64(3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x5ef5c6f77c40 /* 2 entries */, 32768) = 48
+931   getdents64(3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/pack>, 0x5ef5c6f77c40 /* 0 entries */, 32768) = 0
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/d3/9f7a67c6981c754ac914a44eb15030c259a57f>
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/4b/6feb9b876112fbf87fc820b8521875599d8b34", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/4b/6feb9b876112fbf87fc820b8521875599d8b34>
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/5f/47a6d8635a16a6e8fe4c53fe16eadf657ceb8b", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/5f/47a6d8635a16a6e8fe4c53fe16eadf657ceb8b>
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording", {st_mode=S_IFDIR|0755, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4", {st_mode=S_IFDIR|0700, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git", {st_mode=S_IFDIR|0755, st_size=240, ...}, AT_SYMLINK_NOFOLLOW) = 0
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, "HEAD:data/stat.txt", 0x7ffde5f1a6a0, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/info/grafts", O_RDONLY) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/shallow", O_RDONLY) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/commit-graph", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/info/commit-graphs/commit-graph-chain", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/00/1f1993905d81b471eeaa840432cf35aedaea61", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/00/1f1993905d81b471eeaa840432cf35aedaea61>
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/notes/commits", 0x7ffde5f1a240, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19f60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/refs/notes/commits", 0x7ffde5f1a240, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19f60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/tags/refs/notes/commits", 0x7ffde5f1a240, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19f60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/heads/refs/notes/commits", 0x7ffde5f1a240, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19f60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/refs/notes/commits", 0x7ffde5f1a240, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19f60, 0) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/refs/remotes/refs/notes/commits/HEAD", 0x7ffde5f1a240, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   newfstatat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/packed-refs", 0x7ffde5f19f60, 0) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".mailmap", O_RDONLY|O_NOFOLLOW) = -1 ENOENT (No such file or directory)
+931   openat(AT_FDCWD<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other>, ".git/objects/00/1f1993905d81b471eeaa840432cf35aedaea61", O_RDONLY|O_CLOEXEC) = 3<${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/.git/objects/00/1f1993905d81b471eeaa840432cf35aedaea61>
+925   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=931, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+925   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1794982851776866610-918/tmp/tmp49kqfsc4/other/data/absent-in-fixture.txt", 0x7ffda7617540, 0) = -1 ENOENT (No such file or directory)

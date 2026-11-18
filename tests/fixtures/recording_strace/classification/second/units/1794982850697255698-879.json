@@ -1,0 +1,35 @@
+{
+  "unit": "1794982850697255698-879",
+  "kind": "entry",
+  "name": "tests/search.ps1",
+  "suite": null,
+  "command": [
+    "pwsh",
+    "-NoProfile",
+    "-NonInteractive",
+    "-File",
+    "tests/search.ps1"
+  ],
+  "exit_code": 0,
+  "seconds": 0.451,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "1794982850697255698-879.strace",
+  "lookups": "1794982850697255698-879",
+  "temporary": "${BASE}/recording/work/1794982850697255698-879/tmp",
+  "cache": "${BASE}/recording/work/1794982850697255698-879/pycache",
+  "cwd": "${BASE}/repo",
+  "recorder": [
+    "strace",
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-y",
+    "-s",
+    "4096",
+    "-e",
+    "trace=?open,?openat,?openat2,?getdents,?getdents64,?access,?faccessat,?faccessat2,?newfstatat,?statx,?execve,?execveat,?chdir,?fchdir,?clone,?clone3,?fork,?vfork,?stat,?lstat,?readlink,?readlinkat",
+    "-e",
+    "abbrev=!execve,execveat"
+  ]
+}
