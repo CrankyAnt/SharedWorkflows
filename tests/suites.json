@@ -10569,8 +10569,10 @@
           "actions/recording/toolchain_probes.json",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
+          "actions/suite-selection/unrecorded.py",
           "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1267.tsv",
           "tests/fixtures/recording_strace/commands/check-backslashes/a.strace",
           "tests/recording_fixtures.py",
@@ -15251,6 +15253,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/revisions",
             "kind": "directory"
           },
@@ -15280,6 +15298,22 @@
           },
           {
             "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.so",
             "kind": "any"
           },
           {

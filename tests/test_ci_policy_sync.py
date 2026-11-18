@@ -469,8 +469,6 @@ class KeptSettingsTests(unittest.TestCase):
                      "A merge setting that differs is recorded under `## Repository choices` in the repository's `docs/agents/ci.md`."):
             with self.subTest(text=text):
                 self.assertEqual([text], recorded_deviations(f"{text}\n"))
-        previous = (PIPELINE_KIT / "previous" / CI_GUIDE).read_text(encoding="utf-8")
-        self.assertEqual(1, len(recorded_deviations(previous)), "the template before this change named the ruleset's deviation")
 
 
 if __name__ == "__main__":

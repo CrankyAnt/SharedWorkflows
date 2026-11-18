@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 
-from tests.recording_fixtures import RecordingFixture, requires_linux, suite
+from tests.recording_fixtures import RecordingFixture, load_recording, requires_linux, suite
 from tests.test_recording_check import BACKSLASH_READS, BACKSLASHES
 
 FILES = {"tests/a.py": "", "tests/c1.py": "", "tests/c2.py": "", "tests/c3.py": "", "tests/c4.py": "", "tests/w.py": ""}
@@ -614,6 +616,166 @@ class JobCorrectionTests(unittest.TestCase):
         self.assertIn("linux: kept the estimate of tests/c3.py: it was not recorded", applied.stdout)
         self.assertNotIn("kept the estimate of tests/c1.py", applied.stdout)
         self.assertNotIn("kept the estimate of tests/c4.py", applied.stdout)
+
+
+class SuiteListMoveTests(unittest.TestCase):
+    """The four moves of a suite between its choices, as the consumer kit of the suite selection states them: each case
+    makes the kit's edit to a fixture suite list, reads what the next run runs from ``select`` and what it records from
+    ``apply``."""
+
+    A, B, HELPER, NEW = "checks/test_a.py", "checks/test_b.py", "checks/helper.py", "checks/test_new.py"
+    TRACKED = {A: "", B: "", "lib/a.py": "", "lib/b.py": ""}
+    UNION = [A, B, "lib/a.py", "lib/b.py"]
+    ENTRY_PATHS = {A: [A, "lib/a.py"], B: [B, "lib/b.py"]}
+    DURATIONS = {A: 40.0, B: 30.0}  # two entry files and a sum of a minute or more: the sign of selection per entry file
+    SHORT = {A: 20.0, B: 10.0}  # a sum under one minute: a sign of selection as a whole
+    SKIP_WHOLE = "unit: skip (no changed file matches its path list)"
+    SKIP_PER_ENTRY = "unit: skip (no changed file matches the path list of any of its entry files)"
+
+    def fixture(self, before: dict, files: dict[str, str] | None = None) -> RecordingFixture:
+        return RecordingFixture(self.addCleanup, files or self.TRACKED, [before])
+
+    def select(self, fixture: RecordingFixture, *arguments: str) -> tuple[int, str, list[str]]:
+        """The exit code of ``select``, the line of the suite in its report or else its error, and the entry files that run."""
+        outputs = fixture.base / "outputs.txt"
+        outputs.write_text("", encoding="utf-8")
+        report, error = io.StringIO(), io.StringIO()
+        with redirect_stdout(report), redirect_stderr(error):
+            code = load_recording().suite_selection.main(["select", "--root", str(fixture.root), "--suites", str(fixture.root / "suites.json"),
+                                                          "--json-output", str(outputs), *arguments])
+        if code != 0:
+            return code, error.getvalue().strip(), []
+        values = dict(line.split("=", 1) for line in outputs.read_text(encoding="utf-8").splitlines())
+        entries = sorted(item["entry"] for shard in json.loads(values["shards"]) for item in shard["entries"])
+        return 0, next(line for line in report.getvalue().splitlines() if line.startswith("unit: ")), entries
+
+    def commit_and_select(self, fixture: RecordingFixture, after: dict | None = None, files: dict[str, str] | None = None) -> tuple[int, str, list[str]]:
+        """Commit the edited suite list and the added files, and select as the run of that push does."""
+        base = fixture.git("rev-parse", "HEAD").strip()
+        for path, text in (files or {}).items():
+            (fixture.root / path).write_text(text, encoding="utf-8")
+        if after is not None:
+            fixture.write_suites([after])
+        fixture.git("add", "-A")
+        fixture.git("commit", "-q", "-m", "change")
+        return self.select(fixture, "--base", base, "--head", fixture.git("rev-parse", "HEAD").strip(), "--compare", "direct")
+
+    def apply(self, fixture: RecordingFixture, *changes: dict) -> str:
+        path = fixture.base / "additions.json"
+        path.write_text(json.dumps(additions(*changes)), encoding="utf-8")
+        applied = fixture.apply(path)
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        return applied.stdout
+
+    def with_helper(self, **fields) -> dict:
+        """A suite selected per entry file whose pattern also matches a helper, which so has stored lists of its own."""
+        return suite("unit", ["checks/*.py"], entry_selection=True, paths=sorted([*self.UNION, self.HELPER]),
+                     entry_paths={**self.ENTRY_PATHS, self.HELPER: [self.HELPER]}, **fields)
+
+    def per_entry(self, entries: list[str], durations: dict[str, float] = DURATIONS, **fields) -> dict:
+        return suite("unit", entries, entry_selection=True, paths=self.UNION, entry_paths=self.ENTRY_PATHS, entry_durations=durations, **fields)
+
+    def test_path_to_glob_replaces_the_paths_by_the_pattern_and_the_next_run_runs_and_records_nothing(self) -> None:
+        before = self.per_entry([self.A, self.B])
+        after = dict(before, entries=["checks/test_*.py"])
+        fixture = self.fixture(before)
+        self.assertEqual((0, self.SKIP_PER_ENTRY, []), self.commit_and_select(fixture, after))
+        self.assertEqual("No additions to apply.\n", self.apply(fixture))
+        self.assertEqual(after, fixture.suite("unit"), "the pattern stays and the stored lists keep their keys, one per entry file")
+        # From then on a test file that the pattern matches runs from the push that adds it.
+        code, line, entries = self.commit_and_select(fixture, files={self.NEW: ""})
+        self.assertEqual((0, [self.NEW]), (code, entries))
+        self.assertIn(f"`{self.NEW}` runs on every change: no stored path list", line)
+
+    def test_glob_to_path_names_each_entry_file_and_drops_the_keys_of_the_file_that_is_none(self) -> None:
+        before = self.with_helper(entry_durations={**self.DURATIONS, self.HELPER: 1.0})
+        after = dict(before, entries=[self.A, self.B], entry_paths=self.ENTRY_PATHS, entry_durations=self.DURATIONS)
+        fixture = self.fixture(before, {**self.TRACKED, self.HELPER: ""})
+        self.assertEqual((0, self.SKIP_PER_ENTRY, []), self.commit_and_select(fixture, after))
+        self.assertEqual("No additions to apply.\n", self.apply(fixture))
+        self.assertEqual(dict(after, paths=self.UNION), fixture.suite("unit"), "the suite's list is the union of the lists of its entry files again")
+        # From then on a new test file runs only once the list names it.
+        self.assertEqual((0, self.SKIP_PER_ENTRY, []), self.commit_and_select(fixture, files={self.NEW: ""}))
+        code, line, entries = self.commit_and_select(fixture, dict(fixture.suite("unit"), entries=[self.A, self.B, self.NEW],
+                                                      entry_paths={**self.ENTRY_PATHS, self.NEW: [self.NEW]}))
+        self.assertEqual((0, [self.NEW]), (code, entries))
+        self.assertIn(f"`{self.NEW}` is new in `suites.json`", line)
+
+    def test_the_two_moves_of_naming_run_and_record_nothing_in_a_suite_selected_as_a_whole_either(self) -> None:
+        with_helper = sorted([*self.UNION, self.HELPER])
+        by_path = suite("unit", [self.A, self.B], paths=self.UNION, entry_durations=self.SHORT)
+        by_glob = suite("unit", ["checks/*.py"], paths=with_helper, entry_durations={**self.SHORT, self.HELPER: 1.0})
+        cases = {"path to glob": (by_path, dict(by_path, entries=["checks/test_*.py"]), self.TRACKED),
+                 "glob to path": (by_glob, dict(by_path, paths=with_helper), {**self.TRACKED, self.HELPER: ""})}
+        for move, (before, after, files) in cases.items():
+            with self.subTest(move=move):
+                fixture = self.fixture(before, files)
+                self.assertEqual((0, self.SKIP_WHOLE, []), self.commit_and_select(fixture, after))
+                self.assertEqual("No additions to apply.\n", self.apply(fixture))
+                self.assertEqual(after, fixture.suite("unit"))
+
+    def test_glob_to_path_with_a_key_of_a_file_that_no_path_names_makes_the_suite_list_invalid(self) -> None:
+        before = self.with_helper()
+        fixture = self.fixture(before, {**self.TRACKED, self.HELPER: ""})
+        code, error, _ = self.commit_and_select(fixture, dict(before, entries=[self.A, self.B]))
+        self.assertEqual(2, code)
+        self.assertIn(f"entry_paths names {self.HELPER}, which the entries lack", error)
+
+    def test_whole_to_per_entry_file_drops_the_stored_lists_and_the_next_run_runs_and_records_every_entry_file(self) -> None:
+        before = suite("unit", [self.A, self.B], paths=self.UNION, directory_memberships=["lib"], existence_reads=[{"path": "probe", "kind": "any"}],
+                       lookup_directories=["checks"], entry_durations=self.DURATIONS)
+        after = suite("unit", [self.A, self.B], entry_selection=True, entry_durations=self.DURATIONS)
+        fixture = self.fixture(before)
+        self.assertEqual((0, "unit: run (runs on every change: no stored path list)", [self.A, self.B]), self.commit_and_select(fixture, after))
+        self.apply(fixture, {"suite": "unit", "create": True, "recorded_entries": [self.A, self.B],
+                             "entries": {entry: reads(paths) for entry, paths in self.ENTRY_PATHS.items()}})
+        self.assertEqual(dict(after, paths=self.UNION, entry_paths=self.ENTRY_PATHS), fixture.suite("unit"))
+        # From then on a change runs the entry files whose own lists it reaches.
+        code, line, entries = self.select(fixture, "--changed-file", "lib/a.py")
+        self.assertEqual((0, [self.A]), (code, entries), line)
+
+    def test_whole_to_per_entry_file_with_the_stored_lists_kept_makes_the_suite_list_invalid(self) -> None:
+        before = suite("unit", [self.A, self.B], paths=self.UNION)
+        fixture = self.fixture(before)
+        code, error, _ = self.commit_and_select(fixture, dict(before, entry_selection=True))
+        self.assertEqual(2, code)
+        self.assertIn("a stored suite with entry_selection needs entry_paths", error)
+
+    def test_per_entry_file_to_whole_drops_the_per_entry_fields_and_the_next_run_runs_every_entry_file_and_records_nothing(self) -> None:
+        before = self.per_entry([self.A, self.B], self.SHORT, entry_setups={self.A: ["deps"]}, entry_extra_paths={self.B: ["docs/**"]},
+                                entry_directory_memberships={self.A: ["lib"]}, directory_memberships=["lib"])
+        after = suite("unit", [self.A, self.B], paths=self.UNION, directory_memberships=["lib"], setups=["deps"], extra_paths=["docs/**"],
+                      entry_durations=self.SHORT)
+        fixture = self.fixture(before)
+        self.assertEqual((0, "unit: run (its command, setups, operating system or selection per entry file in `suites.json` changed)", [self.A, self.B]),
+                         self.commit_and_select(fixture, after))
+        # The suite's lists already hold the union of the lists of its entry files, so their reads add nothing.
+        self.apply(fixture, {"suite": "unit", "create": False, "recorded_entries": [self.A, self.B], "reads": reads(self.UNION, memberships=["lib"])})
+        self.assertEqual(after, fixture.suite("unit"))
+        # From then on a change that reaches the suite's list runs every entry file.
+        code, line, entries = self.select(fixture, "--changed-file", "lib/a.py")
+        self.assertEqual((0, [self.A, self.B]), (code, entries), line)
+
+    def test_per_entry_file_to_whole_with_a_per_entry_list_or_entry_setups_kept_makes_the_suite_list_invalid(self) -> None:
+        whole = suite("unit", [self.A, self.B], paths=self.UNION, entry_durations=self.SHORT)
+        kept = {"entry_paths": self.ENTRY_PATHS, "entry_directory_memberships": {self.A: ["lib"]},
+                "entry_existence_reads": {self.A: [{"path": "probe", "kind": "any"}]}, "entry_lookup_directories": {self.A: ["checks"]},
+                "entry_setups": {self.A: ["deps"]}}
+        for field, value in kept.items():
+            with self.subTest(field=field):
+                fixture = self.fixture(self.per_entry([self.A, self.B], self.SHORT))
+                code, error, _ = self.commit_and_select(fixture, dict(whole, **{field: value}))
+                self.assertEqual(2, code)
+                self.assertIn(f"{field} needs entry_selection", error)
+
+    def test_per_entry_file_to_whole_with_entry_extra_paths_kept_stays_valid_and_selects_on_them_no_more(self) -> None:
+        before = self.per_entry([self.A, self.B], self.SHORT, entry_extra_paths={self.B: ["docs/**"]})
+        fixture = self.fixture(before)
+        self.assertEqual((0, "unit: run (`docs/guide.md` matches `docs/**` of `checks/test_b.py`; entries: `checks/test_b.py`)", [self.B]),
+                         self.select(fixture, "--changed-file", "docs/guide.md"))
+        kept = suite("unit", [self.A, self.B], paths=self.UNION, entry_durations=self.SHORT, entry_extra_paths={self.B: ["docs/**"]})
+        self.assertEqual(0, self.commit_and_select(fixture, kept)[0])
+        self.assertEqual((0, self.SKIP_WHOLE, []), self.select(fixture, "--changed-file", "docs/guide.md"))
 
 
 if __name__ == "__main__":

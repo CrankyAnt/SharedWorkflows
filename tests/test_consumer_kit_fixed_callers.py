@@ -126,6 +126,22 @@ class CiGuideTemplateTest(unittest.TestCase):
                 self.assertEqual(1, len(template), f"{name}: the template must hold the principle once")
                 self.assertEqual(source, template, f"{name}: the principle must match word for word")
 
+    def test_the_tests_principle_states_the_layout_conventions_in_at_most_two_sentences_that_name_no_language_or_runner(self) -> None:
+        (principle,) = re.findall(r"(?m)^- \*\*Tests\.\*\* (.*)$", self.template)
+        opening = "Each suite has one subject and every test a place in one; the entry file is the smallest unit of selection. "
+        closing = (" A test starts the real command for what only a real process shows and for each public command's main path; "
+                   "where that start is expensive, every other case runs without a new process.")
+        self.assertTrue(principle.startswith(opening))
+        self.assertTrue(principle.endswith(closing))
+        layout = principle[len(opening):-len(closing)]
+        self.assertIn(len(re.findall(r"\.(?: |$)", layout)), (1, 2), "the layout conventions take at most two sentences")
+        for convention in ("The entry files of a suite share one name rule in a directory of their own",
+                           "helpers, fixtures and data stand in files or directories that the rule does not match",
+                           "a name that the suite's runner loads", "unique where the runner requires it"):
+            with self.subTest(convention=convention):
+                self.assertIn(convention, layout)
+        self.assertNotRegex(layout, r"(?i)python|pytest|unittest|\bgo\b|jest|java|maven|surefire|cargo|rust|node|\.net|bazel|\.[a-z]{2,4}\b|[*_/]")
+
     def test_the_principles_open_with_shared_ci_and_the_consumer_s_own_work(self) -> None:
         paragraph = self.template.split("\n## Principles\n\n", 1)[1].split("\n\n", 1)[0]
         self.assertIn("CI work runs in a shared part unless the catalogue's decision rule places it in the repository.", paragraph)
