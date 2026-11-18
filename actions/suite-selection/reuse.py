@@ -524,7 +524,7 @@ def membership_names(membership: str, files: frozenset[str], matches) -> list[st
 
 
 def exists_in(path: str, kind: str, files: frozenset[str]) -> bool:
-    path = path.replace("\\", "/").strip("/")
+    """Whether ``path``, as ``ExistenceRead.path_on`` gives it, is in the tree as ``kind``."""
     file = path in files
     directory = path == "." or any(name.startswith(path + "/") for name in files)
     return file if kind == "file" else directory if kind == "directory" else file or directory
@@ -544,14 +544,15 @@ class Tree:
             self._matching[pattern] = tuple(path for path in sorted(self.entries) if self.matches(pattern, path))
         return self._matching[pattern]
 
-    def reads(self, patterns, memberships, existence, lookups=()) -> dict:
+    def reads(self, patterns, memberships, existence, lookups=(), *, system: str) -> dict:
         """The content of a unit's reads: the paths its patterns match with their objects, the names its memberships
         see, the value of its existence reads, and per directory in which it looks up modules the names that it looks
-        up there with the names in it that carry one of them. ``lookups`` holds (directory, module names) pairs."""
+        up there with the names in it that carry one of them. ``lookups`` holds (directory, module names) pairs;
+        ``system`` is the operating system of the unit's suite, which decides the path an existence read names."""
         files = sorted({path for pattern in patterns for path in self.matching(pattern)})
         return {"patterns": sorted(set(patterns)), "files": [[path, self.entries[path]] for path in files],
                 "memberships": [[membership, membership_names(membership, self.files, self.matches)] for membership in sorted(set(memberships))],
-                "existence": sorted([read.path, read.kind, exists_in(read.path, read.kind, self.files)] for read in set(existence)),
+                "existence": sorted([read.path, read.kind, exists_in(read.path_on(system), read.kind, self.files)] for read in set(existence)),
                 "lookups": [[directory, sorted(names), [name for name in membership_names(directory, self.files, self.matches)
                                                          if module_name(name) in names]] for directory, names in sorted(lookups)]}
 

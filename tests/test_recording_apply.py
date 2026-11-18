@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import unittest
 
-from tests.recording_fixtures import RecordingFixture, suite
+from tests.recording_fixtures import RecordingFixture, requires_linux, suite
+from tests.test_recording_check import BACKSLASH_READS, BACKSLASHES
 
 FILES = {"tests/a.py": "", "tests/c1.py": "", "tests/c2.py": "", "tests/c3.py": "", "tests/c4.py": "", "tests/w.py": ""}
 # The ratio of the wide trace set to the mid trace set, by which a Linux measurement of the full recording is divided.
@@ -377,6 +378,27 @@ UNSELECTED = "the change since the recorded commit could not be selected"
 
 def clean(suite_name: str, entry: str, paths: list[str], seconds: float = 1.0) -> dict:
     return {"suite": suite_name, "entry": entry, "exit_code": 0, "skipped": 0, "seconds": seconds, "reads": reads(paths)}
+
+
+@requires_linux
+class AppliedBackslashTests(unittest.TestCase):
+    def test_the_applied_existence_reads_with_a_backslash_are_no_additions_on_the_next_run(self) -> None:
+        # tests/a.py probes the absent D:\Games\Example\game.exe and the directory tools\cache from the checkout root.
+        for per_entry in (False, True):
+            with self.subTest(per_entry=per_entry):
+                fields = {"entry_selection": True, "entry_paths": {"tests/a.py": ["tests/a.py"]}} if per_entry else {}
+                fixture = BACKSLASHES.fixture(self.addCleanup, [suite("a", ["tests/a.py"], paths=["tests/a.py"], **fields)])
+                first = fixture.record(["tests/a.py"])
+                self.assertEqual(1, first.returncode, first.stdout + first.stderr)
+                applied = fixture.apply()
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                self.assertEqual(BACKSLASH_READS, fixture.suite("a")["existence_reads"])
+                if per_entry:
+                    self.assertEqual({"tests/a.py": BACKSLASH_READS}, fixture.suite("a")["entry_existence_reads"])
+                fixture.git("commit", "-q", "-am", "lists")
+                second = fixture.record(["tests/a.py"])
+                self.assertEqual(0, second.returncode, second.stdout + second.stderr)
+                self.assertEqual([], fixture.additions()["suites"])
 
 
 class KeptListTests(unittest.TestCase):

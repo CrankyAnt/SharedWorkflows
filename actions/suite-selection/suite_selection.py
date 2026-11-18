@@ -102,6 +102,12 @@ class ExistenceRead:
     def entry(self) -> dict:
         return {"path": self.path, "kind": self.kind}
 
+    def path_on(self, system: str) -> str:
+        """The repository path that the read names in a suite of the operating system ``system``. On Windows a backslash
+        separates directories, as a slash does; on Linux it is a character of a name, as a recording writes it."""
+        path = self.path.replace("\\", "/") if system == "windows" else self.path
+        return path.strip("/")
+
 
 def tracked_files(root: Path) -> set[str]:
     """The files Git tracks under ``root``, as posix paths relative to it, or every file when the root is no checkout."""
@@ -1036,10 +1042,11 @@ def membership_change(root: Path | None, previous_root: Path | None, membership:
 
 
 def existence_change(root: Path | None, previous_root: Path | None, read: ExistenceRead, changed: list[str], *,
-                     previous_tracked: frozenset[str] | None = None,
+                     system: str, previous_tracked: frozenset[str] | None = None,
                      current_tracked: frozenset[str] | None = None) -> str | None:
-    """A changed path that changes an exists/is_file/is_dir predicate, using tree names or the filesystem."""
-    path = read.path.replace("\\", "/").strip("/")
+    """A changed path that changes an exists/is_file/is_dir predicate, using tree names or the filesystem; ``system`` is
+    the operating system of the suite that stores the read."""
+    path = read.path_on(system)
     candidates = [file for file in changed if file == path or file.startswith(path + "/") or path.startswith(file + "/")]
     if not candidates:
         return None
@@ -1147,17 +1154,22 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
     resolved = bases(suite_list)
     memberships = {membership for basis in resolved for membership in basis.directory_memberships}
     memberships.update(membership for basis in resolved for _, values in basis.entry_memberships for membership in values)
-    existence = {read for basis in resolved for read in basis.existence_reads}
-    existence.update(read for basis in resolved for _, values in basis.entry_existence_reads for read in values)
+    # The operating system of a suite decides which path a stored existence read names, so each read goes with it.
+    existence = {(read, basis.suite.os) for basis in resolved for read in basis.existence_reads}
+    existence.update((read, basis.suite.os) for basis in resolved for _, values in basis.entry_existence_reads for read in values)
     looked_in = {directory for basis in resolved for directory in basis.lookup_directories}
     looked_in.update(directory for basis in resolved for _, values in basis.entry_lookup_directories for directory in values)
     if (memberships or existence or looked_in) and current_tracked is None and root is not None:
         current_tracked = frozenset(tracked_files(root))
     membership_changes = {membership: membership_change(root, previous_root, membership, changed,
                           previous_tracked=previous_tracked, current_tracked=current_tracked) for membership in memberships}
-    existence_changes = {read: existence_change(root, previous_root, read, changed,
-                         previous_tracked=previous_tracked, current_tracked=current_tracked) for read in existence}
+    existence_changes = {(read, system): existence_change(root, previous_root, read, changed, system=system,
+                         previous_tracked=previous_tracked, current_tracked=current_tracked) for read, system in existence}
     added = added_files(root, previous_root, changed, previous_tracked, current_tracked) if looked_in else []
+
+    def existence_file(basis: Basis, read: ExistenceRead) -> str | None:
+        """The changed file that changes an existence read of the basis's suite, or None."""
+        return existence_changes[read, basis.suite.os]
 
     def existed(path: str) -> bool:
         if previous_tracked is not None:
@@ -1185,7 +1197,7 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
             read.update(file for membership in basis.directory_memberships
                         if (file := membership_changes[membership]) is not None)
             read.update(file for dependency in basis.existence_reads
-                        if (file := existence_changes[dependency]) is not None)
+                        if (file := existence_file(basis, dependency)) is not None)
             read.update(found[0] for directory in basis.lookup_directories if (found := lookup_changes[directory]) is not None)
         if basis.reason is not None:
             decisions.append(Decision(basis.suite.name, True, basis.reason, basis.suite.entries))
@@ -1207,9 +1219,9 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
                                  f"directory membership `{membership}`")
                 if match is None:
                     dependency = next((value for value in dict(basis.entry_existence_reads).get(entry, ())
-                                       if existence_changes[value] is not None), None)
+                                       if existence_file(basis, value) is not None), None)
                     if dependency is not None:
-                        match = (existence_changes[dependency], f"{dependency.kind} existence `{dependency.path}`")
+                        match = (existence_file(basis, dependency), f"{dependency.kind} existence `{dependency.path}`")
                 if match is None:
                     match = lookup_match(dict(basis.entry_lookup_directories).get(entry, ()))
                 if match is not None:
@@ -1228,9 +1240,9 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
                 if member is not None:
                     match = (member[1], f"directory membership `{member[0]}`")
             if match is None:
-                dependency = next((value for value in basis.existence_reads if existence_changes[value] is not None), None)
+                dependency = next((value for value in basis.existence_reads if existence_file(basis, value) is not None), None)
                 if dependency is not None:
-                    match = (existence_changes[dependency], f"{dependency.kind} existence `{dependency.path}`")
+                    match = (existence_file(basis, dependency), f"{dependency.kind} existence `{dependency.path}`")
             if match is None:
                 match = lookup_match(basis.lookup_directories)
             if match is None:
@@ -1460,12 +1472,14 @@ def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dic
                 if suite.lacks_list(entry):
                     continue  # its inputs are unknown, so no passed result of it is reused
                 reads = tree.reads(dict(basis.entry_patterns)[entry] + always, dict(basis.entry_memberships).get(entry, ()),
-                                   dict(basis.entry_existence_reads).get(entry, ()), lookups(dict(basis.entry_lookup_directories).get(entry, ())))
+                                   dict(basis.entry_existence_reads).get(entry, ()), lookups(dict(basis.entry_lookup_directories).get(entry, ())),
+                                   system=suite.os)
                 units.append((reuse.unit_key(reads, suite.command, suite.setups_of(entry), versions, labels.get(suite.os, ""),
                                            shared_digest, ignore_content=ignore_content,
                                            unrecorded=unrecorded.unit_content(parts, suite, (entry,))), decision, (entry,)))
         else:
-            reads = tree.reads(basis.patterns + always, basis.directory_memberships, basis.existence_reads, lookups(basis.lookup_directories))
+            reads = tree.reads(basis.patterns + always, basis.directory_memberships, basis.existence_reads, lookups(basis.lookup_directories),
+                               system=suite.os)
             # No recording guarantees that the stored lists name an entry file's own path: the key holds each entry
             # file with its content, so a change to one that the lists do not match reuses no passed result.
             reads["entries"] = tree.entry_files(decision.entries)

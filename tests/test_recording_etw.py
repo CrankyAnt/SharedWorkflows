@@ -404,6 +404,20 @@ class ToolchainProbeTests(unittest.TestCase):
         expected = sorted(f"{directory}{name}" for directory in ("", "src/", "src/App/") for name in names)
         self.assertEqual(expected, [read["path"] for read in reads["tests/build.py"]["existence_reads"]])
 
+    def test_an_extra_existence_read_with_backslashes_covers_the_recorded_read_of_a_windows_suite(self) -> None:
+        # A Windows recording holds its paths with slashes; a backslash in a stored existence read is a separator there.
+        for extra, code in (([], 1), ([{"path": "tools\\cache", "kind": "any"}], 0)):
+            with self.subTest(extra=extra):
+                recording = WrittenRecording(self.addCleanup, {"tests/probe.py": ""}, [suite("probe", ["tests/probe.py"], os="windows",
+                                             paths=["tests/probe.py"], extra_existence_reads=extra)], mode="pull-request")
+                recording.unit("1-probe", "tests/probe.py", 100, 10, ["python.exe", "tests/probe.py"])
+                recording.events([("100", "10", "start", "C:\\Python\\python.exe"), ("100", "10", "absent", recording.prefix + "\\tools\\cache")])
+                checked = recording.fixture.check()
+                self.assertEqual(code, checked.returncode, checked.stdout + checked.stderr)
+                if code:
+                    [change] = recording.fixture.additions()["suites"]
+                    self.assertEqual([{"path": "tools/cache", "kind": "any"}], change["reads"]["existence_reads"])
+
     def test_a_new_nuget_config_above_the_project_selects_the_suite_after_check_and_apply_of_a_dotnet_build(self) -> None:
         recording = WrittenRecording(self.addCleanup, {"tools/consumer/App.csproj": "<Project />\n", "tests/build.py": ""},
                                      [suite("build", ["tests/build.py"], paths=["tests/build.py", "tools/consumer/App.csproj"])], mode="pull-request")

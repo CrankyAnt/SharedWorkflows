@@ -1751,7 +1751,7 @@ def stored_lists(suite: suite_selection.Suite, entry: str, always: tuple[str, ..
     if suite.paths is None or suite.lacks_list(entry):
         return None
     patterns, memberships, existence = suite.patterns_of(entry), suite.memberships_of(entry), suite.existence_reads_of(entry)
-    return Stored(tuple(patterns) + always, tuple(memberships), tuple((read.path.replace("\\", "/").strip("/"), read.kind) for read in existence), tracked,
+    return Stored(tuple(patterns) + always, tuple(memberships), tuple((read.path_on(suite.os), read.kind) for read in existence), tracked,
                   suite.lookup_directories_of(entry), lookups or {})
 
 

@@ -1,0 +1,2 @@
+suffixes	.cpython-314-x86_64-linux-gnu.so	.abi3.so	.abi3-x86_64-linux-gnu.so	.so	.py	.pyc
+lookup	${BASE}/python/lib/python3.14/site-packages	apport_python_hook	absent

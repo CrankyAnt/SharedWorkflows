@@ -54,6 +54,15 @@ READING_TWO = StoredFixture("check-two-reader", {"tests/a.py": TWO_READER, "lib/
 SETUPS = StoredFixture("check-setups", {"requirements.txt": "dependency\n", **{f"tests/{name}.py": FILE_READER.format(name) for name in ("a", "b", "c1", "c2")}},
                        {"deps": SETUP, **{name: ("python3", f"tests/{name}.py") for name in ("a", "b", "c1", "c2")}})
 PROBING = StoredFixture("check-prober", {"tests/a.py": PROBER}, {"a": ("python3", "tests/a.py")})
+# On Linux a backslash is a character of a file name: tests/a.py probes the absent name D:\Games\Example\game.exe and the
+# directory with the name tools\cache from the checkout root, and tests/b.py the absent path D:/Games/Example/game.exe.
+WINDOWS_PATH = "D:\\Games\\Example\\game.exe"
+BACKSLASH_DIRECTORY = "tools\\cache"
+BACKSLASH_PROBER = f"import os\nprint(os.path.exists({WINDOWS_PATH!r}), os.path.isdir({BACKSLASH_DIRECTORY!r}))\n"
+SLASH_PROBER = "import os\nprint(os.path.exists('D:/Games/Example/game.exe'))\n"
+BACKSLASH_READS = [{"path": WINDOWS_PATH, "kind": "any"}, {"path": BACKSLASH_DIRECTORY, "kind": "directory"}]
+BACKSLASHES = StoredFixture("check-backslashes", {"tests/a.py": BACKSLASH_PROBER, "tests/b.py": SLASH_PROBER, BACKSLASH_DIRECTORY + "/keep.txt": ""},
+                            {"a": ("python3", "tests/a.py"), "b": ("python3", "tests/b.py")})
 TOOLCHAIN = StoredFixture("check-toolchain", {"tests/build.py": BUILDER, "app/App.csproj": "<Project />\n", "NuGet.Config": "<configuration />\n",
                                               "tools/readme.txt": "", "src/App/Program.cs": ""},
                           {"build": ("python3", "tests/build.py")})
@@ -73,7 +82,7 @@ def setup_location(fixture: RecordingFixture, name: str) -> Path:
 
 
 # The fixtures whose commands python3 -m tests.record_strace_fixture records.
-STORED = (READING, READING_TWO, SETUPS, PROBING, TOOLCHAIN)
+STORED = (READING, READING_TWO, SETUPS, PROBING, TOOLCHAIN, BACKSLASHES)
 # The names that the .NET probe rules add in each directory of a project file, of a working directory and of a
 # directory argument.
 DOTNET_PROBES = ["Directory.Build.props", "Directory.Build.rsp", "Directory.Build.targets", "Directory.Packages.props", "NuGet.Config",
@@ -193,6 +202,29 @@ class RecordingCheckTests(unittest.TestCase):
                 self.assertEqual(code, checked.returncode, checked.stdout + checked.stderr)
                 if code:
                     self.assertIn("existence `Directory.Build.props`", checked.stdout)
+
+    def test_a_stored_existence_read_with_a_backslash_covers_the_same_recorded_read_of_a_linux_suite(self) -> None:
+        for field in ("existence_reads", "extra_existence_reads"):
+            for read in BACKSLASH_READS:
+                with self.subTest(field=field, kind=read["kind"]):
+                    [other] = [item for item in BACKSLASH_READS if item != read]
+                    fixture = BACKSLASHES.fixture(self.addCleanup, [suite("a", ["tests/a.py"], paths=["tests/a.py"], **{field: [read]})])
+                    checked = fixture.record(["tests/a.py"])
+                    self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
+                    [change] = fixture.additions()["suites"]
+                    self.assertEqual([other], change["reads"]["existence_reads"])
+        fixture = BACKSLASHES.fixture(self.addCleanup, [suite("a", ["tests/a.py"], paths=["tests/a.py"], existence_reads=BACKSLASH_READS)])
+        checked = fixture.record(["tests/a.py"])
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+
+    def test_a_stored_existence_read_with_a_backslash_does_not_cover_the_path_with_slashes_in_a_linux_suite(self) -> None:
+        fixture = BACKSLASHES.fixture(self.addCleanup, [suite("b", ["tests/b.py"], paths=["tests/b.py"],
+                                                              existence_reads=[{"path": WINDOWS_PATH, "kind": "any"}])])
+        checked = fixture.record(["tests/b.py"])
+        self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
+        [change] = fixture.additions()["suites"]
+        self.assertEqual([{"path": "D:/Games/Example/game.exe", "kind": "any"}], change["reads"]["existence_reads"])
+        self.assertIn("existence `D:/Games/Example/game.exe`", checked.stdout)
 
     def test_a_pull_request_run_adds_the_dotnet_probe_rules_that_the_mid_trace_set_misses(self) -> None:
         fixture = TOOLCHAIN.fixture(self.addCleanup, [suite("a", ["tests/build.py"], paths=["tests/build.py", "app/App.csproj", "NuGet.Config"])])
@@ -378,7 +410,7 @@ class VforkChildWorkingDirectoryTests(unittest.TestCase):
             events = [(event.kind, event.path, event.cwd) for event in self.parsed(order) if event.pid == child]
             self.assertEqual([("read", f"{self.BASE}/repo/NuGet.Config", f"{self.BASE}/repo"),
                               ("absent", f"{self.BASE}/repo/app/global.json", f"{self.BASE}/repo"),
-                              ("exec", f"{self.BASE}/tmp/tmp2qtajhls/dotnet", f"{self.BASE}/repo")], events)
+                              ("exec", f"{self.BASE}/tmp/tmpgurrdhzs/dotnet", f"{self.BASE}/repo")], events)
 
 
 class CheckSummaryRouteTests(unittest.TestCase):

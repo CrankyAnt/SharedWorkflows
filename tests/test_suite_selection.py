@@ -834,6 +834,134 @@ class DirectoryMembershipSelectionTests(unittest.TestCase):
 
 
 
+class BackslashExistenceSelectionTests(unittest.TestCase):
+    """A backslash in the path of a stored existence read: a character of the name in a Linux suite, a separator in a
+    Windows suite."""
+
+    NAME = "D:\\Games\\Example\\game.exe"
+    SLASHES = "D:/Games/Example/game.exe"
+    ENTRIES = ["checks/one.py", "checks/two.py"]
+
+    def suite_list(self, system: str, read: dict, field: str, per_entry: bool):
+        suite = {"name": "probes", "entries": self.ENTRIES, "os": system, "paths": self.ENTRIES, field: [read]}
+        if per_entry:
+            suite.update(entry_selection=True, entry_paths={entry: [entry] for entry in self.ENTRIES})
+            if field == "existence_reads":
+                suite["entry_existence_reads"] = {self.ENTRIES[0]: [read]}
+        other = {"name": "other", "entries": ["checks/other.py"], "paths": ["checks/other.py"]}
+        return suite_selection.parse_suite_list(json.dumps({"always": [], "suites": [suite, other]}))
+
+    def variants(self, system: str, read: dict):
+        """Each suite list that stores ``read``, with the entry files that the read selects."""
+        for field in ("existence_reads", "extra_existence_reads"):
+            for per_entry in (False, True):
+                selected = self.ENTRIES[:1] if per_entry and field == "existence_reads" else self.ENTRIES
+                yield f"{field}, per entry: {per_entry}", self.suite_list(system, read, field, per_entry), tuple(selected)
+
+    def decide(self, suite_list, changed: list[str], before: set[str], after: set[str]):
+        selection = suite_selection.select(suite_list, changed, previous_tracked=frozenset(before), current_tracked=frozenset(after))
+        self.assertFalse(selection.decisions[1].run)
+        return selection.decisions[0], selection
+
+    def test_a_linux_suite_runs_when_the_change_adds_a_file_with_exactly_the_stored_name(self) -> None:
+        tracked = set(self.ENTRIES)
+        for label, suite_list, selected in self.variants("linux", {"path": self.NAME, "kind": "any"}):
+            with self.subTest(suite=label):
+                decision, selection = self.decide(suite_list, [self.NAME], tracked, tracked | {self.NAME})
+                self.assertTrue(decision.run)
+                self.assertEqual(selected, decision.entries)
+                self.assertIn(f"`{self.NAME}` matches `any existence `{self.NAME}``", decision.reason)
+                self.assertNotIn(self.NAME, selection.unread)
+
+    def test_a_linux_suite_does_not_run_when_the_change_only_adds_the_path_with_slashes(self) -> None:
+        tracked = set(self.ENTRIES)
+        for label, suite_list, _ in self.variants("linux", {"path": self.NAME, "kind": "any"}):
+            with self.subTest(suite=label):
+                decision, selection = self.decide(suite_list, [self.SLASHES], tracked, tracked | {self.SLASHES})
+                self.assertFalse(decision.run, decision.reason)
+                self.assertIn(self.SLASHES, selection.unread)
+
+    def test_a_linux_suite_runs_on_a_change_beneath_the_stored_name_and_on_one_to_a_directory_above_it(self) -> None:
+        tracked = set(self.ENTRIES)
+        nested = "data/" + self.NAME
+        for kind, path, before, after in (
+            ("directory", self.NAME, tracked, tracked | {self.NAME + "/readme.txt"}),
+            ("any", nested, tracked | {nested}, tracked | {"data"}),
+        ):
+            for label, suite_list, selected in self.variants("linux", {"path": path, "kind": kind}):
+                with self.subTest(suite=label, path=path):
+                    decision, _ = self.decide(suite_list, sorted(before ^ after), before, after)
+                    self.assertEqual(selected, decision.entries)
+                    self.assertIn(f"{kind} existence `{path}`", decision.reason)
+
+    def test_a_windows_suite_runs_when_the_change_adds_the_first_file_in_a_directory_stated_with_backslashes(self) -> None:
+        tracked = set(self.ENTRIES)
+        first, second = "tools/cache/a.txt", "tools/cache/b.txt"
+        for label, suite_list, selected in self.variants("windows", {"path": "tools\\cache", "kind": "directory"}):
+            with self.subTest(suite=label):
+                decision, _ = self.decide(suite_list, [first], tracked, tracked | {first})
+                self.assertEqual(selected, decision.entries)
+                self.assertIn("`tools/cache/a.txt` matches `directory existence `tools\\cache``", decision.reason)
+                later, _ = self.decide(suite_list, [second], tracked | {first}, tracked | {first, second})
+                self.assertFalse(later.run, later.reason)
+
+    def test_a_windows_suite_does_not_run_when_the_change_adds_a_file_whose_name_holds_the_backslash(self) -> None:
+        tracked = set(self.ENTRIES)
+        for label, suite_list, _ in self.variants("windows", {"path": "tools\\cache", "kind": "any"}):
+            with self.subTest(suite=label):
+                decision, _ = self.decide(suite_list, ["tools\\cache"], tracked, tracked | {"tools\\cache"})
+                self.assertFalse(decision.run, decision.reason)
+
+    def test_the_reuse_key_holds_the_value_of_the_name_that_the_system_of_the_suite_reads(self) -> None:
+        import reuse
+
+        base = {entry: "a" for entry in [*self.ENTRIES, "checks/other.py"]}
+        for system, changes in (("linux", {self.NAME: True, self.SLASHES: False}), ("windows", {self.NAME: False, self.SLASHES: True})):
+            for label, suite_list, _ in self.variants(system, {"path": self.NAME, "kind": "any"}):
+                selection = suite_selection.every_suite(suite_list, "test")
+
+                def keys(files: dict[str, str]) -> list[str]:
+                    tree = reuse.Tree(files, suite_selection.matches)
+                    return [key for key, decision, _ in suite_selection.reuse_units(selection, suite_list, tree, {}, {}, ignore_content={})
+                            if decision.suite == "probes"]
+
+                for added, changes_key in changes.items():
+                    with self.subTest(system=system, suite=label, added=added):
+                        before, after = keys(base), keys({**base, added: "b"})
+                        self.assertTrue(before)
+                        self.assertEqual(changes_key, before != after)
+
+    @unittest.skipIf(sys.platform == "win32", "a Windows file name holds no backslash")
+    def test_select_runs_a_linux_suite_on_a_commit_that_adds_a_tracked_file_with_the_stored_name(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="backslash-selection-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        git(root, "init", "-q", "-b", "main")
+        suite = {"name": "probes", "entries": ["checks/one.py"], "paths": ["checks/one.py"], "existence_reads": [{"path": self.NAME, "kind": "any"}]}
+        write(root, "checks/one.py")
+        write(root, "checks/suites.json", json.dumps({"always": [], "suites": [suite]}))
+
+        def commit() -> str:
+            git(root, "add", "-A")
+            git(root, "commit", "-q", "-m", "fixture")
+            return git(root, "rev-parse", "HEAD")
+
+        def select(base: str, head: str) -> str:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = suite_selection.main(["select", "--root", str(root), "--suites", str(root / "checks/suites.json"), "--base", base, "--head", head])
+            self.assertEqual(0, code, output.getvalue())
+            return output.getvalue()
+
+        base = commit()
+        write(root, self.SLASHES)
+        slashes = commit()
+        self.assertIn("probes: skip", select(base, slashes))
+        write(root, self.NAME)
+        named = commit()
+        self.assertIn(f"probes: run (`{self.NAME}` matches `any existence `{self.NAME}``)", select(slashes, named))
+
+
 class ModuleLookupSelectionTests(unittest.TestCase):
     """A change that adds a file or directory in a directory in which entry files look up modules, under a
     standard-library name or a stored module lookup of that directory."""
