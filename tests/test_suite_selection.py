@@ -572,6 +572,151 @@ class GlobEntrySelectionTests(FixtureRepositoryTests):
         self.assertEqual(self.select("lib/a.py")[1], "tests/test_a.py")
 
 
+class NewEntryFileTests(FixtureRepositoryTests):
+    """The selection command on a change that adds an entry file to a suite with stored lists."""
+
+    LIST = "checks/suites.json"
+    STORED = ["lib/a.py", "lib/b.py", "tests/test_a.py", "tests/test_b.py"]
+    WHOLE = {"name": "unit", "entries": ["tests/test_*.py"], "paths": STORED}
+    BY_PATH = {"name": "unit", "entries": ["tests/test_a.py", "tests/test_b.py"], "paths": STORED}
+    PER_ENTRY = {"name": "unit", "entries": ["tests/test_*.py"], "entry_selection": True, "paths": STORED,
+                 "entry_paths": {"tests/test_a.py": ["lib/a.py", "tests/test_a.py"], "tests/test_b.py": ["lib/b.py", "tests/test_b.py"]}}
+    SKIP = "unit: skip (no changed file matches its path list)"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.outputs = Path(self.temporary.name) / "outputs.txt"
+        for path in ("tests/test_a.py", "tests/test_b.py", "lib/a.py", "lib/b.py"):
+            write(self.root, path, path + "\n")
+        git(self.root, "init", "-q", "-b", "main")
+        git(self.root, "config", "core.autocrlf", "false")
+
+    def commit(self, files: dict[str, str] | None = None, suite: dict | None = None) -> str:
+        for path, text in (files or {}).items():
+            write(self.root, path, text)
+        if suite is not None:
+            write(self.root, self.LIST, json.dumps({"always": [], "suites": [suite]}, indent=2) + "\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "change")
+        return git(self.root, "rev-parse", "HEAD")
+
+    def select(self, *arguments: str) -> tuple[str, list[str], dict]:
+        """The line of the suite in the report, the entry files that run, and the outputs."""
+        self.outputs.write_text("", encoding="utf-8")
+        output, error = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), mock.patch("sys.stderr", error):
+            code = suite_selection.main(["select", "--root", str(self.root), "--suites", str(self.root / self.LIST),
+                                         "--json-output", str(self.outputs), *arguments])
+        self.assertEqual(code, 0, error.getvalue())
+        values = dict(line.split("=", 1) for line in self.outputs.read_text(encoding="utf-8").splitlines())
+        entries = sorted(item["entry"] for shard in json.loads(values["shards"]) for item in shard["entries"])
+        return next(line for line in output.getvalue().splitlines() if line.startswith("unit: ")), entries, values
+
+    def between(self, base: str, head: str) -> tuple[str, list[str]]:
+        return self.select("--base", base, "--head", head, "--compare", "direct")[:2]
+
+    def test_a_file_that_a_pattern_starts_to_match_runs_a_suite_selected_as_a_whole_with_every_entry_file(self) -> None:
+        base = self.commit(suite=self.WHOLE)
+        head = self.commit({"tests/test_new.py": "new\n"})
+        line, entries = self.between(base, head)
+        self.assertEqual(line, "unit: run (`tests/test_new.py` is a new entry file)")
+        self.assertEqual(entries, ["tests/test_a.py", "tests/test_b.py", "tests/test_new.py"])
+
+    def test_a_list_of_changed_files_names_an_added_file_that_the_index_holds_and_head_lacks(self) -> None:
+        self.commit(suite=self.WHOLE)
+        write(self.root, "tests/test_new.py", "new\n")
+        git(self.root, "add", "tests/test_new.py")
+        line, entries, _ = self.select("--changed-file", "tests/test_new.py")
+        self.assertEqual(line, "unit: run (`tests/test_new.py` is a new entry file)")
+        self.assertEqual(entries, ["tests/test_a.py", "tests/test_b.py", "tests/test_new.py"])
+
+    def test_a_change_that_adds_no_entry_file_and_touches_no_stored_list_skips_the_suite(self) -> None:
+        base = self.commit(suite=self.WHOLE)
+        head = self.commit({"stray.txt": "stray\n"})
+        self.assertEqual(self.between(base, head), (self.SKIP, []))
+        self.assertEqual(self.select("--changed-file", "stray.txt")[:2], (self.SKIP, []))
+
+    def test_an_added_file_that_the_pattern_does_not_match_skips_the_suite(self) -> None:
+        base = self.commit(suite=self.WHOLE)
+        head = self.commit({"tests/helper.py": "helper\n", "other/test_new.py": "elsewhere\n"})
+        self.assertEqual(self.between(base, head), (self.SKIP, []))
+
+    def test_a_changed_entry_file_that_both_sides_hold_is_no_new_entry_file(self) -> None:
+        stored = dict(self.WHOLE, paths=["lib/a.py", "lib/b.py"])
+        base = self.commit(suite=stored)
+        head = self.commit({"tests/test_a.py": "edited\n"})
+        self.assertEqual(self.between(base, head), (self.SKIP, []))
+
+    def test_an_entry_file_added_by_path_runs_the_suite_with_the_reason_of_the_suite_list(self) -> None:
+        base = self.commit(suite=self.BY_PATH)
+        head = self.commit({"tests/test_new.py": "new\n"}, suite=dict(self.BY_PATH, entries=self.BY_PATH["entries"] + ["tests/test_new.py"]))
+        line, entries = self.between(base, head)
+        self.assertEqual(line, "unit: run (`tests/test_new.py` is new in `checks/suites.json`)")
+        self.assertEqual(entries, ["tests/test_a.py", "tests/test_b.py", "tests/test_new.py"])
+
+    def test_a_suite_selected_per_entry_file_runs_the_added_file_alone_with_the_reason_of_the_missing_list(self) -> None:
+        base = self.commit(suite=self.PER_ENTRY)
+        head = self.commit({"tests/test_new.py": "new\n"})
+        line, entries = self.between(base, head)
+        self.assertEqual(line, "unit: run (`tests/test_new.py` runs on every change: no stored path list; entries: `tests/test_new.py`)")
+        self.assertEqual(entries, ["tests/test_new.py"])
+
+    def test_a_suite_selected_per_entry_file_runs_an_added_file_that_has_a_stored_list_alone(self) -> None:
+        stored = dict(self.PER_ENTRY, entry_paths=dict(self.PER_ENTRY["entry_paths"], **{"tests/test_new.py": ["lib/a.py"]}))
+        base = self.commit(suite=stored)
+        head = self.commit({"tests/test_new.py": "new\n"})
+        line, entries = self.between(base, head)
+        self.assertEqual(line, "unit: run (`tests/test_new.py` is a new entry file; entries: `tests/test_new.py`)")
+        self.assertEqual(entries, ["tests/test_new.py"])
+
+    def test_the_added_entry_files_are_those_that_the_tracked_files_after_the_change_hold_and_those_before_lack(self) -> None:
+        import unrecorded
+
+        tracked = frozenset({"tests/test_a.py", "tests/test_b.py", "tests/test_new.py"})
+        suite_list = suite_selection.resolve_entries(suite_selection.parse_suite_list(json.dumps({"always": [], "suites": [self.WHOLE]})), set(tracked))
+        new = unrecorded.EntryFile("unit", "tests/test_new.py")
+        cause = unrecorded.Cause("tests/test_new.py", "`tests/test_new.py` is a new entry file")
+        self.assertEqual(unrecorded.added_entry_files(suite_list, tracked - {"tests/test_new.py"}, tracked), {new: cause})
+        self.assertEqual(unrecorded.added_entry_files(suite_list, tracked, tracked), {})
+        self.assertEqual(unrecorded.added_entry_files(suite_list, tracked - {"tests/test_new.py"}, tracked - {"tests/test_new.py"}), {},
+                         "an entry file that the side after the change lacks is not added by it")
+
+    # --- reuse --------------------------------------------------------------------------------------------------
+
+    def reusing(self, base: str, head: str, record: Path) -> tuple[dict, dict]:
+        """The running units and the reused units of a pull-request selection of ``head`` with the record."""
+        values = self.select("--base", base, "--head", head, "--compare", "merge-base", "--results", str(record))[2]
+        return json.loads(values["units"]), json.loads(values["reused"])
+
+    def passed(self, units: dict, record: Path, run: int) -> None:
+        record.write_text(json.dumps({"passed": {key: run for key in units}}), encoding="utf-8")
+
+    def test_a_passed_result_of_a_suite_selected_as_a_whole_is_reused_only_with_unchanged_entry_files(self) -> None:
+        record = Path(self.temporary.name) / "record.json"
+        base = self.commit(suite=self.WHOLE)
+        first = self.commit({"lib/a.py": "changed\n"})
+        units, reused = self.reusing(base, first, record)
+        self.assertEqual(([unit["entries"] for unit in units.values()], reused), ([["tests/test_a.py", "tests/test_b.py"]], {}))
+        self.passed(units, record, 101)
+
+        added = self.commit({"tests/test_new.py": "new\n"})
+        units, reused = self.reusing(base, added, record)
+        self.assertEqual(reused, {}, "a change that only adds an entry file reuses no passed result")
+        self.assertEqual([unit["entries"] for unit in units.values()], [["tests/test_a.py", "tests/test_b.py", "tests/test_new.py"]])
+        self.passed(units, record, 102)
+
+        edited = self.commit({"tests/test_new.py": "new, and changed\n"})
+        running, reused = self.reusing(base, edited, record)
+        self.assertEqual(reused, {}, "a change to the content of an entry file outside the stored lists reuses no passed result")
+        self.assertEqual([unit["entries"] for unit in running.values()], [["tests/test_a.py", "tests/test_b.py", "tests/test_new.py"]])
+        self.assertNotEqual(sorted(running), sorted(units))
+        self.passed(running, record, 103)
+
+        unread = self.commit({"stray.txt": "stray\n"})
+        again, reused = self.reusing(base, unread, record)
+        self.assertEqual((again, sorted(reused)), ({}, sorted(running)), "a head that changes no read and no entry file reuses the pass")
+
+
 class DirectoryMembershipSelectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="membership-selection-")

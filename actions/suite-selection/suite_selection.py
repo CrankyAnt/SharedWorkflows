@@ -1432,7 +1432,8 @@ def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dic
                 shared_digest: str = "", *, ignore_content: dict, parts: Parts | None = None) -> list[tuple[str, Decision, tuple[str, ...]]]:
     """The key, the decision and the entry files of every running unit with a stored path list: a suite, or each entry
     file of a suite selected per entry file. The reads are the unit's patterns with the always-run patterns, its
-    directory memberships and existence reads, and the files of the CI definition counted as read by its suite;
+    directory memberships and existence reads, and the files of the CI definition counted as read by its suite; for a
+    suite selected as a whole also each of its entry files with its content, whether its lists match it or not;
     ``shared_digest`` is the digest of the shared recording step, ``ignore_content`` the content of the ignore rules
     (``reuse.Tree.ignore_content``) and ``parts`` the unrecorded parts of the tested tree (``unrecorded.parts``), of
     which the key holds those of the unit."""
@@ -1465,6 +1466,9 @@ def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dic
                                            unrecorded=unrecorded.unit_content(parts, suite, (entry,))), decision, (entry,)))
         else:
             reads = tree.reads(basis.patterns + always, basis.directory_memberships, basis.existence_reads, lookups(basis.lookup_directories))
+            # No recording guarantees that the stored lists name an entry file's own path: the key holds each entry
+            # file with its content, so a change to one that the lists do not match reuses no passed result.
+            reads["entries"] = tree.entry_files(decision.entries)
             setups = tuple(dict.fromkeys(setup for entry in decision.entries for setup in suite.setups_of(entry)))
             units.append((reuse.unit_key(reads, suite.command, setups, versions, labels.get(suite.os, ""), shared_digest,
                                           ignore_content=ignore_content, unrecorded=unrecorded.unit_content(parts, suite, decision.entries)),
@@ -1909,6 +1913,10 @@ def unrecorded_changes(options: argparse.Namespace, root: Path, suite_list: Suit
             causes = {unit.file: unrecorded.Cause(relative, f"`{relative}` could not be read at {previous}") for unit in unrecorded.entry_units(suite_list)}
         for entry_file, reason in unrecorded.suite_list_changes(previous_list, suite_list, relative).items():
             causes.setdefault(entry_file, unrecorded.Cause(relative, reason))
+    # An entry file that the change adds as a tracked file runs, also when the suite list names it through a pattern
+    # and so does not change itself.
+    for entry_file, cause in unrecorded.added_entry_files(suite_list, before.tracked, now.tracked).items():
+        causes.setdefault(entry_file, cause)
     started: set[str] = set()
     if options.workflow:
         workflow = calling_workflow(options)

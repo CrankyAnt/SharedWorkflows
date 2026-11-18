@@ -3,7 +3,7 @@
 A unit is a suite, or an entry file of a suite selected per entry file. This module keeps the unrecorded inputs per
 entry file (``EntryUnit``): a suite selected as a whole runs when a change reaches any of its entry files, and its reuse
 key holds the inputs of all of them. The unrecorded inputs of an entry file are the fields of its suite in the suite
-list, the parts of the calling workflow and the workflows it calls that apply to the jobs running it, and the files of
+list, its own appearance among the tracked files, the parts of the calling workflow and the workflows it calls that apply to the jobs running it, and the files of
 the recording step. ``parts`` names the content of each such input per entry file on one side of a change: a revision of
 the checkout, or its working tree. An entry file whose part differs between the two sides is selected; the reuse key
 holds the parts of the tested tree.
@@ -185,6 +185,14 @@ def suite_list_changes(previous, current, list_path: str) -> dict[EntryFile, str
                 holder = f"`{entry}`" if suite.entry_selection else "the suite"
                 selected[EntryFile(suite.name, entry)] = f"`{list_path}` removes reads from the lists of {holder}"
     return selected
+
+
+def added_entry_files(current, before: frozenset[str], now: frozenset[str]) -> dict[EntryFile, Cause]:
+    """The entry files that the change adds as tracked files, each with its cause: an entry file of the resolved suite
+    list that the tracked files after the change hold and those before it lack. A file that a pattern of ``entries``
+    starts to match is new this way without a change of the suite list."""
+    return {unit.file: Cause(unit.file.entry, f"`{unit.file.entry}` is a new entry file")
+            for unit in entry_units(current) if unit.file.entry in now and unit.file.entry not in before}
 
 
 # --- the workflows -------------------------------------------------------------------------------------------
