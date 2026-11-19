@@ -75,6 +75,24 @@ class ChangeDecisionTests(unittest.TestCase):
                 self.assertEqual(decisions, {"workflows": "false", "packages": "true", "markdown": "false"})
                 self.assertIn(f"`{relative}` is a package file or the Dependabot configuration", stdout)
 
+    def test_an_added_edited_renamed_or_removed_solution_runs_the_coverage_check(self) -> None:
+        added = self.commit({"App.sln": "a\n", "Tools.slnx": "<Solution />\n"})
+        edited = self.commit({"Tools.slnx": "<Solution>\n</Solution>\n"})
+        git(self.repo, "mv", "App.sln", "Renamed.SLN")
+        git(self.repo, "commit", "-q", "-m", "chore: rename a solution")
+        renamed = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "rm", "-q", "Tools.slnx")
+        git(self.repo, "commit", "-q", "-m", "chore: remove a solution")
+        removed = git(self.repo, "rev-parse", "HEAD")
+        upper = self.commit({"Renamed.SLN": "b\n"})
+        for base, head, solution in ((self.base, added, "App.sln"), (added, edited, "Tools.slnx"), (edited, renamed, "App.sln"), (renamed, removed, "Tools.slnx"),
+                                     (removed, upper, "Renamed.SLN")):
+            with self.subTest(head=head):
+                decisions, stdout, _ = self.decide(base, head)
+                self.assertEqual("true", decisions["packages"])
+                self.assertEqual("false", decisions["workflows"])
+                self.assertIn(f"`{solution}` is a solution, which can cover the project files it lists", stdout)
+
     def test_a_markdown_change_or_a_removed_file_runs_the_link_check_and_a_code_change_does_not(self) -> None:
         head = self.commit({"docs/notes.md": "n\n"})
         decisions, stdout, summary = self.decide(self.base, head)

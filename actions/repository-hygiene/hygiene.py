@@ -448,7 +448,8 @@ def _decide_changes(changed: list[str] | None, definition: list[str], packages_d
                       ([path for path in relevant if matches_any(path, WORKFLOW_PATTERNS)], "is a workflow, an action definition or the zizmor configuration")],
         "packages": [([path for path in relevant if path in scripts["packages"]], "is a script or an input of the Dependabot coverage check"),
                      ([path for path in sorted(packages_definition) if path in changed], "is a check definition that can change coverage exclusions or execution"),
-                     ([path for path in relevant if matches_any(path, manifest_patterns)], "is a package file or the Dependabot configuration")],
+                     ([path for path in relevant if matches_any(path, manifest_patterns)], "is a package file or the Dependabot configuration"),
+                     ([path for path in relevant if dependabot_coverage.is_solution(path)], "is a solution, which can cover the project files it lists")],
         "markdown": [([path for path in relevant if path in scripts["markdown"]], "is a script of the link check"),
                      ([path for path in sorted(markdown_definition) if path in changed], "is a check definition that can change link exclusions or execution"),
                      ([path for path in relevant if path.lower().endswith(".md")], "is a Markdown file"),
@@ -463,7 +464,7 @@ def _decide_changes(changed: list[str] | None, definition: list[str], packages_d
     }
     none = {
         "workflows": "no changed file is a workflow, an action definition or the zizmor configuration",
-        "packages": "no changed file is a package file or the Dependabot configuration",
+        "packages": "no changed file is a package file, a solution or the Dependabot configuration",
         "markdown": "no changed file is a Markdown file and none was removed",
         "actionlint": "no changed file is an input of actionlint",
         "zizmor": "no changed file is an input of zizmor",

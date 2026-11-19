@@ -21,7 +21,7 @@ It then runs each shared check that the change can affect:
 | --- | --- |
 | actionlint, with ShellCheck | a workflow, the metadata of a local action that a workflow uses as `uses: ./…`, or the actionlint configuration |
 | zizmor, offline over workflows and action definitions | a workflow, an action definition or the zizmor configuration |
-| Dependabot coverage: every recognised package file has an `updates` entry of its ecosystem that covers its directory | a package file, the Dependabot configuration, or the caller's `coverage-exclude` or `uses:` reference |
+| Dependabot coverage: every recognised package file has an `updates` entry of its ecosystem that covers its directory; a project file that a `.sln` or `.slnx` directly in a directory covered by a `nuget` entry lists counts as covered | a package file, a `.sln` or `.slnx`, the Dependabot configuration, or the caller's `coverage-exclude` or `uses:` reference |
 | Relative links: every relative link in tracked Markdown points to an existing file or folder and, with an anchor, to an existing heading; no link is split between `]` and `(` | a Markdown file, a removed or renamed file, or the caller's `link-exclude` or `uses:` reference |
 | `reuse lint` | only with a `REUSE.toml`: an added, renamed or removed file, `REUSE.toml` or a file under `LICENSES/` |
 
@@ -36,7 +36,7 @@ Every input is optional, and an omitted input leaves its tool on its own default
 | `gitleaks-config` | the Gitleaks configuration file, such as `.gitleaks.toml` |
 | `gitleaks-baseline` | the Gitleaks baseline report, such as `.gitleaks-baseline.json` |
 | `zizmor-persona` | `pedantic` or `auditor`, for a stricter zizmor persona than the default |
-| `coverage-exclude` | the package files that are test fixtures, one path per line |
+| `coverage-exclude` | the package files that are test fixtures, one path per line; a `.sln` or `.slnx` at or under a listed path is not read, so it covers none of the project files it lists and fails nothing |
 | `link-exclude` | globs, one per line, of Markdown files the repository does not maintain, such as vendored documentation; a link into them is still followed |
 
 Pass `gitleaks-config` and `gitleaks-baseline` with the files that the repository's own Gitleaks command passes with `--config` and `--baseline-path`, so the local scan before a push and CI scan alike. An example with inputs:
@@ -50,7 +50,7 @@ Pass `gitleaks-config` and `gitleaks-baseline` with the files that the repositor
         tests/fixtures/package.json
 ```
 
-Beside the inputs, the job reads these files of the repository when they exist: the workflows under `.github/workflows/` and every `action.yml`; `.github/actionlint.yml` or `.yaml`; `.github/zizmor.yml` or `zizmor.yml`, either with a `.yaml` extension, in place of the shared zizmor policy; `.github/dependabot.yml` or `.yaml` and every tracked package file; every tracked Markdown file; and `REUSE.toml` with `LICENSES/`. A recognised package file is a package manifest of an ecosystem that Dependabot updates, such as `package.json`, `pyproject.toml` or `global.json`; a workflow is none. Without a Dependabot configuration, the coverage check passes only when the repository has no recognised package file.
+Beside the inputs, the job reads these files of the repository when they exist: the workflows under `.github/workflows/` and every `action.yml`; `.github/actionlint.yml` or `.yaml`; `.github/zizmor.yml` or `zizmor.yml`, either with a `.yaml` extension, in place of the shared zizmor policy; `.github/dependabot.yml` or `.yaml`, every tracked package file and every tracked `.sln` and `.slnx`; every tracked Markdown file; and `REUSE.toml` with `LICENSES/`. A recognised package file is a package manifest of an ecosystem that Dependabot updates, such as `package.json`, `pyproject.toml` or `global.json`; a workflow is none. Without a Dependabot configuration, the coverage check passes only when the repository has no recognised package file.
 
 The shared zizmor policy holds every `uses:` reference outside the repository to a commit pin, `actions/*` included: `actions/checkout@<40-hex commit>` passes, and `actions/checkout@v7` fails with `unpinned-uses`. Only the shared workflows and the shared actions that the consumer kits call, such as `CrankyAnt/SharedWorkflows/.github/workflows/repository-hygiene.yml@v1`, may use a moving ref. The consumer kits pair each commit pin with a version comment, such as `# v7.0.1`; the policy does not check it.
 
@@ -116,6 +116,6 @@ A move of `v1` changes the later runs of the caller without a change in the repo
 
 - A dead relative link: repair the link, or, for Markdown the repository does not maintain, pass its globs in `link-exclude`.
 - A link split between `]` and `(`, by spaces, tabs or a line break, which GitHub renders as plain text: join the link text and the parenthesis, `[text](target)`, or, for Markdown the repository does not maintain, pass its globs in `link-exclude`.
-- An uncovered package file, such as a `global.json` once its ecosystem is recognised: add its directory to the `updates` entry of its ecosystem in the Dependabot configuration, or an entry for the ecosystem when none exists, or, for a test fixture, name the file in `coverage-exclude`.
+- An uncovered package file, such as a `global.json` once its ecosystem is recognised: add its directory to the `updates` entry of its ecosystem in the Dependabot configuration, or an entry for the ecosystem when none exists, or, for a test fixture, name the file in `coverage-exclude`. A `.csproj`, `.fsproj` or `.vbproj` needs no directory of its own when a solution directly in a directory that the `nuget` entry covers lists it: listing the project in that solution also covers it.
 
 A failure that the repository cannot fix this way is a fault of the shared part: report it to the user.
