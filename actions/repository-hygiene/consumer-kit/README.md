@@ -21,7 +21,7 @@ It then runs each shared check that the change can affect:
 | --- | --- |
 | actionlint, with ShellCheck | a workflow, the metadata of a local action that a workflow uses as `uses: ./…`, or the actionlint configuration |
 | zizmor, offline over workflows and action definitions | a workflow, an action definition or the zizmor configuration |
-| Dependabot coverage: every recognised package file has an `updates` entry for its ecosystem and directory | a package file, the Dependabot configuration, or the caller's `coverage-exclude` or `uses:` reference |
+| Dependabot coverage: every recognised package file has an `updates` entry of its ecosystem that covers its directory | a package file, the Dependabot configuration, or the caller's `coverage-exclude` or `uses:` reference |
 | Relative links: every relative link in tracked Markdown points to an existing file or folder and, with an anchor, to an existing heading; no link is split between `]` and `(` | a Markdown file, a removed or renamed file, or the caller's `link-exclude` or `uses:` reference |
 | `reuse lint` | only with a `REUSE.toml`: an added, renamed or removed file, `REUSE.toml` or a file under `LICENSES/` |
 
@@ -116,6 +116,6 @@ A move of `v1` changes the later runs of the caller without a change in the repo
 
 - A dead relative link: repair the link, or, for Markdown the repository does not maintain, pass its globs in `link-exclude`.
 - A link split between `]` and `(`, by spaces, tabs or a line break, which GitHub renders as plain text: join the link text and the parenthesis, `[text](target)`, or, for Markdown the repository does not maintain, pass its globs in `link-exclude`.
-- An uncovered package file, such as a `global.json` once its ecosystem is recognised: add an `updates` entry for its ecosystem and directory to the Dependabot configuration, or, for a test fixture, name the file in `coverage-exclude`.
+- An uncovered package file, such as a `global.json` once its ecosystem is recognised: add its directory to the `updates` entry of its ecosystem in the Dependabot configuration, or an entry for the ecosystem when none exists, or, for a test fixture, name the file in `coverage-exclude`.
 
 A failure that the repository cannot fix this way is a fault of the shared part: report it to the user.

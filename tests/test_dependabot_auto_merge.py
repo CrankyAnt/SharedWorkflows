@@ -107,6 +107,25 @@ class MetadataTests(unittest.TestCase):
                           intro="Bumps the minor-and-patch group with 2 updates.\n\nUpdates `lodash` from 1.0.0 to 1.0.1\n\nUpdates `yaml` from 2.3.1 to 2.4.0")
         self.assertEqual((dependency("lodash", PATCH), dependency("yaml", MINOR)), read(grouped, "dependabot/npm_and_yarn/minor-and-patch-a1b2c3"))
 
+    def test_a_per_dependency_pull_request_across_directories_is_decided_by_its_update_type(self) -> None:
+        # One package updated in several directories of one entry, through the group with group-by: dependency-name. The branch
+        # and title follow dependabot-core: the subgroup "per-dependency/<name>" after the ecosystem and a directory.
+        branch = "dependabot/nuget/tests/unit/per-dependency/coverlet.collector-0f1e2d3c4b"
+        for update_type, previous, new, outcome in ((PATCH, "6.0.4", "6.0.5", "automatic"), (MINOR, "6.0.4", "6.1.0", "automatic"),
+                                                    (MAJOR, "6.0.4", "10.1.0", "manual")):
+            with self.subTest(update_type=update_type):
+                entries = [line for directory in ("/tests/unit", "/tests/integration", "/tests/e2e")
+                           for line in ("- dependency-name: coverlet.collector", f"  dependency-version: {new}", "  dependency-type: direct:production",
+                                        f"  update-type: {update_type}", "  dependency-group: per-dependency")]
+                text = message(*entries, intro=f"Bumps the per-dependency group with 3 updates in the /tests/unit, /tests/integration and /tests/e2e directories: "
+                                                f"[coverlet.collector](https://github.com/coverlet-coverage/coverlet) from {previous} to {new}.")
+                dependencies = read(text, branch, "chore(deps): bump coverlet.collector across 3 directories")
+                self.assertEqual((dependency("coverlet.collector", update_type, "nuget"),) * 3, dependencies)
+                decision = auto_merge.decide(dependencies, [commit(text=text)], REQUIRED_CHECKS)
+                self.assertEqual(outcome, decision.outcome, decision.reason)
+                if outcome == "manual":
+                    self.assertIn(f"`coverlet.collector` has `{MAJOR}`, not a patch or minor update", decision.reason)
+
     def test_an_entry_without_update_type_has_an_empty_type_when_a_version_is_missing(self) -> None:
         no_bump = message("- dependency-name: lodash", "  dependency-version: 1.0.1", intro="Updated the lockfile.")
         self.assertEqual((dependency("lodash", ""),), read(no_bump))

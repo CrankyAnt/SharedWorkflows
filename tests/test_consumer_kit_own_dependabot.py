@@ -11,26 +11,25 @@ OWN_DEPENDABOT = REPOSITORY_ROOT / ".github" / "dependabot.yml"
 
 
 class OwnDependabotConfigurationTest(unittest.TestCase):
-    def test_every_entry_has_the_7_day_cooldown_and_the_minor_and_patch_group(self) -> None:
+    def test_one_entry_per_ecosystem_with_the_group_of_its_shape_and_the_7_day_cooldown(self) -> None:
         _, configuration = read_yaml(OWN_DEPENDABOT)
-        entries = {(entry["package-ecosystem"], entry["directory"]): entry for entry in configuration["updates"]}
+        entries = {entry["package-ecosystem"]: entry for entry in configuration["updates"]}
+        self.assertEqual(len(configuration["updates"]), len(entries), "one entry per ecosystem")
         self.assertEqual(
             {
-                ("github-actions", "/"),
-                ("nuget", "/actions/recording/etw-consumer"),
-                ("dotnet-sdk", "/actions/recording/etw-consumer"),
-                ("npm", "/actions/publication-checks"),
-                ("pip", "/tests/fixtures/python_tests"),
-                ("nuget", "/tests/fixtures/dotnet_test"),
-                ("nuget", "/tests/fixtures/dotnet_console"),
-                ("npm", "/tests/fixtures/node_test"),
+                "github-actions": "/",
+                "nuget": ["/actions/recording/etw-consumer", "/tests/fixtures/dotnet_test", "/tests/fixtures/dotnet_console"],
+                "dotnet-sdk": "/actions/recording/etw-consumer",
+                "npm": ["/actions/publication-checks", "/tests/fixtures/node_test"],
+                "pip": "/tests/fixtures/python_tests",
             },
-            set(entries),
+            {ecosystem: entry.get("directories", entry.get("directory")) for ecosystem, entry in entries.items()},
         )
-        for key, entry in entries.items():
-            with self.subTest(entry=key):
+        for ecosystem, entry in entries.items():
+            with self.subTest(entry=ecosystem):
                 assert_update_entry_follows_the_template(self, entry)
-                self.assertEqual({"package-ecosystem", "directory", "schedule", "cooldown", "groups"}, set(entry))
+                place = "directories" if "directories" in entry else "directory"
+                self.assertEqual({"package-ecosystem", place, "schedule", "cooldown", "groups"}, set(entry))
 
 
 if __name__ == "__main__":

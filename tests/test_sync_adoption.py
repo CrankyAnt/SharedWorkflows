@@ -167,6 +167,26 @@ class DependabotAdoptionTests(AdoptionFixture):
             self.assertIn(line, adopted.summary)
         self.assertNotIn("`schedule` of the entry of `npm`", adopted.summary)
 
+    def test_a_file_in_either_generated_shape_is_carried_over_without_a_note(self) -> None:
+        stated = {"github-actions": ["/", "/tools/action"], "nuget": ["/src", "/tests/unit", "/tests/integration"], "pip": ["/"]}
+        multi = sync_program.consumer_checks.dependabot_text(stated, SHARED)
+        per_directory = "version: 2\nupdates:\n" + "".join(
+            sync_program.consumer_checks.dependabot_text({ecosystem: [directory]}, SHARED).removeprefix("version: 2\nupdates:\n")
+            for ecosystem, directories in stated.items() for directory in directories)
+        self.assertIn("directories:", multi)
+        self.assertNotIn("directories:", per_directory)
+        for shape, held in (("one entry per ecosystem", multi), ("one entry per ecosystem and directory", per_directory)):
+            with self.subTest(shape=shape):
+                consumer = self.before({DEPENDABOT: held})
+                adopted = self.adopt()
+                self.assertEqual(0, adopted.status, adopted.stdout + adopted.stderr)
+                branch = consumer.files(BRANCH)
+                self.assertIn("dependabot:\n  github-actions: [/, /tools/action]\n  nuget: [/src, /tests/unit, /tests/integration]\n  pip: [/]\n", branch[CONFIGURATION])
+                self.assertEqual(multi, branch[DEPENDABOT])
+                self.assertIn("Nothing: every workflow and every Dependabot entry is carried over.", adopted.summary)
+                for word in ("`directories`", "`groups`", "`ignore`", "not carried over"):
+                    self.assertNotIn(word, adopted.summary)
+
     def test_a_dependabot_configuration_under_the_other_name_moves_to_the_generated_file(self) -> None:
         consumer = self.before({".github/dependabot.yaml": GENERATED})
         adopted = self.adopt()

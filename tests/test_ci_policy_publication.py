@@ -24,7 +24,7 @@ class PublicationWorkflowTests(unittest.TestCase):
         self.assertNotIn("publication-checks.yml", policy, "the publication-checks workflow is gone")
         dependabot = DEPENDABOT.read_text(encoding="utf-8")
         self.assertIn("package-ecosystem: github-actions", dependabot)
-        self.assertIn("directory: /actions/publication-checks", dependabot)
+        self.assertRegex(dependabot, r"(?m)^  - package-ecosystem: npm\n    directories:\n(      - .+\n)*      - /actions/publication-checks$")
         self.assertIn("uses: $/actions/publication-checks\n", (WORKFLOWS / "repository-hygiene.yml").read_text(encoding="utf-8"),
                       "the npm entry covers the package that the hygiene job installs")
         self.assertTrue(PACKAGE.is_file())

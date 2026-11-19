@@ -30,7 +30,18 @@ def assert_caller_passes_no_secrets_and_runs_no_step(test: unittest.TestCase, te
     test.assertNotIn("secrets", text)
     test.assertNotRegex(text, r"(?m)^\s*(?:- )?run:")
 
+# The one group of an entry of several directories: each dependency across them, every dependency, every update type.
+PER_DEPENDENCY_GROUP = {"per-dependency": {"group-by": "dependency-name", "patterns": ["*"]}}
+
+
 def assert_update_entry_follows_the_template(test: unittest.TestCase, entry: dict) -> None:
+    """An entry of one directory has the group of minor and patch updates; an entry of several directories has the
+    group that combines each dependency across them."""
     test.assertEqual({"interval": "weekly"}, entry["schedule"])
     test.assertEqual({"default-days": 7}, entry["cooldown"])
-    test.assertEqual({"minor-and-patch": {"patterns": ["*"], "update-types": ["minor", "patch"]}}, entry["groups"])
+    if "directories" in entry:
+        test.assertNotIn("directory", entry)
+        test.assertGreater(len(entry["directories"]), 1)
+        test.assertEqual(PER_DEPENDENCY_GROUP, entry["groups"], "without update-types the group takes every update type")
+    else:
+        test.assertEqual({"minor-and-patch": {"patterns": ["*"], "update-types": ["minor", "patch"]}}, entry["groups"])
