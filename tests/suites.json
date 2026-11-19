@@ -9957,6 +9957,11 @@
         "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1189.tsv",
         "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1191.tsv",
         "tests/fixtures/recording_strace/commands/check-setups/deps.strace",
+        "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups/1300.tsv",
+        "tests/fixtures/recording_strace/commands/check-siblings/discover.strace",
+        "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups/1294.tsv",
+        "tests/fixtures/recording_strace/commands/check-siblings/pytest.strace",
+        "tests/fixtures/recording_strace/commands/check-siblings/stat.strace",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1245.tsv",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1246.tsv",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1247.tsv",
@@ -10154,6 +10159,11 @@
           "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1189.tsv",
           "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1191.tsv",
           "tests/fixtures/recording_strace/commands/check-setups/deps.strace",
+          "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups/1300.tsv",
+          "tests/fixtures/recording_strace/commands/check-siblings/discover.strace",
+          "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups/1294.tsv",
+          "tests/fixtures/recording_strace/commands/check-siblings/pytest.strace",
+          "tests/fixtures/recording_strace/commands/check-siblings/stat.strace",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1245.tsv",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1246.tsv",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1247.tsv",
@@ -11037,6 +11047,8 @@
         "tests/fixtures/recording_strace/commands/check-setups/c1.lookups",
         "tests/fixtures/recording_strace/commands/check-setups/c2.lookups",
         "tests/fixtures/recording_strace/commands/check-setups/deps.lookups",
+        "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups",
+        "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups",
         "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups",
         "tests/fixtures/recording_strace/commands/full-link/link.lookups",
@@ -11234,6 +11246,8 @@
           "tests/fixtures/recording_strace/commands/check-setups/c1.lookups",
           "tests/fixtures/recording_strace/commands/check-setups/c2.lookups",
           "tests/fixtures/recording_strace/commands/check-setups/deps.lookups",
+          "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups",
+          "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups",
           "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups"
         ],
@@ -12106,6 +12120,10 @@
         },
         {
           "path": "tests/consumer_checks_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/fixtures/recording_strace/commands/check-siblings/stat.lookups",
           "kind": "any"
         },
         {
@@ -14141,6 +14159,10 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/fixtures/recording_strace/commands/check-siblings/stat.lookups",
             "kind": "any"
           },
           {

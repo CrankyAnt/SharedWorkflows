@@ -572,7 +572,9 @@ def normalize_entry(entry: str) -> str:
 class Event:
     pid: str
     executable: str  # the base name of the program the process ran when it made the call
-    kind: str  # read, exec, exec-absent, stat, statdir, exists, absent, diropen, list (one per listing of a directory)
+    # read, exec, exec-absent, stat, statdir, exists, absent, diropen, list (one per listing of a directory); on Windows an
+    # enumeration of one literal name that finds it is a stat
+    kind: str
     path: str  # absolute and normalized
     cwd: str | None = None  # the working directory the recording knows for the event's process, None where it knows none
     # Of an exec: the argument vector, its absolute paths in the form of ``path``; None when the recording lacks it.
@@ -1021,7 +1023,7 @@ def windows_events(lines: list[tuple[int, EtwLine]], record: dict, paths: Window
             if not pattern or WILDCARDS & set(pattern):
                 events.append(Event(line.pid, program, "list", paths.convert(directory), workdir))
             else:
-                events.append(Event(line.pid, program, "exists" if line.operation == "enum" else "absent", paths.convert(line.path), workdir))
+                events.append(Event(line.pid, program, "stat" if line.operation == "enum" else "absent", paths.convert(line.path), workdir))
             continue
         path = dos_form(paths.dos(line.path))
         if path.lower().startswith(cache.lower() + "/"):
@@ -1464,20 +1466,25 @@ def classify(unit: UnitRecording) -> Reads:
     """The reads of one unit's events and lookup reports. A listing is a directory membership unless the lookup report
     of its process attributes it to the import system: each process's listings of a directory count against the
     listings that its report names there. A module name looked up in a checkout directory without being found there, or
-    found there as a namespace portion, is a module lookup, and a found module is a content read."""
+    found there as a namespace portion, is a module lookup, and a found module is a content read. A stat of an existing
+    file by a process with a lookup report (``reported_stats``) is an existence read of kind ``any`` unless the unit opens,
+    reads or runs that file or a report names it as a found module; a stat by any other process is a content read."""
     events, project, lookups, to_repository = unit.events, unit.project, unit.lookups, unit.to_repository
-    mapped = [(event, relative) for event in events if (relative := to_repository(event.path, event.kind)) is not None]
+    reported = reported_stats(unit)
+    mapped = [(event, relative, index in reported) for index, event in enumerate(events)
+              if (relative := to_repository(event.path, event.kind)) is not None]
     missing = [(relative, module.name) for module in lookups.missing if (relative := to_repository(module.directory, "list")) is not None]
     found = [(relative, to_repository(module.file, "read")) for module in lookups.found
              if (relative := to_repository(module.directory, "list")) is not None]
-    shown = {relative for event, relative in mapped if event.kind in ("list", "statdir", "diropen")}
+    shown = {relative for event, relative, _ in mapped if event.kind in ("list", "statdir", "diropen")}
     shown.update(relative for relative, _ in missing + found)
-    dropped = ignored_paths(project, {relative for _, relative in mapped} | shown | {file for _, file in found if file is not None}, shown)
+    dropped = ignored_paths(project, {relative for _, relative, _ in mapped} | shown | {file for _, file in found if file is not None}, shown)
     reads = Reads()
     directories: set[str] = set()
     absent: set[str] = set()
+    reported_files: set[str] = set()  # the existing files of the reported stats
     listed: dict[tuple[str, str], int] = {}
-    for event, relative in mapped:
+    for event, relative, by_reporter in mapped:
         if relative in dropped:
             continue
         kind = event.kind
@@ -1489,8 +1496,12 @@ def classify(unit: UnitRecording) -> Reads:
             continue
         is_directory = relative in project.directories and relative not in project.tracked
         if kind in ("read", "exec", "stat", "exists"):
-            if is_directory or (kind == "exists" and (project.root / relative).is_dir()):
+            # A Windows enumeration of a literal name does not say whether it names a directory, so an untracked name
+            # that is a directory in the checkout is one; a tracked path, such as a symbolic link, stays a file.
+            if is_directory or ((kind == "exists" or (kind == "stat" and relative not in project.tracked)) and (project.root / relative).is_dir()):
                 directories.add(relative)
+            elif kind == "stat" and by_reporter:
+                reported_files.add(relative)
             else:
                 reads.paths.add(relative)
         elif kind in ("statdir", "diropen"):
@@ -1511,11 +1522,31 @@ def classify(unit: UnitRecording) -> Reads:
                 reads.paths.add(file)
     for path in directories - reads.memberships - {""}:
         reads.existence[path] = "directory"
-    for path in absent - reads.paths - {""}:
+    for path in (absent | reported_files) - reads.paths - {""}:
         reads.existence[path] = "any"
     reads.memberships = {"." if path == "" else path for path in reads.memberships}
     reads.update(git_directory_reads(events, unit.copies, project, unit.root))
     return reads
+
+
+def reported_stats(unit: UnitRecording) -> set[int]:
+    """The positions in ``unit.events`` of the stats that a process with a lookup report makes. A report names its
+    process by id alone, so a stat counts only under a process id that runs at most one program in the unit, and only
+    after that program's start: a shell that starts Python in its own process, a Python process that runs another
+    program in its place, and on Windows a process id that a later process reuses all stat as unreported processes."""
+    starts: dict[str, int] = {}
+    for event in unit.events:
+        if event.kind == "exec":
+            starts[event.pid] = starts.get(event.pid, 0) + 1
+    started: set[str] = set()
+    found: set[int] = set()
+    for index, event in enumerate(unit.events):
+        if event.kind == "exec":
+            started.add(event.pid)
+        elif event.kind == "stat" and event.pid in unit.lookups.processes and (starts.get(event.pid, 0) == 0 or
+                                                                                (starts[event.pid] == 1 and event.pid in started)):
+            found.add(index)
+    return found
 
 
 @dataclass(frozen=True)
@@ -1664,8 +1695,9 @@ def derived_existence_reads(unit: UnitRecording, recorded: Start, fold: bool = F
 
 def unit_reads(unit: UnitRecording, start: Start, fold: bool = False, memberships: set[str] = frozenset()) -> Reads:
     """The classified reads of one unit with every derived existence read that the recording does not already hold, and
-    with ``memberships`` as directory memberships in place of any existence read of the same directory. ``start`` is
-    the recorded command; ``fold`` compares paths without case, as on Windows."""
+    with ``memberships`` as directory memberships in place of any existence read of the same directory, without the
+    existence reads that its directory memberships cover. ``start`` is the recorded command; ``fold`` compares paths
+    without case, as on Windows."""
     reads = classify(unit)
     for path, kind in derived_existence_reads(unit, start, fold).items():
         if path not in reads.paths and path not in reads.existence:
@@ -1673,7 +1705,22 @@ def unit_reads(unit: UnitRecording, start: Start, fold: bool = False, membership
     for directory in memberships:
         reads.memberships.add(directory)
         reads.existence.pop(directory, None)
+    for path in [path for path, kind in reads.existence.items() if held_existence(path, kind, reads.memberships, unit.project.tracked)]:
+        del reads.existence[path]
     return reads
+
+
+def held_existence(path: str, kind: str, memberships: set[str], tracked: frozenset[str]) -> bool:
+    """Whether the directory memberships of a unit cover its existence read of ``path``: one of kind ``any`` of a direct
+    child of a held directory, and any below a tracked file in a held directory, which a removal or rename of that file
+    changes."""
+    def held(directory: str) -> bool:
+        return (directory or ".") in memberships
+
+    parts = path.split("/")
+    if kind == "any" and held(posixpath.dirname(path)):
+        return True
+    return any(file in tracked and held(posixpath.dirname(file)) for file in ("/".join(parts[:index]) for index in range(1, len(parts))))
 
 
 def recorded_start(record: dict) -> Start:

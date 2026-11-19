@@ -7,14 +7,19 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.recording_fixtures import STRACE_RECORDINGS, RecordingFixture, StoredFixture, load_recording, requires_linux, suite
+from tests.recording_fixtures import ROOT, STRACE_RECORDINGS, RecordingFixture, StoredFixture, load_recording, requires_linux, suite
 from tests.strace_stand_in import BASE, TMPDIR, detokenize
+
+sys.path.insert(0, str(ROOT / "actions" / "suite-selection"))
+
+import suite_selection  # noqa: E402
 
 READER = """\
     from pathlib import Path
@@ -66,6 +71,24 @@ BACKSLASHES = StoredFixture("check-backslashes", {"tests/a.py": BACKSLASH_PROBER
 TOOLCHAIN = StoredFixture("check-toolchain", {"tests/build.py": BUILDER, "app/App.csproj": "<Project />\n", "NuGet.Config": "<configuration />\n",
                                               "tools/readme.txt": "", "src/App/Program.cs": ""},
                           {"build": ("python3", "tests/build.py")})
+# Independent test files and a collector that runs one of them as pytest's directory collection does: it lists the
+# entry file's directory and, for each entry there, checks whether it is a directory, probes it for a virtual environment
+# and checks whether it is a file, before it runs only the named file.
+COLLECTOR = """\
+    import os, runpy, sys
+    from pathlib import Path
+    target = Path(sys.argv[1])
+    for entry in sorted(os.listdir(target.parent)):
+        path = target.parent / entry
+        if not path.is_dir() and not any((path / name).is_file() for name in ("pyvenv.cfg", "conda-meta/history")):
+            path.is_file()
+    runpy.run_path(str(target), run_name="__main__")
+    """
+SIBLING_TEST = "import unittest\n\n\nclass Test(unittest.TestCase):\n    def test_{0}(self):\n        self.assertTrue(True)\n"
+SIBLINGS = StoredFixture("check-siblings", {"collect.py": COLLECTOR, **{f"tests/test_{name}.py": SIBLING_TEST.format(name) for name in "abc"}},
+                         {"pytest": ("python3", "collect.py", "tests/test_a.py"),
+                          "discover": ("python3", "-m", "unittest", "discover", "-s", "tests", "-p", "test_a.py"),
+                          "stat": ("stat", "-c", "%s", "tests/test_b.py")})
 ENVIRONMENT_READER = ("import json, os, shutil\n"
                       "print(json.dumps({**{name: shutil.which(name) for name in ('alpha', 'beta')},"
                       " **{name: os.environ.get(name) for name in ('ALPHA_TOOLS', 'BETA_TOOLS', 'FIXTURE_PROFILE', 'UNPROVIDED')}}))\n")
@@ -82,7 +105,7 @@ def setup_location(fixture: RecordingFixture, name: str) -> Path:
 
 
 # The fixtures whose commands python3 -m tests.record_strace_fixture records.
-STORED = (READING, READING_TWO, SETUPS, PROBING, TOOLCHAIN, BACKSLASHES)
+STORED = (READING, READING_TWO, SETUPS, PROBING, TOOLCHAIN, BACKSLASHES, SIBLINGS)
 # The names that the .NET probe rules add in each directory of a project file, of a working directory and of a
 # directory argument.
 DOTNET_PROBES = ["Directory.Build.props", "Directory.Build.rsp", "Directory.Build.targets", "Directory.Packages.props", "NuGet.Config",
@@ -346,6 +369,50 @@ class RecordingCheckTests(unittest.TestCase):
         started = fixture.run_with_path("/nonexistent", "start", "--output", str(fixture.output))
         self.assertEqual(2, started.returncode)
         self.assertIn("strace is not on PATH", started.stderr)
+
+
+@requires_linux
+class SiblingReadsTests(unittest.TestCase):
+    """The stored recordings of SIBLINGS: a Python run of one test file that stats the other test files of its directory,
+    and a stat of one of them by a program without a lookup report."""
+
+    ENTRIES = ["tests/test_a.py", "tests/test_b.py"]
+
+    def recorded(self, command: str) -> RecordingFixture:
+        """A full recording of tests/test_a.py run by the stored command ``command``, with the stat of tests/test_b.py
+        beside it, checked."""
+        fixture = SIBLINGS.fixture(self.addCleanup, [suite("tests", self.ENTRIES, entry_selection=True, paths=[],
+                                                           entry_paths={entry: [] for entry in self.ENTRIES})])
+        self.assertEqual(0, fixture.start(full=True).returncode)
+        for entry, name in (("tests/test_a.py", command), ("tests/test_b.py", "stat")):
+            ran = fixture.exec_entry(entry, *SIBLINGS.commands[name])
+            self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        return fixture
+
+    def test_a_pytest_shaped_run_reads_its_entry_file_and_no_sibling_and_a_change_of_a_sibling_selects_only_its_reader(self) -> None:
+        fixture = self.recorded("pytest")
+        reads = fixture.reads_of("tests/test_a.py")
+        self.assertEqual(["collect.py", "tests/test_a.py"], reads["paths"])
+        self.assertFalse([read for read in reads["existence_reads"] if read["path"].startswith(("tests/test_b.py", "tests/test_c.py"))], reads)
+        self.assertIn("tests", reads["directory_memberships"])
+        applied = fixture.apply(fixture.output / "full-recording.json")
+        self.assertEqual(0, applied.returncode, applied.stdout + applied.stderr)
+        suites = suite_selection.load_suite_list(fixture.root / "suites.json")
+        tracked = frozenset(filter(None, fixture.git("ls-files", "-z").split("\0")))
+        for changed, entries in ((["tests/test_b.py"], ("tests/test_b.py",)), (["tests/test_c.py"], ()), (["tests/test_a.py"], ("tests/test_a.py",))):
+            with self.subTest(changed=changed):
+                (decision,) = suite_selection.select(suites, changed, previous_tracked=tracked, current_tracked=tracked).decisions
+                self.assertEqual(entries, decision.entries if decision.run else ())
+
+    def test_a_unittest_discovery_of_one_file_reads_no_sibling_that_it_only_stats(self) -> None:
+        reads = self.recorded("discover").reads_of("tests/test_a.py")
+        self.assertIn("tests/test_a.py", reads["paths"])
+        self.assertFalse([path for path in reads["paths"] if path in ("tests/test_b.py", "tests/test_c.py")], reads)
+
+    def test_a_program_without_a_lookup_report_reads_the_file_it_only_stats(self) -> None:
+        self.assertEqual(["tests/test_b.py"], self.recorded("pytest").reads_of("tests/test_b.py")["paths"])
 
 
 # The existence reads that the .NET probe rules give the stand-in dotnet's project file app/App.csproj when it resolves

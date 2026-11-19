@@ -6,13 +6,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 import shutil
 import sys
 import unittest
 from pathlib import Path, PureWindowsPath
 
 from tests.recording_fixtures import (ETW_RECORDINGS, ROOT, STRACE_RECORDINGS, RecordingFixture, copy_recording, copy_strace_recording,
-                                      requires_posix_paths, suite)
+                                      load_recording, requires_posix_paths, suite)
 
 sys.path.insert(0, str(ROOT / "actions" / "suite-selection"))
 
@@ -420,8 +421,24 @@ class ClassificationRules:
     def existence(self, entry: str) -> dict[str, str]:
         return {read["path"]: read["kind"] for read in self.reads(entry)["existence_reads"]}
 
-    def test_a_stat_of_a_path_that_exists_in_the_checkout_is_a_content_read(self) -> None:
-        self.assertIn("data/stat.txt", self.reads("tests/stats.py")["paths"])
+    def holds_absent(self, relative: str) -> bool:
+        """Whether the recording holds a failed probe of the checkout path ``relative``."""
+        raise NotImplementedError
+
+    def assert_probe(self, reads: dict, relative: str) -> None:
+        """The failed probe of ``relative`` is an existence read of kind ``any`` in ``reads``, or the recording holds it
+        and the membership of its directory in ``reads`` covers it, so that the stored lists leave it out."""
+        existence = {read["path"]: read["kind"] for read in reads["existence_reads"]}
+        if relative in existence:
+            self.assertEqual("any", existence[relative], relative)
+            return
+        self.assertIn(posixpath.dirname(relative) or ".", reads["directory_memberships"], relative)
+        self.assertTrue(self.holds_absent(relative), relative)
+
+    def test_a_python_process_s_stat_of_a_file_that_it_never_opens_is_an_existence_read(self) -> None:
+        # On Windows the stat is the literal enumeration of FindFirstFileW.
+        self.assertNotIn("data/stat.txt", self.reads("tests/stats.py")["paths"])
+        self.assertEqual("any", self.existence("tests/stats.py")["data/stat.txt"])
 
     def test_a_failed_probe_and_a_stat_of_a_directory_are_existence_reads(self) -> None:
         existence = self.existence("tests/stats.py")
@@ -465,9 +482,10 @@ class ClassificationRules:
 
     def test_a_found_module_is_a_content_read_with_existence_reads_of_the_names_that_would_precede_it(self) -> None:
         # The names of lib/helper with each extension-module suffix of the interpreter that recorded it precede lib/helper.py.
-        reads = self.reads("tests/lookups.py")
+        # tests/imports_only.py imports it without listing lib/ itself.
+        reads = self.reads("tests/imports_only.py")
         self.assertIn("lib/helper.py", reads["paths"])
-        existence = self.existence("tests/lookups.py")
+        existence = self.existence("tests/imports_only.py")
         self.assertEqual("directory", existence["lib/helper"])
         extensions = [path for path, kind in existence.items() if path.startswith("lib/helper.") and kind == "any"]
         self.assertTrue(extensions, existence)
@@ -512,13 +530,13 @@ class ClassificationRules:
         (fixture.root / "lib" / ".gitignore").write_text("absent-in-copy.txt\n", encoding="utf-8")
         with (fixture.root / ".gitignore").open("a", encoding="utf-8") as handle:
             handle.write("absent.txt\n")
-        local = {"absent.txt": "any", "missing-tool": "any", "lib/absent-in-copy.txt": "any"}
+        local = {"tests/stats.py": "absent.txt", "tests/commands.py": "missing-tool", "tests/copy.py": "lib/absent-in-copy.txt"}
 
         checked = fixture.check()
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
         reads = classified_lists(fixture)
-        existence = {read["path"]: read["kind"] for entry in reads.values() for read in entry["existence_reads"]}
-        self.assertLessEqual(local.items(), existence.items())
+        for entry, path in local.items():
+            self.assert_probe(reads[entry], path)
         self.assertNotIn("listed", reads["tests/imports.py"]["directory_memberships"])
         self.assertNotIn("cache.txt", reads["tests/ignored.py"]["paths"])
 
@@ -528,15 +546,14 @@ class ClassificationRules:
         checked = fixture.check()
         self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
         added = fixture.additions()["suites"][0]["entries"]
-        additions = {read["path"]: read["kind"] for entry in added.values() for read in entry["existence_reads"]}
-        self.assertLessEqual(local.items(), additions.items())
+        for entry, path in local.items():
+            self.assert_probe(added[entry], path)
         self.assertNotIn("cache.txt", added["tests/ignored.py"]["paths"])
 
     def test_an_absent_root_name_that_a_program_other_than_powershell_probes_is_an_existence_read(self) -> None:
         # The entry file starts git and then probes git.ps1 itself: no name drops because a started program shares its stem.
-        existence = self.existence("tests/commands.py")
-        self.assertEqual("any", existence["git.ps1"])
-        self.assertEqual("any", existence["missing-tool"])
+        for path in ("git.ps1", "missing-tool"):
+            self.assert_probe(self.reads("tests/commands.py"), path)
 
     def test_a_path_in_a_clone_of_the_checkout_maps_back_by_its_relative_path(self) -> None:
         reads = self.reads("tests/copy.py")
@@ -648,21 +665,26 @@ class StoredStraceClassificationTests(ClassificationRules, unittest.TestCase):
         return STRACE_RECORDINGS / "classification" / "first"
 
     def test_the_linux_extension_module_names_precede_a_found_source_module(self) -> None:
-        extensions = [path for path in self.existence("tests/lookups.py") if path.startswith("lib/helper.")]
+        extensions = [path for path in self.existence("tests/imports_only.py") if path.startswith("lib/helper.")]
         self.assertIn("lib/helper.so", extensions)
         self.assertIn("lib/helper.abi3.so", extensions)
 
     def test_a_command_search_through_the_working_directory_on_path_is_an_existence_read(self) -> None:
         # The entry file puts its working directory first on PATH: Python's search probes sh there, and sh probes git.
-        existence = self.existence("tests/commands.py")
-        self.assertEqual("any", existence["sh"])
-        self.assertEqual("any", existence["git"])
+        for path in ("sh", "git"):
+            self.assert_probe(self.reads("tests/commands.py"), path)
 
     def test_an_absent_path_that_a_process_tries_to_run_is_an_existence_read(self) -> None:
-        self.assertEqual("any", self.existence("tests/commands.py")["run.exe"])
+        self.assert_probe(self.reads("tests/commands.py"), "run.exe")
 
     def test_no_linux_read_drops_for_a_colon(self) -> None:
-        self.assertEqual("any", self.existence("tests/commands.py")["notes:draft.txt"])
+        self.assert_probe(self.reads("tests/commands.py"), "notes:draft.txt")
+
+    def holds_absent(self, relative: str) -> bool:
+        recording = load_recording()
+        path = f"{self.fixture.root}/{relative}"
+        return any(event.kind in ("absent", "exec-absent") and event.path == path for trace in (self.fixture.output / "traces").iterdir()
+                   for event in recording.parse_trace(trace, (str(self.fixture.base),), str(self.fixture.root)))
 
     def holds_call(self, relative: str) -> bool:
         """Whether the stored recording holds a call on the checkout path ``relative``."""
@@ -782,6 +804,11 @@ class RecordedEventFileClassificationTests(ClassificationRules, unittest.TestCas
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
         return classified_lists(other)
 
+    def holds_absent(self, relative: str) -> bool:
+        events = (ETW_RECORDINGS / "classification" / "first" / "events.tsv").read_text(encoding="utf-8").lower().splitlines()
+        name = "\\repo\\" + relative.replace("/", "\\").lower()
+        return any(line.split("\t")[2:3] == ["absent"] and line.endswith(name) for line in events)
+
     def holds_call(self, name: str) -> bool:
         """Whether the recorded event file holds a line on the checkout path ``name``, in its Windows spelling."""
         events = (ETW_RECORDINGS / "classification" / "first" / "events.tsv").read_text(encoding="utf-8").lower()
@@ -810,6 +837,104 @@ class RecordedEventFileClassificationTests(ClassificationRules, unittest.TestCas
         # in data/ has no working directory that the recording knows, so its open stays an existence read.
         self.assertNotIn("tool.ps1", self.existence("tests/search.ps1"))
         self.assertEqual("any" if self.holds_call("data\\child-tool.ps1") else None, self.existence("tests/commands.py").get("data/child-tool.ps1"))
+
+
+# A pytest-shaped run of tests/test_a.py beside independent test files, as the classification sees it: the collecting
+# process lists tests/, stats each sibling twice, probes for a virtual environment below it and opens only its entry file.
+SIBLING_FILES = {"tests/test_a.py": "", "tests/test_b.py": "", "tests/test_c.py": "", "lib/helper.py": "VALUE = 1\n", "data/keep.txt": ""}
+SIBLINGS = ("tests/test_b.py", "tests/test_c.py")
+PYTHON, OTHER = "10", "20"
+
+
+def sibling_events(root: str, pid: str = PYTHON, executable: str = "python3") -> list:
+    """The events of the pytest-shaped run, made by the process ``pid``."""
+    recording = load_recording()
+    events = [recording.Event(pid, executable, "list", root + "/tests"), recording.Event(pid, executable, "read", root + "/tests/test_a.py")]
+    for sibling in SIBLINGS:
+        events += [recording.Event(pid, executable, "stat", f"{root}/{sibling}")] * 2
+        events += [recording.Event(pid, executable, "absent", f"{root}/{sibling}/{name}") for name in ("pyvenv.cfg", "conda-meta/history")]
+    return events
+
+
+class StatOnlyClassificationTests(unittest.TestCase):
+    """The stat-only rule and the existence reads that a unit's directory memberships cover, on written events and lookup
+    reports of a fixture checkout."""
+
+    ROOT = "/checkout"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.recording = load_recording()
+        fixture = RecordingFixture(cls.addClassCleanup, SIBLING_FILES, [suite("a", ["tests/test_a.py"], paths=[])], stand_in=False)
+        cls.project = cls.recording.checkout(fixture.root)
+
+    def reads(self, events: list, *, reported: tuple[str, ...] = (PYTHON,), found: tuple[str, ...] = ()) -> dict:
+        """The stored form of the reads of ``events``, whose processes ``reported`` have a lookup report naming each
+        checkout file of ``found`` as a found module."""
+        recording = self.recording
+        lookups = recording.Lookups(frozenset(reported), {}, tuple(
+            recording.FoundModule(posixpath.dirname(f"{self.ROOT}/{file}"), posixpath.basename(file).split(".")[0], f"{self.ROOT}/{file}", (".py",))
+            for file in found))
+        unit = recording.UnitRecording(events, None, self.project, self.ROOT, lookups)
+        return recording.unit_reads(unit, recording.Start("python3", self.ROOT, ())).document()
+
+    def event(self, kind: str, relative: str, pid: str = PYTHON, executable: str = "python3"):
+        return self.recording.Event(pid, executable, kind, f"{self.ROOT}/{relative}".rstrip("/"))
+
+    def test_a_pytest_shaped_run_reads_its_own_entry_file_and_no_sibling(self) -> None:
+        reads = self.reads(sibling_events(self.ROOT))
+        self.assertEqual(["tests/test_a.py"], reads["paths"])
+        self.assertEqual([], reads["existence_reads"])
+        self.assertEqual(["tests"], reads["directory_memberships"])
+
+    def test_without_the_membership_of_their_directory_the_stats_and_the_probes_below_a_tracked_file_stay(self) -> None:
+        events = [event for event in sibling_events(self.ROOT) if event.kind != "list"]
+        reads = self.reads(events)
+        self.assertEqual(["tests/test_a.py"], reads["paths"])
+        expected = [*SIBLINGS, *(f"{sibling}/{name}" for sibling in SIBLINGS for name in ("conda-meta/history", "pyvenv.cfg"))]
+        self.assertEqual(sorted(expected), [read["path"] for read in reads["existence_reads"]])
+        self.assertEqual({"any"}, {read["kind"] for read in reads["existence_reads"]})
+
+    def test_a_python_process_that_opens_a_file_it_stats_reads_its_content(self) -> None:
+        reads = self.reads([self.event("stat", "lib/helper.py"), self.event("read", "lib/helper.py")])
+        self.assertEqual(["lib/helper.py"], reads["paths"])
+        self.assertEqual([], reads["existence_reads"])
+
+    def test_a_module_loaded_from_cached_bytecode_that_the_report_names_as_found_is_a_content_read(self) -> None:
+        # The path finder stats the source to check the cached bytecode and never opens it.
+        reads = self.reads([self.event("stat", "lib/helper.py")], found=("lib/helper.py",))
+        self.assertEqual(["lib/helper.py"], reads["paths"])
+        self.assertNotIn("lib/helper.py", [read["path"] for read in reads["existence_reads"]])
+
+    def test_a_stat_of_a_process_without_a_lookup_report_is_a_content_read(self) -> None:
+        self.assertEqual(["lib/helper.py"], self.reads([self.event("stat", "lib/helper.py", OTHER, "dotnet")])["paths"])
+        self.assertEqual(["tests/test_a.py", *SIBLINGS], self.reads(sibling_events(self.ROOT, OTHER, "dotnet"))["paths"])
+
+    def test_a_stat_under_a_process_id_that_runs_more_than_one_program_is_a_content_read(self) -> None:
+        # A shell that runs Python in its own process after a stat, a Python process that runs dotnet in its place, and,
+        # on Windows, a process id that a later process reuses: the lookup report cannot tell which program made the stat.
+        start = self.recording.Event
+        for programs in (("sh", "python3"), ("python3", "dotnet")):
+            with self.subTest(programs=programs):
+                before = [start(PYTHON, programs[0], "exec", f"/usr/bin/{programs[0]}"), self.event("stat", "lib/helper.py", executable=programs[0])]
+                after = [start(PYTHON, programs[1], "exec", f"/usr/bin/{programs[1]}"), self.event("stat", "data/keep.txt", executable=programs[1])]
+                self.assertEqual(["data/keep.txt", "lib/helper.py"], self.reads(before + after)["paths"])
+
+    def test_a_stat_after_the_one_start_of_a_python_process_with_a_report_is_an_existence_read(self) -> None:
+        reads = self.reads([self.recording.Event(PYTHON, "python3", "exec", "/usr/bin/python3"), self.event("stat", "lib/helper.py")])
+        self.assertEqual(([], [{"path": "lib/helper.py", "kind": "any"}]), (reads["paths"], reads["existence_reads"]))
+
+    def test_a_python_process_s_stat_of_an_absent_path_and_of_a_directory_stay_existence_reads(self) -> None:
+        reads = self.reads([self.event("absent", "lib/missing.py"), self.event("statdir", "data")])
+        self.assertEqual([{"path": "data", "kind": "directory"}, {"path": "lib/missing.py", "kind": "any"}], reads["existence_reads"])
+        self.assertEqual([], reads["paths"])
+
+    def test_a_held_membership_covers_no_existence_read_of_a_directory_and_none_below_an_untracked_name(self) -> None:
+        reads = self.reads([self.event("list", ""), self.event("statdir", "data"), self.event("absent", "absent.txt/pyvenv.cfg"),
+                            self.event("absent", "lib/missing.py")])
+        self.assertEqual([{"path": "absent.txt/pyvenv.cfg", "kind": "any"}, {"path": "data", "kind": "directory"},
+                          {"path": "lib/missing.py", "kind": "any"}], reads["existence_reads"])
+        self.assertEqual(["."], reads["directory_memberships"])
 
 
 if __name__ == "__main__":
