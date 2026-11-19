@@ -26318,6 +26318,37 @@
         ".",
         "tests"
       ]
+    },
+    {
+      "name": "temporary-support",
+      "entries": [
+        "tests/test_temporary_support.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ]
+    },
+    {
+      "name": "temporary-support-windows",
+      "entries": [
+        "tests/test_temporary_support.py"
+      ],
+      "os": "windows",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ]
     }
   ],
   "module_lookups": {

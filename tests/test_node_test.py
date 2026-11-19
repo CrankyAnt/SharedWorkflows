@@ -10,9 +10,10 @@ import os
 import stat
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
+
+from tests import temporary_support
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPOSITORY_ROOT / "actions" / "node-test" / "node_test.py"
@@ -30,6 +31,7 @@ HASH = "sha512.0a1b2c3d4e5f"
 # STAND_IN_BUILD for ``npm run build`` and STAND_IN_TEST.
 STAND_IN = """\
 import os, sys
+
 tool, arguments = sys.argv[1], sys.argv[2:]
 with open(os.environ["STAND_IN_LOG"], "a", encoding="utf-8") as log:
     shown = ("node " if tool == "node" else "") + " ".join(arguments)
@@ -65,7 +67,7 @@ def manifest(**fields: object) -> dict:
 
 class NodeTestFixture(unittest.TestCase):
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
+        directory = temporary_support.Directory()
         self.addCleanup(directory.cleanup)
         self.directory = Path(directory.name).resolve()
         self.repository = self.directory / "consumer"

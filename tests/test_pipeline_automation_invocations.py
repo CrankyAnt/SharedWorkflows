@@ -6,10 +6,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.dependabot_auto_merge_source import auto_merge
 from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT, PipelineFixture, plan_program
 from tests.workflow_commands import script_invocations
@@ -66,7 +66,7 @@ class CategoryFileDescriptionTests(unittest.TestCase):
         return json.loads(text[:-1])
 
     def load(self, document: dict):
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             path = Path(directory) / "categories.json"
             path.write_text(json.dumps(document), encoding="utf-8")
             return self.program.load_categories(path)

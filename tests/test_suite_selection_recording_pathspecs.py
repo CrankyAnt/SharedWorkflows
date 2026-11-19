@@ -6,12 +6,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.recording_fixtures import GIT_IDENTITY, load_recording
 
 ENTRY = "tests/entry.py"
@@ -217,9 +216,9 @@ class ListingReadsTests(unittest.TestCase):
 class FixtureMatrixTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.base = Path(tempfile.mkdtemp(prefix="pathspec-matrix-"))
-        cls.addClassCleanup(shutil.rmtree, cls.base, ignore_errors=True)
-        cls.matrix = Matrix(cls.base)
+        cls.base = temporary_support.make_directory(cls.addClassCleanup, prefix="pathspec-matrix-")
+        with temporary_support.measured("pathspec-matrix"):
+            cls.matrix = Matrix(cls.base)
         cls.before = cls.matrix.tracked()
         cls.listed_before = {listing: cls.matrix.listed(listing) for listing in LISTINGS}
         cls.outcomes: dict[tuple[str, str], tuple[bool, bool]] = {}

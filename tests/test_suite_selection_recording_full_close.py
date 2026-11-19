@@ -9,10 +9,10 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.ci_policy_support import REPOSITORY_ROOT, read_workflow
 
 FULL_RECORDING = REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml"
@@ -51,12 +51,12 @@ class ClosingRunTests(unittest.TestCase):
     """The steps of close, run as Actions runs them, on a repository whose default branch moved from the recorded commit A
     to B during the run: B changes data/one.txt, which tests/one.py reads, and adds data/new.txt to its stored list."""
 
+    @temporary_support.measured("full-recording-close")
     def setUp(self) -> None:
         _, workflow = read_workflow(FULL_RECORDING)
         self.steps = workflow["jobs"][CLOSE]["steps"]
         self.job_env = workflow["jobs"][CLOSE]["env"]
-        self.base = Path(tempfile.mkdtemp(prefix="full-recording-close-"))
-        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.base = temporary_support.make_directory(self.addCleanup, prefix="full-recording-close-")
         self.origin = self.base / "origin.git"
         self.git(self.base, "init", "-q", "--bare", "-b", "main", str(self.origin))
         seed = self.base / "seed"
@@ -84,7 +84,7 @@ class ClosingRunTests(unittest.TestCase):
         """The results as `actions/download-artifact` places them by `pattern`: in a folder named after each artifact when
         the pattern matches several, and the one artifact's file directly in the download folder."""
         folder = self.runner_temp / "full-recording"
-        shutil.rmtree(folder, ignore_errors=True)
+        temporary_support.remove_tree(folder)
         folder.mkdir(parents=True)
         for artifact, document in documents.items():
             target = (folder if len(documents) == 1 else folder / artifact) / "full-recording.json"

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.hygiene_fixtures import REPOSITORY_ROOT, fixture_repository, tools_available, tools_directory
 from tests.zizmor_fixtures import CALLER_HEAD, WORKFLOW_HEAD, caller_job
 
@@ -26,7 +26,7 @@ def configured_hygiene(root: Path, policy: Path) -> subprocess.CompletedProcess[
 @unittest.skipUnless(tools_available("zizmor"), "the pinned tools are neither in HYGIENE_TOOLS nor on PATH")
 class ConsumerConfigurationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

@@ -7,12 +7,12 @@ import json
 import re
 import subprocess
 import sys
-import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from tests import temporary_support
 from tests.suite_selection_fixtures import (
     DELTA_REASON, FIXTURE_SUITES, FIXTURE_UNIT, FixtureRepositoryTests, force_add, git, write,
 )
@@ -119,7 +119,7 @@ class SuiteListTests(unittest.TestCase):
             ({"entry_durations": {"x.py": True}}, "entry_durations (x.py) must be a number of seconds"),
             ({"os": "macos"}, "(a): os must be one of linux, windows"),
         ):
-            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
+            with self.subTest(message=message), temporary_support.Directory() as directory:
                 suites = Path(directory) / "suites.json"
                 suites.write_text(json.dumps({"always": [], "suites": [{**base, **extra}]}), encoding="utf-8")
                 error = io.StringIO()
@@ -127,7 +127,7 @@ class SuiteListTests(unittest.TestCase):
                     code = suite_selection.main(["select", "--root", directory, "--suites", str(suites), "--changed-file", "x.py"])
                 self.assertEqual(code, 2)
                 self.assertIn(message, error.getvalue())
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             suites = Path(directory) / "suites.json"
             suites.write_text(json.dumps({"always": [], "suites": [{**base, "entry_durations": {"x.py": float("nan")}}]}), encoding="utf-8")
             with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
@@ -136,7 +136,7 @@ class SuiteListTests(unittest.TestCase):
     def test_select_rejects_the_language_python_runner_and_every_change_fields(self) -> None:
         for field, value in (("language", "python"), ("python_runner", "unittest"),
                              ("every_change", {"sites": [{"file": "x.py", "expression": "ROOT / name"}]})):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+            with self.subTest(field=field), temporary_support.Directory() as directory:
                 suites = Path(directory) / "suites.json"
                 suites.write_text(json.dumps({"always": [], "suites": [{"name": "a", "entries": ["x.py"], field: value}]}), encoding="utf-8")
                 (Path(directory) / "x.py").write_text("", encoding="utf-8")
@@ -239,7 +239,7 @@ class SuiteListTests(unittest.TestCase):
     def test_select_passes_on_a_stale_key_of_a_suite_with_only_path_entries_and_selects_nothing_on_it(self) -> None:
         document = self.path_suite(entry_durations={"old/test_gone.py": 3.0})
         document["suites"][0]["entry_paths"]["old/test_gone.py"] = ["gone/**"]
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             for path in ("suites.json", "tests/test_a.py", "tests/test_b.py"):
                 (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
                 (Path(directory) / path).write_text("", encoding="utf-8")
@@ -772,7 +772,7 @@ class NewEntryFileTests(FixtureRepositoryTests):
 
 class DirectoryMembershipSelectionTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(prefix="membership-selection-")
+        self.temporary = temporary_support.Directory(prefix="membership-selection-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         git(self.root, "init", "-q", "-b", "main")
@@ -986,7 +986,7 @@ class BackslashExistenceSelectionTests(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == "win32", "a Windows file name holds no backslash")
     def test_select_runs_a_linux_suite_on_a_commit_that_adds_a_tracked_file_with_the_stored_name(self) -> None:
-        temporary = tempfile.TemporaryDirectory(prefix="backslash-selection-")
+        temporary = temporary_support.Directory(prefix="backslash-selection-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         git(root, "init", "-q", "-b", "main")
@@ -1020,7 +1020,7 @@ class ModuleLookupSelectionTests(unittest.TestCase):
     standard-library name or a stored module lookup of that directory."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(prefix="lookup-selection-")
+        self.temporary = temporary_support.Directory(prefix="lookup-selection-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         git(self.root, "init", "-q", "-b", "main")
@@ -1101,7 +1101,7 @@ class GlobMembershipModeTests(unittest.TestCase):
     """A glob membership pattern ending in /** selects on the same changes with --changed-file as between two commits."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         git(self.root, "init", "-q", "-b", "main")
@@ -1159,7 +1159,7 @@ class ShardTests(unittest.TestCase):
     """The shard matrix, the Windows entry files and the language step in the JSON outputs of select, on fixture suite lists."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         git(self.root, "init", "-q", "-b", "main")
@@ -1942,7 +1942,7 @@ class IgnoreRuleSelectionTests(unittest.TestCase):
     EVERY = {"reads": "run", "each": "run"}
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "repo"
         git(self.root.parent, "init", "-q", "-b", "main", str(self.root))
@@ -2044,7 +2044,7 @@ class VerdictTests(unittest.TestCase):
     """The verdict command on fixture needs JSON."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
@@ -2241,7 +2241,7 @@ class UnrecordedFixture(unittest.TestCase):
     SUITES = "checks/suites.json"
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "repo"
         self.root.mkdir()

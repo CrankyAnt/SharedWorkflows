@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import os
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
+from tests import temporary_support
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PublicationFixture(unittest.TestCase):
     @classmethod
+    @temporary_support.measured("publication")
     def setUpClass(cls) -> None:
-        cls.temporary_directory = tempfile.TemporaryDirectory()
+        cls.temporary_directory = temporary_support.Directory()
         cls.temporary_path = Path(cls.temporary_directory.name)
         cls.product_checkout = cls.temporary_path / "product-checkout"
         cls.product_checkout.mkdir()
@@ -26,6 +28,7 @@ class PublicationFixture(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.temporary_directory.cleanup()
 
+    @temporary_support.measured("publication-repository")
     def _initialize_repository(self, repository: Path) -> None:
         repository.mkdir()
         (repository / ".npmrc").write_text("registry=https://invalid.example.test/\n", encoding="utf-8")

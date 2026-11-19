@@ -6,10 +6,10 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, BARE_DISPATCH_TIP, entry_pathspecs, expression_value, read_workflow, tracked_files
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -41,7 +41,7 @@ def fixture_checkout(root: Path, kept: tuple[str, ...]) -> None:
 
 class SelectionReadsTheWorkflowTests(unittest.TestCase):
     def test_select_reads_the_pipeline_caller_as_the_pipeline_s_selection_job_calls_it(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             output = Path(directory) / "outputs.txt"
             checkout = Path(directory) / "checkout"
             fixture_checkout(checkout, DEFINITION_FILES)

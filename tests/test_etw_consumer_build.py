@@ -7,10 +7,11 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from tests import temporary_support
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = REPOSITORY_ROOT / "actions" / "recording" / "etw_consumer_build.py"
@@ -35,8 +36,7 @@ class PublishCommandTest(unittest.TestCase):
         sys.modules[spec.name] = module
         self.addCleanup(sys.modules.pop, spec.name, None)
         spec.loader.exec_module(module)
-        work = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, work, True)
+        work = temporary_support.make_directory(self.addCleanup)
         with mock.patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
             module.publish(work / "build", work / "artifacts")
         command = run.call_args.args[0]

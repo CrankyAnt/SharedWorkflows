@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.publication_fixtures import REPOSITORY_ROOT
 
 RESOURCE_DIRECTORY = REPOSITORY_ROOT / "actions" / "publication-checks"
@@ -15,7 +15,7 @@ SPECIFICATION_METADATA = RESOURCE_DIRECTORY / "spec-metadata.json"
 
 class PublicationChecksTests(unittest.TestCase):
     def test_offline_specification_rejects_content_or_version_mismatch(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             fixture = Path(directory)
             for source in [SPECIFICATION, SPECIFICATION_METADATA]:
                 (fixture / source.name).write_bytes(source.read_bytes())

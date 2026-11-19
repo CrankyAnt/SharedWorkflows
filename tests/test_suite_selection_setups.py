@@ -6,11 +6,11 @@ from __future__ import annotations
 import io
 import json
 import sys
-import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from tests import temporary_support
 from tests.suite_selection_fixtures import git, write
 
 TOOL = Path(__file__).resolve().parents[1] / "actions/suite-selection"
@@ -113,7 +113,7 @@ class FixtureRepository(unittest.TestCase):
     """A repository whose suite list states its setups, with a commit to change from."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         git(self.root, "init", "-q", "-b", "main")

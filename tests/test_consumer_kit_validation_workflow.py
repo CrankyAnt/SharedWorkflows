@@ -13,9 +13,9 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
+from tests import temporary_support
 from tests.ci_policy_support import flow_items, read_workflow
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -59,7 +59,7 @@ class ShardEntryRunTest(unittest.TestCase):
 
     def test_each_entry_file_of_a_shard_keeps_its_own_status_and_log_group_and_the_passed_list_names_the_passes(self) -> None:
         entries, listing = self.script(ENTRIES_STEP), self.script(LISTING_STEP)
-        with tempfile.TemporaryDirectory() as temporary:
+        with temporary_support.Directory() as temporary:
             directory = Path(temporary)
             (directory / "recording").mkdir()
             (directory / "recording" / "recording.py").write_text(RECORDING_STAND_IN, encoding="utf-8")

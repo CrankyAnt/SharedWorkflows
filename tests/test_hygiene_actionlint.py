@@ -3,10 +3,10 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.hygiene_fixtures import fixture_repository, tools_available, tools_directory
 from tests.hygiene_process import RESOURCES, hygiene
 
@@ -17,7 +17,7 @@ WORKFLOW_HEAD = "name: fixture\non: push\npermissions: {}\njobs:\n  a:\n    runs
 @unittest.skipUnless(tools_available("actionlint", "shellcheck"), "the pinned tools are neither in HYGIENE_TOOLS nor on PATH")
 class CheckRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

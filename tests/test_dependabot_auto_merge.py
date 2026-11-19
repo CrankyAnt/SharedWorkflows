@@ -10,11 +10,11 @@ from __future__ import annotations
 import contextlib
 import io
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests import temporary_support
 from tests.dependabot_auto_merge_source import auto_merge
 
 
@@ -754,7 +754,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("`gh pr merge --disable-auto u` failed (exit 1): HTTP 403", str(caught.exception))
 
     def test_the_command_line_runs_either_event_and_appends_the_summary(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             summary = Path(directory) / "summary.md"
             summary.write_text("earlier\n", encoding="utf-8")
             github = FakeGitHub()

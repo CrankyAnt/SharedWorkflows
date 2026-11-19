@@ -6,9 +6,10 @@ import importlib.util
 import json
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
+from tests import temporary_support
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = REPOSITORY_ROOT / "actions" / "repository-hygiene"
@@ -90,7 +91,7 @@ class YamlSubsetTests(unittest.TestCase):
 
 class CoverageTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.ecosystems = coverage.load_ecosystems()

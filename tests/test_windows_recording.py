@@ -20,7 +20,7 @@ from typing import NamedTuple
 from unittest import mock
 
 from tests import recording_fixtures
-from tests.recording_fixtures import ROOT, RecordingFixture, entry_command, load_recording, requires_etw, suite
+from tests.recording_fixtures import ROOT, RecordingFixture, WorkFolderRemovalCases, entry_command, load_recording, requires_etw, suite
 from tests.test_suite_selection_recording_classification import (ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, ClassificationRules, classification_fixture,
                                                                  classified_lists, linked_worktree_fixture)
 
@@ -128,6 +128,14 @@ class WindowsExecTests(unittest.TestCase):
         self.assertEqual({"tool": None, "USERPROFILE": str(profile)}, seen["profile"])
         self.assertEqual({"tool": None, "USERPROFILE": os.environ["USERPROFILE"]}, seen["none"])
 
+
+
+@unittest.skipUnless(sys.platform == "win32", "the Windows recording runs on Windows")
+class WindowsWorkFolderRemovalTests(WorkFolderRemovalCases, unittest.TestCase):
+    python = sys.executable
+
+    def prepare(self, fixture: RecordingFixture) -> None:
+        windows_settings(fixture)
 
 @requires_etw
 class LiveEtwClassificationTests(ClassificationRules, unittest.TestCase):

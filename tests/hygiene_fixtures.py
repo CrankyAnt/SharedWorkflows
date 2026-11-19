@@ -5,6 +5,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests import temporary_support
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 GIT_IDENTITY = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
@@ -23,6 +25,7 @@ def git(repo: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
+@temporary_support.measured("hygiene-repository")
 def fixture_repository(root: Path, files: dict[str, str]) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     git(root, "init", "-q", "-b", "main")

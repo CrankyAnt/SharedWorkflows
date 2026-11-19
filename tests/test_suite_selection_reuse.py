@@ -10,13 +10,13 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from tests import temporary_support
 from tests.suite_selection_fixtures import force_add, git, write
 
 SHARED_FOLDER = Path(__file__).resolve().parents[1] / "actions"
@@ -110,7 +110,7 @@ class RecordedApi:
 
 class FixtureRepository(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "repo"
         self.root.mkdir()
@@ -609,7 +609,7 @@ class SharedDigestTests(unittest.TestCase):
     """The digest of the shared recording step, taken from a copy of the shared CI's part folders as a job fetches them."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.shared_folder = Path(self.temporary.name) / "shared-ci"
         for part in ("recording", "suite-selection"):

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.hygiene_fixtures import fixture_repository, tools_available
 from tests.hygiene_process import hygiene
 from tests.zizmor_fixtures import CHECKOUT_SHA, WORKFLOW_HEAD
@@ -12,7 +12,7 @@ from tests.zizmor_fixtures import CHECKOUT_SHA, WORKFLOW_HEAD
 @unittest.skipUnless(tools_available("zizmor"), "the pinned tools are neither in HYGIENE_TOOLS nor on PATH")
 class CheckRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

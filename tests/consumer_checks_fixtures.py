@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
+from tests import temporary_support
 from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, PipelineFixture, write
 
 SCRIPT = PART_FOLDER / "consumer_checks.py"
@@ -101,6 +102,7 @@ class GitHubStandIn:
 class ConsumerFixture(PipelineFixture):
     """A fixture consumer that holds the three fixed callers of a fixture kit and the smallest configuration file."""
 
+    @temporary_support.measured("consumer-checks")
     def setUp(self) -> None:
         super().setUp()
         self.kit = self.directory / "kit"

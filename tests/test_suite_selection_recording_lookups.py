@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.recording_fixtures import RECORDING, python_with_lookup_report
 
 ENTRY = """\
@@ -29,9 +28,9 @@ ENTRY = """\
 
 class LookupReportTests(unittest.TestCase):
     @classmethod
+    @temporary_support.measured("lookups")
     def setUpClass(cls) -> None:
-        cls.base = Path(tempfile.mkdtemp(prefix="lookups-"))
-        cls.addClassCleanup(shutil.rmtree, cls.base, ignore_errors=True)
+        cls.base = temporary_support.make_directory(cls.addClassCleanup, prefix="lookups-")
         output = cls.base / "recording"
         (output / "setups").mkdir(parents=True)
         (output / "recording.json").write_text(json.dumps({"mode": "pull-request", "trace_set": "mid"}), encoding="utf-8")
@@ -45,7 +44,7 @@ class LookupReportTests(unittest.TestCase):
 
     def run_python(self, *arguments: str) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
         """Run the set-up interpreter in the fixture with a report directory of its own, and the report's lines."""
-        reports = Path(tempfile.mkdtemp(dir=self.base))
+        reports = temporary_support.make_directory(self.addCleanup, prefix="reports-")
         environment = dict(os.environ, SHARED_LOOKUPS=str(reports), PYTHONPYCACHEPREFIX=str(self.base / "pycache"))
         ran = subprocess.run([str(self.python), *arguments], cwd=self.root, capture_output=True, text=True, env=environment, check=False)
         lines = [line.split("\t") for report in sorted(reports.glob("*.tsv")) for line in report.read_text(encoding="utf-8").splitlines()]

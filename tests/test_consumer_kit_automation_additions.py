@@ -21,10 +21,10 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.ci_policy_support import expression_value, read_workflow
 from tests.recording_fixtures import GIT_IDENTITY
 
@@ -241,13 +241,13 @@ class ApplyAdditionsSteps(unittest.TestCase):
 
     SUITES = CONSUMER_SUITES
 
+    @temporary_support.measured("automation-additions")
     def setUp(self) -> None:
         _, workflow = read_workflow(WORKFLOW)
         self.steps = workflow["jobs"][JOB]["steps"]
         self.comment_steps = workflow["jobs"][COMMENT_JOB]["steps"]
         self.job_env = workflow["jobs"][JOB]["env"]
-        self.base = Path(tempfile.mkdtemp(prefix="apply-additions-"))
-        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.base = temporary_support.make_directory(self.addCleanup, prefix="apply-additions-")
         self.fixtures = self.base / "gh"
         self.fixtures.mkdir()
         write(self.base / "bin" / "gh", STAND_IN_GH).chmod(0o755)
@@ -581,9 +581,9 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
     def test_the_push_carries_a_lease_on_the_run_s_head_and_pushes_nothing_onto_a_moved_branch_or_for_a_closed_pull_request(self) -> None:
         for case in ("moved", "closed"):
             with self.subTest(case=case):
-                shutil.rmtree(self.base / "remote.git", ignore_errors=True)
+                temporary_support.remove_tree(self.base / "remote.git")
                 for folder in ("seed", "work"):
-                    shutil.rmtree(self.base / folder, ignore_errors=True)
+                    temporary_support.remove_tree(self.base / folder)
                 remote, work = self.consumer(suite_list())
                 before = self.head_sha
                 self.given_open_pull_requests(before)
@@ -635,7 +635,7 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
         _, work = self.consumer(suite_list())
         for layout in ([], ["recording-additions-shard-1/other.json"]):
             with self.subTest(layout=layout):
-                shutil.rmtree(self.runner_temp / "additions", ignore_errors=True)
+                temporary_support.remove_tree(self.runner_temp / "additions")
                 (self.runner_temp / "additions").mkdir()
                 for relative in layout:
                     write(self.runner_temp / "additions" / relative, "{}")

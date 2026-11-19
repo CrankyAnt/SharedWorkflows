@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.publication_branch_check import BranchCheckMixin
 from tests.publication_fixtures import REPOSITORY_ROOT
 
@@ -14,7 +14,7 @@ RESOURCE_DIRECTORY = REPOSITORY_ROOT / "actions" / "publication-checks"
 
 class PublicationBranchTests(BranchCheckMixin, unittest.TestCase):
     def test_branch_check_rejects_a_corrupted_specification_before_accepting_a_valid_branch(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             fixture = Path(directory)
             for name in ("check-branch.cjs", "verify-spec.cjs", "spec.json", "spec-metadata.json"):
                 shutil.copy2(RESOURCE_DIRECTORY / name, fixture / name)

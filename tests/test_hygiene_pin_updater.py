@@ -7,11 +7,11 @@ import importlib.util
 import json
 import subprocess
 import sys
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from tests import temporary_support
 from tests.workflow_commands import script_invocations
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -345,7 +345,7 @@ class WorkflowInvocationTests(unittest.TestCase):
 
 class CommandLineTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.pins_path = self.root / "actions" / "repository-hygiene" / "pins.json"

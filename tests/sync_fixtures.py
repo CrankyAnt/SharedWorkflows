@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from tests import temporary_support
 from tests.consumer_checks_fixtures import CALLERS, SHARED, SYNC_BRANCH, WORKFLOWS, template
 from tests.pipeline_fixtures import CONFIGURATION, REPOSITORY_ROOT, PipelineFixture, write
 
@@ -315,6 +316,7 @@ def consumer_files() -> dict[str, str]:
 class SyncFixture(PipelineFixture):
     """A fixture kit with invented templates, a stand-in for the GitHub API and the sync program's command line."""
 
+    @temporary_support.measured("sync")
     def setUp(self) -> None:
         super().setUp()
         self.kit = self.directory / "kit"

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import subprocess
-import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from tests import temporary_support
+
 
 GIT_IDENTITY = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
 
@@ -131,8 +132,9 @@ DELTA_REASON = "runs on every change: no stored path list"
 
 
 class FixtureRepositoryTests(unittest.TestCase):
+    @temporary_support.measured("suite-selection-repository")
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "repo"
         self.root.mkdir()

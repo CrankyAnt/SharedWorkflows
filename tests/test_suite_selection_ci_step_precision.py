@@ -6,7 +6,6 @@ import io
 import json
 import re
 import sys
-import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -16,6 +15,8 @@ TOOL = Path(__file__).resolve().parents[1] / "actions" / "suite-selection"
 sys.path.insert(0, str(TOOL))
 import ci_definition
 import suite_selection
+from tests import temporary_support
+
 
 
 WORKFLOW = ".github/workflows/build.yml"
@@ -143,7 +144,7 @@ class WorkflowEntryPrecisionTests(unittest.TestCase):
     def test_command_preserves_entry_gates_in_outputs(self):
         before = workflow(step("checks.one") + step("checks.two"))
         after = before.replace("echo check", "echo changed", 1)
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             root = Path(directory)
             path = root / WORKFLOW
             path.parent.mkdir(parents=True)
@@ -168,7 +169,7 @@ class WorkflowEntryPrecisionTests(unittest.TestCase):
                              "other=skip\nother-entries=\nother-modules=\n")
 
     def test_action_used_by_multiple_entries_keeps_each_consumer(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             root = Path(directory)
             path = root / WORKFLOW
             path.parent.mkdir(parents=True)
@@ -186,7 +187,7 @@ class WorkflowEntryPrecisionTests(unittest.TestCase):
 
 class ShellReferencePrecisionTests(unittest.TestCase):
     def test_assignment_names_are_not_paths_but_assignment_values_are(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             root = Path(directory)
             path = root / WORKFLOW
             path.parent.mkdir(parents=True)
@@ -235,7 +236,7 @@ class GlobMembershipSelectionTests(unittest.TestCase):
                                  previous_tracked=before, current_tracked=after), expected)
 
     def test_manual_glob_membership_compares_names_with_the_index(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             root = Path(directory)
             folder = root / "checks/tasks"
             folder.mkdir(parents=True)
@@ -291,7 +292,7 @@ class ExistenceSelectionTests(unittest.TestCase):
 
     def test_manual_selection_compares_index_presence_with_current_file_type(self):
         parsed = suite_selection.parse_suite_list(json.dumps(self.document()))
-        with tempfile.TemporaryDirectory() as directory:
+        with temporary_support.Directory() as directory:
             root = Path(directory)
             path = root / "data/required.txt"
             path.parent.mkdir()
@@ -374,7 +375,7 @@ class ExtraMembershipSelectionTests(unittest.TestCase):
             parsed = suite_selection.parse_suite_list(json.dumps(document))
             for change, changed, before, after, selects in self.CHANGES:
                 for mode in ("between two commits", "changed files"):
-                    with self.subTest(suite=label, change=change, mode=mode), tempfile.TemporaryDirectory() as directory:
+                    with self.subTest(suite=label, change=change, mode=mode), temporary_support.Directory() as directory:
                         root = Path(directory)
                         for file in [entry for suite in parsed.suites for entry in suite.entries] + sorted(after):
                             (root / file).parent.mkdir(parents=True, exist_ok=True)

@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.hygiene_fixtures import REPOSITORY_ROOT, tools_available, tools_directory
 
 FLOOR = "3.12"
@@ -25,7 +25,7 @@ def mypy() -> str:
 
 
 def errors(files: list[Path], root: Path, *version: str) -> set[str]:
-    with tempfile.TemporaryDirectory() as cache:
+    with temporary_support.Directory() as cache:
         result = subprocess.run([mypy(), *version, "--cache-dir", cache, "--ignore-missing-imports", "--explicit-package-bases",
                                  "--no-error-summary", "--show-error-codes", *(str(path) for path in files)],
                                 cwd=root, capture_output=True, text=True, check=False)
@@ -47,7 +47,7 @@ class PythonFloorTests(unittest.TestCase):
         self.assertEqual([], floor_problems(files, REPOSITORY_ROOT))
 
     def test_a_use_of_full_match_fails_the_check(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
+        with temporary_support.Directory() as temporary:
             root = Path(temporary)
             (root / "newer.py").write_text('from pathlib import PurePosixPath\n\nPurePosixPath("a/b").full_match("**/b")\n', encoding="utf-8")
             (root / "floor.py").write_text('from pathlib import PurePosixPath\n\nPurePosixPath("a/b").match("*/b")\n', encoding="utf-8")

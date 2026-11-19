@@ -48,6 +48,7 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import statistics
 import subprocess
 import sys
@@ -555,10 +556,91 @@ def run_exec(options: argparse.Namespace) -> int:
     else:
         record["recorder"] = [*STRACE, *recorder[len(STRACE) + 2:-1]]
     (output / "units" / f"{unit}.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    shutil.rmtree(work, ignore_errors=True)
+    remove_work(work)
     if options.setup and code == 0 and options.setup not in provisions(output):
         write_provision(output, options.setup, no_provision())
     return code
+
+
+# Windows errors of a removal that another process's open handle or a pending delete causes, which end on their own:
+# ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION and ERROR_DIR_NOT_EMPTY.
+TRANSIENT_REMOVAL_ERRORS = frozenset({5, 32, 33, 145})
+REMOVAL_RETRY_SECONDS = 5.0
+REMOVAL_RETRY_PAUSE = 0.05
+
+
+def remove_work(work: Path) -> None:
+    """Remove a unit's work folder after its record is written. A folder that cannot be removed yields a warning that
+    names it and the error, as an annotation on a runner; the unit's exit code and record stay as they are."""
+    try:
+        remove_tree(work)
+    except OSError as error:
+        message = f"cannot remove the unit's work folder {work}: {error}"
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::warning::{escaped}", flush=True)
+        else:
+            print(f"warning: {message}", file=sys.stderr, flush=True)
+
+
+def remove_tree(path: Path) -> None:
+    """Remove the directory tree ``path``. A file or directory that cannot be removed loses its read-only attribute, as
+    Git's object files carry on Windows, and on Linux its parent directory becomes writable, before another try; on
+    Windows a removal that another process's handle blocks is retried for up to ``REMOVAL_RETRY_SECONDS``. A path that
+    vanished meanwhile counts as removed; a directory that cannot be listed or opened gets one more try. Any other
+    failure raises."""
+    deadline = time.monotonic() + REMOVAL_RETRY_SECONDS
+    recovered: set[str] = set()
+
+    def retry(function: Callable, name: str) -> None:
+        while True:
+            make_writable(name)
+            try:
+                function(name)
+                return
+            except FileNotFoundError:
+                return
+            except OSError as error:
+                if sys.platform == "win32" and getattr(error, "winerror", None) in TRANSIENT_REMOVAL_ERRORS and time.monotonic() < deadline:
+                    time.sleep(REMOVAL_RETRY_PAUSE)
+                    continue
+                raise
+
+    def recover(function: Callable, name: str, error: BaseException) -> None:
+        if isinstance(error, FileNotFoundError):
+            return
+        if function in (os.unlink, os.remove, os.rmdir):
+            retry(function, name)
+            return
+        if not isinstance(error, PermissionError) or name in recovered:
+            raise error
+        # A directory that could not be listed or opened: make it accessible and remove it with its contents, once.
+        recovered.add(name)
+        make_writable(name)
+        shutil.rmtree(name, onexc=recover)
+
+    try:
+        shutil.rmtree(path, onexc=recover)
+    except FileNotFoundError:
+        return
+
+
+def make_writable(name: str) -> None:
+    """Clear the read-only attribute of ``name``; on Linux also make it and its parent directory accessible."""
+    try:
+        mode = os.lstat(name).st_mode
+        if stat.S_ISLNK(mode):
+            return
+        wanted = mode | stat.S_IWUSR | stat.S_IRUSR | (stat.S_IXUSR if stat.S_ISDIR(mode) else 0)
+        if wanted != mode:
+            os.chmod(name, stat.S_IMODE(wanted))
+        if sys.platform != "win32":
+            parent = os.path.dirname(name) or "."
+            parent_mode = os.stat(parent).st_mode
+            if parent_mode & (stat.S_IWUSR | stat.S_IXUSR) != stat.S_IWUSR | stat.S_IXUSR:
+                os.chmod(parent, stat.S_IMODE(parent_mode | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRUSR))
+    except OSError:
+        pass
 
 
 def normalize_entry(entry: str) -> str:
@@ -1894,10 +1976,10 @@ def process_started(pid: int) -> int | None:
         finally:
             kernel.CloseHandle(handle)
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        status = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-    fields = stat[stat.rindex(")") + 2:].split()  # the command name in parentheses may hold spaces
+    fields = status[status.rindex(")") + 2:].split()  # the command name in parentheses may hold spaces
     return None if fields[0] in ("Z", "X") else int(fields[19])
 
 

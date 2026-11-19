@@ -20,10 +20,10 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.consumer_checks_fixtures import ConsumerFixture
 from tests.pipeline_fixtures import CONFIGURATION
 
@@ -114,7 +114,7 @@ class CallerRun(unittest.TestCase):
     SUITES: dict = SUITE_LIST
 
     def setUp(self) -> None:
-        temporary = tempfile.TemporaryDirectory()
+        temporary = temporary_support.Directory()
         self.addCleanup(temporary.cleanup)
         self.repository = Path(temporary.name) / "caller"
         self.markers = Path(temporary.name) / "markers"
