@@ -18,7 +18,14 @@ class SharedWorkflowTests(unittest.TestCase):
         self.assertEqual(1, workflow.count("permissions:\n      contents: read"))
         self.assertNotIn("write", workflow)
         self.assertNotIn("secrets", workflow)
-        self.assertNotIn("checkout", workflow, "the verdict reads only its input")
+        # The one checkout is the tested tree in which store keys passed units under a run's additions; the verdict
+        # itself reads only its input.
+        checkouts = re.findall(r"(?m)^      - uses: actions/checkout@[0-9a-f]{40} # v[\d.]+\n((?:        .*\n)+)", workflow)
+        self.assertEqual(1, workflow.count("actions/checkout@"))
+        self.assertEqual(1, len(checkouts))
+        self.assertIn("persist-credentials: false", checkouts[0])
+        self.assertIn("steps.additions.outputs.found == 'true'", checkouts[0])
+        self.assertLess(workflow.index("actions/checkout@"), workflow.index("      - name: Write the record of the passed results"))
         self.assertEqual(["$/actions/suite-selection"], [reference for reference in re.findall(r"uses: (\$/\S+)", workflow)])
         self.assertIn("NEEDS: ${{ inputs.needs }}", workflow)
         self.assertIn('suite_selection.py" verdict --needs "$RUNNER_TEMP/needs.json" --summary "$GITHUB_STEP_SUMMARY"', workflow)

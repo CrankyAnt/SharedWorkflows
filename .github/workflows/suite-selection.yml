@@ -40,7 +40,7 @@ on:
         description: One JSON object with run or skip for every language step named in the language-steps input; empty without that input.
         value: ${{ jobs.select.outputs.language-steps }}
       units:
-        description: On a pull request, one JSON object from the reuse key of every running unit to its suite and entry files.
+        description: On a pull request, one JSON object from the reuse key of every running unit to its suite, entry files, key context and always-run reads.
         value: ${{ jobs.select.outputs.units }}
       reused:
         description: On a pull request, one JSON object from the reuse key of every reused unit to the run it passed in.

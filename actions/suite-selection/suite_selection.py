@@ -36,11 +36,12 @@ import math
 import re
 import subprocess
 import sys
+import tempfile
 import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -82,6 +83,7 @@ VERSION_FILE = re.compile(r"^[^#]+#(/[^/]+)+$")
 RUNNER_LABEL = re.compile(r"^(ubuntu|windows|macos)-[A-Za-z0-9][A-Za-z0-9.-]*$")
 # The union of sys.stdlib_module_names over the Python versions that the shared CI supports.
 STANDARD_LIBRARY = Path(__file__).resolve().parent.parent / "recording" / "stdlib_module_names.json"
+RECORDING_SCRIPT = Path(__file__).resolve().parent.parent / "recording" / "recording.py"  # its apply keys a run under its additions
 
 
 class SuiteListError(Exception):
@@ -1438,8 +1440,8 @@ def both_sides(first: Selection, second: Selection) -> Selection:
 
 
 def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dict[str, str], labels: dict[str, str],
-                shared_digest: str = "", *, ignore_content: dict, parts: Parts | None = None) -> list[tuple[str, Decision, tuple[str, ...]]]:
-    """The key, the decision and the entry files of every running unit with a stored path list: a suite, or each entry
+                shared_digest: str = "", *, ignore_content: dict, parts: Parts | None = None) -> list[KeyedUnit]:
+    """The keyed unit (``KeyedUnit``) of every running unit with a stored path list: a suite, or each entry
     file of a suite selected per entry file. The reads are the unit's patterns with the always-run patterns, its
     directory memberships and existence reads, and the files of the CI definition counted as read by its suite; for a
     suite selected as a whole also each of its entry files with its content, whether its lists match it or not;
@@ -1450,13 +1452,8 @@ def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dic
     import unrecorded
 
     parts = parts if parts is not None else unrecorded.Parts()
-
     by_basis = {basis.suite.name: basis for basis in bases(suite_list)}
     standard = standard_library_names()
-
-    def lookups(directories: tuple[str, ...]) -> list[tuple[str, frozenset[str]]]:
-        return [(directory, standard | frozenset(suite_list.lookups_in(directory))) for directory in directories]
-
     units = []
     for decision in selection.decisions:
         basis = by_basis[decision.suite]
@@ -1464,36 +1461,83 @@ def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dic
         if not decision.run or basis.patterns is None:
             continue
         always = suite_list.always + decision.definition_reads
-        if suite.entry_selection:
-            for entry in decision.entries:
-                if suite.lacks_list(entry):
-                    continue  # its inputs are unknown, so no passed result of it is reused
-                reads = tree.reads(dict(basis.entry_patterns)[entry] + always, dict(basis.entry_memberships).get(entry, ()),
-                                   dict(basis.entry_existence_reads).get(entry, ()), lookups(dict(basis.entry_lookup_directories).get(entry, ())),
-                                   system=suite.os)
-                units.append((reuse.unit_key(reads, suite.command, suite.setups_of(entry), versions, labels.get(suite.os, ""),
-                                           shared_digest, ignore_content=ignore_content,
-                                           unrecorded=unrecorded.unit_content(parts, suite, (entry,))), decision, (entry,)))
-        else:
-            reads = tree.reads(basis.patterns + always, basis.directory_memberships, basis.existence_reads, lookups(basis.lookup_directories),
-                               system=suite.os)
-            # No recording guarantees that the stored lists name an entry file's own path: the key holds each entry
-            # file with its content, so a change to one that the lists do not match reuses no passed result.
-            reads["entries"] = tree.entry_files(decision.entries)
-            setups = tuple(dict.fromkeys(setup for entry in decision.entries for setup in suite.setups_of(entry)))
-            units.append((reuse.unit_key(reads, suite.command, setups, versions, labels.get(suite.os, ""), shared_digest,
-                                          ignore_content=ignore_content, unrecorded=unrecorded.unit_content(parts, suite, decision.entries)),
-                          decision, decision.entries))
+        groups = [(entry,) for entry in decision.entries if not suite.lacks_list(entry)] if suite.entry_selection else [decision.entries]
+        for entries in groups:  # an entry file without a stored list has unknown inputs, so no passed result of it is reused
+            setups = tuple(dict.fromkeys(setup for entry in entries for setup in suite.setups_of(entry)))
+            context = reuse.unit_context(suite.command, setups, versions, labels.get(suite.os, ""), shared_digest,
+                                         ignore_content=ignore_content, unrecorded=unrecorded.unit_content(parts, suite, entries))
+            reads = unit_reads(suite_list, basis, entries, always, tree, standard)
+            units.append(KeyedUnit(reuse.unit_key(reads, context), decision, entries, context, always))
     return units
 
 
-def apply_reuse(selection: Selection, units: list[tuple[str, Decision, tuple[str, ...]]], record: dict[str, int]) -> tuple[Selection, dict, dict]:
-    """The selection without the units whose key has a passed result, the running units by key, and the reused keys
-    with the run each passed in."""
-    reused = {key: record[key] for key, _, _ in units if key in record}
-    running = {key: {"suite": decision.suite, "entries": list(entries)} for key, decision, entries in units if key not in record}
+class KeyedUnit(NamedTuple):
+    """A running unit with a stored path list: its key, its suite's decision, its entry files, the part of its key that
+    the stored lists do not decide (``reuse.unit_context``) and the always-run patterns that it reads with its own."""
+
+    key: str
+    decision: Decision
+    entries: tuple[str, ...]
+    context: str
+    always: tuple[str, ...]
+
+
+def unit_reads(suite_list: SuiteList, basis: Basis, entries: tuple[str, ...], always: tuple[str, ...], tree, standard: frozenset[str]) -> dict:
+    """The content of a unit's reads in the tree under the stored lists of ``suite_list``: for an entry file of a suite
+    selected per entry file its own lists, for a suite selected as a whole the suite's lists and each of its entry files
+    with its content."""
+    suite = basis.suite
+
+    def lookups(directories: tuple[str, ...]) -> list[tuple[str, frozenset[str]]]:
+        return [(directory, standard | frozenset(suite_list.lookups_in(directory))) for directory in directories]
+
+    if suite.entry_selection:
+        entry = entries[0]
+        return tree.reads(dict(basis.entry_patterns)[entry] + always, dict(basis.entry_memberships).get(entry, ()),
+                          dict(basis.entry_existence_reads).get(entry, ()), lookups(dict(basis.entry_lookup_directories).get(entry, ())),
+                          system=suite.os)
+    reads = tree.reads(basis.patterns + always, basis.directory_memberships, basis.existence_reads, lookups(basis.lookup_directories),
+                       system=suite.os)
+    # No recording guarantees that the stored lists name an entry file's own path: the key holds each entry file with its
+    # content, so a change to one that the lists do not match reuses no passed result.
+    reads["entries"] = tree.entry_files(entries)
+    return reads
+
+
+def applied_keys(units: dict, suite_list: SuiteList, tree) -> dict[str, str]:
+    """The key of each running unit that ``select`` output, by its key, under the stored lists of ``suite_list``: the
+    suite list with the additions of the run applied. A unit whose suite or entry file has no stored list there, or
+    whose output lacks its context, has none."""
+    import reuse
+
+    by_basis = {basis.suite.name: basis for basis in bases(suite_list)}
+    standard = standard_library_names()
+    keys = {}
+    for key, unit in units.items():
+        if not isinstance(unit, dict):
+            continue
+        basis, entries = by_basis.get(unit.get("suite")), unit.get("entries")
+        context, always = unit.get("context"), unit.get("always")
+        if (basis is None or basis.patterns is None or not isinstance(context, str) or not isinstance(always, list)
+                or not isinstance(entries, list) or not entries or not all(isinstance(item, str) for item in entries + always)):
+            continue
+        suite = basis.suite
+        if any(entry not in suite.entries for entry in entries):
+            continue
+        if suite.entry_selection and (len(entries) != 1 or suite.lacks_list(entries[0])):
+            continue
+        keys[key] = reuse.unit_key(unit_reads(suite_list, basis, tuple(entries), tuple(always), tree, standard), context)
+    return keys
+
+
+def apply_reuse(selection: Selection, units: list[KeyedUnit], record: dict[str, int]) -> tuple[Selection, dict, dict]:
+    """The selection without the units whose key has a passed result, the running units by key with what ``store``
+    needs to key them under applied additions, and the reused keys with the run each passed in."""
+    reused = {unit.key: record[unit.key] for unit in units if unit.key in record}
+    running = {unit.key: {"suite": unit.decision.suite, "entries": list(unit.entries), "context": unit.context, "always": list(unit.always)}
+               for unit in units if unit.key not in record}
     dropped: dict[str, list[tuple[str, int]]] = {}
-    for key, decision, entries in units:
+    for key, decision, entries, *_ in units:
         if key in reused:
             dropped.setdefault(decision.suite, []).extend((entry, reused[key]) for entry in entries)
     decisions = []
@@ -1694,6 +1738,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     storing.add_argument("--run-id", type=int, required=True, help="github.run_id")
     storing.add_argument("--output", type=Path, required=True, help="write the record to this file")
     storing.add_argument("--github-output", type=Path, help="append stored=true or stored=false to this file")
+    storing.add_argument("--additions", type=Path, help="a directory with the additions documents of the run's jobs")
+    storing.add_argument("--root", type=Path, help="with --additions: the checkout of the tested tree")
     checking = commands.add_parser("check-dispatch", help="fail unless client_payload.sha of a dependabot-merged run is a commit on the default branch")
     checking.add_argument("--root", type=Path, required=True, help="the checkout, with the default branch fetched as origin/<branch>")
     checking.add_argument("--sha", required=True, help="client_payload.sha of the dependabot-merged run")
@@ -1713,6 +1759,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
                 parser.error("select takes --lookup without changed files, --base, --head or --results")
         elif from_list == from_commits or (from_commits and (options.base is None or options.head is None)):
             parser.error("select needs either changed files (--changed-file or --changed-list) or both --base and --head")
+    if options.command == "store" and (options.additions is None) != (options.root is None):
+        parser.error("store takes --additions and --root together")
     return options
 
 
@@ -2005,12 +2053,62 @@ def run_shared_lookup(options: argparse.Namespace) -> int:
     return 0
 
 
+def keys_under_additions(root: Path, additions: Path, units: dict) -> tuple[dict[str, str] | None, set[tuple[str, str]], str]:
+    """The key of each running unit under the suite list of the tested tree at ``root`` with every ``additions.json``
+    under ``additions`` applied, as the additions workflow applies them, by the unit's key; or None, with why. The
+    second value holds the (suite, entry file) pairs that the documents name, as ``recording.py keep`` marks them."""
+    import reuse
+
+    documents = sorted(additions.rglob("additions.json")) if additions.is_dir() else []
+    if not documents:
+        return None, set(), "No additions in the run."
+    paths, named = set(), set()
+    for document in documents:
+        try:
+            raw = json.loads(document.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            return None, set(), f"No key under the additions: {document} cannot be read: {error}."
+        paths.add(raw.get("suite_list") if isinstance(raw, dict) else None)
+        for item in raw.get("suites", []) if isinstance(raw, dict) and isinstance(raw.get("suites"), list) else []:
+            entries = (item.get("entries") if "entries" in item else item.get("recorded_entries")) if isinstance(item, dict) else None
+            if isinstance(entries, (dict, list)):
+                named |= {(item.get("suite"), entry) for entry in entries if isinstance(entry, str)}
+    if len(paths) != 1 or not all(isinstance(path, str) and path for path in paths):
+        return None, set(), "No key under the additions: their documents do not name one suite list."
+    relative = paths.pop()
+    with tempfile.TemporaryDirectory(prefix="store-") as folder:
+        applied = Path(folder) / "suites.json"
+        try:
+            applied.write_bytes((root / relative).read_bytes())
+        except OSError as error:
+            return None, set(), f"No key under the additions: the suite list {relative} cannot be read: {error}."
+        completed = subprocess.run([sys.executable, str(RECORDING_SCRIPT), "apply", "--root", str(root), "--suites", str(applied),
+                                    *map(str, documents)], capture_output=True, text=True, encoding="utf-8", check=False)
+        if completed.returncode != 0:
+            return None, set(), f"No key under the additions: apply failed with {completed.returncode}: {completed.stderr.strip()}."
+        try:
+            suite_list = resolve_entries(load_suite_list(applied), tracked_files(root), relative)
+            keys = applied_keys(units, suite_list, reuse.Tree(reuse.tree_entries(root), matches))
+        except (SuiteListError, reuse.RecordError) as error:
+            return None, set(), f"No key under the additions: {error}."
+    return keys, named, f"Keyed {len(keys)} of {len(units)} running units under the suite list with the additions of {len(documents)} job{'' if len(documents) == 1 else 's'} applied."
+
+
 def run_store(options: argparse.Namespace) -> int:
     import reuse
 
     try:
-        record = reuse.store(parse_needs(options.needs.read_text(encoding="utf-8")), reuse.passed_entries(options.passed), options.run_id,
-                             options.selection_job)
+        needs = parse_needs(options.needs.read_text(encoding="utf-8"))
+        passed, with_additions = reuse.read_passed(options.passed)
+        applied, named = None, set()
+        units, _ = reuse.selection_outputs(needs, options.selection_job)
+        if options.additions is not None and units is not None:
+            applied, named, note = keys_under_additions(options.root.resolve(), options.additions, units)
+            print(note)
+        # A marked entry file whose additions no downloaded document names, as after a failed upload of its job's
+        # additions, would be keyed under lists without them: it counts as not passed.
+        with_additions &= named
+        record = reuse.store(needs, passed, options.run_id, options.selection_job, with_additions=with_additions, applied=applied)
     except reuse.RecordError as error:
         raise SuiteListError(str(error)) from error
     if record is None:

@@ -16,13 +16,13 @@ process with the lookup report writes its module lookups beside the recording.
 suites and entry files of the job that state the setup, and compares the reads with the stored lists. In a
 pull-request or push run it writes the additions, lists them in the job summary and fails when there are any; in the
 full-recording mode it writes the classified reads, the skip state and the duration of every entry file. ``keep``
-leaves the entry files that the additions name out of the job's passed list, so the job still stores the passes of its
-other entry files. ``apply`` adds a run's additions to the suite list, or, with the results of a full recording,
-replaces the lists of every entry file that exited with 0 and whose test report in an accepted format shows no skipped
-test, and writes the duration estimates, corrected for the speed of each shard job; ``--keep-lists`` and
-``--keep-all-lists`` name the entry files whose recorded reads it adds instead. The lists of a suite selected per
-entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents
-the commands.
+marks the entry files that the additions name in the job's passed list, so that the job stores the passes of its other
+entry files and ``store`` keys those with additions only under the lists with the additions applied. ``apply`` adds a
+run's additions to the suite list, or, with the results of a full recording, replaces the lists of every entry file
+that exited with 0 and whose test report in an accepted format shows no skipped test, and writes the duration
+estimates, corrected for the speed of each shard job; ``--keep-lists`` and ``--keep-all-lists`` name the entry files
+whose recorded reads it adds instead. The lists of a suite selected per entry file are the union of its entry files'
+lists. ``docs/maintaining.md`` documents the commands.
 
     python3 recording.py base [--file <file>]
     python3 recording.py start [--output <directory>] [--root <repository>] [--environment <file>] [--full [--job <name>]]
@@ -2274,11 +2274,13 @@ def run_keep(options: argparse.Namespace) -> int:
     if not isinstance(passed, list) or not all(isinstance(record, dict) and isinstance(record.get("suite"), str)
                                                and isinstance(record.get("entry"), str) for record in passed):
         raise RecordingError(f"{options.passed} is no list of passed entry files with their suites")
-    kept = [record for record in passed if (record["suite"], record["entry"]) not in marked]
-    left = [record["entry"] for record in passed if (record["suite"], record["entry"]) in marked]
+    # An entry file with additions stays in the list, marked: its pass counts only under the lists with the additions applied.
+    kept = [{"suite": record["suite"], "entry": record["entry"]} | ({"additions": True} if (record["suite"], record["entry"]) in marked else {})
+            for record in passed]
+    left = [record["entry"] for record in kept if record.get("additions")]
     options.passed.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
-    print(f"Kept {len(kept)} of {len(passed)} passed entry file{'' if len(passed) == 1 else 's'} for reuse"
-          + (f"; left out with additions: {', '.join(left)}." if left else "."))
+    print(f"Kept {len(kept) - len(left)} of {len(passed)} passed entry file{'' if len(passed) == 1 else 's'} for reuse under the stored lists"
+          + (f"; marked with additions, for reuse only under the lists with the additions applied: {', '.join(left)}." if left else "."))
     return 0
 
 
@@ -2778,7 +2780,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     checking.add_argument("--additions", type=Path, help="where to write the additions or the full-recording result")
     checking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file, and error= on a recording error")
-    keeping = commands.add_parser("keep", help="leave the entry files that check's additions name out of a passed list")
+    keeping = commands.add_parser("keep", help="mark the entry files that check's additions name in a passed list")
     keeping.add_argument("--additions", type=Path, required=True, help="the additions document that check wrote")
     keeping.add_argument("passed", type=Path, help="the passed list of the job, a JSON list of suites and entry files, rewritten in place")
     applying = commands.add_parser("apply", help="apply additions or full-recording results to the suite list")

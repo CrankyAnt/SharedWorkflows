@@ -189,7 +189,7 @@ jobs:
               jq -n --arg suite "$suite" --arg entry "$entry" '{suite: $suite, entry: $entry}'
             fi
           done < <(jq -r '.entries | to_entries[] | [(.key | tostring), .value.suite, .value.entry] | @tsv' <<<"$SHARD") | jq -s . > "$RUNNER_TEMP/suite-results/passed.json"
-      - name: Leave the entry files with additions out of the passed list
+      - name: Mark the entry files with additions in the passed list
         id: keep
         if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
         env:
@@ -331,7 +331,7 @@ jobs:
           check: "true"
           suites: ${{ inputs.suites }}
           artifact-name: ${{ inputs.full && 'full-recording' || 'recording-additions' }}-windows
-      - name: Leave the entry files with additions out of the passed list
+      - name: Mark the entry files with additions in the passed list
         id: keep
         if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
         shell: pwsh

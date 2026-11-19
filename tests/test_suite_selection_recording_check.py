@@ -634,8 +634,8 @@ KEEP_TRACKED = frozenset({"tests/a.py", "tests/b.py", "tests/c.py", "tests/p1.py
 
 
 class KeepPassedTests(unittest.TestCase):
-    """``keep`` leaves the entry files that a job's additions name out of its passed list, so that a job whose check
-    reports additions still stores the passes of its other entry files."""
+    """``keep`` marks the entry files that a job's additions name in its passed list, so that a job whose check reports
+    additions still stores the passes of its other entry files, and those with additions only under the applied lists."""
 
     def setUp(self) -> None:
         self.recording = load_recording()
@@ -667,16 +667,22 @@ class KeepPassedTests(unittest.TestCase):
             return self.recording.main(["keep", "--additions", str(additions), str(passed)])
 
     def kept(self, passed: Path) -> list[tuple[str, str]]:
-        return [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8"))]
+        """The passed entry files that the list holds without the mark of additions."""
+        return [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8")) if "additions" not in record]
 
-    def test_an_entry_file_with_additions_leaves_the_list_and_every_other_passed_entry_file_of_the_job_stays(self) -> None:
+    def marked(self, passed: Path) -> list[tuple[str, str]]:
+        """The passed entry files that the list holds with ``additions: true``."""
+        return [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8")) if record.get("additions") is True]
+
+    def test_an_entry_file_with_additions_is_marked_and_every_other_passed_entry_file_of_the_job_stays_unmarked(self) -> None:
         additions = self.additions({"tests/a.py": {"tests/a.py"}, "tests/b.py": {"tests/b.py", "lib/other.txt"},
                                     "tests/c.py": {"tests/c.py"}, "tests/q.py": {"tests/q.py"}})
         passed = self.passed([("per-entry", "tests/a.py"), ("per-entry", "tests/b.py"), ("clean", "tests/q.py")])
         self.assertEqual(0, self.keep(additions, passed))
         self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
+        self.assertEqual([("per-entry", "tests/b.py")], self.marked(passed))
 
-    def test_pooled_additions_leave_out_every_recorded_entry_file_of_their_suite_and_no_entry_file_of_another(self) -> None:
+    def test_pooled_additions_mark_every_recorded_entry_file_of_their_suite_and_no_entry_file_of_another(self) -> None:
         additions = self.additions({"tests/p1.py": {"tests/p1.py"}, "tests/p2.py": {"tests/p2.py", "lib/other.txt"},
                                     "tests/a.py": {"tests/a.py"}, "tests/q.py": {"tests/q.py"}})
         document = json.loads(additions.read_text(encoding="utf-8"))
@@ -685,8 +691,9 @@ class KeepPassedTests(unittest.TestCase):
         passed = self.passed([("pooled", "tests/p1.py"), ("pooled", "tests/p2.py"), ("per-entry", "tests/a.py"), ("clean", "tests/q.py")])
         self.assertEqual(0, self.keep(additions, passed))
         self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
+        self.assertEqual([("pooled", "tests/p1.py"), ("pooled", "tests/p2.py")], self.marked(passed))
 
-    def test_a_suite_without_a_stored_path_list_leaves_every_recorded_entry_file_out_whatever_it_read(self) -> None:
+    def test_a_suite_without_a_stored_path_list_marks_every_recorded_entry_file_whatever_it_read(self) -> None:
         additions = self.additions({"tests/n1.py": {"tests/n1.py"}, "tests/n2.py": {"tests/n2.py"}, "tests/m.py": {"tests/m.py"},
                                     "tests/q.py": {"tests/q.py"}})
         document = json.loads(additions.read_text(encoding="utf-8"))
@@ -695,6 +702,7 @@ class KeepPassedTests(unittest.TestCase):
         passed = self.passed([("new-per-entry", "tests/n1.py"), ("new-per-entry", "tests/n2.py"), ("new-pooled", "tests/m.py"), ("clean", "tests/q.py")])
         self.assertEqual(0, self.keep(additions, passed))
         self.assertEqual([("clean", "tests/q.py")], self.kept(passed))
+        self.assertEqual([("new-per-entry", "tests/n1.py"), ("new-per-entry", "tests/n2.py"), ("new-pooled", "tests/m.py")], self.marked(passed))
 
     def test_a_passed_list_that_windows_powershell_wrote_with_a_byte_order_mark_is_read(self) -> None:
         additions = self.additions({"tests/a.py": {"tests/a.py", "lib/other.txt"}, "tests/q.py": {"tests/q.py"}})
