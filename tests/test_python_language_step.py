@@ -1,11 +1,14 @@
 """The shared Python language step's command on fixture Python projects: ruff check with the project's configuration
-or ruff's default rules, mypy only where the project configures it, and the optional ruff format check."""
+or ruff's default rules, mypy only where the project configures it, and the optional ruff format check. The pattern
+that recognises a shown ruff command is checked on fixed command lines too, since a runner shows only its own spelling
+of the executable."""
 
 from __future__ import annotations
 
 import importlib.util
 import io
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -36,6 +39,39 @@ def step(root: Path, *arguments: str, tools: Path | None = None) -> subprocess.C
     return subprocess.run([sys.executable, str(STEP), "--root", str(root), *options, *arguments], capture_output=True, text=True, check=False)
 
 
+def shown_ruff_pattern(subcommand: str) -> str:
+    """The pattern of a shown ruff command with this subcommand: ruff found on PATH keeps the case of its extension
+    as PATHEXT spells it, such as ruff.EXE."""
+    return rf"(?m)^\+ (?:.*[\\/])?ruff(?i:\.exe)? {re.escape(subcommand)}(?= |$)"
+
+
+EXECUTABLES = ("ruff", "ruff.exe", "ruff.EXE")
+
+
+class ShownRuffCommandTests(unittest.TestCase):
+    def test_the_executable_matches_with_or_without_an_extension_of_any_case(self) -> None:
+        for executable in (*EXECUTABLES, "ruff.Exe", "/opt/tools/ruff", r"C:\tools\ruff.EXE"):
+            with self.subTest(executable=executable):
+                self.assertRegex(f"+ {executable} check --no-cache .", shown_ruff_pattern("check"))
+                self.assertRegex(f"+ {executable} format --check --no-cache .", shown_ruff_pattern("format --check"))
+                self.assertRegex(f"+ {executable} format --check --no-cache .", shown_ruff_pattern("format"))
+
+    def test_another_subcommand_does_not_match(self) -> None:
+        for executable in EXECUTABLES:
+            with self.subTest(executable=executable):
+                self.assertNotRegex(f"+ {executable} format --check --no-cache .", shown_ruff_pattern("check"))
+                self.assertNotRegex(f"+ {executable} check --no-cache .", shown_ruff_pattern("format --check"))
+                self.assertNotRegex(f"+ {executable} format --no-cache .", shown_ruff_pattern("format --check"))
+                self.assertNotRegex(f"+ {executable} checker .", shown_ruff_pattern("check"))
+                self.assertNotRegex(f"+ {executable}x check .", shown_ruff_pattern("check"))
+                self.assertNotRegex(f"+ {executable}.bat check .", shown_ruff_pattern("check"))
+
+    def test_a_shown_format_command_fails_the_assertion_that_no_format_check_runs(self) -> None:
+        for executable in EXECUTABLES:
+            with self.subTest(executable=executable), self.assertRaises(AssertionError):
+                self.assertNotRegex(f"+ {executable} check --no-cache .\n+ {executable} format --check --no-cache .\n", shown_ruff_pattern("format"))
+
+
 class FixtureProject(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = temporary_support.Directory()
@@ -52,7 +88,7 @@ class RuffCheckTests(FixtureProject):
         result = step(self.project("defaults", {"app.py": UNUSED_IMPORT}))
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn("F401", result.stdout)
-        self.assertRegex(result.stdout, r"(?m)^\+ .*ruff(?:\.exe)? check", "the command is shown")
+        self.assertRegex(result.stdout, shown_ruff_pattern("check"), "the command is shown")
         clean = step(self.project("clean", {"app.py": CLEAN}))
         self.assertEqual(0, clean.returncode, clean.stdout + clean.stderr)
         self.assertFalse((self.root / "clean" / ".ruff_cache").exists(), "ruff writes no cache into the checkout")
@@ -70,10 +106,10 @@ class RuffCheckTests(FixtureProject):
         project = self.project("unformatted", {"app.py": "print( 1 )\n"})
         result = step(project)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertNotRegex(result.stdout, r"(?m)^\+ .*ruff(?:\.exe)? format")
+        self.assertNotRegex(result.stdout, shown_ruff_pattern("format"))
         result = step(project, "--format-check")
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
-        self.assertRegex(result.stdout, r"(?m)^\+ .*ruff(?:\.exe)? format --check")
+        self.assertRegex(result.stdout, shown_ruff_pattern("format --check"))
         self.assertEqual("print( 1 )\n", (project / "app.py").read_text(encoding="utf-8"), "the check changes no file")
         formatted = step(self.project("formatted", {"app.py": "print(1)\n"}), "--format-check")
         self.assertEqual(0, formatted.returncode, formatted.stdout + formatted.stderr)
