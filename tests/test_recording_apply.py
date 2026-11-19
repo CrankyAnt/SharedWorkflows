@@ -821,26 +821,17 @@ class SuiteListMoveTests(unittest.TestCase):
         code, line, entries = self.select(fixture, "--changed-file", "lib/a.py")
         self.assertEqual((0, [self.A, self.B]), (code, entries), line)
 
-    def test_per_entry_file_to_whole_with_a_per_entry_list_or_entry_setups_kept_makes_the_suite_list_invalid(self) -> None:
+    def test_per_entry_file_to_whole_with_a_per_entry_list_entry_setups_or_entry_extra_paths_kept_makes_the_suite_list_invalid(self) -> None:
         whole = suite("unit", [self.A, self.B], paths=self.UNION, entry_durations=self.SHORT)
         kept = {"entry_paths": self.ENTRY_PATHS, "entry_directory_memberships": {self.A: ["lib"]},
                 "entry_existence_reads": {self.A: [{"path": "probe", "kind": "any"}]}, "entry_lookup_directories": {self.A: ["checks"]},
-                "entry_setups": {self.A: ["deps"]}}
+                "entry_setups": {self.A: ["deps"]}, "entry_extra_paths": {self.B: ["docs/**"]}}
         for field, value in kept.items():
             with self.subTest(field=field):
                 fixture = self.fixture(self.per_entry([self.A, self.B], self.SHORT))
                 code, error, _ = self.commit_and_select(fixture, dict(whole, **{field: value}))
                 self.assertEqual(2, code)
                 self.assertIn(f"{field} needs entry_selection", error)
-
-    def test_per_entry_file_to_whole_with_entry_extra_paths_kept_stays_valid_and_selects_on_them_no_more(self) -> None:
-        before = self.per_entry([self.A, self.B], self.SHORT, entry_extra_paths={self.B: ["docs/**"]})
-        fixture = self.fixture(before)
-        self.assertEqual((0, "unit: run (`docs/guide.md` matches `docs/**` of `checks/test_b.py`; entries: `checks/test_b.py`)", [self.B]),
-                         self.select(fixture, "--changed-file", "docs/guide.md"))
-        kept = suite("unit", [self.A, self.B], paths=self.UNION, entry_durations=self.SHORT, entry_extra_paths={self.B: ["docs/**"]})
-        self.assertEqual(0, self.commit_and_select(fixture, kept)[0])
-        self.assertEqual((0, self.SKIP_WHOLE, []), self.select(fixture, "--changed-file", "docs/guide.md"))
 
 
 if __name__ == "__main__":

@@ -110,6 +110,7 @@ class SuiteListTests(unittest.TestCase):
             ({"setups": "python"}, "(a): setups must be a list of non-empty strings"),
             ({"setups": [7]}, "(a): setups must be a list of non-empty strings"),
             ({"entry_setups": {"x.py": ["node"]}}, "(a): entry_setups needs entry_selection"),
+            ({"entry_extra_paths": {"x.py": ["docs/**"]}}, "(a): entry_extra_paths needs entry_selection"),
             ({"entry_selection": True, "entry_paths": {"x.py": [], "checks/*.py": []}, "entry_setups": {"y.py": ["node"]}}, "names y.py, which the entries lack"),
             ({"entry_selection": True, "entry_paths": {"x.py": [], "checks/*.py": []}, "entry_setups": {"x.py": "node"}}, "entry_setups (x.py) must be a list"),
             ({"entry_durations": ["x.py", 3]}, "(a): entry_durations must be an object"),
@@ -211,6 +212,29 @@ class SuiteListTests(unittest.TestCase):
                     document = build(**{field: {"old/test_gone.py": ["x"]}})
                     with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} names old/test_gone.py, which the entries lack"):
                         suite_selection.parse_suite_list(json.dumps(document))
+
+    def whole_suite(self, build, **fields) -> dict:
+        """The suite of ``build`` selected as a whole, without ``entry_selection`` and ``entry_paths``, with ``fields`` added."""
+        document = build()
+        for key in ("entry_selection", "entry_paths"):
+            del document["suites"][0][key]
+        document["suites"][0].update(fields)
+        return document
+
+    def test_a_field_that_the_repository_writes_needs_entry_selection_when_it_names_an_entry_file(self) -> None:
+        for field in ("entry_extra_paths", "entry_setups"):
+            for naming, build in self.namings():
+                with self.subTest(field=field, naming=naming):
+                    document = self.whole_suite(build, **{field: {"tests/test_b.py": ["x"]}})
+                    with self.assertRaisesRegex(suite_selection.SuiteListError, rf"\(unit\): {field} needs entry_selection"):
+                        suite_selection.parse_suite_list(json.dumps(document))
+
+    def test_an_empty_field_that_the_repository_writes_parses_without_entry_selection_and_renders_as_absent(self) -> None:
+        for field in ("entry_extra_paths", "entry_setups"):
+            for naming, build in self.namings():
+                with self.subTest(field=field, naming=naming):
+                    rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list(json.dumps(self.whole_suite(build, **{field: {}}))))
+                    self.assertEqual(json.loads(rendered), self.whole_suite(build))
 
     def test_select_passes_on_a_stale_key_of_a_suite_with_only_path_entries_and_selects_nothing_on_it(self) -> None:
         document = self.path_suite(entry_durations={"old/test_gone.py": 3.0})

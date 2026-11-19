@@ -497,6 +497,8 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
             raise SuiteListError(f"{location} ({name}): entry_paths needs entry_selection")
         if entry_setups and not entry_selection:
             raise SuiteListError(f"{location} ({name}): entry_setups needs entry_selection")
+        if entry_extra_paths and not entry_selection:
+            raise SuiteListError(f"{location} ({name}): entry_extra_paths needs entry_selection")
         if has_paths and entry_selection and "entry_paths" not in item:
             raise SuiteListError(f"{location} ({name}): a stored suite with entry_selection needs entry_paths")
         common = dict(extra_paths=extra_paths, entry_selection=entry_selection, entry_extra_paths=entry_extra_paths,
