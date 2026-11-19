@@ -364,20 +364,83 @@ class ReuseTests(FixtureRepository):
         outputs, _, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--results", str(self.record), *labels, *extra)
         return outputs
 
-    def store(self, outputs: dict[str, str], passed: list[tuple[str, str]], run: int, result: str = "success", job: str = "select") -> bool:
+    def store(self, outputs: dict[str, str], passed: list[tuple[str, str]] | dict[str, list[dict]], run: int, result: str = "success",
+              job: str = "select", additions: Path | None = None) -> bool:
+        """Store a run: ``passed`` is a list of passed entry files of one job, or the passed list each job uploaded by
+        artifact name; ``additions`` the folder with the run's downloaded ``recording-additions-*`` artifacts."""
         needs = self.root.parent / "needs.json"
         needs.write_text(json.dumps({job: {"result": result, "outputs": outputs}, "linux": {"result": "success", "outputs": {}}}), encoding="utf-8")
         directory = self.root.parent / f"passed-{run}"
-        (directory / "suite-results-shard-1").mkdir(parents=True, exist_ok=True)
-        (directory / "suite-results-shard-1" / "passed.json").write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in passed]), encoding="utf-8")
+        if directory.exists():
+            temporary_support.remove_tree(directory)
+        lists = passed if isinstance(passed, dict) else {"suite-results-shard-1": [{"suite": suite, "entry": entry} for suite, entry in passed]}
+        for name, items in lists.items():
+            (directory / name).mkdir(parents=True)
+            (directory / name / "passed.json").write_text(json.dumps(items), encoding="utf-8")
         github_output = self.root.parent / "store-output.txt"
         github_output.unlink(missing_ok=True)
         with redirect_stdout(io.StringIO()):
             code = suite_selection.main(["store", "--needs", str(needs), "--passed", str(directory), "--run-id", str(run),
                                          *(["--selection-job", job] if job != "select" else []),
+                                         *(["--additions", str(additions), "--root", str(self.root)] if additions is not None else []),
                                          "--output", str(self.record), "--github-output", str(github_output)])
         self.assertEqual(code, 0)
         return github_output.read_text(encoding="utf-8") == "stored=true\n"
+
+    RECORDING = str(SHARED_FOLDER / "recording" / "recording.py")
+    NO_READS = {"paths": [], "existence_reads": [], "directory_memberships": [], "lookup_directories": [], "module_lookups": {}}
+
+    def job_with_additions(self, run: int, job: str, passed: list[tuple[str, str]], changes: list[dict]) -> tuple[list[dict], Path]:
+        """One job of a run whose check reported ``changes``, in the shape check writes them: its additions artifact under
+        the run's additions folder, and its passed list as ``keep`` leaves it."""
+        artifact = self.root.parent / f"additions-{run}" / f"recording-additions-{job}"
+        artifact.mkdir(parents=True, exist_ok=True)
+        document = artifact / "additions.json"
+        document.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": changes}), encoding="utf-8")
+        listed = self.root.parent / f"passed-{run}-{job}.json"
+        listed.write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in passed]), encoding="utf-8")
+        completed = subprocess.run([sys.executable, self.RECORDING, "keep", "--additions", str(document), str(listed)], capture_output=True, text=True)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        return json.loads(listed.read_text(encoding="utf-8")), artifact.parent
+
+    def app_commit(self, *documents: Path) -> str:
+        """The App's additions commit: the additions applied to the suite list, and no other file."""
+        before = git(self.root, "rev-parse", "HEAD")
+        completed = subprocess.run([sys.executable, self.RECORDING, "apply", "--root", str(self.root), "--suites", str(self.root / "suites.json"),
+                                    *map(str, documents)], capture_output=True, text=True)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        app = self.commit("chore: apply the recorded additions")
+        self.assertEqual("suites.json", git(self.root, "diff", "--name-only", before, app))
+        return app
+
+    @staticmethod
+    def runs(outputs: dict[str, str]) -> list[str]:
+        return sorted(name for name, result in json.loads(outputs["suites"]).items() if result == "run")
+
+    @staticmethod
+    def running(outputs: dict[str, str]) -> list[list[str]]:
+        return sorted(sorted(unit["entries"]) for unit in json.loads(outputs["units"]).values())
+
+    def make_both_read_the_suite_list(self) -> None:
+        """Make `both` read the suite list, as the entry files of this repository that read tests/suites.json do."""
+        suites = json.loads(json.dumps(SUITES))
+        suites["suites"][1]["paths"].append("suites.json")
+        git(self.root, "checkout", "-q", self.base)
+        self.base = self.commit("a suite that reads the suite list", {"suites.json": json.dumps(suites, indent=2) + "\n"})
+
+    def first_run_with_additions(self, run: int) -> tuple[str, Path]:
+        """A first head whose run passes every unit, with additions for the entry file `tests/test_one.py` of the suite
+        selected per entry file and for the pooled suite `pr-only`; it returns the head and the additions folder."""
+        first = self.head({"src/feature.py": "feature v2\n"})
+        outputs = self.select_head(first)
+        reads = self.NO_READS | {"paths": ["README.md"]}
+        kept, additions = self.job_with_additions(run, "shard-1", self.ALL, [
+            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}},
+            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}])
+        self.assertEqual([("per-entry", "tests/test_one.py"), ("pr-only", "tests/test_pr.py")],
+                         sorted((item["suite"], item["entry"]) for item in kept if item.get("additions")), "keep marks the entry files with additions")
+        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, run, additions=additions))
+        return first, additions
 
     ALL = [("pr-only", "tests/test_pr.py"), ("both", "tests/test_both.py"), ("per-entry", "tests/test_one.py"), ("windows", "tests/test_win.py")]
 
@@ -522,57 +585,130 @@ class ReuseTests(FixtureRepository):
         self.assertFalse(self.store(outputs, self.ALL, 9005, result="failure"))
         self.assertFalse(self.record.exists())
 
-    def test_a_later_head_reuses_the_passes_that_keep_left_in_and_runs_the_entry_files_with_additions_again(self) -> None:
-        outputs = self.select_head(self.head({"src/feature.py": "feature v2\n"}))
-        passed, additions = self.root.parent / "passed.json", self.root.parent / "additions.json"
-        passed.write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in self.ALL]), encoding="utf-8")
-        # The additions of one job, in the shape check writes them: an entry file of a suite selected per entry file, and a
-        # pooled suite.
-        additions.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": [
-            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": {"paths": ["README.md"]}}},
-            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": {"paths": ["README.md"]}}]}), encoding="utf-8")
-        completed = subprocess.run([sys.executable, str(SHARED_FOLDER / "recording" / "recording.py"), "keep", "--additions", str(additions), str(passed)],
-                                   capture_output=True, text=True)
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        kept = [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8"))]
-        self.assertEqual([("both", "tests/test_both.py"), ("windows", "tests/test_win.py")], kept)
-        self.assertTrue(self.store(outputs, kept, 9007))
+    def test_a_later_head_that_does_not_apply_the_additions_reuses_the_unmarked_passes_and_runs_the_entry_files_with_additions(self) -> None:
+        self.first_run_with_additions(9007)
         later = self.select_head(self.head({"README.md": "a change no suite reads\n"}))
-        self.assertEqual(["per-entry", "pr-only"], sorted(name for name, result in json.loads(later["suites"]).items() if result == "run"))
+        self.assertEqual(["per-entry", "pr-only"], self.runs(later))
         self.assertEqual([9007, 9007], sorted(json.loads(later["reused"]).values()))
-        self.assertEqual([["tests/test_one.py"], ["tests/test_pr.py"]], sorted(unit["entries"] for unit in json.loads(later["units"]).values()))
+        self.assertEqual([["tests/test_one.py"], ["tests/test_pr.py"]], self.running(later), "a pass with additions counts only under the applied lists")
 
-    def test_a_later_head_whose_app_commit_applies_the_additions_to_the_suite_list_runs_them_and_the_readers_of_the_list(self) -> None:
-        # `both` also reads the suite list, as the entry files of this repository that read tests/suites.json do.
-        suites = json.loads(json.dumps(SUITES))
-        suites["suites"][1]["paths"].append("suites.json")
+    def test_a_later_head_that_only_applies_the_additions_reuses_the_passes_of_the_units_with_additions(self) -> None:
+        self.make_both_read_the_suite_list()
+        _, additions = self.first_run_with_additions(9008)
+        app = self.app_commit(*additions.rglob("additions.json"))
+        later = self.select_head(app)
+        self.assertEqual(["both"], self.runs(later), "only the reader of the suite list runs")
+        self.assertEqual([["tests/test_both.py"]], self.running(later))
+        self.assertEqual([9008] * 3, sorted(json.loads(later["reused"]).values()))
+        _, printed, _ = self.select("--base", self.base, "--head", app, "--compare", "merge-base", "--results", str(self.record), *self.LABELS)
+        for line in ("pr-only: skip (reuses the passed result of run 9008)", "per-entry: skip (reuses the passed result of run 9008)",
+                     "windows: skip (reuses the passed result of run 9008)"):
+            self.assertIn(line, printed)
+
+    def test_a_pooled_suite_split_over_jobs_with_additions_in_each_reuses_its_pass_on_the_head_that_applies_them(self) -> None:
+        pooled = json.loads(json.dumps(SUITES))
+        pooled["suites"][0]["entries"] = ["tests/test_pr.py", "tests/test_main.py"]
         git(self.root, "checkout", "-q", self.base)
-        self.base = self.commit("a suite that reads the suite list", {"suites.json": json.dumps(suites, indent=2) + "\n"})
+        self.base = self.commit("a pooled suite of two entry files", {"suites.json": json.dumps(pooled, indent=2) + "\n"})
+
+        def run(number: int, shard_2_kept: bool) -> tuple[str, list[Path]]:
+            git(self.root, "checkout", "-q", self.base)
+            self.record.unlink(missing_ok=True)
+            first = self.head({"src/feature.py": f"feature v{number}\n"})
+            outputs = self.select_head(first)
+            one, additions = self.job_with_additions(number, "shard-1", [("pr-only", "tests/test_pr.py")], [
+                {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": self.NO_READS | {"paths": ["README.md"]}}])
+            two, _ = self.job_with_additions(number, "shard-2", [("pr-only", "tests/test_main.py")], [
+                {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_main.py"], "reads": self.NO_READS | {"paths": ["src/other.py"]}}])
+            lists = {"suite-results-shard-1": one} | ({"suite-results-shard-2": two} if shard_2_kept else {})
+            self.assertTrue(self.store(outputs, lists, number, additions=additions))
+            return first, sorted(additions.rglob("additions.json"))
+
+        _, documents = run(9030, shard_2_kept=True)
+        later = self.select_head(self.app_commit(*documents))
+        self.assertNotIn("pr-only", self.runs(later), "the pooled suite reuses its pass under the additions of both jobs")
+        self.assertIn(9030, json.loads(later["reused"]).values())
+        _, documents = run(9031, shard_2_kept=False)
+        later = self.select_head(self.app_commit(*documents))
+        self.assertIn(["tests/test_main.py", "tests/test_pr.py"], self.running(later), "a job that uploaded no passed list stores no pass of the suite")
+
+    def test_a_head_that_applies_the_additions_and_changes_a_file_a_unit_read_runs_that_unit(self) -> None:
+        _, additions = self.first_run_with_additions(9009)
+        self.app_commit(*additions.rglob("additions.json"))
+        later = self.select_head(self.head({"README.md": "a changed read of the entry files with additions\n"}))
+        self.assertEqual(["per-entry", "pr-only"], self.runs(later))
+        self.assertEqual([["tests/test_one.py"], ["tests/test_pr.py"]], self.running(later))
+
+    def test_a_head_whose_stored_list_differs_from_the_list_with_the_additions_applied_runs_the_unit(self) -> None:
+        first, _ = self.first_run_with_additions(9011)
+        reads = self.NO_READS | {"paths": ["README.md"]}
+        for label, changes, expected in (
+                ("only part of the additions", [{"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"],
+                                                 "entries": {"tests/test_one.py": reads}}], [["tests/test_pr.py"]]),
+                ("a read beyond the additions", [{"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"],
+                                                  "entries": {"tests/test_one.py": self.NO_READS | {"paths": ["README.md", "src/moved.py"]}}},
+                                                 {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}],
+                 [["tests/test_one.py"]])):
+            with self.subTest(head=label):
+                other = self.root.parent / f"other-{len(changes)}.json"
+                other.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": changes}), encoding="utf-8")
+                later = self.select_head(self.app_commit(other))
+                self.assertEqual(expected, self.running(later))
+                git(self.root, "checkout", "-q", first)
+
+    def test_a_unit_whose_stored_patterns_match_the_suite_list_runs_on_the_head_that_applies_the_additions(self) -> None:
+        self.make_both_read_the_suite_list()
+        _, additions = self.first_run_with_additions(9012)
+        later = self.select_head(self.app_commit(*additions.rglob("additions.json")))
+        self.assertEqual(["both"], self.runs(later))
+        self.assertEqual(["both"], [unit["suite"] for unit in json.loads(later["units"]).values()], "its pass under the old list is not reused")
+
+    def test_a_job_with_a_recording_error_or_a_failed_keep_stores_none_of_its_passes(self) -> None:
         first = self.head({"src/feature.py": "feature v2\n"})
         outputs = self.select_head(first)
-        passed, additions = self.root.parent / "passed.json", self.root.parent / "additions.json"
-        passed.write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in self.ALL]), encoding="utf-8")
-        reads = {"paths": ["README.md"], "existence_reads": [], "directory_memberships": [], "lookup_directories": [], "module_lookups": {}}
-        additions.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": [
-            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}},
-            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}]}), encoding="utf-8")
-        recording = str(SHARED_FOLDER / "recording" / "recording.py")
-        completed = subprocess.run([sys.executable, recording, "keep", "--additions", str(additions), str(passed)], capture_output=True, text=True)
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        self.assertTrue(self.store(outputs, [(record["suite"], record["entry"]) for record in json.loads(passed.read_text(encoding="utf-8"))], 9008))
-        # The App commit: the additions applied to the suite list, and no other file.
-        completed = subprocess.run([sys.executable, recording, "apply", "--root", str(self.root), "--suites", str(self.root / "suites.json"), str(additions)],
-                                   capture_output=True, text=True)
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        app = self.commit("chore: apply the recorded additions of run 9008")
-        self.assertEqual("suites.json", git(self.root, "diff", "--name-only", first, app))
-        later = self.select_head(app)
-        self.assertEqual(["both", "per-entry", "pr-only"], sorted(name for name, result in json.loads(later["suites"]).items() if result == "run"))
-        self.assertEqual([["tests/test_both.py"], ["tests/test_one.py"], ["tests/test_pr.py"]],
-                         sorted(unit["entries"] for unit in json.loads(later["units"]).values()), "the entry files with additions and the reader of the list")
-        self.assertEqual([9008], list(json.loads(later["reused"]).values()), "every other unit that passed in the failed run reuses its result")
-        _, printed, _ = self.select("--base", self.base, "--head", app, "--compare", "merge-base", "--results", str(self.record), *self.LABELS)
-        self.assertIn("windows: skip (reuses the passed result of run 9008)", printed)
+        reads = self.NO_READS | {"paths": ["README.md"]}
+        _, additions = self.job_with_additions(9013, "shard-1", self.ALL, [
+            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}}])
+        # The job uploaded no passed list: its check failed without additions, or its keep failed.
+        self.assertTrue(self.store(outputs, {}, 9013, additions=additions))
+        self.assertEqual({}, json.loads(self.record.read_text(encoding="utf-8"))["passed"])
+        later = self.select_head(self.app_commit(*additions.rglob("additions.json")))
+        self.assertEqual({}, json.loads(later["reused"]))
+        self.assertEqual(["both", "per-entry", "pr-only", "windows"], self.runs(later))
+
+    def test_a_marked_pass_whose_additions_artifact_is_missing_is_not_stored_under_the_applied_lists(self) -> None:
+        first = self.head({"src/feature.py": "feature v2\n"})
+        outputs = self.select_head(first)
+        reads = self.NO_READS | {"paths": ["README.md"]}
+        # Shard 1 marked tests/test_one.py, but the upload of its additions artifact failed: only shard 2's document is there.
+        kept, lost = self.job_with_additions(9016, "shard-1", self.ALL, [
+            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}}])
+        temporary_support.remove_tree(lost / "recording-additions-shard-1")
+        _, additions = self.job_with_additions(9016, "shard-2", [("main-only", "tests/test_main.py")], [
+            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}])
+        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9016, additions=additions))
+        units = json.loads(outputs["units"])
+        stored = json.loads(self.record.read_text(encoding="utf-8"))["passed"]
+        self.assertEqual(4, len(stored), "the unmarked passes, and pr-only also under the applied lists")
+        self.assertNotIn(["tests/test_one.py"], [units[key]["entries"] for key in stored if key in units])
+        self.assertEqual(9016, stored.get(next(key for key, unit in units.items() if unit["suite"] == "pr-only")))
+
+    def test_a_pass_with_additions_is_never_stored_under_the_key_of_the_lists_without_them(self) -> None:
+        first = self.head({"src/feature.py": "feature v2\n"})
+        outputs = self.select_head(first)
+        kept, _ = self.job_with_additions(9014, "shard-1", self.ALL, [
+            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": self.NO_READS | {"paths": ["README.md"]}}])
+        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9014))
+        units = json.loads(outputs["units"])
+        self.assertEqual(["both", "per-entry", "windows"], sorted(units[key]["suite"] for key in json.loads(self.record.read_text(encoding="utf-8"))["passed"]),
+                         "without the additions folder the marked pass is not stored")
+
+    def test_a_re_run_of_the_head_that_applies_the_additions_reuses_nothing(self) -> None:
+        _, additions = self.first_run_with_additions(9015)
+        app = self.app_commit(*additions.rglob("additions.json"))
+        later = self.select_head(app, "--run-attempt", "2")
+        self.assertEqual({}, json.loads(later["reused"]))
+        self.assertEqual(["both", "per-entry", "pr-only", "windows"], self.runs(later))
 
     def test_a_suite_split_over_jobs_is_stored_only_when_every_entry_file_passed(self) -> None:
         both = json.loads(json.dumps(SUITES))
@@ -593,8 +729,8 @@ class WholeSuiteKeyTests(unittest.TestCase):
         suite_list = suite_selection.resolve_entries(suite_selection.parse_suite_list(json.dumps(self.SUITES)), set(files))
         units = suite_selection.reuse_units(suite_selection.every_suite(suite_list, "test"), suite_list, reuse.Tree(files, suite_selection.matches),
                                             {}, {}, ignore_content={})
-        self.assertEqual([entries for _, _, entries in units], [tuple(sorted(file for file in files if file.startswith("tests/")))])
-        return units[0][0]
+        self.assertEqual([unit.entries for unit in units], [tuple(sorted(file for file in files if file.startswith("tests/")))])
+        return units[0].key
 
     def test_the_key_changes_with_the_content_of_an_entry_file_that_the_stored_lists_do_not_match(self) -> None:
         files = {"lib/a.py": "a", "tests/test_a.py": "a", "tests/test_new.py": "new", "stray.txt": "stray"}

@@ -446,8 +446,8 @@ class ExtraExistenceSelectionTests(unittest.TestCase):
             keys = []
             for files in ({"checks/one.py": "a"}, {"checks/one.py": "a", self.PATH: "b"}):
                 tree = reuse.Tree(files, suite_selection.matches)
-                keys.append([key for key, decision, _ in suite_selection.reuse_units(selection, parsed, tree, {}, {}, ignore_content={})
-                             if decision.suite == "checks"])
+                keys.append([unit.key for unit in suite_selection.reuse_units(selection, parsed, tree, {}, {}, ignore_content={})
+                             if unit.decision.suite == "checks"])
             with self.subTest(suite=label):
                 self.assertTrue(keys[0])
                 self.assertTrue(all(before != after for before, after in zip(*keys)))

@@ -507,7 +507,7 @@ class DispatchTests(unittest.TestCase):
 
         ref = f"          ref: {DISPATCHED}\n"
         self.assertEqual(["plan does not check out the dispatched commit"], dispatch_problems(changed(ref, "", 1)))
-        self.assertEqual(8, self.text.count(ref), "every checkout of the pipeline")
+        self.assertEqual(9, self.text.count(ref), "every checkout of the pipeline")
         check = self.text[self.text.index(f"      - name: {DISPATCH_CHECK}\n"):]
         check = check[:check.index("\n      - ", 1) + 1]
         self.assertEqual(2, self.text.count(check), "the plan and repository hygiene check it with the same step")

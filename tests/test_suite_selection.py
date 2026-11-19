@@ -598,7 +598,7 @@ class GlobEntrySelectionTests(FixtureRepositoryTests):
         selection = suite_selection.every_suite(suite_list, "test")
         self.assertEqual(selection.decisions[0].entries, ("tests/test_a.py", "tests/test_b.py", "tests/test_new.py"))
         units = suite_selection.reuse_units(selection, suite_list, reuse.Tree(files, suite_selection.matches), {}, {}, ignore_content={})
-        self.assertEqual([entries for _, _, entries in units], [("tests/test_a.py",), ("tests/test_b.py",)],
+        self.assertEqual([unit.entries for unit in units], [("tests/test_a.py",), ("tests/test_b.py",)],
                          "the file without a list has unknown inputs, so it gets no reuse key")
 
     def test_the_estimate_of_a_file_that_no_entry_names_any_more_does_not_count_toward_the_mean(self) -> None:
@@ -975,8 +975,8 @@ class BackslashExistenceSelectionTests(unittest.TestCase):
 
                 def keys(files: dict[str, str]) -> list[str]:
                     tree = reuse.Tree(files, suite_selection.matches)
-                    return [key for key, decision, _ in suite_selection.reuse_units(selection, suite_list, tree, {}, {}, ignore_content={})
-                            if decision.suite == "probes"]
+                    return [unit.key for unit in suite_selection.reuse_units(selection, suite_list, tree, {}, {}, ignore_content={})
+                            if unit.decision.suite == "probes"]
 
                 for added, changes_key in changes.items():
                     with self.subTest(system=system, suite=label, added=added):

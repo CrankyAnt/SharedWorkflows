@@ -13,7 +13,8 @@ holds the content of its reads in the tested tree, its command, the versions its
 job, the content of every unrecorded input that selects it (``unrecorded.py``) and the digest of the shared recording
 step.
 ``store`` writes the record of the passed results of a run, from the ``needs`` context of the closing job and the
-passed entry files of each job. ``suite_selection.py`` runs the commands; ``docs/maintaining.md`` documents them.
+passed entry files of each job; in a run with additions it also keys each passed unit under the applied lists.
+``suite_selection.py`` runs the commands; ``docs/maintaining.md`` documents them.
 """
 
 from __future__ import annotations
@@ -572,12 +573,18 @@ def content_digest(document: object) -> str:
     return hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def unit_key(reads: dict, command, setups, versions: dict[str, str], label: str, shared_digest: str = "", *,
-             ignore_content: dict, unrecorded: dict | None = None) -> str:
-    """The reuse key: the content of the reads, the command, the versions the setups pin, the runner label, the digest
-    of the shared recording step, the content of the ignore rules and the content of the unit's unrecorded inputs."""
-    return content_digest({"reads": reads, "command": list(command or ()), "setups": {setup: versions.get(setup, "") for setup in setups},
+def unit_context(command, setups, versions: dict[str, str], label: str, shared_digest: str = "", *,
+                 ignore_content: dict, unrecorded: dict | None = None) -> str:
+    """The part of the reuse key that the stored lists do not decide: the digest of the command, the versions the setups
+    pin, the runner label, the digest of the shared recording step, the content of the ignore rules and the content of
+    the unit's unrecorded inputs. ``store`` takes it from ``select`` to key a unit under the lists with applied additions."""
+    return content_digest({"command": list(command or ()), "setups": {setup: versions.get(setup, "") for setup in setups},
                            "image": label, "shared_digest": shared_digest, "ignore_content": ignore_content, "unrecorded": unrecorded or {}})
+
+
+def unit_key(reads: dict, context: str) -> str:
+    """The reuse key: the content of the reads, as ``Tree.reads`` gives it, with the unit's context (``unit_context``)."""
+    return content_digest({"reads": reads, "context": context})
 
 
 def read_record(path: Path | None) -> dict[str, int]:
@@ -597,40 +604,63 @@ def read_record(path: Path | None) -> dict[str, int]:
 # --- the store ------------------------------------------------------------------------------------------------
 
 
-def passed_entries(directory: Path) -> set[tuple[str, str]]:
-    """The entry files that passed in a run's jobs, from every JSON file under the directory."""
-    passed = set()
+def read_passed(directory: Path) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+    """The entry files that passed in a run's jobs, from every JSON file under the directory: those without additions,
+    and those that ``recording.py keep`` marked with ``additions: true``."""
+    passed, with_additions = set(), set()
     for path in sorted(directory.rglob("*.json")) if directory.is_dir() else ():
         try:
             items = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError) as error:
             raise RecordError(f"the passed entry files {path} cannot be read: {error}") from error
         if not isinstance(items, list) or not all(isinstance(item, dict) and isinstance(item.get("suite"), str)
-                                                  and isinstance(item.get("entry"), str) for item in items):
-            raise RecordError(f"{path} must be a list of objects with a suite and an entry")
-        passed.update((item["suite"], item["entry"]) for item in items)
-    return passed
+                                                  and isinstance(item.get("entry"), str) and isinstance(item.get("additions", False), bool)
+                                                  for item in items):
+            raise RecordError(f"{path} must be a list of objects with a suite and an entry, and optionally additions true")
+        for item in items:
+            (with_additions if item.get("additions") is True else passed).add((item["suite"], item["entry"]))
+    return passed, with_additions
 
 
-def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job: str = "select") -> dict[str, int] | None:
-    """The record of a run: the results ``select`` reused, and every unit that ran and passed with all its entry
-    files. ``selection_job`` names the job of the needs context that ran ``select``. None when the selection did not
-    succeed, so that nothing is stored."""
+def selection_outputs(needs: dict, selection_job: str) -> tuple[dict | None, dict | None]:
+    """The outputs ``units`` and ``reused`` of the job that ran ``select``; None for both when it did not succeed or
+    its outputs cannot be read."""
     selection = needs.get(selection_job)
     if not isinstance(selection, dict) or selection.get("result") != "success":
-        return None
+        return None, None
     outputs = selection.get("outputs") if isinstance(selection.get("outputs"), dict) else {}
     try:
         units = json.loads(outputs.get("units") or "{}")
         reused = json.loads(outputs.get("reused") or "{}")
     except json.JSONDecodeError:
-        return None
+        return None, None
     if not isinstance(units, dict) or not isinstance(reused, dict):
+        return None, None
+    return units, reused
+
+
+def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job: str = "select", *,
+          with_additions: set[tuple[str, str]] = frozenset(), applied: dict[str, str] | None = None) -> dict[str, int] | None:
+    """The record of a run: the results ``select`` reused, and every unit that ran and passed with all its entry
+    files. ``selection_job`` names the job of the needs context that ran ``select``. None when the selection did not
+    succeed, so that nothing is stored.
+
+    In a run whose checks reported additions, ``with_additions`` holds the passed entry files that the additions name,
+    and ``applied`` maps the key of each running unit to its key under the suite list with every addition of the run
+    applied. Every unit all of whose entry files passed, with or without additions, is then also stored under that key,
+    and a unit with additions only under it: the applied lists cover all that it read, and its own key does not."""
+    units, reused = selection_outputs(needs, selection_job)
+    if units is None or reused is None:
         return None
     record = {key: run for key, run in reused.items() if isinstance(run, int)}
     for key, unit in units.items():
-        if isinstance(unit, dict) and unit.get("entries") and all((unit.get("suite"), entry) in passed for entry in unit["entries"]):
+        if not isinstance(unit, dict) or not unit.get("entries"):
+            continue
+        pairs = [(unit.get("suite"), entry) for entry in unit["entries"]]
+        if all(pair in passed for pair in pairs):
             record[key] = run_id
+        if applied is not None and key in applied and all(pair in passed or pair in with_additions for pair in pairs):
+            record[applied[key]] = run_id
     return record
 
 
