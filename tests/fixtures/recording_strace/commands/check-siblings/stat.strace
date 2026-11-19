@@ -1,0 +1,3 @@
+1306  execve("/usr/bin/stat", ["stat", "-c", "%s", "tests/test_b.py"], []) = 0
+1306  statx(3</usr/share/coreutils/locales/uucore/en-US.ftl>, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0644, stx_size=4080, ...}) = 0
+1306  statx(AT_FDCWD<${BASE}/repo>, "tests/test_b.py", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0644, stx_size=101, ...}) = 0

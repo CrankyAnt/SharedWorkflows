@@ -106,12 +106,13 @@ class RecordedEventFileTests(unittest.TestCase):
 
     def test_reads_are_attributed_to_entry_files_by_process_id(self) -> None:
         # tests/copy.py and tests/worktree.py copy the fixture, and git reads every file of each copy, tests/no_copies.py
-        # copies lib/, and tests/lookups.py imports scripts/tool.py; the other entry files read their own.
+        # copies lib/, and tests/lookups.py imports scripts/tool.py; the other entry files read their own, and tests/stats.py
+        # only stats data/stat.txt, so no entry file reads it.
         others = {entry: reads for entry, reads in self.reads.items()
                   if entry not in ("tests/copy.py", "tests/worktree.py", "tests/no_copies.py", "tests/lookups.py")}
         owners = {path: [entry for entry, reads in others.items() if path in reads["paths"]]
                   for path in ("data/stat.txt", "scripts/tool.py", "kept.log", "lib/copied.txt")}
-        self.assertEqual({"data/stat.txt": ["tests/stats.py"], "scripts/tool.py": ["tests/sources.py"], "kept.log": ["tests/ignored.py"],
+        self.assertEqual({"data/stat.txt": [], "scripts/tool.py": ["tests/sources.py"], "kept.log": ["tests/ignored.py"],
                           "lib/copied.txt": []}, owners)
         self.assertIn("lib/copied.txt", self.reads["tests/copy.py"]["paths"])
         for entry, reads in others.items():
@@ -149,13 +150,13 @@ class RecordedEventFileTests(unittest.TestCase):
         settings = json.loads((fixture.output / "recording.json").read_text(encoding="utf-8"))
         (fixture.output / "recording.json").write_text(json.dumps(dict(settings, mode="pull-request")), encoding="utf-8")
         stored = {entry: reads["paths"] for entry, reads in self.reads.items()}
-        stored["tests/stats.py"] = [path for path in stored["tests/stats.py"] if path != "data/stat.txt"]
+        stored["tests/ignored.py"] = [path for path in stored["tests/ignored.py"] if path != "kept.log"]
         fixture.write_suites([suite("all", ENTRIES, entry_selection=True, paths=[], entry_paths=stored)])
         checked = fixture.check()
         self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
         [change] = fixture.additions()["suites"]
-        self.assertEqual(["data/stat.txt"], change["entries"]["tests/stats.py"]["paths"])
-        self.assertIn("`all`: `tests/stats.py` | path `data/stat.txt` |", fixture.summary.read_text(encoding="utf-8"))
+        self.assertEqual(["kept.log"], change["entries"]["tests/ignored.py"]["paths"])
+        self.assertIn("`all`: `tests/ignored.py` | path `kept.log` |", fixture.summary.read_text(encoding="utf-8"))
 
     def test_a_git_start_without_its_command_line_fails_the_check_and_names_the_process(self) -> None:
         fixture = recorded_fixture(self.addCleanup)
@@ -569,6 +570,62 @@ class UnreportedNodeTests(unittest.TestCase):
         # A directory in which the process opened nothing is the stated limit: a new file there selects nothing.
         unseen = selected(lambda: (fixture.root / "tests" / "other.js").write_text("", encoding="utf-8"))
         self.assertIn("a: skip", unseen)
+
+
+SIBLING_FILES = {"tests/test_a.py": "", "tests/test_b.py": "", "tests/test_c.py": "", "tests/test_d.py": "", "tests/test_e.py": "",
+                 "lib/helper.py": "VALUE = 1\n"}
+SIBLING_ENTRIES = ["tests/test_a.py", "tests/test_b.py", "tests/test_d.py", "tests/test_e.py"]
+
+
+class StatOnlyTests(unittest.TestCase):
+    """The stat-only rule and the existence reads that a unit's directory memberships cover, on a written neutral event
+    file of the pytest-shaped run whose events the Linux classification tests write."""
+
+    def test_a_windows_recording_of_the_pytest_shaped_run_gives_the_reads_of_the_linux_recording(self) -> None:
+        recording = WrittenRecording(self.addCleanup, SIBLING_FILES, [suite("a", SIBLING_ENTRIES, entry_selection=True, paths=[],
+                                                                            entry_paths={entry: [] for entry in SIBLING_ENTRIES})])
+        recording.unit("1-a", "tests/test_a.py", 100, 10, ["python.exe", "-m", "pytest", "tests/test_a.py"])
+        recording.unit("2-b", "tests/test_b.py", 200, 20, ["dotnet.exe", "tests/test_b.py"])
+        recording.unit("3-d", "tests/test_d.py", 300, 30, ["python.exe", "-m", "pytest", "tests/test_d.py"])
+        recording.unit("4-e", "tests/test_e.py", 400, 40, ["python.exe", "-m", "pytest", "tests/test_e.py"])
+        reports = recording.fixture.output / "lookups" / recording.record["lookups"]
+        reports.mkdir(parents=True)
+        for pid in ("100", "300", "400"):  # the Python processes; dotnet has no report
+            (reports / f"{pid}.tsv").write_text("suffixes\t.py\n", encoding="utf-8")
+        python = "C:\\Python\\python.exe"
+
+        def tests(*names: str) -> str:
+            return "\\".join((recording.prefix, "tests", *names))
+
+        def collect(pid: str, parent: str, program: str, entry: str, siblings: tuple[str, ...], listing: bool) -> list[tuple[str, ...]]:
+            # A listing of tests\, the open of the entry file, and per sibling a literal enumeration, as FindFirstFileW
+            # makes it, and the opens of the absent names below it.
+            lines = [(pid, parent, "start", program), *([(pid, parent, "enum", tests("*"))] if listing else []), (pid, parent, "open", tests(entry))]
+            for sibling in siblings:
+                lines += [(pid, parent, "enum", tests(sibling)), (pid, parent, "absent", tests(sibling, "pyvenv.cfg")),
+                          (pid, parent, "absent", tests(sibling, "conda-meta", "history"))]
+            return lines
+
+        recording.events([*collect("100", "10", python, "test_a.py", ("test_b.py", "test_c.py"), True),
+                          *collect("200", "20", DOTNET, "test_b.py", ("test_c.py",), True),
+                          *collect("300", "30", python, "test_d.py", ("test_c.py",), False),
+                          # A dotnet process that reuses the id of the finished Python process of tests/test_e.py.
+                          ("400", "40", "start", python), ("400", "40", "open", tests("test_e.py")), ("400", "40", "start", DOTNET),
+                          ("400", "40", "enum", tests("test_c.py"))])
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        reads = {item["entry"]: item["reads"] for item in recording.fixture.full_result()["entries"]}
+        # The Python process with a lookup report: only its entry file, as in the Linux classification tests.
+        self.assertEqual((["tests/test_a.py"], [], ["tests"]), (reads["tests/test_a.py"]["paths"], reads["tests/test_a.py"]["existence_reads"],
+                                                                reads["tests/test_a.py"]["directory_memberships"]))
+        # A process without a report reads what it stats.
+        self.assertEqual(["tests/test_b.py", "tests/test_c.py"], reads["tests/test_b.py"]["paths"])
+        # Without the membership of tests/, the stat and the probes below the tracked file stay existence reads.
+        self.assertEqual(["tests/test_d.py"], reads["tests/test_d.py"]["paths"])
+        self.assertEqual([{"path": path, "kind": "any"} for path in ("tests/test_c.py", "tests/test_c.py/conda-meta/history", "tests/test_c.py/pyvenv.cfg")],
+                         reads["tests/test_d.py"]["existence_reads"])
+        # Under a reused process id the report cannot tell which process made the stat.
+        self.assertEqual(["tests/test_c.py", "tests/test_e.py"], reads["tests/test_e.py"]["paths"])
 
 
 if __name__ == "__main__":
