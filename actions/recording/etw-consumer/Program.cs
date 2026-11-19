@@ -5,7 +5,9 @@
 //
 // Operations: start (a process start; the path is its image, and a fifth column holds its command line with
 // backslashes, tabs and line breaks escaped; a start written before its command line came has no fifth column), open
-// and opendir (a successful open of an existing file or directory),
+// and opendir (a successful open of an existing file or directory), openattr (a successful attribute-only open of an
+// existing path: one without FILE_DIRECTORY_FILE and FILE_NON_DIRECTORY_FILE, with FILE_OPEN_REPARSE_POINT or share
+// mode 0, as CPython's stat makes it; only from a Create event of version 1 or later, which carries the share mode),
 // absent (an open of a missing path), enum and enum-absent (a directory enumeration; the path is the directory, a
 // backslash and the queried pattern). Opens that may create or overwrite a file are writes and are not written. File
 // events count only under a path prefix, an NT device path; a process's repeated event is written once, except an
@@ -29,6 +31,8 @@ static unsafe class Program
     const ulong ProcessKeywords = 0x10;
     const uint FileOpen = 1;  // the create disposition of an open that neither creates nor overwrites
     const uint DirectoryFile = 0x1;
+    const uint NonDirectoryFile = 0x40;
+    const uint OpenReparsePoint = 0x200000;
 
     struct Pending
     {
@@ -160,7 +164,7 @@ static unsafe class Program
                 }
                 nameByObject[fileObject] = name;
                 if (options >> 24 == FileOpen)
-                    pending[irp] = new Pending { Pid = pid, Operation = (options & DirectoryFile) != 0 ? "opendir" : "open", Path = name };
+                    pending[irp] = new Pending { Pid = pid, Operation = OpenOperation(options, ShareAccess(data, payload, length)), Path = name };
                 break;
             }
             case 20:
@@ -183,6 +187,19 @@ static unsafe class Program
                 break;
             }
         }
+    }
+
+    // Create, version 1: Irp, FileObject, IssuingThreadId, CreateOptions, CreateAttributes, ShareAccess, FileName. The
+    // event carries no desired access: an open that sets neither directory option and either opens a reparse point
+    // itself or shares nothing is an attribute-only open, as CPython's stat; every Python content open sets
+    // FILE_NON_DIRECTORY_FILE. Without a share mode, from an earlier version, an open stays a content open.
+    static uint? ShareAccess(TraceEvent data, byte* payload, int length) => data.Version >= 1 && length >= 32 ? Integer(payload, 28) : (uint?)null;
+
+    static string OpenOperation(uint options, uint? share)
+    {
+        if ((options & DirectoryFile) != 0) return "opendir";
+        if (share != null && (options & NonDirectoryFile) == 0 && ((options & OpenReparsePoint) != 0 || share == 0)) return "openattr";
+        return "open";
     }
 
     static void Started(byte* payload, int length)

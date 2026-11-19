@@ -330,6 +330,7 @@ class AttributionTests(unittest.TestCase):
 
 
 DOTNET = "C:\\Program Files\\dotnet\\dotnet.exe"
+PYTHON = "C:\\Python\\python.exe"
 # The names that the .NET probe rules add in each directory of a project, and in each directory of a working directory.
 PROJECT_PROBES = ["Directory.Build.props", "Directory.Build.rsp", "Directory.Build.targets", "Directory.Packages.props", "NuGet.Config",
                   "NuGet.config", "global.json", "nuget.config"]
@@ -626,6 +627,82 @@ class StatOnlyTests(unittest.TestCase):
                          reads["tests/test_d.py"]["existence_reads"])
         # Under a reused process id the report cannot tell which process made the stat.
         self.assertEqual(["tests/test_c.py", "tests/test_e.py"], reads["tests/test_e.py"]["paths"])
+
+
+class AttributeOnlyOpenTests(unittest.TestCase):
+    """The consumer's attribute-only open, ``openattr``, as the stat that CPython makes on Windows, on a written neutral
+    event file of the pytest-shaped run: Python processes with a lookup report, a dotnet process without one, and a
+    process id that a later process reuses."""
+
+    def reads_of(self, lines_of) -> dict[str, dict]:
+        recording = WrittenRecording(self.addCleanup, SIBLING_FILES, [suite("a", SIBLING_ENTRIES, entry_selection=True, paths=[],
+                                                                            entry_paths={entry: [] for entry in SIBLING_ENTRIES})])
+        recording.unit("1-a", "tests/test_a.py", 100, 10, ["python.exe", "-m", "pytest", "tests/test_a.py"])
+        recording.unit("2-b", "tests/test_b.py", 200, 20, ["dotnet.exe", "tests/test_b.py"])
+        recording.unit("3-d", "tests/test_d.py", 300, 30, ["python.exe", "-m", "pytest", "tests/test_d.py"])
+        recording.unit("4-e", "tests/test_e.py", 400, 40, ["python.exe", "-m", "pytest", "tests/test_e.py"])
+        reports = recording.fixture.output / "lookups" / recording.record["lookups"]
+        reports.mkdir(parents=True)
+        for pid in ("100", "300", "400"):  # the Python processes; dotnet has no report
+            (reports / f"{pid}.tsv").write_text("suffixes\t.py\n", encoding="utf-8")
+        recording.events(lines_of(lambda *names: "\\".join((recording.prefix, "tests", *names))))
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        return {item["entry"]: item["reads"] for item in recording.fixture.full_result()["entries"]}
+
+    @staticmethod
+    def summary(reads: dict[str, dict], entry: str) -> tuple[list, list, list]:
+        return reads[entry]["paths"], reads[entry]["existence_reads"], reads[entry]["directory_memberships"]
+
+    @staticmethod
+    def collect(tests, pid: str, parent: str, program: str, entry: str, siblings: tuple[str, ...], stat: str = "openattr") -> list[tuple[str, ...]]:
+        # A listing of tests\, the stat of tests\ itself, the open of the entry file, and per sibling the stat of the
+        # sibling and the probe of the absent pyvenv.cfg below it, as CPython's is_dir, is_file and os.stat make them.
+        lines = [(pid, parent, "start", program), (pid, parent, "opendir", tests()), (pid, parent, "enum", tests("*")),
+                 (pid, parent, stat, tests()), (pid, parent, "open", tests(entry))]
+        for sibling in siblings:
+            lines += [(pid, parent, stat, tests(sibling)), (pid, parent, "absent", tests(sibling, "pyvenv.cfg"))]
+        return lines
+
+    def test_a_python_process_with_a_report_that_only_stats_its_siblings_reads_its_own_entry_file(self) -> None:
+        reads = self.reads_of(lambda tests: self.collect(tests, "100", "10", PYTHON, "test_a.py", ("test_b.py", "test_c.py", "test_d.py")))
+        self.assertEqual((["tests/test_a.py"], [], ["tests"]), self.summary(reads, "tests/test_a.py"))
+
+    def test_a_sibling_whose_content_the_python_process_also_opens_is_a_content_read(self) -> None:
+        def lines(tests):
+            return [*self.collect(tests, "100", "10", PYTHON, "test_a.py", ("test_b.py", "test_c.py", "test_d.py")),
+                    ("100", "10", "open", tests("test_b.py"))]
+
+        reads = self.reads_of(lines)
+        self.assertEqual((["tests/test_a.py", "tests/test_b.py"], [], ["tests"]), self.summary(reads, "tests/test_a.py"))
+
+    def test_an_attribute_only_open_by_a_process_without_a_report_is_a_content_read(self) -> None:
+        reads = self.reads_of(lambda tests: self.collect(tests, "200", "20", DOTNET, "test_b.py", ("test_c.py",)))
+        self.assertEqual(["tests/test_b.py", "tests/test_c.py"], reads["tests/test_b.py"]["paths"])
+
+    def test_an_attribute_only_open_under_a_reused_process_id_is_a_content_read(self) -> None:
+        def lines(tests):
+            # A dotnet process that reuses the id of the finished Python process of tests/test_e.py.
+            return [("400", "40", "start", PYTHON), ("400", "40", "open", tests("test_e.py")), ("400", "40", "start", DOTNET),
+                    ("400", "40", "openattr", tests("test_c.py"))]
+
+        self.assertEqual(["tests/test_c.py", "tests/test_e.py"], self.reads_of(lines)["tests/test_e.py"]["paths"])
+
+    def test_without_the_membership_of_their_directory_the_stats_stay_existence_reads(self) -> None:
+        def lines(tests):
+            return [line for line in self.collect(tests, "300", "30", PYTHON, "test_d.py", ("test_c.py",)) if line[2] != "enum"]
+
+        reads = self.reads_of(lines)
+        self.assertEqual(["tests/test_d.py"], reads["tests/test_d.py"]["paths"])
+        self.assertEqual([{"path": "tests", "kind": "directory"}, {"path": "tests/test_c.py", "kind": "any"},
+                          {"path": "tests/test_c.py/pyvenv.cfg", "kind": "any"}],
+                         reads["tests/test_d.py"]["existence_reads"])
+
+    def test_an_event_file_of_the_earlier_consumer_that_writes_each_stat_as_open_classifies_as_before(self) -> None:
+        # The earlier consumer wrote CPython's stat of an existing file as an open: a content read, whatever process made it.
+        reads = self.reads_of(lambda tests: self.collect(tests, "100", "10", PYTHON, "test_a.py", ("test_b.py", "test_c.py"), stat="open"))
+        self.assertEqual((["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"], [], ["tests"]),
+                         self.summary(reads, "tests/test_a.py"))
 
 
 if __name__ == "__main__":
