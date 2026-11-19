@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 
 from tests.recording_fixtures import ETW_UNAVAILABLE, RECORDING_FILES, entry_command
-from tests.test_recording_classification import ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, classification_fixture, linked_worktree_fixture
-from tests.test_recording_etw import NODE_ENTRIES, node_fixture
+from tests.test_suite_selection_recording_classification import ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, classification_fixture, linked_worktree_fixture
+from tests.test_suite_selection_recording_etw import NODE_ENTRIES, node_fixture
 
 
 def main(argv: list[str]) -> int:

@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.recording_fixtures import ETW_RECORDINGS, ROOT, RecordingFixture, copy_recording, load_recording, suite
-from tests.test_recording_classification import ENTRIES, WINDOWS_FILES, classification_fixture
+from tests.test_suite_selection_recording_classification import ENTRIES, WINDOWS_FILES, classification_fixture
 
 RECORDED = ETW_RECORDINGS / "classification" / "first"
 NODE_RECORDED = ETW_RECORDINGS / "node"

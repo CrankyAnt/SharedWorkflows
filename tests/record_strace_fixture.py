@@ -3,8 +3,9 @@
     python3 -m tests.record_strace_fixture <destination>
 
 The classification fixture's entry files run twice in a full recording, the linked-worktree fixture's once, and each
-command of the stored fixtures of ``tests/test_recording_check.py`` and ``tests/test_recording_full.py`` runs once under
-the wide trace set, each on an interpreter of the fixture's own with the lookup report, whose reports are stored beside
+command of the stored fixtures of ``tests/test_suite_selection_recording_check.py`` and
+``tests/test_suite_selection_recording_full.py`` runs once under the wide trace set, each on an
+interpreter of the fixture's own with the lookup report, whose reports are stored beside
 the traces. Copy the contents of ``<destination>`` over ``tests/fixtures/recording_strace`` to renew the recordings. "Renew the stored
 strace recordings" in ``docs/maintaining.md`` describes the stored files.
 """
@@ -19,10 +20,10 @@ import shutil
 import sys
 from pathlib import Path
 
-from tests import test_recording_check, test_recording_full
+from tests import test_suite_selection_recording_check, test_suite_selection_recording_full
 from tests.recording_fixtures import RECORDING, ROOT, RecordingFixture, StoredFixture, strace_recording_files
 from tests.strace_stand_in import BASE, PYTHONPYCACHEPREFIX, TMPDIR, parse_line, tokenize
-from tests.test_recording_classification import LINKED_ENTRIES, STRACE_ENTRIES, STRACE_FILES, classification_fixture, linked_worktree_fixture
+from tests.test_suite_selection_recording_classification import LINKED_ENTRIES, STRACE_ENTRIES, STRACE_FILES, classification_fixture, linked_worktree_fixture
 
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -149,7 +150,7 @@ def main(argv: list[str]) -> int:
                 print(checked.stdout + checked.stderr, file=sys.stderr)
                 return 1
             store_recording(fixture, destination / target, recording)
-        for stored in (*test_recording_check.STORED, *test_recording_full.STORED):
+        for stored in (*test_suite_selection_recording_check.STORED, *test_suite_selection_recording_full.STORED):
             failure = store_commands(stored, cleanup, destination / "commands", recording)
             if failure is not None:
                 print(failure, file=sys.stderr)
