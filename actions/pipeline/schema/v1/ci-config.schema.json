@@ -388,7 +388,7 @@
       }
     },
     "dependabot": {
-      "description": "The repository's Dependabot ecosystems, each under its name with the directories of its package files; a directory starts with `/`. `.github/dependabot.yml` is generated from it, one entry per ecosystem and directory in this order, and repository hygiene fails while the file differs. Without ecosystems the repository holds no Dependabot configuration. Invented example: {\"github-actions\": [\"/\"], \"pip\": [\"/\", \"/tools/report\"]}.",
+      "description": "The repository's Dependabot ecosystems, each under its name with the directories of its package files; a directory starts with `/`. `.github/dependabot.yml` is generated from it, one entry per ecosystem in this order; an ecosystem with several directories gets one entry that lists them, with one group that combines each update of a dependency across them into one pull request, and repository hygiene fails while the file differs. Without ecosystems the repository holds no Dependabot configuration. Invented example: {\"github-actions\": [\"/\"], \"pip\": [\"/\", \"/tools/report\"]}.",
       "type": "object",
       "additionalProperties": {
         "type": "array",

@@ -627,8 +627,9 @@ def derive_parts(workflows: dict[str, str], templates: Templates, table: dict[st
     return parts, replaced
 
 
-def derive_dependabot(text: str | None, name: str, expected_entry: dict, notes: list[str]) -> dict[str, list[str]]:
-    """The Dependabot ecosystems with their directories that an existing Dependabot configuration states."""
+def derive_dependabot(text: str | None, name: str, shared: str, notes: list[str]) -> dict[str, list[str]]:
+    """The Dependabot ecosystems with their directories that an existing Dependabot configuration states. An entry key
+    whose value differs from the generated entry of one directory and from that of several directories is noted."""
     if text is None:
         return {}
     try:
@@ -638,6 +639,8 @@ def derive_dependabot(text: str | None, name: str, expected_entry: dict, notes: 
         return {}
     document = document if isinstance(document, dict) else {}
     notes += [f"`{name}`: the key `{key}` is not carried over; the generated file holds no such key." for key in document if key not in ("version", "updates")]
+    # The generated entry in the shape of one directory and in that of several, for a stand-in ecosystem.
+    generated_shapes = [parse_yaml(consumer_checks.dependabot_text({"stand-in": directories}, shared))["updates"][0] for directories in (["/"], ["/", "/other"])]
     ecosystems: dict[str, list[str]] = {}
     for entry in document.get("updates") if isinstance(document.get("updates"), list) else []:
         ecosystem = entry.get("package-ecosystem") if isinstance(entry, dict) else None
@@ -650,9 +653,10 @@ def derive_dependabot(text: str | None, name: str, expected_entry: dict, notes: 
                 notes.append(f"`{name}`: the directory {code(directory)} of `{ecosystem}` is not carried over; the configuration file names each directory as a path that starts with `/`.")
             elif directory not in ecosystems.setdefault(ecosystem, []):
                 ecosystems[ecosystem].append(directory)
-        lost = sorted(key for key, value in entry.items() if key not in ("package-ecosystem", "directory", "directories") and expected_entry.get(key) != value
+        lost = sorted(key for key, value in entry.items() if key not in ("package-ecosystem", "directory", "directories")
+                      and all(shape.get(key) != value for shape in generated_shapes)
                       and not (ecosystem == "github-actions" and key == "ignore" and is_shared_ignore(value)))
-        notes += [f"`{name}`: `{key}` of the entry of `{ecosystem}` is not carried over; every generated entry holds the same schedule, cooldown and group."
+        notes += [f"`{name}`: `{key}` of the entry of `{ecosystem}` is not carried over; every generated entry holds the same schedule and cooldown, and the group of one or of several directories."
                   for key in lost]
     return {ecosystem: directories for ecosystem, directories in ecosystems.items() if directories}
 
@@ -685,10 +689,9 @@ def run_adopt(options: argparse.Namespace) -> int:
     parts, replaced = derive_parts(workflows, templates, table, notes)
     files = {name: api.file(repository, name, default) for name in (DEPENDABOT_FILE, DEPENDABOT_OTHER_NAME)}
     version = templates.versions[max(templates.versions)]
-    expected_entry = parse_yaml(consumer_checks.dependabot_text({"x": ["/"]}, templates.shared))["updates"][0]
     ecosystems: dict[str, list[str]] = {}
     for name, content in files.items():
-        for ecosystem, directories in derive_dependabot(None if content is None else content.decode("utf-8", "replace"), name, expected_entry, notes).items():
+        for ecosystem, directories in derive_dependabot(None if content is None else content.decode("utf-8", "replace"), name, templates.shared, notes).items():
             ecosystems.setdefault(ecosystem, [])
             ecosystems[ecosystem] += [directory for directory in directories if directory not in ecosystems[ecosystem]]
     document = {"version": version.version, **({"parts": parts} if parts else {}), **({"dependabot": ecosystems} if ecosystems else {})}

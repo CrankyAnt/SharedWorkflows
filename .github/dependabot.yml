@@ -11,15 +11,18 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
   - package-ecosystem: nuget
-    directory: /actions/recording/etw-consumer
+    directories:
+      - /actions/recording/etw-consumer
+      - /tests/fixtures/dotnet_test
+      - /tests/fixtures/dotnet_console
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
     groups:
-      minor-and-patch:
+      per-dependency:
+        group-by: dependency-name
         patterns: ["*"]
-        update-types: [minor, patch]
   - package-ecosystem: dotnet-sdk
     directory: /actions/recording/etw-consumer
     schedule:
@@ -31,47 +34,19 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
   - package-ecosystem: npm
-    directory: /actions/publication-checks
+    directories:
+      - /actions/publication-checks
+      - /tests/fixtures/node_test
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
     groups:
-      minor-and-patch:
+      per-dependency:
+        group-by: dependency-name
         patterns: ["*"]
-        update-types: [minor, patch]
   - package-ecosystem: pip
     directory: /tests/fixtures/python_tests
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        patterns: ["*"]
-        update-types: [minor, patch]
-  - package-ecosystem: nuget
-    directory: /tests/fixtures/dotnet_test
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        patterns: ["*"]
-        update-types: [minor, patch]
-  - package-ecosystem: nuget
-    directory: /tests/fixtures/dotnet_console
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        patterns: ["*"]
-        update-types: [minor, patch]
-  - package-ecosystem: npm
-    directory: /tests/fixtures/node_test
     schedule:
       interval: weekly
     cooldown:

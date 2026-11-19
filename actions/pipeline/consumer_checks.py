@@ -32,8 +32,9 @@ the switch-over check tells the consumer to move the work to the part that exist
 without the other is a finding.
 
 ``dependabot`` compares ``.github/dependabot.yml`` with the file generated from ``dependabot`` in the configuration
-file: one ``updates`` entry per ecosystem and directory, in the file's order. Without ecosystems the repository holds
-no Dependabot configuration. The summary holds the expected content.
+file: one ``updates`` entry per ecosystem, in the file's order, with its directory or, for several, its directories
+and a group that combines each dependency across them. Without ecosystems the repository holds no Dependabot
+configuration. The summary holds the expected content.
 
 A finding fails a run of a pull request whose author is not Dependabot. On any other run, a Dependabot pull request or
 a push, a finding is a notice and the command passes. In the repository that the templates call, the repository of the
@@ -445,28 +446,38 @@ def run_register(options: argparse.Namespace) -> int:
 # --- dependabot -----------------------------------------------------------------------------------------------------
 
 DEPENDABOT_TITLE = "Generated Dependabot configuration"
-UPDATE_ENTRY = """  - package-ecosystem: {ecosystem}
-    directory: {directory}
-    schedule:
+UPDATE_SCHEDULE = """    schedule:
       interval: weekly
     cooldown:
       default-days: 7
-    groups:
+"""
+MINOR_AND_PATCH_GROUP = """    groups:
       minor-and-patch:
         patterns: ["*"]
         update-types: [minor, patch]
 """
+PER_DEPENDENCY_GROUP = """    groups:
+      per-dependency:
+        group-by: dependency-name
+        patterns: ["*"]
+"""
 
 
 def dependabot_text(ecosystems: dict[str, list[str]], shared: str) -> str:
-    """The Dependabot configuration of a consumer: one entry per ecosystem and directory, in the order of the
-    configuration file. The entry of GitHub Actions leaves the shared workflows alone, which a consumer calls at v1."""
+    """The Dependabot configuration of a consumer: one entry per ecosystem, in the order of the configuration file.
+    An ecosystem with one directory has the group of minor and patch updates, so a major update arrives on its own; an
+    ecosystem with several directories lists them in their order and has one group that combines each update of a
+    dependency across them, whatever its update type. The entry of GitHub Actions leaves the shared workflows alone,
+    which a consumer calls at v1."""
     text = "version: 2\nupdates:\n"
     for ecosystem, directories in ecosystems.items():
-        for directory in directories:
-            text += UPDATE_ENTRY.format(ecosystem=ecosystem, directory=directory)
-            if ecosystem == "github-actions":
-                text += f"    ignore:\n      - dependency-name: {shared}\n"
+        if len(directories) == 1:
+            place, group = f"    directory: {directories[0]}\n", MINOR_AND_PATCH_GROUP
+        else:
+            place, group = "    directories:\n" + "".join(f"      - {directory}\n" for directory in directories), PER_DEPENDENCY_GROUP
+        text += f"  - package-ecosystem: {ecosystem}\n" + place + UPDATE_SCHEDULE + group
+        if ecosystem == "github-actions":
+            text += f"    ignore:\n      - dependency-name: {shared}\n"
     return text
 
 

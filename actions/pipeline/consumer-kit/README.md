@@ -153,7 +153,12 @@ Repository hygiene runs in every run of the pipeline and checks the files of thi
 | Switch-over | the part that a temporary entry, or the free job under `parts.custom`, names under `waits-for` exists at `v1`, or for `<part>.<setting>` the part knows that setting there: switch the part on under `parts` or state the setting, remove the workflow with its entry, and close the request |
 | Dependabot configuration | `.github/dependabot.yml` differs from the file generated from `dependabot`, or exists while the configuration file states no ecosystems |
 
-The generated `.github/dependabot.yml` holds one `updates` entry per ecosystem and directory, in the order of the configuration file, each with a weekly schedule, a cooldown of seven days and one group for minor and patch updates. The entry of `github-actions` ignores `CrankyAnt/SharedWorkflows`, which the callers follow at `v1`. When the check fails, the job summary holds the expected content of the file.
+The generated `.github/dependabot.yml` holds one `updates` entry per ecosystem, in the order of the configuration file, each with a weekly schedule and a cooldown of seven days:
+
+- An ecosystem with one directory has one group for minor and patch updates; a major update arrives as a pull request of its own.
+- An ecosystem with several directories lists them under `directories`, in the order of the configuration file, and has one group, `per-dependency`, with `group-by: dependency-name` for every dependency and update type: each update of a package arrives as one pull request across the directories that declare it. Directories whose version constraints for the package do not agree get separate pull requests.
+
+The entry of `github-actions` ignores `CrankyAnt/SharedWorkflows`, which the callers follow at `v1`, in either shape. When the check fails, the job summary holds the expected content of the file.
 
 A finding fails a pull request. On a pull request whose author is `dependabot[bot]`, and on a push, a finding is a notice in the job summary and the check passes.
 
