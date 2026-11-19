@@ -197,9 +197,11 @@ class ConcurrentEtwAttributionTests(unittest.TestCase):
 
 
 # A pytest-shaped collection: the entry file lists tests/ and stats each other test file there, as CPython's is_dir,
-# is_file and os.stat make it on Windows, without opening it. tests/test_read.py also reads tests/test_b.py, opens
-# data/attributes.txt for its attributes only, as CPython's CreateFileW fallback of a stat does, with share mode 0 and
-# backup semantics, and opens data/read.txt for reading with share mode 0, which is a content open.
+# is_file and os.stat make it on Windows, without opening it. tests/test_read.py also opens tests/test_b.py and
+# data/attributes.txt for their attributes only, as CPython's CreateFileW fallback of a stat does, with share mode 0 and
+# backup semantics, reads tests/test_b.py, and opens data/read.txt for reading with share mode 0, which is a content
+# open. A CreateFileW open always reaches the file system as a create; CPython's GetFileInformationByName may not, as
+# on the hosted runner, where a stat of a file then leaves no line at all.
 SIBLING_STATS = """\
     import os
     from pathlib import Path
@@ -213,14 +215,19 @@ SIBLING_STATS = """\
 SIBLING_READ = SIBLING_STATS + """\
     import ctypes
     from ctypes import wintypes
-    print(Path("tests/test_b.py").read_text())
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.CreateFileW.restype = wintypes.HANDLE
     kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
-    for name, access, flags in (("attributes.txt", 0x80, 0x02000000), ("read.txt", 0x80000000, 0x80)):  # attributes, backup; read, normal
-        handle = kernel.CreateFileW(os.path.abspath(f"data/{name}"), access, 0, None, 3, flags, None)
+
+    def create(path, access, flags):
+        handle = kernel.CreateFileW(os.path.abspath(path), access, 0, None, 3, flags, None)
         assert handle != wintypes.HANDLE(-1).value, ctypes.get_last_error()
         kernel.CloseHandle(handle)
+
+    for path in ("tests/test_b.py", "data/attributes.txt"):
+        create(path, 0x80, 0x02000000)  # FILE_READ_ATTRIBUTES, backup semantics
+    print(Path("tests/test_b.py").read_text())
+    create("data/read.txt", 0x80000000, 0x80)  # GENERIC_READ, normal
     """
 
 STAT_ENTRIES = ["tests/test_stat.py", "tests/test_read.py"]
@@ -262,11 +269,13 @@ class LiveEtwStatOnlyTests(unittest.TestCase):
         self.assertIn({"path": "data/attributes.txt", "kind": "any"}, reads["existence_reads"])
 
     def test_the_consumer_writes_a_stat_as_an_attribute_only_open_and_a_content_open_as_an_open(self) -> None:
-        self.assertEqual({"openattr"}, self.operations("tests/test_c.py"))  # os.stat
+        # os.stat: an attribute-only open, or no line where the stat reaches the file system without a create.
+        self.assertLessEqual(self.operations("tests/test_c.py"), {"openattr"})
         self.assertEqual({"openattr"}, self.operations("data/attributes.txt"))  # the CreateFileW fallback of a stat
         self.assertEqual({"open"}, self.operations("data/read.txt"))  # a read open with share mode 0
         self.assertEqual({"openattr", "open"}, self.operations("tests/test_b.py"))  # a stat and a content read: both lines
-        self.assertEqual({"openattr", "opendir"}, self.operations("tests"))  # is_dir, and the listing's open of the directory
+        self.assertIn("opendir", self.operations("tests"))  # the listing's open of the directory
+        self.assertNotIn("open", self.operations("tests"))
 
 
 def recording_sessions() -> set[str]:
