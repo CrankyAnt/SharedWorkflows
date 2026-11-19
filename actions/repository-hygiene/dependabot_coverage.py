@@ -4,7 +4,10 @@
 
 The file patterns per Dependabot ecosystem live in ``package-ecosystems.json``. A file is covered when an
 ``updates`` entry for its ecosystem lists the file's directory under ``directory`` or matches it under
-``directories``. Each uncovered file is reported with its path and the missing ecosystem, and the exit code is 1.
+``directories``. A ``.csproj``, ``.fsproj`` or ``.vbproj`` is also covered when a tracked ``.sln`` or ``.slnx`` directly
+in a directory that a ``nuget`` entry covers lists it, as Dependabot's NuGet discovery expands such a solution; a
+solution there that cannot be read is an error, with exit code 2. Each uncovered file is reported with its path and
+the missing ecosystem, and the exit code is 1.
 The Dependabot configuration is read with the YAML subset such files use; an unsupported construct is reported
 as an error rather than guessed at.
 """
@@ -12,13 +15,16 @@ as an error rather than guessed at.
 from __future__ import annotations
 
 import argparse
+import codecs
 import fnmatch
 import json
+import posixpath
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from xml.etree import ElementTree
 
 ECOSYSTEMS_PATH = Path(__file__).resolve().parent / "package-ecosystems.json"
 CONFIG_PATHS = (".github/dependabot.yml", ".github/dependabot.yaml")
@@ -368,18 +374,124 @@ def entry_covers(entry: dict[str, object], ecosystem: str, directory: str) -> bo
     return False
 
 
+def directory_of(path: str) -> str:
+    parent = PurePosixPath(path).parent
+    return "/" if str(parent) == "." else "/" + parent.as_posix()
+
+
+# --- solutions: Dependabot's NuGet discovery expands a .sln or .slnx in the configured directory into its projects ---
+
+
+SOLUTION_SUFFIXES = (".sln", ".slnx")
+# The project files a solution can cover: Dependabot's project types, a subset of the nuget patterns of
+# package-ecosystems.json, which also name packages.config and Directory.Packages.props.
+PROJECT_SUFFIXES = (".csproj", ".fsproj", ".vbproj")
+SLN_HEADER = re.compile(r"^Microsoft Visual Studio Solution File, Format Version \d+\.\d+\s*$", re.MULTILINE)
+SLN_PROJECT = re.compile(r'^Project\("(?P<type>\{[^}"]*\})"\)\s*=\s*"[^"]*"\s*,\s*"(?P<path>[^"]*)"\s*,\s*"\{[^}"]*\}"\s*$')
+SLN_SOLUTION_FOLDER = "{2150E333-8FDC-42A3-9474-1A3956D46DE8}"
+
+
+def is_solution(path: str) -> bool:
+    return path.lower().endswith(SOLUTION_SUFFIXES)
+
+
+def solution_paths(path: str, text: str) -> list[str]:
+    """The project paths a solution lists, as written; raise CoverageError when the solution cannot be read."""
+    if path.lower().endswith(".slnx"):
+        try:
+            document = ElementTree.fromstring(text)
+        except ElementTree.ParseError as error:
+            raise CoverageError(f"{path}: cannot be read as a solution: {error}") from error
+        if local_name(document.tag) != "Solution":
+            raise CoverageError(f"{path}: cannot be read as a solution: the root element is {document.tag}, not Solution")
+        paths = []
+        for project in (element for element in document.iter() if local_name(element.tag) == "Project"):
+            listed = project.get("Path")
+            if not listed:
+                raise CoverageError(f"{path}: cannot be read as a solution: a Project element has no Path")
+            paths.append(listed)
+        return paths
+    if not SLN_HEADER.search(text):
+        raise CoverageError(f"{path}: cannot be read as a solution: "
+                            "the header 'Microsoft Visual Studio Solution File, Format Version' is missing")
+    paths = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.startswith("Project("):
+            continue
+        match = SLN_PROJECT.match(line)
+        if not match:
+            raise CoverageError(f"{path}: cannot be read as a solution: line {number} is not a Project line")
+        if match.group("type").upper() != SLN_SOLUTION_FOLDER:
+            paths.append(match.group("path"))
+    return paths
+
+
+def local_name(tag: str) -> str:
+    """An XML tag without its namespace."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def read_solution_text(root: Path, path: str) -> str:
+    """The solution's text: UTF-16 with its byte order mark, which Visual Studio can write, or else UTF-8."""
+    try:
+        data = (root / path).read_bytes()
+        return data.decode("utf-16") if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else data.decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError) as error:
+        raise CoverageError(f"{path}: cannot be read as a solution: {error}") from error
+
+
+def resolve_listed(solution: str, listed: str) -> str | None:
+    """A listed path, resolved against the solution's directory, or None when it leaves the repository."""
+    listed = listed.replace("\\", "/")
+    if listed.startswith("/"):
+        return None
+    parent = PurePosixPath(solution).parent.as_posix()
+    resolved = posixpath.normpath(posixpath.join(parent, listed))
+    if resolved == ".." or resolved.startswith("../"):
+        return None
+    return resolved
+
+
+def solution_covered_projects(root: Path, tracked: list[str], updates: list[dict[str, object]],
+                              excludes: list[str]) -> set[str]:
+    """The tracked project files that a tracked solution directly in a directory covered by a nuget entry lists."""
+    by_lower: dict[str, list[str]] = {}
+    for path in tracked:
+        by_lower.setdefault(path.lower(), []).append(path)
+    covered: set[str] = set()
+    for solution in tracked:
+        if not is_solution(solution) or is_excluded(solution, excludes):
+            continue
+        if not any(entry_covers(entry, "nuget", directory_of(solution)) for entry in updates):
+            continue
+        for listed in solution_paths(solution, read_solution_text(root, solution)):
+            resolved = resolve_listed(solution, listed)
+            if resolved is None:
+                continue
+            covered.update(path for path in by_lower.get(resolved.lower(), []) if path.lower().endswith(PROJECT_SUFFIXES))
+    return covered
+
+
+# --- the check over every tracked package file -------------------------------------------------------------------
+
+
 def check(root: Path, ecosystems: dict[str, list[str]], excludes: list[str] | None = None) -> list[Uncovered]:
-    """Every tracked package file without a covering Dependabot entry."""
+    """Every tracked package file without a covering Dependabot entry. A project file is also covered when a tracked
+    solution directly in a directory that a nuget entry covers lists it; excluded solutions are not read."""
     updates = read_configuration(root)
+    excludes = excludes or []
+    tracked = tracked_files(root)
+    listed = set() if updates is None else solution_covered_projects(root, tracked, updates, excludes)
     uncovered: list[Uncovered] = []
-    for path in tracked_files(root):
-        if is_excluded(path, excludes or []):
+    for path in tracked:
+        if is_excluded(path, excludes):
             continue
         ecosystem = ecosystem_of(path, ecosystems)
         if ecosystem is None:
             continue
-        parent = PurePosixPath(path).parent
-        directory = "/" if str(parent) == "." else "/" + parent.as_posix()
+        directory = directory_of(path)
+        if ecosystem == "nuget" and path in listed:
+            continue
         if updates is None or not any(entry_covers(entry, ecosystem, directory) for entry in updates):
             uncovered.append(Uncovered(path, ecosystem, directory))
     return uncovered

@@ -190,5 +190,182 @@ class CoverageTests(unittest.TestCase):
             "dotnet-sdk": ["global.json"],
         }, mapping)
 
+
+SLN_PREAMBLE = "﻿\nMicrosoft Visual Studio Solution File, Format Version 12.00\n# Visual Studio Version 17\n"
+CSHARP = "{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}"
+SOLUTION_FOLDER = "{2150E333-8FDC-42A3-9474-1A3956D46DE8}"
+
+
+def sln(*projects: tuple[str, str, str]) -> str:
+    """A .sln with one ``Project`` line per (type GUID, name, path)."""
+    lines = "".join(f'Project("{kind}") = "{name}", "{path}", "{{0000000{index}-0000-0000-0000-000000000000}}"\nEndProject\n'
+                    for index, (kind, name, path) in enumerate(projects))
+    return SLN_PREAMBLE + lines + "Global\nEndGlobal\n"
+
+
+def slnx(body: str) -> str:
+    return f"<Solution>\n{body}</Solution>\n"
+
+
+class SolutionCoverageTests(unittest.TestCase):
+    """A project file that a solution directly in a covered nuget directory lists counts as covered (issue #161)."""
+
+    def setUp(self) -> None:
+        self.temporary = temporary_support.Directory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.ecosystems = coverage.load_ecosystems()
+
+    def check(self, name: str, files: dict[str, str], excludes: list[str] | None = None) -> list[str]:
+        repo = repository(self.root / name, files)
+        return [item.path for item in coverage.check(repo, self.ecosystems, excludes)]
+
+    def run_cli(self, name: str, files: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        repo = repository(self.root / name, files)
+        return subprocess.run([sys.executable, str(SCRIPT), "--root", str(repo)], capture_output=True, text=True, check=False)
+
+    def test_a_slnx_in_a_covered_directory_covers_the_projects_it_lists_in_other_directories(self) -> None:
+        files = {
+            "App.slnx": slnx('  <Project Path="src/App/App.csproj" />\n  <Project Path="tests/App.Tests/App.Tests.fsproj" />\n'),
+            "Directory.Packages.props": "<Project />\n",
+            "src/App/App.csproj": "<Project />\n",
+            "tests/App.Tests/App.Tests.fsproj": "<Project />\n",
+            "tools/Unlisted/Unlisted.vbproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", "/")),
+        }
+        self.assertEqual(["tools/Unlisted/Unlisted.vbproj"], self.check("slnx", files))
+        result = self.run_cli("slnx-cli", {path: text for path, text in files.items() if not path.startswith("tools/")})
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_a_sln_lists_paths_with_backslashes_and_another_case(self) -> None:
+        files = {
+            "build/App.sln": sln((CSHARP, "App", "..\\SRC\\app\\App.CSPROJ"), (SOLUTION_FOLDER, "src", "src"), (CSHARP, "Lib", "Lib\\Lib.csproj")),
+            "src/App/App.csproj": "<Project />\n",
+            "build/Lib/Lib.csproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", "/build")),
+        }
+        self.assertEqual([], self.check("sln", files))
+
+    def test_a_project_inside_a_slnx_folder_element_is_covered(self) -> None:
+        files = {
+            "App.slnx": slnx('  <Folder Name="/src/">\n    <Folder Name="/src/nested/">\n      <Project Path="src\\Deep\\Deep.csproj" />\n'
+                             '    </Folder>\n    <File Path="README.md" />\n  </Folder>\n'),
+            "src/Deep/Deep.csproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", "/")),
+        }
+        self.assertEqual([], self.check("folder", files))
+
+    def test_a_solution_in_a_directory_covered_only_by_a_directories_glob_covers_its_projects(self) -> None:
+        files = {
+            "apps/Web/Web.slnx": slnx('  <Project Path="../../libs/Core/Core.csproj" />\n'),
+            "apps/Web/Web.csproj": "<Project />\n",
+            "libs/Core/Core.csproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", directories=["/apps/*"])),
+        }
+        self.assertEqual([], self.check("glob", files))
+
+    def test_a_listed_path_outside_the_repository_or_without_a_tracked_file_covers_nothing_and_fails_nothing(self) -> None:
+        files = {
+            "App.slnx": slnx('  <Project Path="../Outside/Outside.csproj" />\n  <Project Path="src/Missing/Missing.csproj" />\n'
+                             '  <Project Path="/abs/Abs.csproj" />\n  <Project Path="src/Build/build.proj" />\n  <Project Path="src/Other/Other.esproj" />\n'),
+            "src/Build/build.proj": "<Project />\n",
+            "src/Other/Other.esproj": "<Project />\n",
+            "src/Other/Other.csproj": "<Project />\n",
+            "src/Untracked/Untracked.csproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", "/")),
+        }
+        repo = repository(self.root / "outside", files)
+        git(repo, "rm", "-q", "--cached", "src/Untracked/Untracked.csproj")
+        (repo / "src" / "Missing").mkdir(parents=True)
+        uncovered = coverage.check(repo, self.ecosystems)
+        self.assertEqual(["src/Other/Other.csproj"], [item.path for item in uncovered])
+        result = subprocess.run([sys.executable, str(SCRIPT), "--root", str(repo)], capture_output=True, text=True, check=False)
+        self.assertEqual(1, result.returncode)
+        self.assertIn("::error file=src/Other/Other.csproj::src/Other/Other.csproj has no Dependabot entry for ecosystem nuget that covers directory /src/Other", result.stdout)
+        self.assertEqual(1, result.stdout.count("::error"), result.stdout)
+
+    def test_a_solution_in_a_subdirectory_or_an_uncovered_directory_covers_nothing(self) -> None:
+        files = {
+            "src/App.slnx": slnx('  <Project Path="App/App.csproj" />\n'),
+            "other/Other.sln": sln((CSHARP, "Lib", "..\\lib\\Lib.csproj")),
+            "src/App/App.csproj": "<Project />\n",
+            "lib/Lib.csproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", "/")),
+        }
+        result = self.run_cli("nested", files)
+        self.assertEqual(1, result.returncode)
+        self.assertIn("::error file=lib/Lib.csproj::lib/Lib.csproj has no Dependabot entry for ecosystem nuget that covers directory /lib", result.stdout)
+        self.assertIn("::error file=src/App/App.csproj::src/App/App.csproj has no Dependabot entry for ecosystem nuget that covers directory /src/App", result.stdout)
+        self.assertEqual(2, result.stdout.count("::error"), result.stdout)
+
+    def test_a_project_reached_only_through_a_project_reference_is_not_covered(self) -> None:
+        files = {
+            "App.slnx": slnx('  <Project Path="src/App/App.csproj" />\n'),
+            "src/App/App.csproj": '<Project>\n  <ItemGroup>\n    <ProjectReference Include="..\\Lib\\Lib.csproj" />\n  </ItemGroup>\n</Project>\n',
+            "src/Lib/Lib.csproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", "/")),
+        }
+        self.assertEqual(["src/Lib/Lib.csproj"], self.check("reference", files))
+
+    def test_a_solution_in_an_uncovered_directory_fails_nothing_of_its_own_even_when_unreadable(self) -> None:
+        files = {
+            "elsewhere/Broken.slnx": "<Solution>\n",
+            "elsewhere/Broken.sln": "not a solution\n",
+            "package.json": "{}\n",
+            ".github/dependabot.yml": config(entry("npm", "/"), entry("nuget", "/src")),
+        }
+        result = self.run_cli("uncovered-solution", files)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_an_unreadable_solution_in_a_covered_directory_exits_2_and_names_the_file(self) -> None:
+        for name, content in [
+            ("Broken.slnx", "<Solution>\n  <Project Path=\"a.csproj\">\n</Solution>\n"),
+            ("Wrong.slnx", "<Project />\n"),
+            ("NoPath.slnx", slnx("  <Project />\n")),
+            ("Header.sln", "Project(\"x\") = \"a\", \"a.csproj\", \"{0}\"\n"),
+            ("Line.sln", SLN_PREAMBLE + "Project(\"{X}\") = \"a\"\nEndProject\n"),
+        ]:
+            with self.subTest(solution=name):
+                result = self.run_cli(f"broken-{name}", {name: content, "App.csproj": "<Project />\n", ".github/dependabot.yml": config(entry("nuget", "/"))})
+                self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+                self.assertIn(f"::error::{name}: ", result.stderr)
+        repo = repository(self.root / "broken-bytes", {"App.csproj": "<Project />\n", ".github/dependabot.yml": config(entry("nuget", "/"))})
+        (repo / "Bytes.sln").write_bytes(b"\xff\x00 not text")
+        git(repo, "add", "-A")
+        result = subprocess.run([sys.executable, str(SCRIPT), "--root", str(repo)], capture_output=True, text=True, check=False)
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("::error::Bytes.sln: cannot be read as a solution", result.stderr)
+
+    def test_a_utf16_sln_and_a_slnx_with_a_namespace_are_read(self) -> None:
+        repo = repository(self.root / "encodings", {
+            "src/App/App.csproj": "<Project />\n",
+            "src/Lib/Lib.csproj": "<Project />\n",
+            "Tools.slnx": '<Solution xmlns="urn:example">\n  <Folder Name="/src/">\n    <Project Path="src/Lib/Lib.csproj" />\n  </Folder>\n</Solution>\n',
+            ".github/dependabot.yml": config(entry("nuget", "/")),
+        })
+        (repo / "App.sln").write_bytes(sln((CSHARP, "App", "src\\App\\App.csproj")).lstrip("﻿").encode("utf-16"))
+        git(repo, "add", "-A")
+        self.assertEqual([], coverage.check(repo, self.ecosystems))
+
+    def test_package_files_other_than_project_files_keep_the_directory_rule(self) -> None:
+        files = {
+            "App.slnx": slnx('  <Project Path="src/App/App.csproj" />\n  <Project Path="src/App/packages.config" />\n'),
+            "src/App/App.csproj": "<Project />\n",
+            "src/App/packages.config": "<packages />\n",
+            "src/App/Directory.Packages.props": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", "/")),
+        }
+        self.assertEqual(["src/App/Directory.Packages.props", "src/App/packages.config"], self.check("props", files))
+
+    def test_an_excluded_solution_is_not_read(self) -> None:
+        files = {
+            "fixtures/Broken.slnx": "<Solution>\n",
+            "fixtures/App.slnx": slnx('  <Project Path="../src/App.csproj" />\n'),
+            "src/App.csproj": "<Project />\n",
+            ".github/dependabot.yml": config(entry("nuget", directories=["/fixtures"])),
+        }
+        self.assertEqual(["src/App.csproj"], self.check("excluded", files, ["fixtures"]))
+
+
 if __name__ == "__main__":
     unittest.main()
