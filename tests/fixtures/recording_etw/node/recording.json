@@ -2,7 +2,7 @@
   "mode": "full",
   "trace_set": "etw",
   "roots": [
-    "D:\\a\\_temp\\recording-74ohu6us\\repo"
+    "D:\\a\\_temp\\recording-br3ai2d7\\repo"
   ],
   "git_directories": [],
   "devices": {
@@ -10,5 +10,6 @@
     "\\Device\\HarddiskVolume4": "D:"
   },
   "events": "events.tsv",
-  "consumer": 1776
+  "consumer": 4824,
+  "consumer_started": 134395862784481203
 }

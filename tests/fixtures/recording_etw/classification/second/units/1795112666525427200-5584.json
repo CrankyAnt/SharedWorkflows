@@ -1,0 +1,24 @@
+{
+  "unit": "1795112666525427200-5584",
+  "kind": "entry",
+  "name": "tests/ignored.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-y1iv5ugd\\python\\Scripts\\python.EXE",
+    "tests/ignored.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.192,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795112666525427200-5584",
+  "temporary": "D:\\a\\_temp\\recording-y1iv5ugd\\recording\\work\\1795112666525427200-5584\\tmp",
+  "cache": "D:\\a\\_temp\\recording-y1iv5ugd\\recording\\work\\1795112666525427200-5584\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-y1iv5ugd\\repo",
+  "pid": 8952,
+  "launcher": 5584,
+  "recorder": [
+    "etw"
+  ]
+}

@@ -2,16 +2,17 @@
   "mode": "full",
   "trace_set": "etw",
   "roots": [
-    "D:\\a\\_temp\\recording-jhcowr9f\\linked"
+    "D:\\a\\_temp\\recording-m6u8jbwr\\linked"
   ],
   "git_directories": [
-    "D:\\a\\_temp\\recording-jhcowr9f\\repo\\.git\\worktrees\\linked",
-    "D:\\a\\_temp\\recording-jhcowr9f\\repo\\.git"
+    "D:\\a\\_temp\\recording-m6u8jbwr\\repo\\.git\\worktrees\\linked",
+    "D:\\a\\_temp\\recording-m6u8jbwr\\repo\\.git"
   ],
   "devices": {
     "\\Device\\HarddiskVolume3": "C:",
     "\\Device\\HarddiskVolume4": "D:"
   },
   "events": "events.tsv",
-  "consumer": 9156
+  "consumer": 4912,
+  "consumer_started": 134395862763472347
 }

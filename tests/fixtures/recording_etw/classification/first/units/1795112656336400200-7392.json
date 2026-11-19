@@ -1,0 +1,27 @@
+{
+  "unit": "1795112656336400200-7392",
+  "kind": "entry",
+  "name": "tests/search.ps1",
+  "suite": null,
+  "command": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.EXE",
+    "-NoProfile",
+    "-NonInteractive",
+    "-File",
+    "tests/search.ps1"
+  ],
+  "exit_code": 0,
+  "seconds": 0.337,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795112656336400200-7392",
+  "temporary": "D:\\a\\_temp\\recording-s5s5kk5r\\recording\\work\\1795112656336400200-7392\\tmp",
+  "cache": "D:\\a\\_temp\\recording-s5s5kk5r\\recording\\work\\1795112656336400200-7392\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-s5s5kk5r\\repo",
+  "pid": 6172,
+  "launcher": 7392,
+  "recorder": [
+    "etw"
+  ]
+}
