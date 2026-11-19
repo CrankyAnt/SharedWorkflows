@@ -236,6 +236,7 @@
         "tests/test_ci_policy_auto_merge_caller.py",
         "tests/test_ci_policy_automation.py",
         "tests/test_ci_policy_catalogue.py",
+        "tests/test_ci_policy_entry_files.py",
         "tests/test_ci_policy_etw_consumer.py",
         "tests/test_ci_policy_fixed_callers.py",
         "tests/test_ci_policy_full_recording.py",
@@ -360,6 +361,14 @@
           "docs/agents/issue-tracker.md",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_catalogue.py"
+        ],
+        "tests/test_ci_policy_entry_files.py": [
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_selection.py",
+          "tests/ci_policy_support.py",
+          "tests/suites.json",
+          "tests/test_ci_policy_entry_files.py"
         ],
         "tests/test_ci_policy_etw_consumer.py": [
           ".github/workflows/apply-additions.yml",
@@ -979,6 +988,10 @@
         "tests/fixtures/python_tests",
         "tests/fixtures/python_tests/tests",
         "tests/setups/**",
+        "tests/test_*.py",
+        "tests/test_*.py/**",
+        "tests/test_ci_policy_*.py",
+        "tests/test_ci_policy_*.py/**",
         "tests/test_ci_policy_action_pins.py/**",
         "tests/test_ci_policy_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
@@ -1008,6 +1021,8 @@
         "tests/test_ci_policy_sync.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
         "tests/test_ci_policy_zizmor.py/**",
+        "tests/test_consumer_kit_*.py",
+        "tests/test_consumer_kit_*.py/**",
         "tests/test_consumer_kit_auto_merge.py/**",
         "tests/test_consumer_kit_automation_additions.py/**",
         "tests/test_consumer_kit_automation_full_recording.py/**",
@@ -1023,6 +1038,8 @@
         "tests/test_consumer_kit_python_tests.py/**",
         "tests/test_consumer_kit_templates.py/**",
         "tests/test_consumer_kit_validation_workflow.py/**",
+        "tests/test_dependabot_auto_merge*.py",
+        "tests/test_dependabot_auto_merge*.py/**",
         "tests/test_dependabot_auto_merge.py/**",
         "tests/test_dependabot_auto_merge_action.py/**",
         "tests/test_dependabot_auto_merge_caller.py/**",
@@ -1030,6 +1047,8 @@
         "tests/test_dependabot_auto_merge_workflow_invocation.py/**",
         "tests/test_dotnet_test.py/**",
         "tests/test_etw_consumer_build.py/**",
+        "tests/test_hygiene_*.py",
+        "tests/test_hygiene_*.py/**",
         "tests/test_hygiene_actionlint.py/**",
         "tests/test_hygiene_changes.py/**",
         "tests/test_hygiene_dependabot_coverage.py/**",
@@ -1047,6 +1066,8 @@
         "tests/test_hygiene_zizmor_configuration.py/**",
         "tests/test_hygiene_zizmor_surface.py/**",
         "tests/test_node_test.py/**",
+        "tests/test_pipeline_*.py",
+        "tests/test_pipeline_*.py/**",
         "tests/test_pipeline_automation_invocations.py/**",
         "tests/test_pipeline_callers.py/**",
         "tests/test_pipeline_custom.py/**",
@@ -1060,6 +1081,8 @@
         "tests/test_pipeline_steps_shell.py/**",
         "tests/test_pipeline_verdict.py/**",
         "tests/test_pipeline_workflow.py/**",
+        "tests/test_publication_*.py",
+        "tests/test_publication_*.py/**",
         "tests/test_publication_author.py/**",
         "tests/test_publication_branch.py/**",
         "tests/test_publication_checks.py/**",
@@ -1071,6 +1094,8 @@
         "tests/test_publication_titles.py/**",
         "tests/test_python_floor.py/**",
         "tests/test_python_language_step.py/**",
+        "tests/test_python_tests*.py",
+        "tests/test_python_tests*.py/**",
         "tests/test_python_tests.py/**",
         "tests/test_python_tests_workflow.py/**",
         "tests/test_setup_ci_apply_additions.py/**",
@@ -1087,6 +1112,8 @@
         "tests/test_setup_ci_templates.py/**",
         "tests/test_setup_ci_validation_workflow.py/**",
         "tests/test_suite_jobs_pinned_tools.py/**",
+        "tests/test_suite_selection*.py",
+        "tests/test_suite_selection*.py/**",
         "tests/test_suite_selection.py/**",
         "tests/test_suite_selection_caller_entries.py/**",
         "tests/test_suite_selection_ci_step_precision.py/**",
@@ -1106,6 +1133,8 @@
         "tests/test_suite_selection_verdict_workflow.py/**",
         "tests/test_suite_selection_workflow.py/**",
         "tests/test_suite_selection_workflow_reader.py/**",
+        "tests/test_sync_*.py",
+        "tests/test_sync_*.py/**",
         "tests/test_sync_adoption.py/**",
         "tests/test_sync_files.py/**",
         "tests/test_sync_settings.py/**",
@@ -1164,6 +1193,10 @@
           "actions/suite-selection/**",
           "actions/suite-selection/consumer-kit/**",
           "actions/sync/**"
+        ],
+        "tests/test_ci_policy_entry_files.py": [
+          "tests/test_*.py",
+          "tests/test_*.py/**"
         ],
         "tests/test_ci_policy_etw_consumer.py": [
           ".github/workflows"
@@ -1262,6 +1295,8 @@
           "actions/recording/etw-consumer/global.json/**",
           "actions/repository-hygiene/pins.json/**",
           "tests/setups/**",
+          "tests/test_ci_policy_*.py",
+          "tests/test_ci_policy_*.py/**",
           "tests/test_ci_policy_action_pins.py/**",
           "tests/test_ci_policy_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
@@ -1291,6 +1326,8 @@
           "tests/test_ci_policy_sync.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
           "tests/test_ci_policy_zizmor.py/**",
+          "tests/test_consumer_kit_*.py",
+          "tests/test_consumer_kit_*.py/**",
           "tests/test_consumer_kit_auto_merge.py/**",
           "tests/test_consumer_kit_automation_additions.py/**",
           "tests/test_consumer_kit_automation_full_recording.py/**",
@@ -1306,6 +1343,8 @@
           "tests/test_consumer_kit_python_tests.py/**",
           "tests/test_consumer_kit_templates.py/**",
           "tests/test_consumer_kit_validation_workflow.py/**",
+          "tests/test_dependabot_auto_merge*.py",
+          "tests/test_dependabot_auto_merge*.py/**",
           "tests/test_dependabot_auto_merge.py/**",
           "tests/test_dependabot_auto_merge_action.py/**",
           "tests/test_dependabot_auto_merge_caller.py/**",
@@ -1313,6 +1352,8 @@
           "tests/test_dependabot_auto_merge_workflow_invocation.py/**",
           "tests/test_dotnet_test.py/**",
           "tests/test_etw_consumer_build.py/**",
+          "tests/test_hygiene_*.py",
+          "tests/test_hygiene_*.py/**",
           "tests/test_hygiene_actionlint.py/**",
           "tests/test_hygiene_changes.py/**",
           "tests/test_hygiene_dependabot_coverage.py/**",
@@ -1330,6 +1371,8 @@
           "tests/test_hygiene_zizmor_configuration.py/**",
           "tests/test_hygiene_zizmor_surface.py/**",
           "tests/test_node_test.py/**",
+          "tests/test_pipeline_*.py",
+          "tests/test_pipeline_*.py/**",
           "tests/test_pipeline_automation_invocations.py/**",
           "tests/test_pipeline_callers.py/**",
           "tests/test_pipeline_custom.py/**",
@@ -1343,6 +1386,8 @@
           "tests/test_pipeline_steps_shell.py/**",
           "tests/test_pipeline_verdict.py/**",
           "tests/test_pipeline_workflow.py/**",
+          "tests/test_publication_*.py",
+          "tests/test_publication_*.py/**",
           "tests/test_publication_author.py/**",
           "tests/test_publication_branch.py/**",
           "tests/test_publication_checks.py/**",
@@ -1354,6 +1399,8 @@
           "tests/test_publication_titles.py/**",
           "tests/test_python_floor.py/**",
           "tests/test_python_language_step.py/**",
+          "tests/test_python_tests*.py",
+          "tests/test_python_tests*.py/**",
           "tests/test_python_tests.py/**",
           "tests/test_python_tests_workflow.py/**",
           "tests/test_setup_ci_apply_additions.py/**",
@@ -1370,6 +1417,8 @@
           "tests/test_setup_ci_templates.py/**",
           "tests/test_setup_ci_validation_workflow.py/**",
           "tests/test_suite_jobs_pinned_tools.py/**",
+          "tests/test_suite_selection*.py",
+          "tests/test_suite_selection*.py/**",
           "tests/test_suite_selection.py/**",
           "tests/test_suite_selection_caller_entries.py/**",
           "tests/test_suite_selection_ci_step_precision.py/**",
@@ -1389,6 +1438,8 @@
           "tests/test_suite_selection_verdict_workflow.py/**",
           "tests/test_suite_selection_workflow.py/**",
           "tests/test_suite_selection_workflow_reader.py/**",
+          "tests/test_sync_*.py",
+          "tests/test_sync_*.py/**",
           "tests/test_sync_adoption.py/**",
           "tests/test_sync_files.py/**",
           "tests/test_sync_settings.py/**",
@@ -1997,6 +2048,22 @@
         },
         {
           "path": "tests/test_ci_policy_catalogue.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_entry_files",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_entry_files.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_entry_files.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_entry_files.so",
           "kind": "any"
         },
         {
@@ -3364,6 +3431,116 @@
           },
           {
             "path": "tests/test_ci_policy_catalogue.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_ci_policy_entry_files.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_entry_files",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_entry_files.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_entry_files.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_entry_files.so",
             "kind": "any"
           }
         ],
@@ -5631,6 +5808,11 @@
         ],
         "tests/test_ci_policy_catalogue.py": [
           ".",
+          "tests"
+        ],
+        "tests/test_ci_policy_entry_files.py": [
+          ".",
+          "actions/suite-selection",
           "tests"
         ],
         "tests/test_ci_policy_etw_consumer.py": [
@@ -10874,6 +11056,8 @@
         "tests/setups/pinned-tool.sh/**",
         "tests/setups/python.py/**",
         "tests/suites.json/**",
+        "tests/test_ci_policy_*.py",
+        "tests/test_ci_policy_*.py/**",
         "tests/test_ci_policy_action_pins.py/**",
         "tests/test_ci_policy_additions.py/**",
         "tests/test_ci_policy_auto_merge_caller.py/**",
@@ -10903,6 +11087,8 @@
         "tests/test_ci_policy_sync.py/**",
         "tests/test_ci_policy_tool_pins.py/**",
         "tests/test_ci_policy_zizmor.py/**",
+        "tests/test_consumer_kit_*.py",
+        "tests/test_consumer_kit_*.py/**",
         "tests/test_consumer_kit_auto_merge.py/**",
         "tests/test_consumer_kit_automation_additions.py/**",
         "tests/test_consumer_kit_automation_full_recording.py/**",
@@ -10918,6 +11104,8 @@
         "tests/test_consumer_kit_python_tests.py/**",
         "tests/test_consumer_kit_templates.py/**",
         "tests/test_consumer_kit_validation_workflow.py/**",
+        "tests/test_dependabot_auto_merge*.py",
+        "tests/test_dependabot_auto_merge*.py/**",
         "tests/test_dependabot_auto_merge.py/**",
         "tests/test_dependabot_auto_merge_action.py/**",
         "tests/test_dependabot_auto_merge_caller.py/**",
@@ -10925,6 +11113,8 @@
         "tests/test_dependabot_auto_merge_workflow_invocation.py/**",
         "tests/test_dotnet_test.py/**",
         "tests/test_etw_consumer_build.py/**",
+        "tests/test_hygiene_*.py",
+        "tests/test_hygiene_*.py/**",
         "tests/test_hygiene_actionlint.py/**",
         "tests/test_hygiene_changes.py/**",
         "tests/test_hygiene_dependabot_coverage.py/**",
@@ -10942,6 +11132,8 @@
         "tests/test_hygiene_zizmor_configuration.py/**",
         "tests/test_hygiene_zizmor_surface.py/**",
         "tests/test_node_test.py/**",
+        "tests/test_pipeline_*.py",
+        "tests/test_pipeline_*.py/**",
         "tests/test_pipeline_automation_invocations.py/**",
         "tests/test_pipeline_callers.py/**",
         "tests/test_pipeline_custom.py/**",
@@ -10955,6 +11147,8 @@
         "tests/test_pipeline_steps_shell.py/**",
         "tests/test_pipeline_verdict.py/**",
         "tests/test_pipeline_workflow.py/**",
+        "tests/test_publication_*.py",
+        "tests/test_publication_*.py/**",
         "tests/test_publication_author.py/**",
         "tests/test_publication_branch.py/**",
         "tests/test_publication_checks.py/**",
@@ -10966,6 +11160,8 @@
         "tests/test_publication_titles.py/**",
         "tests/test_python_floor.py/**",
         "tests/test_python_language_step.py/**",
+        "tests/test_python_tests*.py",
+        "tests/test_python_tests*.py/**",
         "tests/test_python_tests.py/**",
         "tests/test_python_tests_workflow.py/**",
         "tests/test_setup_ci_apply_additions.py/**",
@@ -10982,6 +11178,8 @@
         "tests/test_setup_ci_templates.py/**",
         "tests/test_setup_ci_validation_workflow.py/**",
         "tests/test_suite_jobs_pinned_tools.py/**",
+        "tests/test_suite_selection*.py",
+        "tests/test_suite_selection*.py/**",
         "tests/test_suite_selection.py/**",
         "tests/test_suite_selection_caller_entries.py/**",
         "tests/test_suite_selection_ci_step_precision.py/**",
@@ -11001,6 +11199,8 @@
         "tests/test_suite_selection_verdict_workflow.py/**",
         "tests/test_suite_selection_workflow.py/**",
         "tests/test_suite_selection_workflow_reader.py/**",
+        "tests/test_sync_*.py",
+        "tests/test_sync_*.py/**",
         "tests/test_sync_adoption.py/**",
         "tests/test_sync_files.py/**",
         "tests/test_sync_settings.py/**",
@@ -11272,6 +11472,8 @@
           "tests/setups/pinned-tool.sh/**",
           "tests/setups/python.py/**",
           "tests/suites.json/**",
+          "tests/test_ci_policy_*.py",
+          "tests/test_ci_policy_*.py/**",
           "tests/test_ci_policy_action_pins.py/**",
           "tests/test_ci_policy_additions.py/**",
           "tests/test_ci_policy_auto_merge_caller.py/**",
@@ -11301,6 +11503,8 @@
           "tests/test_ci_policy_sync.py/**",
           "tests/test_ci_policy_tool_pins.py/**",
           "tests/test_ci_policy_zizmor.py/**",
+          "tests/test_consumer_kit_*.py",
+          "tests/test_consumer_kit_*.py/**",
           "tests/test_consumer_kit_auto_merge.py/**",
           "tests/test_consumer_kit_automation_additions.py/**",
           "tests/test_consumer_kit_automation_full_recording.py/**",
@@ -11316,6 +11520,8 @@
           "tests/test_consumer_kit_python_tests.py/**",
           "tests/test_consumer_kit_templates.py/**",
           "tests/test_consumer_kit_validation_workflow.py/**",
+          "tests/test_dependabot_auto_merge*.py",
+          "tests/test_dependabot_auto_merge*.py/**",
           "tests/test_dependabot_auto_merge.py/**",
           "tests/test_dependabot_auto_merge_action.py/**",
           "tests/test_dependabot_auto_merge_caller.py/**",
@@ -11323,6 +11529,8 @@
           "tests/test_dependabot_auto_merge_workflow_invocation.py/**",
           "tests/test_dotnet_test.py/**",
           "tests/test_etw_consumer_build.py/**",
+          "tests/test_hygiene_*.py",
+          "tests/test_hygiene_*.py/**",
           "tests/test_hygiene_actionlint.py/**",
           "tests/test_hygiene_changes.py/**",
           "tests/test_hygiene_dependabot_coverage.py/**",
@@ -11340,6 +11548,8 @@
           "tests/test_hygiene_zizmor_configuration.py/**",
           "tests/test_hygiene_zizmor_surface.py/**",
           "tests/test_node_test.py/**",
+          "tests/test_pipeline_*.py",
+          "tests/test_pipeline_*.py/**",
           "tests/test_pipeline_automation_invocations.py/**",
           "tests/test_pipeline_callers.py/**",
           "tests/test_pipeline_custom.py/**",
@@ -11353,6 +11563,8 @@
           "tests/test_pipeline_steps_shell.py/**",
           "tests/test_pipeline_verdict.py/**",
           "tests/test_pipeline_workflow.py/**",
+          "tests/test_publication_*.py",
+          "tests/test_publication_*.py/**",
           "tests/test_publication_author.py/**",
           "tests/test_publication_branch.py/**",
           "tests/test_publication_checks.py/**",
@@ -11364,6 +11576,8 @@
           "tests/test_publication_titles.py/**",
           "tests/test_python_floor.py/**",
           "tests/test_python_language_step.py/**",
+          "tests/test_python_tests*.py",
+          "tests/test_python_tests*.py/**",
           "tests/test_python_tests.py/**",
           "tests/test_python_tests_workflow.py/**",
           "tests/test_setup_ci_apply_additions.py/**",
@@ -11380,6 +11594,8 @@
           "tests/test_setup_ci_templates.py/**",
           "tests/test_setup_ci_validation_workflow.py/**",
           "tests/test_suite_jobs_pinned_tools.py/**",
+          "tests/test_suite_selection*.py",
+          "tests/test_suite_selection*.py/**",
           "tests/test_suite_selection.py/**",
           "tests/test_suite_selection_caller_entries.py/**",
           "tests/test_suite_selection_ci_step_precision.py/**",
@@ -11399,6 +11615,8 @@
           "tests/test_suite_selection_verdict_workflow.py/**",
           "tests/test_suite_selection_workflow.py/**",
           "tests/test_suite_selection_workflow_reader.py/**",
+          "tests/test_sync_*.py",
+          "tests/test_sync_*.py/**",
           "tests/test_sync_adoption.py/**",
           "tests/test_sync_files.py/**",
           "tests/test_sync_settings.py/**",
