@@ -268,7 +268,7 @@ _Avoid_: Adjusted duration, normalised time
 
 **Entry file**:
 A file that a suite starts directly, such as a test module, a script or a test project, whose reads a recording keeps apart from those of the suite's other entry files.
-_Avoid_: Entry, test file
+_Avoid_: Entry
 
 **Suite selected per entry file**:
 A suite whose entry files are each selected on their own reads, so that a run starts only the entry files a change reaches.
