@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.publication_commitlint import CommitlintMixin
 from tests.publication_fixtures import PublicationFixture, REPOSITORY_ROOT
 
@@ -13,7 +13,7 @@ RESOURCE_DIRECTORY = REPOSITORY_ROOT / "actions" / "publication-checks"
 class PublicationCommitlintTests(CommitlintMixin, PublicationFixture):
     def test_commitlint_accepts_and_rejects_representative_titles(self) -> None:
         self._prepare_toolchain()
-        with tempfile.TemporaryDirectory() as temporary_directory:
+        with temporary_support.Directory() as temporary_directory:
             temporary_path = Path(temporary_directory)
             configuration = self.tool_directory / "commitlint.config.cjs"
             configuration.write_bytes((RESOURCE_DIRECTORY / "commitlint.config.cjs").read_bytes())

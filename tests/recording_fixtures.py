@@ -4,17 +4,19 @@ recordings that the stand-in ``strace`` on a fixture's ``PATH`` and the classifi
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
+from unittest import mock
 
+from tests import temporary_support
 from tests.strace_stand_in import BASE, detokenize
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,7 +88,7 @@ def etw_session_denial(dotnet: str) -> str | None:
     """None when the ETW consumer on ``dotnet`` starts and stops its session, with its kernel Process flag and its
     providers; otherwise the reason it did not, naming each denied part and the setup."""
     session = f"shared-ci-etw-probe-{os.getpid()}"
-    with tempfile.TemporaryDirectory(prefix="etw-probe-") as directory:
+    with temporary_support.Directory(prefix="etw-probe-") as directory:
         work = Path(directory)
         # The stop file exists before the consumer starts, so its session stops as soon as it runs.
         (work / "stop").touch()
@@ -162,6 +164,7 @@ def copy_strace_recording(source: Path, fixture: RecordingFixture) -> None:
         target.write_text(detokenize(path.read_text(encoding="utf-8"), {BASE: str(fixture.base)}), encoding="utf-8", newline="\n")
 
 
+@temporary_support.measured("lookup-python")
 def python_with_lookup_report(location: Path, provide) -> Path:
     """Create a virtual environment at ``location`` and give it the lookup report through ``provide``, which runs the
     recording step's ``provide`` of the setup ``python`` with the options it gets; return the environment's interpreter."""
@@ -171,6 +174,28 @@ def python_with_lookup_report(location: Path, provide) -> Path:
     provided = provide("--path", str(tools), "--python", str(interpreter))
     assert provided.returncode == 0, provided.stdout + provided.stderr
     return interpreter
+
+
+# Runs the recording step, named by its first argument, with an ``os.unlink`` that fails for each file named ``name``.
+FAILING_REMOVAL = """\
+import errno
+import os
+import runpy
+import sys
+
+real = os.unlink
+
+
+def unlink(path, *arguments, **keywords):
+    if os.path.basename(os.fspath(path)) == {name!r}:
+        raise OSError(errno.EIO, "input/output error (injected)", os.fspath(path))
+    return real(path, *arguments, **keywords)
+
+
+os.unlink = unlink
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
 
 
 def entry_command(entry: str, python: str = "python3") -> tuple[str, ...]:
@@ -185,11 +210,12 @@ def suite(name: str, entries: list[str], **fields) -> dict:
 class RecordingFixture:
     """A Git repository with a suite list in a temporary directory, and the recording's output directory beside it."""
 
+    @temporary_support.measured("recording-fixture")
     def __init__(self, cleanup, files: dict[str, str], suites: list[dict], *, commit: bool = True, stand_in: bool = True) -> None:
         """``cleanup`` registers the removal of the fixture: a case's addCleanup or a class's addClassCleanup. Off Windows,
         ``stand_in`` puts the stand-in ``strace`` first on the ``PATH`` of the recording's commands."""
-        self.base = Path(tempfile.mkdtemp(prefix="recording-"))
-        cleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.wrapper: list[str] = []
+        self.base = temporary_support.make_directory(cleanup, prefix="recording-")
         self.root = self.base / "repo"
         self.output = self.base / "recording"
         self.summary = self.base / "summary.md"
@@ -248,7 +274,14 @@ class RecordingFixture:
                               errors="replace", env=self.environment(path), check=False)
 
     def command(self, *arguments: str) -> list[str]:
-        return [sys.executable, str(RECORDING), *arguments]
+        return [sys.executable, *self.wrapper, str(RECORDING), *arguments]
+
+    def fail_removal_of(self, name: str) -> None:
+        """Let each later command of the recording step fail to remove any file named ``name``, as a removal that another
+        process blocks does."""
+        wrapper = self.base / "failing-removal.py"
+        wrapper.write_text(FAILING_REMOVAL.format(name=name), encoding="utf-8")
+        self.wrapper = [str(wrapper)]
 
     def environment(self, path: str | None = None) -> dict[str, str]:
         """The environment of the recording's commands, with ``path`` as ``PATH`` (the current one by default)."""
@@ -318,10 +351,110 @@ class StoredFixture:
     def fixture(self, cleanup, suites: list[dict], files: dict[str, str] | None = None, *, stand_in: bool = True) -> RecordingFixture:
         """The fixture repository with ``files`` beside the stored ones, committed, whose stand-in replays the commands."""
         fixture = RecordingFixture(cleanup, {**self.files, **(files or {})}, suites, commit=False, stand_in=stand_in)
-        for link, target in self.links.items():
-            os.symlink(target, fixture.root / link)
-        fixture.git("add", "-A")
-        fixture.git("commit", "-q", "-m", "fixture")
+        with temporary_support.measured("recording-fixture"):
+            for link, target in self.links.items():
+                os.symlink(target, fixture.root / link)
+            fixture.git("add", "-A")
+            fixture.git("commit", "-q", "-m", "fixture")
         if fixture.stand_in is not None:
             fixture.replay(self)
         return fixture
+
+
+# An entry file that leaves a file named ``stuck`` in its temporary directory and exits with its argument.
+STUCK_ENTRY = """\
+    import pathlib, sys, tempfile
+    pathlib.Path(tempfile.gettempdir(), "stuck").write_text("held", encoding="utf-8")
+    sys.exit(int(sys.argv[1]))
+    """
+# An entry file that leaves a committed Git repository in its temporary directory, whose object files Git keeps
+# read-only on Windows, and, off Windows, a directory without write permission.
+GIT_COPY_ENTRY = """\
+    import os, pathlib, subprocess, sys, tempfile
+    copy = pathlib.Path(tempfile.gettempdir(), "copy")
+    copy.mkdir()
+    (copy / "file").write_text("content", encoding="utf-8")
+    identity = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
+    for arguments in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
+        subprocess.run(["git", *identity, "-C", str(copy), *arguments], check=True)
+    if sys.platform != "win32":
+        locked = pathlib.Path(tempfile.gettempdir(), "locked")
+        locked.mkdir()
+        (locked / "file").write_text("content", encoding="utf-8")
+        locked.chmod(0o500)
+    """
+
+
+class WorkFolderRemovalCases:
+    """The removal of a unit's work folder by exec. A case class mixes it in with ``prepare``, which makes the fixture's
+    recording ready for exec, and ``python``, the interpreter command of its entry files."""
+
+    python = "python3"
+
+    def prepare(self, fixture: RecordingFixture) -> None:
+        raise NotImplementedError
+
+    def fixture(self) -> RecordingFixture:
+        case: unittest.TestCase = self  # type: ignore[assignment]
+        fixture = RecordingFixture(case.addCleanup, {"tests/stuck.py": STUCK_ENTRY, "tests/copy.py": GIT_COPY_ENTRY},
+                                   [suite("a", ["tests/stuck.py", "tests/copy.py"], paths=[])])
+        self.prepare(fixture)
+        return fixture
+
+    def units(self, fixture: RecordingFixture) -> list[dict]:
+        return [json.loads(path.read_text(encoding="utf-8")) for path in sorted((fixture.output / "units").glob("*.json"))]
+
+    def test_a_work_folder_with_a_read_only_git_repository_goes(self) -> None:
+        case: unittest.TestCase = self  # type: ignore[assignment]
+        fixture = self.fixture()
+        ran = fixture.exec_entry("tests/copy.py", self.python, "tests/copy.py")
+        case.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        [unit] = self.units(fixture)
+        case.assertTrue(Path(unit["temporary"]).parent.name == unit["unit"])
+        case.assertEqual([], list((fixture.output / "work").iterdir()))
+        case.assertNotIn("warning", ran.stdout + ran.stderr)
+
+    def test_a_work_folder_with_a_directory_that_stays_unreadable_yields_a_warning(self) -> None:
+        case: unittest.TestCase = self  # type: ignore[assignment]
+        recording = load_recording()
+        work = temporary_support.make_directory(case.addCleanup, prefix="work-")
+        (work / "tmp" / "closed").mkdir(parents=True)
+        real_open, real_scandir = os.open, os.scandir
+
+        def unreadable(real):
+            def function(path, *arguments, **keywords):
+                if isinstance(path, (str, os.PathLike)) and os.path.basename(os.fspath(path)) == "closed":
+                    raise PermissionError(13, "permission denied (injected)", os.fspath(path))
+                return real(path, *arguments, **keywords)
+            return function
+
+        error = io.StringIO()
+        with (mock.patch("os.open", unreadable(real_open)), mock.patch("os.scandir", unreadable(real_scandir)),
+              mock.patch.object(recording, "make_writable"), mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}),
+              mock.patch("sys.stderr", error)):
+            recording.remove_work(work)
+        case.assertIn(f"warning: cannot remove the unit's work folder {work}: ", error.getvalue())
+        case.assertIn("injected", error.getvalue())
+
+    def test_a_work_folder_that_cannot_be_removed_warns_with_its_path_and_keeps_the_exit_code_and_the_record(self) -> None:
+        case: unittest.TestCase = self  # type: ignore[assignment]
+        for code, runner in ((0, False), (0, True), (3, False), (3, True)):
+            with case.subTest(code=code, runner=runner), mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true" if runner else "false"}):
+                fixture = self.fixture()
+                fixture.fail_removal_of("stuck")
+                ran = fixture.exec_entry("tests/stuck.py", self.python, "tests/stuck.py", str(code))
+                case.assertEqual(code, ran.returncode, ran.stdout + ran.stderr)
+                [unit] = self.units(fixture)
+                work = Path(unit["temporary"]).parent
+                case.assertEqual(code, unit["exit_code"])
+                case.assertEqual(fixture.output / "work" / unit["unit"], work)
+                case.assertTrue((work / "tmp" / "stuck").is_file())
+                message = f"cannot remove the unit's work folder {work}: "
+                if runner:
+                    [line] = [line for line in ran.stdout.splitlines() if line.startswith("::warning::")]
+                    case.assertTrue(line.startswith("::warning::" + message), line)
+                    case.assertIn("injected", line)
+                else:
+                    case.assertIn("warning: " + message, ran.stderr)
+                    case.assertIn("injected", ran.stderr)
+                    case.assertNotIn("::warning::", ran.stdout)

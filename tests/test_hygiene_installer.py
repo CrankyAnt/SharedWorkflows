@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import tarfile
-import tempfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -18,11 +17,13 @@ RESOURCES = REPOSITORY_ROOT / "actions" / "repository-hygiene"
 
 sys.path.insert(0, str(RESOURCES))
 import install_tools  # noqa: E402
+from tests import temporary_support
+
 
 
 class InstallerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.releases = self.root / "releases"
@@ -140,7 +141,7 @@ class PythonToolInstallerTests(unittest.TestCase):
     """A Python tool installs from its hash lock into a virtual environment of the running interpreter."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.index = self.root / "index"

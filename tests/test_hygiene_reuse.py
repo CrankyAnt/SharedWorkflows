@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.hygiene_fixtures import fixture_repository, tools_available
 from tests.hygiene_process import RESOURCES, hygiene
 
@@ -15,7 +15,7 @@ ASSIGNMENT = 'version = 1\n\n[[annotations]]\npath = ["REUSE.toml", "src/**"]\nS
 @unittest.skipUnless(tools_available("reuse"), "the pinned reuse is neither in HYGIENE_TOOLS nor on PATH")
 class ReuseLintTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

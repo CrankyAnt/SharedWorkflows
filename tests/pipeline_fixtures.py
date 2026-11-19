@@ -7,7 +7,6 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -23,6 +22,8 @@ GIT_IDENTITY = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.inv
 
 sys.path.insert(0, str(PART_FOLDER))
 import plan as plan_program  # noqa: E402
+from tests import temporary_support
+
 
 # Invented parts of a fixture schema folder: one that names paths, one without settings and one that always runs.
 FIXTURE_PARTS = {
@@ -70,8 +71,9 @@ def read_outputs(path: Path) -> dict[str, str]:
 class PipelineFixture(unittest.TestCase):
     """A fixture consumer in a temporary Git repository and a fixture schema folder with invented parts."""
 
+    @temporary_support.measured("pipeline-consumer")
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
+        directory = temporary_support.Directory()
         self.addCleanup(directory.cleanup)
         self.directory = Path(directory.name)
         self.repository = self.directory / "consumer"

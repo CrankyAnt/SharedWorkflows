@@ -15,12 +15,12 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
 from unittest import mock
 
+from tests import temporary_support
 from tests.workflow_commands import script_invocations
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +60,7 @@ def pull_request(commit: str, *, author: str = APP, branch: str = "chore/update-
 class Fixture:
     """A bare origin with v1 at the first commit, and a clone where further commits are made."""
 
+    @temporary_support.measured("v1-promotion")
     def __init__(self, root: Path) -> None:
         self.origin = root / "origin.git"
         self.repo = root / "clone"
@@ -135,7 +136,7 @@ class TagReadTests(unittest.TestCase):
 
     def test_a_missing_tag_reads_as_empty_and_is_reported_without_failing(self) -> None:
         self.assertEqual(("", ""), promote.read_tag(Api.REPOSITORY, self.api.fetch))
-        temporary = tempfile.TemporaryDirectory()
+        temporary = temporary_support.Directory()
         self.addCleanup(temporary.cleanup)
         output = Path(temporary.name) / "output.txt"
         with mock.patch.object(promote, "fetch", self.api.fetch), contextlib.redirect_stdout(io.StringIO()) as stdout:
@@ -157,7 +158,7 @@ class TagReadTests(unittest.TestCase):
 
 class DecisionTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.fixture = Fixture(Path(self.temporary.name))
 
@@ -324,7 +325,7 @@ class PinsExceptionTests(unittest.TestCase):
     PINS = {"ci/pins.json": '{"version": "2"}\n'}
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.fixture = Fixture(Path(self.temporary.name))
 
@@ -383,7 +384,7 @@ class PinsExceptionTests(unittest.TestCase):
             ("a template alone", {"ci/kit/caller.yml": "name: caller\n"}, "ci/kit/caller.yml (template class)"),
         ]:
             with self.subTest(name=name):
-                fixture = Fixture(Path(tempfile.mkdtemp(dir=self.temporary.name)))
+                fixture = Fixture(temporary_support.make_directory(self.addCleanup))
                 commit = fixture.commit("chore: update CI tool pins", files)
                 decision = promote.decide(fixture.repo, commit, fixture.v1, SURFACE, pull_request=pull_request(commit), app_login=APP, owner=OWNER)
                 self.assertFalse(decision.follow, "the updater's pull request moves nothing but a pins-only commit")
@@ -440,7 +441,7 @@ class FollowTests(unittest.TestCase):
         self.api = Api()
         for workflow in promote.CI_WORKFLOWS:
             self.api.runs(workflow, self.COMMIT, [{"id": 1, "status": "completed", "conclusion": "success"}])
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.now = 0.0
@@ -715,7 +716,7 @@ class DeployKeyTests(unittest.TestCase):
     PUSHES = {"move": ("move", (True, "moved\n"), ["move", "--old", "a" * 40, "--new", "b" * 40])}
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.seen: dict = {}
@@ -816,7 +817,7 @@ class WorkflowInvocationTests(unittest.TestCase):
 
 class MoveTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.fixture = Fixture(Path(self.temporary.name))
 
@@ -919,7 +920,7 @@ class ManualMove(unittest.TestCase):
     """A fixture whose remote ``v1`` names the baseline, with the CI read and the Gitleaks scan injected."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.fixture = Fixture(self.root)

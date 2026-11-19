@@ -10,10 +10,10 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.ci_policy_support import read_workflow
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -66,11 +66,11 @@ class AutoMergeStepTest(unittest.TestCase):
 class CloseSteps(unittest.TestCase):
     """The steps of the closing job, run in Bash as Actions runs them, on a consumer checkout of the recorded commit."""
 
+    @temporary_support.measured("automation-full-recording")
     def setUp(self) -> None:
         job = read_workflow(WORKFLOW)[1]["jobs"][CLOSE]
         self.steps, self.job_env = job["steps"], job["env"]
-        self.base = Path(tempfile.mkdtemp(prefix="automation-full-recording-"))
-        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.base = temporary_support.make_directory(self.addCleanup, prefix="automation-full-recording-")
         self.work = self.base / "work"
         suites = {"always": [], "suites": [
             {"name": "unit", "entries": ["checks/test_a.py"], "command": ["python3"], "paths": ["checks/test_a.py", "lib/old.txt"]},

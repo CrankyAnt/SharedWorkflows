@@ -19,10 +19,10 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.ci_policy_support import expression_value, read_workflow
 from tests.pipeline_fixtures import git, write
 
@@ -78,10 +78,10 @@ def tool_archive(member: str, asset: str) -> bytes:
 
 @requires_bash
 class PipelineStepShellTests(unittest.TestCase):
+    @temporary_support.measured("pipeline-steps-shell")
     def setUp(self) -> None:
         self.jobs = read_workflow(WORKFLOW)[1]["jobs"]
-        self.base = Path(tempfile.mkdtemp(prefix="pipeline-steps-"))
-        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.base = temporary_support.make_directory(self.addCleanup, prefix="pipeline-steps-")
         self.parts = self.base / "shared"
         for folder in PART_FOLDERS:
             shutil.copytree(REPOSITORY_ROOT / "actions" / folder, self.parts / folder,

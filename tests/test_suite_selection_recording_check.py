@@ -8,13 +8,14 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.recording_fixtures import ROOT, STRACE_RECORDINGS, RecordingFixture, StoredFixture, load_recording, requires_linux, suite
+from tests import temporary_support
+from tests.recording_fixtures import (ROOT, STRACE_RECORDINGS, RecordingFixture, StoredFixture, WorkFolderRemovalCases, load_recording,
+                                     requires_linux, suite)
 from tests.strace_stand_in import BASE, TMPDIR, detokenize
 
 sys.path.insert(0, str(ROOT / "actions" / "suite-selection"))
@@ -117,6 +118,13 @@ ARGUMENT_PROBES = [*DOTNET_PROBES, "Directory.Solution.props", "Directory.Soluti
 DOTNET_READS = [{"path": path, "kind": "any"} for path in sorted([
     *(name for name in ARGUMENT_PROBES if name != "NuGet.Config"), *(f"app/{name}" for name in DOTNET_PROBES),
     *(f"tools/{name}" for name in WORKING_PROBES), *(f"{directory}{name}" for directory in ("src/", "src/App/") for name in ARGUMENT_PROBES)])]
+
+
+@requires_linux
+class WorkFolderRemovalTests(WorkFolderRemovalCases, unittest.TestCase):
+    def prepare(self, fixture: RecordingFixture) -> None:
+        started = fixture.start()
+        self.assertEqual(0, started.returncode, started.stderr)
 
 
 @requires_linux
@@ -433,7 +441,7 @@ class VforkChildWorkingDirectoryTests(unittest.TestCase):
 
     def parsed(self, lines: list[str]) -> list:
         recording = load_recording()
-        trace = Path(self.enterContext(tempfile.TemporaryDirectory())) / "build.strace"
+        trace = Path(self.enterContext(temporary_support.Directory())) / "build.strace"
         trace.write_text("".join(lines), encoding="utf-8")
         return recording.parse_trace(trace, (self.CHECKOUT, self.BASE), self.CHECKOUT)
 
@@ -539,7 +547,7 @@ class CheckSummaryRouteTests(unittest.TestCase):
                  "a caller of another shared workflow": (self.FIXED_CALLER.replace("automation.yml@", "pipeline.yml@"), False),
                  "a comment that names the call": ("# uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1\njobs: {}\n", False)}
         for name, (text, expected) in cases.items():
-            with self.subTest(file=name), tempfile.TemporaryDirectory() as directory:
+            with self.subTest(file=name), temporary_support.Directory() as directory:
                 root = Path(directory)
                 if text is not None:
                     (root / ".github" / "workflows").mkdir(parents=True)
@@ -631,7 +639,7 @@ class KeepPassedTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.recording = load_recording()
-        temporary = tempfile.TemporaryDirectory()
+        temporary = temporary_support.Directory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

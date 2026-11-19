@@ -4,10 +4,10 @@ import hashlib
 import json
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.publication_spec_module import MODULE_PATH, update_spec
 
 CURRENT = b'{"spec":"Conventional Branch","version":"1.1.0","grammar":{"regex":"^feat/[a-z]+$"}}\n'
@@ -21,7 +21,7 @@ INVALID_REGEX = b'{"spec":"Conventional Branch","version":"1.2.0","grammar":{"re
 
 class PublicationSpecUpdateTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.temporary_directory = temporary_support.Directory()
         self.root = Path(self.temporary_directory.name)
         base = self.root / "actions" / "publication-checks"
         fixture_directory = self.root / "tests" / "fixtures" / "publication_checks"

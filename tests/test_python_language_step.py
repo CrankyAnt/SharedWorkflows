@@ -8,12 +8,12 @@ import io
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from tests import temporary_support
 from tests.hygiene_fixtures import REPOSITORY_ROOT, tools_available, tools_directory
 
 STEP = REPOSITORY_ROOT / "actions" / "python-language-step" / "python_language_step.py"
@@ -38,7 +38,7 @@ def step(root: Path, *arguments: str, tools: Path | None = None) -> subprocess.C
 
 class FixtureProject(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

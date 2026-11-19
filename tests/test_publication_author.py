@@ -3,11 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
-import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.publication_branch_check import BranchCheckMixin
 from tests.publication_fixtures import PublicationFixture, REPOSITORY_ROOT
 
@@ -18,7 +18,7 @@ SPECIFICATION_METADATA = RESOURCE_DIRECTORY / "spec-metadata.json"
 
 class PublicationAuthorTests(BranchCheckMixin, PublicationFixture):
     def test_author_decision_survives_human_events_and_rejects_branch_impersonation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
+        with temporary_support.Directory() as temporary_directory:
             temporary_path = Path(temporary_directory)
             decision = temporary_path / "decide-author.cjs"
             workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "repository-hygiene.yml").read_text(encoding="utf-8")

@@ -11,12 +11,13 @@ import io
 import os
 import subprocess
 import sys
-import tempfile
 import textwrap
 import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from tests import temporary_support
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = REPOSITORY_ROOT / "actions" / "repository-hygiene"
@@ -35,7 +36,7 @@ link_check = load_module("link_check")
 
 class FixtureTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.write("docs/guide.md", """\
@@ -290,7 +291,7 @@ class CommandLineTests(unittest.TestCase):
     """``hygiene.py links`` as the workflow invokes it, on a fixture Git repository."""
 
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "repo"
         self.root.mkdir()
@@ -307,7 +308,7 @@ class CommandLineTests(unittest.TestCase):
     def links(self, *arguments: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
         return subprocess.run([sys.executable, str(RESOURCES / "hygiene.py"), "links", "--root", str(self.root), *arguments],
                               input=stdin, capture_output=True, text=True, encoding="utf-8", check=False,
-                              env={**os.environ, "PYTHONPYCACHEPREFIX": os.environ.get("PYTHONPYCACHEPREFIX", str(Path(tempfile.gettempdir()) / "repo-pycache"))})
+                              env={**os.environ, "PYTHONPYCACHEPREFIX": temporary_support.bytecode_cache()})
 
     def test_dead_links_in_tracked_markdown_fail_with_annotations_and_a_summary_and_untracked_files_are_not_read(self) -> None:
         summary = Path(self.temporary.name) / "summary.md"
@@ -392,7 +393,7 @@ class LargeFileTests(unittest.TestCase):
     BLOCKS = 2_500  # ten links in each block of fourteen lines
 
     def test_a_file_with_25000_links_reports_every_dead_link_within_a_linear_time_bound(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
+        with temporary_support.Directory() as temporary:
             root = Path(temporary)
             (root / "docs").mkdir()
             (root / "docs" / "guide.md").write_text("# Guide\n\n## Use\n", encoding="utf-8", newline="\n")
@@ -403,7 +404,7 @@ class LargeFileTests(unittest.TestCase):
             started = time.perf_counter()
             result = subprocess.run([sys.executable, str(RESOURCES / "hygiene.py"), "links", "--root", str(root)],
                                     capture_output=True, text=True, encoding="utf-8", check=False,
-                                    env={**os.environ, "PYTHONPYCACHEPREFIX": os.environ.get("PYTHONPYCACHEPREFIX", str(Path(tempfile.gettempdir()) / "repo-pycache"))})
+                                    env={**os.environ, "PYTHONPYCACHEPREFIX": temporary_support.bytecode_cache()})
             elapsed = time.perf_counter() - started
         expected = []
         for i in range(self.BLOCKS):

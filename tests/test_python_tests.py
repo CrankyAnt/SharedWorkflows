@@ -6,10 +6,8 @@ from __future__ import annotations
 import io
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 import venv
 from contextlib import redirect_stderr, redirect_stdout
@@ -20,6 +18,8 @@ SCRIPT = REPOSITORY_ROOT / "actions" / "python-tests" / "python_tests.py"
 
 sys.path.insert(0, str(SCRIPT.parent))
 import python_tests  # noqa: E402
+from tests import temporary_support
+
 
 # A stand-in for a module that ``python -m <module>`` runs: it records its arguments and directory, then exits with the
 # code that the environment names for it.
@@ -50,6 +50,7 @@ class Interpreter:
     """A virtual environment without pip that stands for the consumer's Python: no package the test machine holds is
     importable from it, and stand-ins for pip and pytest join it only through ``PYTHONPATH``."""
 
+    @temporary_support.measured("python-tests-interpreter")
     def __init__(self, directory: Path) -> None:
         venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(directory / "venv")
         self.python = directory / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -76,7 +77,7 @@ class Fixture(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.shared = tempfile.TemporaryDirectory()
+        cls.shared = temporary_support.Directory()
         cls.interpreter = Interpreter(Path(cls.shared.name))
 
     @classmethod
@@ -84,11 +85,11 @@ class Fixture(unittest.TestCase):
         cls.shared.cleanup()
 
     def setUp(self) -> None:
-        temporary = tempfile.TemporaryDirectory()
+        temporary = temporary_support.Directory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.interpreter.log.unlink(missing_ok=True)
-        shutil.rmtree(self.interpreter.stand_ins, ignore_errors=True)
+        temporary_support.remove_tree(self.interpreter.stand_ins)
 
     def project(self, files: dict[str, str], name: str = "project") -> Path:
         return write(self.root / name, files)
@@ -98,7 +99,7 @@ class DecideFixture(unittest.TestCase):
     """A fixture repository with a base commit on ``main`` and a branch ``change``."""
 
     def setUp(self) -> None:
-        temporary = tempfile.TemporaryDirectory()
+        temporary = temporary_support.Directory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name) / "repository"
         self.root.mkdir()
@@ -280,7 +281,7 @@ class InstallTests(Fixture):
 
 class PytestConfigurationTests(unittest.TestCase):
     def setUp(self) -> None:
-        temporary = tempfile.TemporaryDirectory()
+        temporary = temporary_support.Directory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
 

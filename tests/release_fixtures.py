@@ -19,6 +19,7 @@ from typing import Callable
 from unittest import mock
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from tests import temporary_support
 from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, SCHEMAS, PipelineFixture, git, read_outputs
 
 SCRIPT = PART_FOLDER / "release.py"
@@ -205,6 +206,7 @@ class ReleaseFixture(PipelineFixture):
         self.keys = self.directory / "keys"
         self.keys.mkdir()
 
+    @temporary_support.measured("release-key")
     def key(self, name: str = "maintainer") -> tuple[Path, str]:
         """A new SSH key pair: the path of its private key and its line for an allowed-signers file."""
         path = self.keys / name

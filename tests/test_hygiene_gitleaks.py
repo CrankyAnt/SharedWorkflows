@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.hygiene_fixtures import REPOSITORY_ROOT, fixture_repository, git, tools_available, tools_directory
 from tests.hygiene_process import hygiene
 
@@ -18,7 +18,7 @@ HOME_PATH = "C:" + "\\" + "Users" + "\\" + "somebody" + "\\" + "notes.txt"
 @unittest.skipUnless(tools_available("gitleaks"), "the pinned tools are neither in HYGIENE_TOOLS nor on PATH")
 class CheckRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

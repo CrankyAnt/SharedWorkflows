@@ -8,9 +8,10 @@ import os
 import stat
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
+
+from tests import temporary_support
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PART_FOLDER = REPOSITORY_ROOT / "actions" / "dotnet-test"
@@ -24,6 +25,7 @@ PROJECT = "tests/Shop.Tests/Shop.Tests.csproj"
 # the directory after ``--results-directory``; STAND_IN_REPORT replaces the text of each report.
 STAND_IN = """\
 import os, sys
+
 arguments = sys.argv[1:]
 shown = ["<results>" if index and arguments[index - 1] == "--results-directory" else item for index, item in enumerate(arguments)]
 with open(os.environ["STAND_IN_LOG"], "a", encoding="utf-8") as log:
@@ -46,7 +48,7 @@ RUN = f"run --project {PROJECT} --no-build|11"
 
 class DotnetTestFixture(unittest.TestCase):
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
+        directory = temporary_support.Directory()
         self.addCleanup(directory.cleanup)
         self.directory = Path(directory.name).resolve()
         self.repository = self.directory / "consumer"

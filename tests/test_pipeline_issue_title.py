@@ -8,10 +8,11 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import threading
 import unittest
 from pathlib import Path
+from tests import temporary_support
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPOSITORY_ROOT / "actions" / "issue-title" / "issue_title.py"
@@ -69,7 +70,7 @@ def opened_event(title: str, *, component: str | None = None, labels: list[str] 
 
 class IssueTitleFixture(unittest.TestCase):
     def setUp(self) -> None:
-        temporary = tempfile.TemporaryDirectory()
+        temporary = temporary_support.Directory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.categories = create_fixture(self.root)
@@ -78,7 +79,7 @@ class IssueTitleFixture(unittest.TestCase):
         event_path = self.root / "event.json"
         event_path.write_text(json.dumps(event), encoding="utf-8")
         environment = dict(os.environ if environment is None else environment)
-        environment["PYTHONPYCACHEPREFIX"] = str(Path(tempfile.gettempdir()) / "repo-pycache")
+        environment["PYTHONPYCACHEPREFIX"] = temporary_support.bytecode_cache()
         return subprocess.run([sys.executable, str(SCRIPT), "--event", str(event_path), "--root", str(self.root), "--categories", str(self.categories), *arguments],
                               cwd=self.root, env=environment, capture_output=True, text=True, encoding="utf-8", check=False)
 

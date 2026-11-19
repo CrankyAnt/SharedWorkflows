@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import io
 import json
-import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from tests import temporary_support
 from tests.pipeline_fixtures import CONFIGURATION, SCHEMAS, PipelineFixture, copy_schemas, plan_program
 
 
@@ -23,7 +23,7 @@ def run_schema(*arguments: str) -> tuple[int, str]:
 
 class AssembledSchemaTests(unittest.TestCase):
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
+        directory = temporary_support.Directory()
         self.addCleanup(directory.cleanup)
         self.copy = copy_schemas(Path(directory.name) / "schema")
 

@@ -6,13 +6,13 @@ from __future__ import annotations
 import http.server
 import json
 import subprocess
-import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from tests import temporary_support
 from tests.publication_fixtures import PublicationFixture, REPOSITORY_ROOT
 
 CHECKER = REPOSITORY_ROOT / "actions" / "publication-checks" / "check-references.cjs"
@@ -84,7 +84,7 @@ class PublicRepositoryList:
 
 class PublicationReferenceTests(PublicationFixture):
     def setUp(self) -> None:
-        directory = tempfile.TemporaryDirectory()
+        directory = temporary_support.Directory()
         self.addCleanup(directory.cleanup)
         self.directory = Path(directory.name)
         self.repository = self.directory / "repository"

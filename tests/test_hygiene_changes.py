@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
 
+from tests import temporary_support
 from tests.hygiene_fixtures import fixture_repository, git
 from tests.hygiene_process import hygiene
 
 
 class ChangeDecisionTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.repo = fixture_repository(self.root / "repo", {"README.md": "start\n", "src/app.py": "print(1)\n"})
@@ -457,7 +457,7 @@ runs:
 
 class ReuseSelectionTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
