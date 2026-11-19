@@ -7,8 +7,9 @@ The classification fixture's Windows entry files run twice under a live ETW sess
 linked-worktree fixture and of the Node fixture once, each run in a full recording on an interpreter of the fixture's own
 with the lookup report, whose settings, units, lookup reports, neutral event file and consumer log land in
 ``<destination>/classification/first`` and ``second``, in ``<destination>/linked`` and in ``<destination>/node``. Naming
-runs, such as ``node`` or ``classification/first``, records only those. Copy the contents of ``<destination>`` over
-``tests/fixtures/recording_etw`` to renew the recordings.
+runs, such as ``node`` or ``classification/first``, records only those. Replace each recorded directory of
+``tests/fixtures/recording_etw`` with its counterpart in ``<destination>`` to renew the recordings; a copy over it keeps
+the units and lookup reports of the earlier recording.
 """
 
 from __future__ import annotations

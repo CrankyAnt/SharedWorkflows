@@ -1,0 +1,24 @@
+{
+  "unit": "1795112666219900300-8836",
+  "kind": "entry",
+  "name": "tests/imports_only.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-y1iv5ugd\\python\\Scripts\\python.EXE",
+    "tests/imports_only.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.048,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795112666219900300-8836",
+  "temporary": "D:\\a\\_temp\\recording-y1iv5ugd\\recording\\work\\1795112666219900300-8836\\tmp",
+  "cache": "D:\\a\\_temp\\recording-y1iv5ugd\\recording\\work\\1795112666219900300-8836\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-y1iv5ugd\\repo",
+  "pid": 9092,
+  "launcher": 8836,
+  "recorder": [
+    "etw"
+  ]
+}

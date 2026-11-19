@@ -196,6 +196,88 @@ class ConcurrentEtwAttributionTests(unittest.TestCase):
             self.assertEqual([], [path for path in paths if path.startswith(f"data/{other}") or path == f"tests/{other}.py"], paths)
 
 
+# A pytest-shaped collection: the entry file lists tests/ and stats each other test file there, as CPython's is_dir,
+# is_file and os.stat make it on Windows, without opening it. tests/test_read.py also opens tests/test_b.py and
+# data/attributes.txt for their attributes only, as CPython's CreateFileW fallback of a stat does, with share mode 0 and
+# backup semantics, reads tests/test_b.py, and opens data/read.txt for reading with share mode 0, which is a content
+# open. A CreateFileW open always reaches the file system as a create; CPython's GetFileInformationByName may not, as
+# on the hosted runner, where a stat of a file then leaves no line at all.
+SIBLING_STATS = """\
+    import os
+    from pathlib import Path
+    assert Path("tests").is_dir()
+    for name in sorted(os.listdir("tests")):
+        path = Path("tests", name)
+        if name != Path(__file__).name and not path.is_dir() and path.is_file() and not (path / "pyvenv.cfg").is_file():
+            os.stat(path)
+    """
+
+SIBLING_READ = SIBLING_STATS + """\
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+
+    def create(path, access, flags):
+        handle = kernel.CreateFileW(os.path.abspath(path), access, 0, None, 3, flags, None)
+        assert handle != wintypes.HANDLE(-1).value, ctypes.get_last_error()
+        kernel.CloseHandle(handle)
+
+    for path in ("tests/test_b.py", "data/attributes.txt"):
+        create(path, 0x80, 0x02000000)  # FILE_READ_ATTRIBUTES, backup semantics
+    print(Path("tests/test_b.py").read_text())
+    create("data/read.txt", 0x80000000, 0x80)  # GENERIC_READ, normal
+    """
+
+STAT_ENTRIES = ["tests/test_stat.py", "tests/test_read.py"]
+STAT_FILES = {"tests/test_stat.py": SIBLING_STATS, "tests/test_read.py": SIBLING_READ, "tests/test_b.py": "B = 1\n", "tests/test_c.py": "",
+              "tests/test_d.py": "", "data/attributes.txt": "", "data/read.txt": ""}
+
+
+@requires_etw
+class LiveEtwStatOnlyTests(unittest.TestCase):
+    """CPython's stat of an existing file on a live ETW recording: the consumer writes it as an attribute-only open,
+    ``openattr``, and the classification makes it a stat-only read of the Python process with its lookup report."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.fixture = RecordingFixture(cls.addClassCleanup, STAT_FILES, [suite("stats", STAT_ENTRIES, entry_selection=True, paths=[], setups=["python"],
+                                                                               entry_paths={entry: [] for entry in STAT_ENTRIES})])
+        run_entries(cls.fixture, STAT_ENTRIES)
+        checked = cls.fixture.check()
+        assert checked.returncode == 0, checked.stdout + checked.stderr
+        cls.lines = load_recording().read_events(cls.fixture.output / "events.tsv")
+
+    def operations(self, name: str) -> set[str]:
+        """The operations of the neutral event file's lines whose path ends in ``name``, a path below the checkout."""
+        suffix = ("\\" + name.replace("/", "\\")).lower()
+        return {line.operation for line in self.lines if line.operation != "start" and line.path.rstrip("\\").lower().endswith(suffix)}
+
+    def test_an_entry_file_that_only_stats_its_siblings_reads_its_own_entry_file_and_holds_their_directory(self) -> None:
+        reads = self.fixture.reads_of("tests/test_stat.py")
+        self.assertEqual(["tests/test_stat.py"], reads["paths"])
+        self.assertIn("tests", reads["directory_memberships"])
+        self.assertEqual([], [read for read in reads["existence_reads"] if read["path"].startswith("tests/")], reads["existence_reads"])
+
+    def test_a_sibling_whose_content_the_entry_file_reads_is_a_content_read_and_the_stat_only_siblings_stay_no_reads(self) -> None:
+        reads = self.fixture.reads_of("tests/test_read.py")
+        self.assertEqual(["data/read.txt", "tests/test_b.py", "tests/test_read.py"], reads["paths"])
+        self.assertIn("tests", reads["directory_memberships"])
+        self.assertEqual([], [read for read in reads["existence_reads"] if read["path"].startswith("tests/")], reads["existence_reads"])
+        # The attribute-only open outside a held directory stays an existence read.
+        self.assertIn({"path": "data/attributes.txt", "kind": "any"}, reads["existence_reads"])
+
+    def test_the_consumer_writes_a_stat_as_an_attribute_only_open_and_a_content_open_as_an_open(self) -> None:
+        # os.stat: an attribute-only open, or no line where the stat reaches the file system without a create.
+        self.assertLessEqual(self.operations("tests/test_c.py"), {"openattr"})
+        self.assertEqual({"openattr"}, self.operations("data/attributes.txt"))  # the CreateFileW fallback of a stat
+        self.assertEqual({"open"}, self.operations("data/read.txt"))  # a read open with share mode 0
+        self.assertEqual({"openattr", "open"}, self.operations("tests/test_b.py"))  # a stat and a content read: both lines
+        self.assertIn("opendir", self.operations("tests"))  # the listing's open of the directory
+        self.assertNotIn("open", self.operations("tests"))
+
+
 def recording_sessions() -> set[str]:
     """The names of the running ETW sessions of the recording step."""
     listed = subprocess.run([recording_fixtures.system_tool("logman.exe"), "query", "-ets"], capture_output=True, text=True,

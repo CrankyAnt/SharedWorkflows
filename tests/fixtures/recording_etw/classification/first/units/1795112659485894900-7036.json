@@ -1,0 +1,24 @@
+{
+  "unit": "1795112659485894900-7036",
+  "kind": "entry",
+  "name": "tests/git_names.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-s5s5kk5r\\python\\Scripts\\python.EXE",
+    "tests/git_names.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.26,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795112659485894900-7036",
+  "temporary": "D:\\a\\_temp\\recording-s5s5kk5r\\recording\\work\\1795112659485894900-7036\\tmp",
+  "cache": "D:\\a\\_temp\\recording-s5s5kk5r\\recording\\work\\1795112659485894900-7036\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-s5s5kk5r\\repo",
+  "pid": 2056,
+  "launcher": 7036,
+  "recorder": [
+    "etw"
+  ]
+}

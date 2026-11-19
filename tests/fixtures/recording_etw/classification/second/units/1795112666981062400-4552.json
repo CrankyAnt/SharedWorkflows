@@ -1,0 +1,24 @@
+{
+  "unit": "1795112666981062400-4552",
+  "kind": "entry",
+  "name": "tests/commands.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-y1iv5ugd\\python\\Scripts\\python.EXE",
+    "tests/commands.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.595,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795112666981062400-4552",
+  "temporary": "D:\\a\\_temp\\recording-y1iv5ugd\\recording\\work\\1795112666981062400-4552\\tmp",
+  "cache": "D:\\a\\_temp\\recording-y1iv5ugd\\recording\\work\\1795112666981062400-4552\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-y1iv5ugd\\repo",
+  "pid": 5152,
+  "launcher": 4552,
+  "recorder": [
+    "etw"
+  ]
+}

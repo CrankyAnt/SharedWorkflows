@@ -138,7 +138,8 @@ ETW_WAIT_SECONDS = 60
 ENVIRONMENT = "environment.json"  # the job's environment before its setups, in the output directory
 ETW_SUMMARY = re.compile(r"drained_ms=(\d+) events=(\d+) lines=(\d+) lost=(-?\d+)")
 WILDCARDS = frozenset('*?<>"')
-ETW_KINDS = {"open": "read", "opendir": "diropen", "absent": "absent"}  # the event kinds of the consumer's opens
+# The event kinds of the consumer's opens; an attribute-only open, such as CPython's stat, is a stat, as on Linux.
+ETW_KINDS = {"open": "read", "openattr": "stat", "opendir": "diropen", "absent": "absent"}
 TOOLCHAIN_PROBES = Path(__file__).resolve().parent / "toolchain_probes.json"
 LOOKUP_REPORT = Path(__file__).resolve().parent / "shared_lookup_report.py"
 LOOKUP_LINE = "shared-lookups.pth"  # the site directory's file whose import line loads the lookup report
@@ -825,7 +826,7 @@ def parse_trace(trace: Path, keep: tuple[str, ...], start: str) -> list[Event]:
 class EtwLine:
     pid: str
     ppid: str
-    operation: str  # start, open, opendir, absent, enum, enum-absent
+    operation: str  # start, open, openattr, opendir, absent, enum, enum-absent
     path: str  # an NT device path
     command: str | None = None  # of a start: the command line, None when the consumer did not receive it
 
@@ -1496,8 +1497,9 @@ def classify(unit: UnitRecording) -> Reads:
             continue
         is_directory = relative in project.directories and relative not in project.tracked
         if kind in ("read", "exec", "stat", "exists"):
-            # A Windows enumeration of a literal name does not say whether it names a directory, so an untracked name
-            # that is a directory in the checkout is one; a tracked path, such as a symbolic link, stays a file.
+            # A Windows stat, an enumeration of a literal name or an attribute-only open, does not say whether it names a
+            # directory, so an untracked name that is a directory in the checkout is one; a tracked path, such as a
+            # symbolic link, stays a file.
             if is_directory or ((kind == "exists" or (kind == "stat" and relative not in project.tracked)) and (project.root / relative).is_dir()):
                 directories.add(relative)
             elif kind == "stat" and by_reporter:

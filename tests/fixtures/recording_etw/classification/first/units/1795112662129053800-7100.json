@@ -1,0 +1,24 @@
+{
+  "unit": "1795112662129053800-7100",
+  "kind": "entry",
+  "name": "tests/git_mixed.py",
+  "suite": null,
+  "command": [
+    "D:\\a\\_temp\\recording-s5s5kk5r\\python\\Scripts\\python.EXE",
+    "tests/git_mixed.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.216,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795112662129053800-7100",
+  "temporary": "D:\\a\\_temp\\recording-s5s5kk5r\\recording\\work\\1795112662129053800-7100\\tmp",
+  "cache": "D:\\a\\_temp\\recording-s5s5kk5r\\recording\\work\\1795112662129053800-7100\\pycache",
+  "cwd": "D:\\a\\_temp\\recording-s5s5kk5r\\repo",
+  "pid": 2164,
+  "launcher": 7100,
+  "recorder": [
+    "etw"
+  ]
+}
