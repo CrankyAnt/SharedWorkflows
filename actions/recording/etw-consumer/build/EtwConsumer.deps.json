@@ -21,7 +21,8 @@
         "runtime": {
           "lib/net8.0/Microsoft.Diagnostics.NETCore.Client.dll": {
             "assemblyVersion": "0.2.13.11903",
-            "fileVersion": "0.2.13.11903"
+            "fileVersion": "0.2.13.11903",
+            "localPath": "Microsoft.Diagnostics.NETCore.Client.dll"
           }
         }
       },
@@ -32,19 +33,23 @@
         "runtime": {
           "lib/netstandard2.0/Dia2Lib.dll": {
             "assemblyVersion": "2.0.0.0",
-            "fileVersion": "2.0.0.0"
+            "fileVersion": "2.0.0.0",
+            "localPath": "Dia2Lib.dll"
           },
           "lib/netstandard2.0/Microsoft.Diagnostics.FastSerialization.dll": {
             "assemblyVersion": "4.0.0.0",
-            "fileVersion": "4.0.0.0"
+            "fileVersion": "4.0.0.0",
+            "localPath": "Microsoft.Diagnostics.FastSerialization.dll"
           },
           "lib/netstandard2.0/Microsoft.Diagnostics.Tracing.TraceEvent.dll": {
             "assemblyVersion": "4.0.0.0",
-            "fileVersion": "4.0.0.0"
+            "fileVersion": "4.0.0.0",
+            "localPath": "Microsoft.Diagnostics.Tracing.TraceEvent.dll"
           },
           "lib/netstandard2.0/TraceReloggerLib.dll": {
             "assemblyVersion": "0.0.0.0",
-            "fileVersion": "0.0.0.0"
+            "fileVersion": "0.0.0.0",
+            "localPath": "TraceReloggerLib.dll"
           }
         }
       },
@@ -52,7 +57,8 @@
         "runtime": {
           "lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll": {
             "assemblyVersion": "8.0.0.0",
-            "fileVersion": "8.0.1024.46610"
+            "fileVersion": "8.0.1024.46610",
+            "localPath": "Microsoft.Extensions.DependencyInjection.Abstractions.dll"
           }
         }
       },
@@ -63,7 +69,8 @@
         "runtime": {
           "lib/net8.0/Microsoft.Extensions.Logging.Abstractions.dll": {
             "assemblyVersion": "8.0.0.0",
-            "fileVersion": "8.0.1325.6609"
+            "fileVersion": "8.0.1325.6609",
+            "localPath": "Microsoft.Extensions.Logging.Abstractions.dll"
           }
         }
       }
