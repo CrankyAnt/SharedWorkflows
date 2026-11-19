@@ -1,0 +1,47 @@
+name: Record ETW fixtures
+
+# Temporary: records the neutral ETW event files of the tests on a hosted runner, so that no recording names a local
+# machine. Removed again before the pull request merges.
+on:
+  push:
+    branches: [fix/issue-148-windows-attribute-only-opens]
+    paths: [.github/workflows/record-etw-fixtures.yml]
+
+permissions: {}
+
+jobs:
+  record:
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.3"
+          package-manager-cache: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: actions/recording/etw-consumer/global.json
+      # The fixtures and their recordings live in RUNNER_TEMP, as in the suite jobs, so that no path names the
+      # runner account's profile directory.
+      - name: Record the fixtures
+        shell: pwsh
+        env:
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}\repo-pycache
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          python -m tests.record_etw_fixture "$env:RUNNER_TEMP\etw-fixtures"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: etw-fixtures
+          path: ${{ runner.temp }}/etw-fixtures
+          retention-days: 1
+          if-no-files-found: error
