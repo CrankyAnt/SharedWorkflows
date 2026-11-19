@@ -63,7 +63,7 @@ class RecordingActionTests(unittest.TestCase):
         self.assertEqual(7, len(self.steps))
 
     def test_the_failure_annotation_takes_check_s_status_additions_document_and_error_message(self) -> None:
-        # tests/test_recording_check.py runs the step's script on each combination.
+        # tests/test_suite_selection_recording_check.py runs the step's script on each combination.
         fail = self.steps[4]
         self.assertIn("STATUS: ${{ steps.check.outputs.status }}", fail)
         self.assertIn("ADDITIONS: ${{ steps.check.outputs.file }}", fail)

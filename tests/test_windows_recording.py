@@ -21,8 +21,8 @@ from unittest import mock
 
 from tests import recording_fixtures
 from tests.recording_fixtures import ROOT, RecordingFixture, entry_command, load_recording, requires_etw, suite
-from tests.test_recording_classification import (ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, ClassificationRules, classification_fixture,
-                                                 classified_lists, linked_worktree_fixture)
+from tests.test_suite_selection_recording_classification import (ENTRIES, LINKED_ENTRIES, WINDOWS_FILES, ClassificationRules, classification_fixture,
+                                                                 classified_lists, linked_worktree_fixture)
 
 CACHE_REPORT = """\
     import importlib.util, os, sys

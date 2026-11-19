@@ -109,7 +109,7 @@ class HygienePromotionTests(unittest.TestCase):
         self.assertNotIn("${DEPLOY_KEY", run)
         self.assertNotIn("set -x", run)
         self.assertNotIn("echo", run, "the key is never printed")
-        # The key file, the pinned host key and the SSH options live once, in promote_v1.py; tests/test_v1_promotion.py holds them.
+        # The key file, the pinned host key and the SSH options live once, in promote_v1.py; tests/test_hygiene_v1_promotion.py holds them.
         for text in ("ssh-ed25519", "GIT_SSH_COMMAND", "known-hosts", "StrictHostKeyChecking", "umask"):
             with self.subTest(text=text):
                 self.assertNotIn(text, self.text)

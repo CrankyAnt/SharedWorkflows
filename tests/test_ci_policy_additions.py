@@ -2,7 +2,7 @@
 holds the condition under which the rebuild workflow acts, equal to the rebuild workflow's, and leaves such a run to the
 rebuild; the rebuild workflow's comment job, which evaluates the condition again, holds it equal too. Its bound also
 recognises the rebuild workflow's commit, so that the two automatic routes make at most one round per push. The run
-tests of both routes are in `tests/test_automation_additions.py`."""
+tests of both routes are in `tests/test_consumer_kit_automation_additions.py`."""
 
 from __future__ import annotations
 

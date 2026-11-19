@@ -8,7 +8,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
 from tests.recording_fixtures import RecordingFixture, load_recording, requires_linux, suite
-from tests.test_recording_check import BACKSLASH_READS, BACKSLASHES
+from tests.test_suite_selection_recording_check import BACKSLASH_READS, BACKSLASHES
 
 FILES = {"tests/a.py": "", "tests/c1.py": "", "tests/c2.py": "", "tests/c3.py": "", "tests/c4.py": "", "tests/w.py": ""}
 # The ratio of the wide trace set to the mid trace set, by which a Linux measurement of the full recording is divided.
