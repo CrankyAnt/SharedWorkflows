@@ -36,7 +36,7 @@ Every input is optional, and an omitted input leaves its tool on its own default
 | `gitleaks-config` | the Gitleaks configuration file, such as `.gitleaks.toml` |
 | `gitleaks-baseline` | the Gitleaks baseline report, such as `.gitleaks-baseline.json` |
 | `zizmor-persona` | `pedantic` or `auditor`, for a stricter zizmor persona than the default |
-| `coverage-exclude` | the package files that are test fixtures, one path per line |
+| `coverage-exclude` | the package files that are test fixtures, one path per line; a `.sln` or `.slnx` at or under a listed path is not read, so it covers none of the project files it lists and fails nothing |
 | `link-exclude` | globs, one per line, of Markdown files the repository does not maintain, such as vendored documentation; a link into them is still followed |
 
 Pass `gitleaks-config` and `gitleaks-baseline` with the files that the repository's own Gitleaks command passes with `--config` and `--baseline-path`, so the local scan before a push and CI scan alike. An example with inputs:
