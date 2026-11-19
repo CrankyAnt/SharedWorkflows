@@ -222,15 +222,33 @@
         "docs/maintaining.md",
         "tests/README.md",
         "tests/ci_policy_support.py",
+        "tests/consumer_checks_fixtures.py",
+        "tests/consumer_kit_support.py",
+        "tests/dependabot_auto_merge_source.py",
         "tests/fixtures/issue_title/categories.json",
         "tests/fixtures/python_tests/pyproject.toml",
         "tests/fixtures/python_tests/tests/test_greeting.py",
+        "tests/hygiene_fixtures.py",
+        "tests/hygiene_process.py",
+        "tests/pipeline_fixtures.py",
+        "tests/publication_branch_check.py",
+        "tests/publication_commitlint.py",
+        "tests/publication_fixtures.py",
+        "tests/publication_spec_module.py",
+        "tests/record_etw_fixture.py",
+        "tests/record_strace_fixture.py",
+        "tests/recording_fixtures.py",
+        "tests/release_fixtures.py",
         "tests/setups/commitlint.sh",
         "tests/setups/dotnet.py",
         "tests/setups/node.py",
         "tests/setups/pinned-tool.sh",
         "tests/setups/python.py",
+        "tests/strace_stand_in.py",
+        "tests/suite_selection_fixtures.py",
         "tests/suites.json",
+        "tests/sync_fixtures.py",
+        "tests/temporary_support.py",
         "tests/test_ci_policy_action_pins.py",
         "tests/test_ci_policy_additions.py",
         "tests/test_ci_policy_auto_merge_caller.py",
@@ -259,9 +277,100 @@
         "tests/test_ci_policy_shared_surface.py",
         "tests/test_ci_policy_suite_jobs.py",
         "tests/test_ci_policy_sync.py",
+        "tests/test_ci_policy_temporary_files.py",
         "tests/test_ci_policy_tool_pins.py",
         "tests/test_ci_policy_zizmor.py",
-        "tests/workflow_commands.py"
+        "tests/test_consumer_kit_automation_additions.py",
+        "tests/test_consumer_kit_automation_full_recording.py",
+        "tests/test_consumer_kit_dependabot.py",
+        "tests/test_consumer_kit_fixed_callers.py",
+        "tests/test_consumer_kit_hygiene.py",
+        "tests/test_consumer_kit_install_by_need.py",
+        "tests/test_consumer_kit_installed_permissions.py",
+        "tests/test_consumer_kit_installed_targets.py",
+        "tests/test_consumer_kit_installed_validation.py",
+        "tests/test_consumer_kit_own_dependabot.py",
+        "tests/test_consumer_kit_publication.py",
+        "tests/test_consumer_kit_python_tests.py",
+        "tests/test_consumer_kit_templates.py",
+        "tests/test_consumer_kit_validation_workflow.py",
+        "tests/test_dependabot_auto_merge.py",
+        "tests/test_dependabot_auto_merge_action.py",
+        "tests/test_dependabot_auto_merge_caller.py",
+        "tests/test_dependabot_auto_merge_workflow.py",
+        "tests/test_dependabot_auto_merge_workflow_invocation.py",
+        "tests/test_dotnet_test.py",
+        "tests/test_etw_consumer_build.py",
+        "tests/test_hygiene_actionlint.py",
+        "tests/test_hygiene_changes.py",
+        "tests/test_hygiene_dependabot_coverage.py",
+        "tests/test_hygiene_gitleaks.py",
+        "tests/test_hygiene_installer.py",
+        "tests/test_hygiene_link_check.py",
+        "tests/test_hygiene_pin_updater.py",
+        "tests/test_hygiene_pins_schema.py",
+        "tests/test_hygiene_push_and_reuse.py",
+        "tests/test_hygiene_repository_hygiene.py",
+        "tests/test_hygiene_reuse.py",
+        "tests/test_hygiene_v1_promotion.py",
+        "tests/test_hygiene_workflow.py",
+        "tests/test_hygiene_zizmor.py",
+        "tests/test_hygiene_zizmor_configuration.py",
+        "tests/test_hygiene_zizmor_surface.py",
+        "tests/test_node_test.py",
+        "tests/test_pipeline_automation_invocations.py",
+        "tests/test_pipeline_callers.py",
+        "tests/test_pipeline_custom.py",
+        "tests/test_pipeline_dependabot.py",
+        "tests/test_pipeline_issue_title.py",
+        "tests/test_pipeline_parts.py",
+        "tests/test_pipeline_plan.py",
+        "tests/test_pipeline_register.py",
+        "tests/test_pipeline_release.py",
+        "tests/test_pipeline_schema.py",
+        "tests/test_pipeline_steps_shell.py",
+        "tests/test_pipeline_verdict.py",
+        "tests/test_pipeline_workflow.py",
+        "tests/test_publication_author.py",
+        "tests/test_publication_branch.py",
+        "tests/test_publication_checks.py",
+        "tests/test_publication_commits.py",
+        "tests/test_publication_references.py",
+        "tests/test_publication_spec_fixture.py",
+        "tests/test_publication_spec_update.py",
+        "tests/test_publication_spec_workflow.py",
+        "tests/test_publication_titles.py",
+        "tests/test_python_floor.py",
+        "tests/test_python_language_step.py",
+        "tests/test_python_tests.py",
+        "tests/test_python_tests_workflow.py",
+        "tests/test_suite_jobs_pinned_tools.py",
+        "tests/test_suite_selection.py",
+        "tests/test_suite_selection_caller_entries.py",
+        "tests/test_suite_selection_ci_step_precision.py",
+        "tests/test_suite_selection_code_boundary.py",
+        "tests/test_suite_selection_part_boundary.py",
+        "tests/test_suite_selection_recording_apply.py",
+        "tests/test_suite_selection_recording_check.py",
+        "tests/test_suite_selection_recording_classification.py",
+        "tests/test_suite_selection_recording_etw.py",
+        "tests/test_suite_selection_recording_full.py",
+        "tests/test_suite_selection_recording_full_close.py",
+        "tests/test_suite_selection_recording_lookups.py",
+        "tests/test_suite_selection_recording_pathspecs.py",
+        "tests/test_suite_selection_recording_setups.py",
+        "tests/test_suite_selection_reuse.py",
+        "tests/test_suite_selection_setups.py",
+        "tests/test_suite_selection_verdict_workflow.py",
+        "tests/test_suite_selection_workflow.py",
+        "tests/test_suite_selection_workflow_reader.py",
+        "tests/test_sync_adoption.py",
+        "tests/test_sync_files.py",
+        "tests/test_sync_settings.py",
+        "tests/test_temporary_support.py",
+        "tests/test_windows_recording.py",
+        "tests/workflow_commands.py",
+        "tests/zizmor_fixtures.py"
       ],
       "entry_paths": {
         "tests/test_ci_policy_action_pins.py": [
@@ -849,6 +958,150 @@
           "tests/test_ci_policy_sync.py",
           "tests/workflow_commands.py"
         ],
+        "tests/test_ci_policy_temporary_files.py": [
+          "actions/recording/recording.py",
+          "tests/ci_policy_support.py",
+          "tests/consumer_checks_fixtures.py",
+          "tests/consumer_kit_support.py",
+          "tests/dependabot_auto_merge_source.py",
+          "tests/hygiene_fixtures.py",
+          "tests/hygiene_process.py",
+          "tests/pipeline_fixtures.py",
+          "tests/publication_branch_check.py",
+          "tests/publication_commitlint.py",
+          "tests/publication_fixtures.py",
+          "tests/publication_spec_module.py",
+          "tests/record_etw_fixture.py",
+          "tests/record_strace_fixture.py",
+          "tests/recording_fixtures.py",
+          "tests/release_fixtures.py",
+          "tests/strace_stand_in.py",
+          "tests/suite_selection_fixtures.py",
+          "tests/sync_fixtures.py",
+          "tests/temporary_support.py",
+          "tests/test_ci_policy_action_pins.py",
+          "tests/test_ci_policy_additions.py",
+          "tests/test_ci_policy_auto_merge_caller.py",
+          "tests/test_ci_policy_automation.py",
+          "tests/test_ci_policy_catalogue.py",
+          "tests/test_ci_policy_entry_files.py",
+          "tests/test_ci_policy_etw_consumer.py",
+          "tests/test_ci_policy_fixed_callers.py",
+          "tests/test_ci_policy_full_recording.py",
+          "tests/test_ci_policy_hygiene_caller.py",
+          "tests/test_ci_policy_hygiene_core.py",
+          "tests/test_ci_policy_hygiene_promotion.py",
+          "tests/test_ci_policy_hygiene_promotion_surface.py",
+          "tests/test_ci_policy_hygiene_updater.py",
+          "tests/test_ci_policy_hygiene_validate.py",
+          "tests/test_ci_policy_off_path_runners.py",
+          "tests/test_ci_policy_pipeline.py",
+          "tests/test_ci_policy_pipeline_parts.py",
+          "tests/test_ci_policy_publication.py",
+          "tests/test_ci_policy_publication_document.py",
+          "tests/test_ci_policy_python_language_step.py",
+          "tests/test_ci_policy_python_tests_caller.py",
+          "tests/test_ci_policy_recording_action.py",
+          "tests/test_ci_policy_release.py",
+          "tests/test_ci_policy_reuse.py",
+          "tests/test_ci_policy_shared_surface.py",
+          "tests/test_ci_policy_suite_jobs.py",
+          "tests/test_ci_policy_sync.py",
+          "tests/test_ci_policy_temporary_files.py",
+          "tests/test_ci_policy_tool_pins.py",
+          "tests/test_ci_policy_zizmor.py",
+          "tests/test_consumer_kit_automation_additions.py",
+          "tests/test_consumer_kit_automation_full_recording.py",
+          "tests/test_consumer_kit_dependabot.py",
+          "tests/test_consumer_kit_fixed_callers.py",
+          "tests/test_consumer_kit_hygiene.py",
+          "tests/test_consumer_kit_install_by_need.py",
+          "tests/test_consumer_kit_installed_permissions.py",
+          "tests/test_consumer_kit_installed_targets.py",
+          "tests/test_consumer_kit_installed_validation.py",
+          "tests/test_consumer_kit_own_dependabot.py",
+          "tests/test_consumer_kit_publication.py",
+          "tests/test_consumer_kit_python_tests.py",
+          "tests/test_consumer_kit_templates.py",
+          "tests/test_consumer_kit_validation_workflow.py",
+          "tests/test_dependabot_auto_merge.py",
+          "tests/test_dependabot_auto_merge_action.py",
+          "tests/test_dependabot_auto_merge_caller.py",
+          "tests/test_dependabot_auto_merge_workflow.py",
+          "tests/test_dependabot_auto_merge_workflow_invocation.py",
+          "tests/test_dotnet_test.py",
+          "tests/test_etw_consumer_build.py",
+          "tests/test_hygiene_actionlint.py",
+          "tests/test_hygiene_changes.py",
+          "tests/test_hygiene_dependabot_coverage.py",
+          "tests/test_hygiene_gitleaks.py",
+          "tests/test_hygiene_installer.py",
+          "tests/test_hygiene_link_check.py",
+          "tests/test_hygiene_pin_updater.py",
+          "tests/test_hygiene_pins_schema.py",
+          "tests/test_hygiene_push_and_reuse.py",
+          "tests/test_hygiene_repository_hygiene.py",
+          "tests/test_hygiene_reuse.py",
+          "tests/test_hygiene_v1_promotion.py",
+          "tests/test_hygiene_workflow.py",
+          "tests/test_hygiene_zizmor.py",
+          "tests/test_hygiene_zizmor_configuration.py",
+          "tests/test_hygiene_zizmor_surface.py",
+          "tests/test_node_test.py",
+          "tests/test_pipeline_automation_invocations.py",
+          "tests/test_pipeline_callers.py",
+          "tests/test_pipeline_custom.py",
+          "tests/test_pipeline_dependabot.py",
+          "tests/test_pipeline_issue_title.py",
+          "tests/test_pipeline_parts.py",
+          "tests/test_pipeline_plan.py",
+          "tests/test_pipeline_register.py",
+          "tests/test_pipeline_release.py",
+          "tests/test_pipeline_schema.py",
+          "tests/test_pipeline_steps_shell.py",
+          "tests/test_pipeline_verdict.py",
+          "tests/test_pipeline_workflow.py",
+          "tests/test_publication_author.py",
+          "tests/test_publication_branch.py",
+          "tests/test_publication_checks.py",
+          "tests/test_publication_commits.py",
+          "tests/test_publication_references.py",
+          "tests/test_publication_spec_fixture.py",
+          "tests/test_publication_spec_update.py",
+          "tests/test_publication_spec_workflow.py",
+          "tests/test_publication_titles.py",
+          "tests/test_python_floor.py",
+          "tests/test_python_language_step.py",
+          "tests/test_python_tests.py",
+          "tests/test_python_tests_workflow.py",
+          "tests/test_suite_jobs_pinned_tools.py",
+          "tests/test_suite_selection.py",
+          "tests/test_suite_selection_caller_entries.py",
+          "tests/test_suite_selection_ci_step_precision.py",
+          "tests/test_suite_selection_code_boundary.py",
+          "tests/test_suite_selection_part_boundary.py",
+          "tests/test_suite_selection_recording_apply.py",
+          "tests/test_suite_selection_recording_check.py",
+          "tests/test_suite_selection_recording_classification.py",
+          "tests/test_suite_selection_recording_etw.py",
+          "tests/test_suite_selection_recording_full.py",
+          "tests/test_suite_selection_recording_full_close.py",
+          "tests/test_suite_selection_recording_lookups.py",
+          "tests/test_suite_selection_recording_pathspecs.py",
+          "tests/test_suite_selection_recording_setups.py",
+          "tests/test_suite_selection_reuse.py",
+          "tests/test_suite_selection_setups.py",
+          "tests/test_suite_selection_verdict_workflow.py",
+          "tests/test_suite_selection_workflow.py",
+          "tests/test_suite_selection_workflow_reader.py",
+          "tests/test_sync_adoption.py",
+          "tests/test_sync_files.py",
+          "tests/test_sync_settings.py",
+          "tests/test_temporary_support.py",
+          "tests/test_windows_recording.py",
+          "tests/workflow_commands.py",
+          "tests/zizmor_fixtures.py"
+        ],
         "tests/test_ci_policy_tool_pins.py": [
           ".github/workflows/apply-additions.yml",
           ".github/workflows/automation-caller.yml",
@@ -971,6 +1224,7 @@
         "actions/recording/etw-consumer",
         "actions/recording/etw-consumer/build",
         "actions/recording/etw-consumer/global.json/**",
+        "actions/recording/recording.py/**",
         "actions/repository-hygiene",
         "actions/repository-hygiene/**",
         "actions/repository-hygiene/consumer-kit",
@@ -985,6 +1239,8 @@
         "actions/sync",
         "actions/sync/**",
         "catalogue.json/**",
+        "tests/*.py",
+        "tests/*.py/**",
         "tests/fixtures/python_tests",
         "tests/fixtures/python_tests/tests",
         "tests/setups/**",
@@ -1138,6 +1394,7 @@
         "tests/test_sync_adoption.py/**",
         "tests/test_sync_files.py/**",
         "tests/test_sync_settings.py/**",
+        "tests/test_temporary_support.py/**",
         "tests/test_windows_recording.py/**"
       ],
       "entry_directory_memberships": {
@@ -1443,10 +1700,16 @@
           "tests/test_sync_adoption.py/**",
           "tests/test_sync_files.py/**",
           "tests/test_sync_settings.py/**",
+          "tests/test_temporary_support.py/**",
           "tests/test_windows_recording.py/**"
         ],
         "tests/test_ci_policy_sync.py": [
           "actions/sync/**"
+        ],
+        "tests/test_ci_policy_temporary_files.py": [
+          "actions/recording/recording.py/**",
+          "tests/*.py",
+          "tests/*.py/**"
         ],
         "tests/test_ci_policy_tool_pins.py": [
           ".github/workflows"
@@ -1708,6 +1971,10 @@
         },
         {
           "path": "actions/recording/etw-consumer/global.json",
+          "kind": "any"
+        },
+        {
+          "path": "actions/recording/recording.py",
           "kind": "any"
         },
         {
@@ -2507,6 +2774,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_ci_policy_temporary_files",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_ci_policy_temporary_files.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_temporary_files.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_ci_policy_temporary_files.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_ci_policy_tool_pins",
           "kind": "directory"
         },
@@ -2948,6 +3231,10 @@
         },
         {
           "path": "tests/test_sync_settings.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_temporary_support.py",
           "kind": "any"
         },
         {
@@ -5502,6 +5789,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_temporary_support.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_windows_recording.py",
             "kind": "any"
           }
@@ -5637,6 +5928,64 @@
           },
           {
             "path": "tests/workflow_commands.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_ci_policy_temporary_files.py": [
+          {
+            "path": "actions/recording/recording.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/ci_policy_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_temporary_files",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_ci_policy_temporary_files.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_temporary_files.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_ci_policy_temporary_files.so",
             "kind": "any"
           }
         ],
@@ -5907,6 +6256,10 @@
           "actions/sync",
           "tests"
         ],
+        "tests/test_ci_policy_temporary_files.py": [
+          ".",
+          "tests"
+        ],
         "tests/test_ci_policy_tool_pins.py": [
           ".",
           "tests"
@@ -5945,6 +6298,7 @@
         "actions/dependabot-auto-merge/action.yml",
         "actions/dependabot-auto-merge/auto_merge.py",
         "tests/dependabot_auto_merge_source.py",
+        "tests/temporary_support.py",
         "tests/test_dependabot_auto_merge.py",
         "tests/test_dependabot_auto_merge_action.py",
         "tests/test_dependabot_auto_merge_caller.py",
@@ -5956,6 +6310,7 @@
         "tests/test_dependabot_auto_merge.py": [
           "actions/dependabot-auto-merge/auto_merge.py",
           "tests/dependabot_auto_merge_source.py",
+          "tests/temporary_support.py",
           "tests/test_dependabot_auto_merge.py"
         ],
         "tests/test_dependabot_auto_merge_action.py": [
@@ -6015,6 +6370,22 @@
         },
         {
           "path": "tests/dependabot_auto_merge_source.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -6150,6 +6521,22 @@
           },
           {
             "path": "tests/dependabot_auto_merge_source.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -6502,6 +6889,7 @@
         "tests/recording_fixtures.py",
         "tests/setup_ci_support.py",
         "tests/strace_stand_in.py",
+        "tests/temporary_support.py",
         "tests/test_consumer_kit_automation_additions.py",
         "tests/test_consumer_kit_automation_full_recording.py",
         "tests/test_consumer_kit_dependabot.py",
@@ -6555,6 +6943,7 @@
           "tests/hygiene_process.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_consumer_kit_automation_additions.py",
           "tests/test_setup_ci_apply_additions.py"
         ],
@@ -6571,6 +6960,7 @@
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
+          "tests/temporary_support.py",
           "tests/test_consumer_kit_automation_full_recording.py",
           "tests/test_setup_ci_full_recording.py"
         ],
@@ -6782,6 +7172,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
+          "tests/temporary_support.py",
           "tests/test_consumer_kit_validation_workflow.py",
           "tests/test_setup_ci_validation_workflow.py"
         ]
@@ -7265,6 +7656,22 @@
         },
         {
           "path": "tests/strace_stand_in.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -7931,6 +8338,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_consumer_kit_apply_additions",
             "kind": "directory"
           },
@@ -8082,6 +8505,22 @@
           },
           {
             "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -9309,6 +9748,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_consumer_kit_validation_workflow",
             "kind": "directory"
           },
@@ -10097,6 +10552,7 @@
         "tests/strace_stand_in.py",
         "tests/suite_selection_fixtures.py",
         "tests/suites.json",
+        "tests/temporary_support.py",
         "tests/test_suite_selection.py",
         "tests/test_suite_selection_caller_entries.py",
         "tests/test_suite_selection_ci_step_precision.py",
@@ -10150,6 +10606,7 @@
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/suite_selection_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection.py"
         ],
         "tests/test_suite_selection_caller_entries.py": [
@@ -10171,6 +10628,7 @@
           "tests/fixtures/registered_validation/validation-workflow.yml",
           "tests/fixtures/registered_validation/validation.yml",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_caller_entries.py"
         ],
         "tests/test_suite_selection_ci_step_precision.py": [
@@ -10181,6 +10639,7 @@
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_ci_step_precision.py"
         ],
         "tests/test_suite_selection_code_boundary.py": [
@@ -10210,6 +10669,7 @@
           "tests/fixtures/recording_strace/commands/check-backslashes/a.strace",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_apply.py",
           "tests/test_suite_selection_recording_check.py"
         ],
@@ -10264,6 +10724,7 @@
           "tests/fixtures/recording_strace/commands/check-two-reader/a.strace",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_check.py"
         ],
         "tests/test_suite_selection_recording_classification.py": [
@@ -10784,6 +11245,7 @@
           "tests/fixtures/recording_strace/linked/units/1794982858863961491-1125.json",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_classification.py"
         ],
         "tests/test_suite_selection_recording_etw.py": [
@@ -10890,6 +11352,7 @@
           "tests/fixtures/recording_etw/node/units/1795112679090893000-7500.json",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_classification.py",
           "tests/test_suite_selection_recording_etw.py"
         ],
@@ -10915,6 +11378,7 @@
           "tests/fixtures/recording_strace/commands/full-runners/skip.strace",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_full.py"
         ],
         "tests/test_suite_selection_recording_full_close.py": [
@@ -10944,6 +11408,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_full_close.py"
         ],
         "tests/test_suite_selection_recording_lookups.py": [
@@ -10955,6 +11420,7 @@
           "actions/suite-selection/suite_selection.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_lookups.py"
         ],
         "tests/test_suite_selection_recording_pathspecs.py": [
@@ -10965,6 +11431,7 @@
           "actions/suite-selection/suite_selection.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_pathspecs.py"
         ],
         "tests/test_suite_selection_recording_setups.py": [
@@ -10979,6 +11446,7 @@
           "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_setups.py"
         ],
         "tests/test_suite_selection_reuse.py": [
@@ -11016,6 +11484,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/suite_selection_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_reuse.py"
         ],
         "tests/test_suite_selection_setups.py": [
@@ -11026,6 +11495,7 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/suite_selection_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_setups.py"
         ],
         "tests/test_suite_selection_verdict_workflow.py": [
@@ -11065,11 +11535,13 @@
           "tests/setups/pinned-tool.sh",
           "tests/setups/python.py",
           "tests/suites.json",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_workflow.py"
         ],
         "tests/test_suite_selection_workflow_reader.py": [
           "actions/suite-selection/ci_definition.py",
           "tests/suite_selection_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_workflow_reader.py"
         ]
       },
@@ -11474,6 +11946,7 @@
         "tests/test_sync_adoption.py/**",
         "tests/test_sync_files.py/**",
         "tests/test_sync_settings.py/**",
+        "tests/test_temporary_support.py/**",
         "tests/test_windows_recording.py/**"
       ],
       "entry_directory_memberships": {
@@ -11952,6 +12425,7 @@
           "tests/test_sync_adoption.py/**",
           "tests/test_sync_files.py/**",
           "tests/test_sync_settings.py/**",
+          "tests/test_temporary_support.py/**",
           "tests/test_windows_recording.py/**"
         ]
       },
@@ -12337,6 +12811,10 @@
           "kind": "any"
         },
         {
+          "path": "actions/suite-selection/stat.py",
+          "kind": "any"
+        },
+        {
           "path": "actions/suite-selection/statistics.py",
           "kind": "any"
         },
@@ -12530,6 +13008,22 @@
         },
         {
           "path": "tests/suites.json",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -13357,6 +13851,10 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_temporary_support.py",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_windows_recording.py",
           "kind": "any"
         }
@@ -13609,6 +14107,10 @@
           },
           {
             "path": "actions/suite-selection/shutil.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/stat.py",
             "kind": "any"
           },
           {
@@ -13958,6 +14460,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection_caller_entries",
             "kind": "directory"
           },
@@ -14097,6 +14615,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -14662,6 +15196,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection_recording_classification",
             "kind": "directory"
           },
@@ -14837,6 +15387,22 @@
           },
           {
             "path": "tests/strace_stand_in.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -15184,6 +15750,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection_recording_full_close",
             "kind": "directory"
           },
@@ -15330,6 +15912,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection_recording_lookups",
             "kind": "directory"
           },
@@ -15473,6 +16071,22 @@
           },
           {
             "path": "tests/strace_stand_in.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -15772,6 +16386,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection_reuse",
             "kind": "directory"
           },
@@ -15923,6 +16553,22 @@
           },
           {
             "path": "tests/suite_selection_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -16211,6 +16857,22 @@
           },
           {
             "path": "tests/suites.json",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -16750,6 +17412,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/test_temporary_support.py",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_windows_recording.py",
             "kind": "any"
           }
@@ -16813,6 +17479,22 @@
           },
           {
             "path": "tests/suite_selection_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -17026,6 +17708,7 @@
         "tests/hygiene_fixtures.py",
         "tests/hygiene_process.py",
         "tests/setups/pinned-tool.sh",
+        "tests/temporary_support.py",
         "tests/test_hygiene_actionlint.py",
         "tests/test_hygiene_changes.py",
         "tests/test_hygiene_dependabot_coverage.py",
@@ -17056,6 +17739,7 @@
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
           "tests/setups/pinned-tool.sh",
+          "tests/temporary_support.py",
           "tests/test_hygiene_actionlint.py"
         ],
         "tests/test_hygiene_changes.py": [
@@ -17065,11 +17749,13 @@
           "actions/repository-hygiene/package-ecosystems.json",
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
+          "tests/temporary_support.py",
           "tests/test_hygiene_changes.py"
         ],
         "tests/test_hygiene_dependabot_coverage.py": [
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/package-ecosystems.json",
+          "tests/temporary_support.py",
           "tests/test_hygiene_dependabot_coverage.py"
         ],
         "tests/test_hygiene_gitleaks.py": [
@@ -17084,23 +17770,27 @@
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
           "tests/setups/pinned-tool.sh",
+          "tests/temporary_support.py",
           "tests/test_hygiene_gitleaks.py"
         ],
         "tests/test_hygiene_installer.py": [
           "actions/repository-hygiene/install_tools.py",
           "actions/repository-hygiene/pins.py",
+          "tests/temporary_support.py",
           "tests/test_hygiene_installer.py"
         ],
         "tests/test_hygiene_link_check.py": [
           "actions/repository-hygiene/dependabot_coverage.py",
           "actions/repository-hygiene/hygiene.py",
           "actions/repository-hygiene/link_check.py",
+          "tests/temporary_support.py",
           "tests/test_hygiene_link_check.py"
         ],
         "tests/test_hygiene_pin_updater.py": [
           ".github/workflows/update-ci-pins.yml",
           "actions/repository-hygiene/pins.py",
           "actions/repository-hygiene/update_pins.py",
+          "tests/temporary_support.py",
           "tests/test_hygiene_pin_updater.py",
           "tests/workflow_commands.py"
         ],
@@ -17117,6 +17807,7 @@
           "actions/repository-hygiene/package-ecosystems.json",
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
+          "tests/temporary_support.py",
           "tests/test_hygiene_push_and_reuse.py"
         ],
         "tests/test_hygiene_repository_hygiene.py": [
@@ -17134,6 +17825,7 @@
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
           "tests/setups/pinned-tool.sh",
+          "tests/temporary_support.py",
           "tests/test_hygiene_reuse.py"
         ],
         "tests/test_hygiene_v1_promotion.py": [
@@ -17142,6 +17834,7 @@
           "actions/repository-hygiene/shared-surface.json",
           "docs/agents/publication.md",
           "docs/maintaining.md",
+          "tests/temporary_support.py",
           "tests/test_hygiene_v1_promotion.py",
           "tests/workflow_commands.py"
         ],
@@ -17166,6 +17859,7 @@
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
           "tests/setups/pinned-tool.sh",
+          "tests/temporary_support.py",
           "tests/test_hygiene_zizmor.py",
           "tests/zizmor_fixtures.py"
         ],
@@ -17179,6 +17873,7 @@
           "actions/repository-hygiene/zizmor-policy.yml",
           "tests/hygiene_fixtures.py",
           "tests/setups/pinned-tool.sh",
+          "tests/temporary_support.py",
           "tests/test_hygiene_zizmor_configuration.py",
           "tests/zizmor_fixtures.py"
         ],
@@ -17194,6 +17889,7 @@
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
           "tests/setups/pinned-tool.sh",
+          "tests/temporary_support.py",
           "tests/test_hygiene_zizmor_surface.py",
           "tests/zizmor_fixtures.py"
         ]
@@ -17434,6 +18130,22 @@
         },
         {
           "path": "tests/hygiene_process.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -17824,6 +18536,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_hygiene_actionlint",
             "kind": "directory"
           },
@@ -17934,6 +18662,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_hygiene_changes",
             "kind": "directory"
           },
@@ -17977,6 +18721,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -18090,6 +18850,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_hygiene_gitleaks",
             "kind": "directory"
           },
@@ -18176,6 +18952,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_hygiene_installer",
             "kind": "directory"
           },
@@ -18254,6 +19046,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_hygiene_link_check",
             "kind": "directory"
           },
@@ -18313,6 +19121,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -18501,6 +19325,22 @@
           },
           {
             "path": "tests/hygiene_process.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -18732,6 +19572,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_hygiene_reuse",
             "kind": "directory"
           },
@@ -18779,6 +19635,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -19054,6 +19926,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_hygiene_zizmor",
             "kind": "directory"
           },
@@ -19161,6 +20049,22 @@
           },
           {
             "path": "tests/hygiene_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -19287,6 +20191,22 @@
           },
           {
             "path": "tests/hygiene_process.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -19502,6 +20422,7 @@
         "actions/repository-hygiene/pins.py",
         "tests/hygiene_fixtures.py",
         "tests/setups/pinned-tool.sh",
+        "tests/temporary_support.py",
         "tests/test_python_language_step.py"
       ],
       "directory_memberships": [
@@ -19642,6 +20563,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_python_language_step",
           "kind": "directory"
         },
@@ -19685,6 +20622,7 @@
         "actions/python-tests/python_tests.py",
         "actions/suite-selection/ci_definition.py",
         "tests/ci_policy_support.py",
+        "tests/temporary_support.py",
         "tests/test_python_tests.py",
         "tests/test_python_tests_workflow.py",
         "tests/workflow_commands.py"
@@ -19692,6 +20630,7 @@
       "entry_paths": {
         "tests/test_python_tests.py": [
           "actions/python-tests/python_tests.py",
+          "tests/temporary_support.py",
           "tests/test_python_tests.py"
         ],
         "tests/test_python_tests_workflow.py": [
@@ -19770,6 +20709,22 @@
         },
         {
           "path": "tests/ci_policy_support.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -19861,6 +20816,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -20076,6 +21047,7 @@
         "tests/fixtures/python_tests/pyproject.toml",
         "tests/pipeline_fixtures.py",
         "tests/release_fixtures.py",
+        "tests/temporary_support.py",
         "tests/test_pipeline_automation_invocations.py",
         "tests/test_pipeline_callers.py",
         "tests/test_pipeline_custom.py",
@@ -20115,6 +21087,7 @@
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/dependabot_auto_merge_source.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_automation_invocations.py",
           "tests/workflow_commands.py"
         ],
@@ -20137,6 +21110,7 @@
           "actions/repository-hygiene/shared-surface.json",
           "tests/consumer_checks_fixtures.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_callers.py"
         ],
         "tests/test_pipeline_custom.py": [
@@ -20162,6 +21136,7 @@
           "tests/ci_policy_support.py",
           "tests/fixtures/custom/fail.sh",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_custom.py"
         ],
         "tests/test_pipeline_dependabot.py": [
@@ -20188,10 +21163,12 @@
           "tests/consumer_checks_fixtures.py",
           "tests/consumer_kit_support.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_dependabot.py"
         ],
         "tests/test_pipeline_issue_title.py": [
           "actions/issue-title/issue_title.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_issue_title.py"
         ],
         "tests/test_pipeline_parts.py": [
@@ -20226,6 +21203,7 @@
           "tests/fixtures/node_test/package.json",
           "tests/fixtures/python_tests/pyproject.toml",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_parts.py",
           "tests/workflow_commands.py"
         ],
@@ -20235,6 +21213,7 @@
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_plan.py"
         ],
         "tests/test_pipeline_register.py": [
@@ -20257,6 +21236,7 @@
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/consumer_checks_fixtures.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_register.py"
         ],
         "tests/test_pipeline_release.py": [
@@ -20283,6 +21263,7 @@
           "tests/ci_policy_support.py",
           "tests/pipeline_fixtures.py",
           "tests/release_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_release.py",
           "tests/workflow_commands.py"
         ],
@@ -20306,6 +21287,7 @@
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_schema.py"
         ],
         "tests/test_pipeline_steps_shell.py": [
@@ -20347,6 +21329,7 @@
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_steps_shell.py"
         ],
         "tests/test_pipeline_verdict.py": [
@@ -20355,6 +21338,7 @@
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_verdict.py"
         ],
         "tests/test_pipeline_workflow.py": [
@@ -20384,6 +21368,7 @@
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/pipeline_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_workflow.py",
           "tests/workflow_commands.py"
         ]
@@ -20769,6 +21754,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_pipeline_automation_invocations",
           "kind": "directory"
         },
@@ -21092,6 +22093,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_automation_invocations",
             "kind": "directory"
           },
@@ -21222,6 +22239,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_callers",
             "kind": "directory"
           },
@@ -21325,6 +22358,22 @@
           },
           {
             "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -21474,6 +22523,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_dependabot",
             "kind": "directory"
           },
@@ -21513,6 +22578,22 @@
           },
           {
             "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -21654,6 +22735,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_parts",
             "kind": "directory"
           },
@@ -21768,6 +22865,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_plan",
             "kind": "directory"
           },
@@ -21879,6 +22992,22 @@
           },
           {
             "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -22012,6 +23141,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_release",
             "kind": "directory"
           },
@@ -22126,6 +23271,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_schema",
             "kind": "directory"
           },
@@ -22228,6 +23389,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_steps_shell",
             "kind": "directory"
           },
@@ -22323,6 +23500,22 @@
           },
           {
             "path": "tests/pipeline_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -22520,6 +23713,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_workflow",
             "kind": "directory"
           },
@@ -22690,6 +23899,7 @@
         "tests/consumer_kit_support.py",
         "tests/pipeline_fixtures.py",
         "tests/sync_fixtures.py",
+        "tests/temporary_support.py",
         "tests/test_pipeline_dependabot.py",
         "tests/test_sync_adoption.py",
         "tests/test_sync_files.py",
@@ -22723,6 +23933,7 @@
           "tests/consumer_kit_support.py",
           "tests/pipeline_fixtures.py",
           "tests/sync_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_dependabot.py",
           "tests/test_sync_adoption.py"
         ],
@@ -22741,6 +23952,7 @@
           "tests/consumer_kit_support.py",
           "tests/pipeline_fixtures.py",
           "tests/sync_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_pipeline_dependabot.py",
           "tests/test_sync_files.py"
         ],
@@ -22756,6 +23968,7 @@
           "tests/consumer_checks_fixtures.py",
           "tests/pipeline_fixtures.py",
           "tests/sync_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_sync_settings.py"
         ]
       },
@@ -22936,6 +24149,22 @@
         },
         {
           "path": "tests/sync_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -23174,6 +24403,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_dependabot",
             "kind": "directory"
           },
@@ -23372,6 +24617,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_pipeline_dependabot",
             "kind": "directory"
           },
@@ -23554,6 +24815,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_sync_settings",
             "kind": "directory"
           },
@@ -23618,6 +24895,7 @@
       ],
       "paths": [
         "actions/dotnet-test/dotnet_test.py",
+        "tests/temporary_support.py",
         "tests/test_dotnet_test.py"
       ],
       "existence_reads": [
@@ -23647,6 +24925,22 @@
         },
         {
           "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -23688,6 +24982,7 @@
       ],
       "paths": [
         "actions/node-test/node_test.py",
+        "tests/temporary_support.py",
         "tests/test_node_test.py"
       ],
       "existence_reads": [
@@ -23717,6 +25012,22 @@
         },
         {
           "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -23793,6 +25104,7 @@
         "docs/maintaining.md",
         "tests/hygiene_fixtures.py",
         "tests/setups/pinned-tool.sh",
+        "tests/temporary_support.py",
         "tests/test_python_floor.py"
       ],
       "directory_memberships": [
@@ -24086,6 +25398,22 @@
           "kind": "any"
         },
         {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_python_floor",
           "kind": "directory"
         },
@@ -24184,6 +25512,7 @@
         "tests/publication_fixtures.py",
         "tests/publication_spec_module.py",
         "tests/setups/commitlint.sh",
+        "tests/temporary_support.py",
         "tests/test_publication_author.py",
         "tests/test_publication_branch.py",
         "tests/test_publication_checks.py",
@@ -24206,6 +25535,7 @@
           "actions/repository-hygiene/pins.json",
           "tests/publication_branch_check.py",
           "tests/publication_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_publication_author.py"
         ],
         "tests/test_publication_branch.py": [
@@ -24217,6 +25547,7 @@
           "actions/repository-hygiene/pins.json",
           "tests/publication_branch_check.py",
           "tests/publication_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_publication_branch.py"
         ],
         "tests/test_publication_checks.py": [
@@ -24225,6 +25556,7 @@
           "actions/publication-checks/verify-spec.cjs",
           "actions/repository-hygiene/pins.json",
           "tests/publication_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_publication_checks.py"
         ],
         "tests/test_publication_commits.py": [
@@ -24240,12 +25572,14 @@
           "tests/publication_commitlint.py",
           "tests/publication_fixtures.py",
           "tests/setups/commitlint.sh",
+          "tests/temporary_support.py",
           "tests/test_publication_commits.py"
         ],
         "tests/test_publication_references.py": [
           "actions/publication-checks/check-references.cjs",
           "actions/repository-hygiene/pins.json",
           "tests/publication_fixtures.py",
+          "tests/temporary_support.py",
           "tests/test_publication_references.py"
         ],
         "tests/test_publication_spec_fixture.py": [
@@ -24261,6 +25595,7 @@
           "actions/publication-checks/update_spec.py",
           "actions/repository-hygiene/pins.json",
           "tests/publication_spec_module.py",
+          "tests/temporary_support.py",
           "tests/test_publication_spec_update.py"
         ],
         "tests/test_publication_spec_workflow.py": [
@@ -24278,6 +25613,7 @@
           "tests/publication_commitlint.py",
           "tests/publication_fixtures.py",
           "tests/setups/commitlint.sh",
+          "tests/temporary_support.py",
           "tests/test_publication_titles.py"
         ]
       },
@@ -24458,6 +25794,22 @@
         },
         {
           "path": "tests/publication_spec_module.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
           "kind": "any"
         },
         {
@@ -24684,6 +26036,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_publication_author",
             "kind": "directory"
           },
@@ -24762,6 +26130,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_publication_branch",
             "kind": "directory"
           },
@@ -24821,6 +26205,22 @@
           },
           {
             "path": "tests/publication_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -24938,6 +26338,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_publication_commits",
             "kind": "directory"
           },
@@ -24993,6 +26409,22 @@
           },
           {
             "path": "tests/publication_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -25109,6 +26541,22 @@
           },
           {
             "path": "tests/publication_spec_module.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
             "kind": "any"
           },
           {
@@ -25296,6 +26744,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_publication_titles",
             "kind": "directory"
           },
@@ -25393,6 +26857,7 @@
         "actions/recording/etw-consumer/global.json",
         "actions/recording/etw-consumer/packages.lock.json",
         "actions/recording/etw_consumer_build.py",
+        "tests/temporary_support.py",
         "tests/test_etw_consumer_build.py"
       ],
       "extra_paths": [
@@ -25552,6 +27017,18 @@
           "kind": "directory"
         },
         {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.cp313-win_amd64.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.pyd",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_etw_consumer_build",
           "kind": "directory"
         },
@@ -25612,6 +27089,7 @@
         "tests/record_etw_fixture.py",
         "tests/recording_fixtures.py",
         "tests/strace_stand_in.py",
+        "tests/temporary_support.py",
         "tests/test_suite_selection_recording_classification.py",
         "tests/test_suite_selection_recording_setups.py",
         "tests/test_windows_recording.py"
@@ -25637,6 +27115,7 @@
           "tests/record_etw_fixture.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_classification.py",
           "tests/test_windows_recording.py"
         ],
@@ -25657,6 +27136,7 @@
           "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
+          "tests/temporary_support.py",
           "tests/test_suite_selection_recording_setups.py"
         ]
       },
@@ -25835,6 +27315,18 @@
         },
         {
           "path": "tests/strace_stand_in.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.cp313-win_amd64.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.pyd",
           "kind": "any"
         },
         {
@@ -26041,6 +27533,18 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.cp313-win_amd64.pyd",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.pyd",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection_recording_classification",
             "kind": "directory"
           },
@@ -26239,6 +27743,18 @@
             "kind": "any"
           },
           {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.cp313-win_amd64.pyd",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.pyd",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection_recording_setups",
             "kind": "directory"
           },
@@ -26332,6 +27848,72 @@
       ],
       "setups": [
         "python"
+      ],
+      "paths": [
+        "tests/temporary_support.py",
+        "tests/test_temporary_support.py"
+      ],
+      "existence_reads": [
+        {
+          "path": "<unknown>",
+          "kind": "any"
+        },
+        {
+          "path": "tests",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/__init__.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.py",
+          "kind": "any"
+        },
+        {
+          "path": "tests/__init__.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_temporary_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_temporary_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_temporary_support.so",
+          "kind": "any"
+        }
+      ],
+      "lookup_directories": [
+        ".",
+        "tests"
       ]
     },
     {
@@ -26348,6 +27930,44 @@
       ],
       "setups": [
         "python"
+      ],
+      "paths": [
+        "tests/temporary_support.py",
+        "tests/test_temporary_support.py"
+      ],
+      "existence_reads": [
+        {
+          "path": "tests",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/temporary_support.cp313-win_amd64.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/temporary_support.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_temporary_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_temporary_support.cp313-win_amd64.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_temporary_support.pyd",
+          "kind": "any"
+        }
+      ],
+      "lookup_directories": [
+        ".",
+        "tests"
       ]
     }
   ],
@@ -26367,7 +27987,8 @@
       "tests"
     ],
     "actions/python-tests": [
-      "_sysconfigdata__linux_x86_64-linux-gnu"
+      "_sysconfigdata__linux_x86_64-linux-gnu",
+      "tests"
     ],
     "actions/repository-hygiene": [
       "consumer_checks",
