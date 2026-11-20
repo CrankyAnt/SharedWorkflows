@@ -164,6 +164,7 @@ class RecordingCheckTests(unittest.TestCase):
 
     def test_check_fails_names_the_exact_additions_and_apply_makes_the_same_recording_pass(self) -> None:
         fixture = READING_TWO.fixture(self.addCleanup, [suite("a", ["tests/a.py"], paths=["tests/a.py", "lib/data.txt", "lib/gone.txt"])])
+        fixture.ci_run(event="pull_request", run_id="123")
         checked = fixture.record(["tests/a.py"])
         self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
         self.assertEqual({"kind": "additions", "suite_list": "suites.json", "suites": [
@@ -193,6 +194,18 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertEqual(["tests"], fixture.suite("a")["lookup_directories"])
         again = fixture.check()
         self.assertEqual(0, again.returncode, again.stdout + again.stderr)
+
+    def test_the_check_s_route_follows_the_run_that_the_fixture_states_and_never_the_job_s_own(self) -> None:
+        fixture = READING_TWO.fixture(self.addCleanup, [suite("a", ["tests/a.py"], paths=["tests/a.py", "lib/data.txt"])])
+        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1", "GITHUB_EVENT_NAME": "push"}):
+            self.assertEqual(1, fixture.record(["tests/a.py"]).returncode)
+            summary = fixture.summary.read_text(encoding="utf-8")
+            self.assertNotIn("belongs to no pull request", summary, "the job's own push run reached the recording's commands")
+            self.assertIn("by hand with the run id of the pull request's validation run", summary, "a fixture that states no run has no run id")
+            fixture.summary.unlink()
+            fixture.ci_run(event="schedule", run_id="7")
+            self.assertEqual(1, fixture.check().returncode)
+        self.assertIn("This schedule run belongs to no pull request", fixture.summary.read_text(encoding="utf-8"))
 
     def test_a_pull_request_run_keeps_a_stored_read_that_no_run_makes(self) -> None:
         fixture = READING.fixture(self.addCleanup, [suite("a", ["tests/a.py"], paths=["tests/a.py", "lib/gone.txt"], directory_memberships=["lib"],

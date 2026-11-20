@@ -27,6 +27,8 @@ RECORDING_FILES = ("recording.json", "events.tsv", "logs/etw.log", "units", "loo
 STRACE_RECORDINGS = ROOT / "tests" / "fixtures" / "recording_strace"
 STRACE_RECORDING_FILES = ("recording.json", "units", "traces", "lookups")
 STAND_IN = ROOT / "tests" / "strace_stand_in.py"
+# The variables of the CI run that the recording step reads: its event and its run id.
+CI_RUN = ("GITHUB_EVENT_NAME", "GITHUB_RUN_ID")
 
 requires_linux = unittest.skipUnless(sys.platform.startswith("linux"), "the recording step records under strace on Linux")
 requires_posix_paths = unittest.skipIf(sys.platform == "win32", "a stored strace recording names POSIX paths")
@@ -215,6 +217,7 @@ class RecordingFixture:
         """``cleanup`` registers the removal of the fixture: a case's addCleanup or a class's addClassCleanup. Off Windows,
         ``stand_in`` puts the stand-in ``strace`` first on the ``PATH`` of the recording's commands."""
         self.wrapper: list[str] = []
+        self.stated_run: dict[str, str] = {}
         self.base = temporary_support.make_directory(cleanup, prefix="recording-")
         self.root = self.base / "repo"
         self.output = self.base / "recording"
@@ -283,9 +286,15 @@ class RecordingFixture:
         wrapper.write_text(FAILING_REMOVAL.format(name=name), encoding="utf-8")
         self.wrapper = [str(wrapper)]
 
+    def ci_run(self, *, event: str, run_id: str) -> None:
+        """Let each later command of the recording step run in the CI run ``run_id`` of the event ``event``."""
+        self.stated_run = dict(zip(CI_RUN, (event, run_id)))
+
     def environment(self, path: str | None = None) -> dict[str, str]:
-        """The environment of the recording's commands, with ``path`` as ``PATH`` (the current one by default)."""
-        environment = {key: value for key, value in os.environ.items() if key != "RUNNER_TEMP"}
+        """The environment of the recording's commands, with ``path`` as ``PATH`` (the current one by default). The CI
+        run that the tests run in never reaches them; only the run that ``ci_run`` states does."""
+        environment = {key: value for key, value in os.environ.items() if key not in ("RUNNER_TEMP", *CI_RUN)}
+        environment.update(self.stated_run)
         environment["PATH"] = os.environ.get("PATH", "") if path is None else path
         if self.stand_in is not None:
             environment["STRACE_STAND_IN"] = str(self.stand_in)
