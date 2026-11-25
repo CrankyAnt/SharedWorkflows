@@ -158,6 +158,13 @@ class Api:
         document = self.get(f"repos/{repository}/contents/{urllib.parse.quote(path)}?ref={urllib.parse.quote(ref, safe='')}")
         return sorted(item["path"] for item in document if isinstance(item, dict) and item.get("type") == "file") if isinstance(document, list) else []
 
+    def blob(self, repository: str, sha: str) -> bytes:
+        """The raw bytes of a Git blob."""
+        document = self.get(f"repos/{repository}/git/blobs/{sha}")
+        if not isinstance(document, dict) or "content" not in document:
+            raise SyncError(f"the blob {sha} could not be read")
+        return base64.b64decode(document["content"] or "")
+
 
 # --- the templates --------------------------------------------------------------------------------------------------
 
@@ -276,15 +283,19 @@ def open_pull_request(api: Api, repository: str, branch: str) -> dict | None:
     return pulls[0] if isinstance(pulls, list) and pulls and isinstance(pulls[0], dict) else None
 
 
-def propose(api: Api, repository: str, default: str, branch: str, changes: dict[str, bytes | None], title: str, body: str) -> dict:
+def propose(api: Api, repository: str, default: str, branch: str, changes: dict[str, bytes | None], title: str, body: str,
+            *, tip: str | None = None, base_tree: str | None = None, existing: dict | None = None, has_existing: bool = False) -> dict:
     """Put the changed files, None for a file that leaves, as one commit on the default branch's tip onto ``branch`` and
     open its pull request, or keep the one that is open. The branch stays when it already holds these files."""
-    tip = branch_tip(api, repository, default)
+    if tip is None:
+        tip = branch_tip(api, repository, default)
     if tip is None:
         raise SyncError(f"the branch {default} could not be read")
+    if base_tree is None:
+        base_tree = tree_of(api, repository, tip)
     entries = [{"path": path, "mode": "100644", "type": "blob", **({"sha": None} if content is None else {"content": content.decode("utf-8")})}
                for path, content in sorted(changes.items())]
-    tree = api.send("POST", f"repos/{repository}/git/trees", {"base_tree": tree_of(api, repository, tip), "tree": entries})["sha"]
+    tree = api.send("POST", f"repos/{repository}/git/trees", {"base_tree": base_tree, "tree": entries})["sha"]
     held = branch_tip(api, repository, branch)
     if held is None or tree_of(api, repository, held) != tree:
         commit = api.send("POST", f"repos/{repository}/git/commits", {"message": title, "tree": tree, "parents": [tip]})["sha"]
@@ -292,7 +303,7 @@ def propose(api: Api, repository: str, default: str, branch: str, changes: dict[
             api.send("POST", f"repos/{repository}/git/refs", {"ref": f"refs/heads/{branch}", "sha": commit})
         else:
             api.send("PATCH", f"repos/{repository}/git/refs/heads/{urllib.parse.quote(branch)}", {"sha": commit, "force": True})
-    pull = open_pull_request(api, repository, branch)
+    pull = existing if has_existing else open_pull_request(api, repository, branch)
     if pull is None:
         pull = api.send("POST", f"repos/{repository}/pulls", {"title": title, "head": branch, "base": default, "body": body})
     return pull
@@ -313,18 +324,92 @@ def request_auto_merge(api: Api, pull: dict) -> str | None:
 # --- the files of a consumer ----------------------------------------------------------------------------------------
 
 
-def file_changes(api: Api, repository: str, default: str, templates: Templates, configuration_text: bytes, notes: list[str]) -> dict[str, bytes | None]:
-    """The files of the default branch that differ from what the templates and the configuration file give."""
+@dataclass(frozen=True)
+class Snapshot:
+    """One commit snapshot of a consumer's default branch, its open sync pull request and its open requests."""
+
+    tip: str
+    tree: str
+    files: dict[str, bytes | None]
+    pull_request: dict | None
+    requests: list[dict]
+
+
+def read_snapshot(api: Api, repository: str, default: str, paths: list[str], branch: str, include_requests: bool) -> Snapshot:
+    """Read every needed file of a consumer from one commit snapshot of its default branch, together with its open
+    sync pull request and, when needed, its open ``shared-ci`` issues."""
+    owner, name = repository.split("/", 1)
+    variables: dict[str, object] = {"owner": owner, "name": name, "branch": branch}
+    path_decls = []
+    file_fields = []
+    for index, path in enumerate(paths):
+        var = f"path{index}"
+        variables[var] = path
+        path_decls.append(f"${var}: String!")
+        file_fields.append(f"f{index}: file(path: ${var}) {{ oid object {{ ... on Blob {{ text }} }} }}")
+    issues_decl = ", $label: String!" if include_requests else ""
+    issues_field = ("issues(states: [OPEN], labels: [$label], first: 100) { pageInfo { hasNextPage } nodes { number title url } }"
+                    if include_requests else "")
+    if include_requests:
+        variables["label"] = REQUEST_LABEL
+    query = (f"query($owner: String!, $name: String!, $branch: String!{issues_decl}, {', '.join(path_decls)}) {{ "
+             f"repository(owner: $owner, name: $name) {{ "
+             f"defaultBranchRef {{ name target {{ ... on Commit {{ oid tree {{ oid }} {' '.join(file_fields)} }} }} }} "
+             f"pullRequests(states: [OPEN], headRefName: $branch, first: 10) {{ "
+             f"nodes {{ number id url createdAt headRepository {{ nameWithOwner }} autoMergeRequest {{ mergeMethod }} }} }} "
+             f"{issues_field} }} }}")
+    answer = api.send("POST", "graphql", {"query": query, "variables": variables})
+    errors = answer.get("errors")
+    if errors:
+        raise SyncError("; ".join(str(error.get("message", error)) if isinstance(error, dict) else str(error) for error in errors))
+    repo_data = (answer.get("data") or {}).get("repository")
+    if not isinstance(repo_data, dict):
+        raise SyncError("the repository could not be read")
+    default_ref = repo_data.get("defaultBranchRef")
+    target = default_ref.get("target") if isinstance(default_ref, dict) else None
+    if not isinstance(target, dict) or "oid" not in target or not isinstance(target.get("tree"), dict):
+        raise SyncError(f"the branch {default} could not be read")
+    files: dict[str, bytes | None] = {}
+    for index, path in enumerate(paths):
+        entry = target.get(f"f{index}")
+        if not isinstance(entry, dict):
+            files[path] = None
+        else:
+            blob_obj = entry.get("object")
+            if isinstance(blob_obj, dict) and isinstance(blob_obj.get("text"), str):
+                files[path] = blob_obj["text"].encode("utf-8")
+            else:
+                files[path] = api.blob(repository, entry["oid"])
+    pull = None
+    for node in ((repo_data.get("pullRequests") or {}).get("nodes") or []):
+        if isinstance(node, dict) and ((node.get("headRepository") or {}).get("nameWithOwner") in (None, repository)):
+            auto = node.get("autoMergeRequest")
+            pull = {"number": node["number"], "node_id": node["id"], "html_url": node["url"], "created_at": node["createdAt"],
+                    "auto_merge": {"merge_method": auto["mergeMethod"].lower()} if isinstance(auto, dict) and auto.get("mergeMethod") else None}
+            break
+    requests: list[dict] = []
+    if include_requests:
+        issues_data = repo_data.get("issues") or {}
+        if (issues_data.get("pageInfo") or {}).get("hasNextPage"):
+            requests = [issue for issue in api.pages(f"repos/{repository}/issues?state=open&labels={REQUEST_LABEL}") if "pull_request" not in issue]
+        else:
+            requests = [{"number": node["number"], "title": node.get("title", ""), "html_url": node.get("url", "")}
+                        for node in (issues_data.get("nodes") or []) if isinstance(node, dict)]
+    return Snapshot(target["oid"], target["tree"]["oid"], files, pull, requests)
+
+
+def file_changes(files: dict[str, bytes | None], templates: Templates, configuration_text: bytes, notes: list[str]) -> dict[str, bytes | None]:
+    """The files of the snapshot that differ from what the templates and the configuration file give."""
     changes: dict[str, bytes | None] = {}
     for path, content in templates.fixed.items():
-        held = api.file(repository, path, default)
+        held = files.get(path)
         if path == CI_GUIDE:
             # Only the part up to and including the heading of the repository's choices is fixed; what follows it stays.
             if held is None or consumer_checks.fixed_part(held) != content:
                 changes[path] = consumer_checks.ci_guide_for(content, held)
         elif held != content:
             changes[path] = content
-    held, other = api.file(repository, DEPENDABOT_FILE, default), api.file(repository, DEPENDABOT_OTHER_NAME, default)
+    held, other = files.get(DEPENDABOT_FILE), files.get(DEPENDABOT_OTHER_NAME)
     try:
         configuration, _ = plan.checked_configuration(configuration_text.decode("utf-8"), templates.versions)
     except (plan.PlanError, UnicodeDecodeError) as error:
@@ -436,7 +521,9 @@ def sync_repository(api: Api, repository: str, templates: Templates, options: ar
     if held.get("archived"):
         return
     default = held.get("default_branch") or "main"
-    configuration = api.file(repository, plan.CONFIGURATION, default)
+    paths = [plan.CONFIGURATION, *templates.fixed, DEPENDABOT_FILE, DEPENDABOT_OTHER_NAME]
+    snapshot = read_snapshot(api, repository, default, paths, templates.branch, include_requests=bool(options.own_repository))
+    configuration = snapshot.files.get(plan.CONFIGURATION)
     if configuration is None:
         report.section(repository, [f"`{repository}` holds no `{plan.CONFIGURATION}`: it has not adopted the pipeline. `sync.py adopt` makes its adoption pull request."])
         return
@@ -450,19 +537,19 @@ def sync_repository(api: Api, repository: str, templates: Templates, options: ar
                           "The sync changes no setting with the App's token. Its local mode corrects them: `sync.py sync --local --repository <repository>`."])
         report.findings.append(Finding(f"settings:{repository}:{digest}", f"Settings differ: {repository}", body, ever=False))
     if options.own_repository:
-        for issue in api.pages(f"repos/{repository}/issues?state=open&labels={REQUEST_LABEL}"):
-            if "pull_request" not in issue:
-                reference = f"{repository}#{issue['number']}"
-                body = f"An open request for shared CI: [{reference}]({issue.get('html_url', '')}), \"{issue.get('title', '')}\"."
-                report.findings.append(Finding(f"request:{reference}", f"Request for shared CI: {reference}", body, ever=True))
-    changes = file_changes(api, repository, default, templates, configuration, lines)
+        for issue in snapshot.requests:
+            reference = f"{repository}#{issue['number']}"
+            body = f"An open request for shared CI: [{reference}]({issue.get('html_url', '')}), \"{issue.get('title', '')}\"."
+            report.findings.append(Finding(f"request:{reference}", f"Request for shared CI: {reference}", body, ever=True))
+    changes = file_changes(snapshot.files, templates, configuration, lines)
     if changes:
-        existing = open_pull_request(api, repository, templates.branch)
+        existing = snapshot.pull_request
         if existing is not None and options.now - moment(existing["created_at"]) >= UNMERGED_AFTER:
             reference = f"{repository}#{existing['number']}"
             body = f"The sync pull request [{reference}]({existing.get('html_url', '')}) was opened at {existing['created_at']} and is still open."
             report.findings.append(Finding(f"pull-request:{reference}", f"Sync pull request not merged after six hours: {reference}", body, ever=True))
-        pull = propose(api, repository, default, templates.branch, changes, SYNC_TITLE, sync_body(changes, templates.shared))
+        pull = propose(api, repository, default, templates.branch, changes, SYNC_TITLE, sync_body(changes, templates.shared),
+                       tip=snapshot.tip, base_tree=snapshot.tree, existing=existing, has_existing=True)
         names = ", ".join(f"`{path}`" for path in sorted(changes))
         lines.append(f"{'The open' if existing is not None else 'A new'} sync pull request brings {names} in line: {pull.get('html_url', '')}")
         if not pull.get("auto_merge"):

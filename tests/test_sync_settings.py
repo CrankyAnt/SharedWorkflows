@@ -249,7 +249,7 @@ class IssueTests(SyncFixture):
     def test_the_issues_of_the_other_repositories_are_opened_when_one_repository_fails(self) -> None:
         self.consumer({CI: "name: other\n"})
         self.consumer(name=f"{CONSUMER}-two").settings["allow_rebase_merge"] = True
-        self.api.refused[f"/repos/{CONSUMER}/contents"] = 500
+        self.api.refused[f"/repos/{CONSUMER}/rulesets"] = 500
         synced = self.scheduled()
         self.assertEqual(1, synced.status)
         self.assertEqual([f"Settings differ: {CONSUMER}-two"], self.titles())
