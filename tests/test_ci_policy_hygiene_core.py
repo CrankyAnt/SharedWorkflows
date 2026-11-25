@@ -50,10 +50,11 @@ class HygieneCoreTests(unittest.TestCase):
     def test_gitleaks_scans_every_reachable_commit_of_the_full_history_on_every_event(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("        with:\n          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}\n          fetch-depth: 0\n", workflow)
-        self.assertRegex(workflow, r"(?m)^      - name: Gitleaks over all reachable history\n        if: \$\{\{ !cancelled\(\) && steps\.install\.outcome == 'success' \}\}\n(?:        env:\n(?:          .*\n)+)?        run: .*hygiene\.py\" gitleaks ")
+        self.assertRegex(workflow, r"(?m)^      - name: Gitleaks over added commits\n        id: gitleaks\n        if: \$\{\{ !cancelled\(\) && steps\.install\.outcome == 'success' \}\}\n(?:        env:\n(?:          .*\n)+)?        run: \|\n(?:          .*\n)+?          .*hygiene\.py\" gitleaks ")
         self.assertIn('tools="--tool gitleaks"', workflow)
         hygiene = (REPOSITORY_ROOT / "actions" / "repository-hygiene" / "hygiene.py").read_text(encoding="utf-8")
-        self.assertIn('"git", "--log-opts=--all"', hygiene)
+        self.assertIn('f"--log-opts={log_opts}"', hygiene)
+        self.assertIn('log_opts = "--all"', hygiene)
 
     def test_on_a_dispatch_run_the_check_of_its_payload_commit_runs_first_after_the_checkout_and_gates_every_check(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -125,7 +126,7 @@ class HygieneCoreTests(unittest.TestCase):
             ("Check the pull request title", "${{ !cancelled() && steps.commitlint.outcome == 'success' }}"),
             ("Check the references to repositories of the owner", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Install the pinned tools and verify their checksums", "${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}"),
-            ("Gitleaks over all reachable history", "${{ !cancelled() && steps.install.outcome == 'success' }}"),
+            ("Gitleaks over added commits", "${{ !cancelled() && steps.install.outcome == 'success' }}"),
         ):
             with self.subTest(step=name):
                 step = next((step for step in steps if step.get("name", str(step.get("uses", "")).split("@")[0]) == name), None)

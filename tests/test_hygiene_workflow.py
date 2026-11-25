@@ -21,10 +21,11 @@ class WorkflowInvocationTests(unittest.TestCase):
         self.assertEqual([tokens[0] for tokens in invocations], ["changes", "coverage", "links", "actionlint", "zizmor", "reuse", "gitleaks", "record"])
         parser = hygiene.build_parser()
         for tokens in invocations:
-            if tokens[0] == "changes":
-                self.assertEqual("$@", tokens[1], "the decision takes the push lookup or the pull request's commits from the case before it")
-                for event in (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--base", "x", "--head", "x", "--compare", "direct", "--results", "x"]):
-                    with self.subTest(step="changes", event=event):
+            if tokens[0] in ("changes", "gitleaks"):
+                self.assertEqual("$@", tokens[1], "the step takes the push lookup or the pull request's commits from the case before it")
+                events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--base", "x", "--head", "x", "--compare", "direct", "--results", "x"]) if tokens[0] == "changes" else (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--lookup", "x", "--record-marker", "x", "--github-output", "x"])
+                for event in events:
+                    with self.subTest(step=tokens[0], event=event):
                         parser.parse_args([tokens[0], *event, *tokens[2:]])
                 continue
             with self.subTest(step=tokens[0]):

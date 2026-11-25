@@ -114,7 +114,7 @@ class HygieneInvocationTests(PipelineFixture):
         self.assertEqual(["changes", "coverage", "links", "actionlint", "zizmor", "reuse", "gitleaks"], [tokens[0] for tokens in invocations])
         parser = hygiene.build_parser()
         for tokens in invocations:
-            events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"]) if tokens[0] == "changes" else ([],)
+            events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"]) if tokens[0] in ("changes", "gitleaks") else ([],)
             for event in events:
                 with self.subTest(step=tokens[0], event=event):
                     parser.parse_args([tokens[0], *event, *[token for token in tokens[1:] if token != "$@"]])

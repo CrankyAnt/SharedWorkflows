@@ -219,7 +219,7 @@ class PipelineStepShellTests(unittest.TestCase):
         ran = self.install()
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         context = {"steps": {"resources": self.loaded("repository-hygiene")}}
-        ran, _ = self.run_step("repository-hygiene", "Gitleaks over all reachable history", context)
+        ran, _ = self.run_step("repository-hygiene", "Gitleaks over added commits", context)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         return self.tool_log.read_text(encoding="utf-8").splitlines()
 

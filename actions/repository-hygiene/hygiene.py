@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import re
 import shutil
@@ -95,14 +96,171 @@ def zizmor(root: Path, tools: Path | None, persona: str, policy: Path) -> int:
     return run(command + ["."], root)
 
 
-def gitleaks(root: Path, tools: Path | None, config: str, baseline: str) -> int:
-    """Gitleaks over every commit reachable from any ref."""
-    command = [str(executable("gitleaks", tools)), "git", "--log-opts=--all", "--redact", "--no-banner", "--no-color"]
+def _relative_to_root(root: Path, value: str) -> str | None:
+    if not value:
+        return None
+    try:
+        return (root / value).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def _file_sha256(root: Path, value: str) -> str | None:
+    if not value:
+        return None
+    target = Path(value) if Path(value).is_absolute() else root / value
+    if not target.is_file():
+        return None
+    return hashlib.sha256(target.read_bytes()).hexdigest()
+
+
+def _gitleaks_pin_version(pins_path: Path | None) -> str | None:
+    if pins_path is None:
+        return None
+    try:
+        data = json.loads(pins_path.read_text(encoding="utf-8"))
+        version = data["tools"]["gitleaks"]["version"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+    return version if isinstance(version, str) and version else None
+
+
+def _in_repo_pins_path(root: Path) -> str | None:
+    try:
+        folder = RESOURCES.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        folder = HYGIENE_FOLDER if (root / HYGIENE_FOLDER).is_dir() else None
+    if folder is None:
+        return None
+    candidate = f"{folder}/pins.json"
+    return candidate if (root / candidate).is_file() else None
+
+
+def _gitleaks_pin_changed(root: Path, start: str, head: str, pins_rel: str) -> bool:
+    before_lines = git_file(root, start, pins_rel)
+    after_lines = git_file(root, head, pins_rel)
+    if before_lines is None or after_lines is None:
+        return True
+    try:
+        before = json.loads("\n".join(before_lines))["tools"]["gitleaks"]["version"]
+        after = json.loads("\n".join(after_lines))["tools"]["gitleaks"]["version"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return True
+    return before != after
+
+
+def _gitleaks_marker_key(root: Path, config: str, baseline: str, pins: Path | None) -> dict[str, object]:
+    return {
+        "version": _gitleaks_pin_version(pins),
+        "config": config,
+        "config_sha256": _file_sha256(root, config),
+        "baseline": baseline,
+        "baseline_sha256": _file_sha256(root, baseline),
+    }
+
+
+def _marker_matches(marker: Path, key: dict[str, object]) -> bool:
+    if key["version"] is None:
+        return False
+    try:
+        stored = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return stored == key
+
+
+def _commit_exists(root: Path, revision: str) -> bool:
+    return subprocess.run(["git", "rev-parse", "--verify", f"{revision}^{{commit}}"], cwd=root, capture_output=True, text=True, check=False).returncode == 0
+
+
+def _resolve_gitleaks_range(root: Path, base: str, head: str, compare: str, lookup: Path | None) -> tuple[str | None, str | None, str]:
+    if lookup is not None:
+        try:
+            found = read_lookup(lookup)
+        except ValueError as error:
+            return None, None, f"push lookup could not be read: {error}"
+        start = found.get("landing_base") or ""
+        target = found["head"]
+        if not start or ALL_ZERO.match(start) or not target:
+            return None, None, "the push lookup names no landing base"
+    elif base or head:
+        if not base or ALL_ZERO.match(base) or not head:
+            return None, None, "the added commit range could not be determined"
+        if compare == "merge-base":
+            merge_base = subprocess.run(["git", "merge-base", base, head], cwd=root, capture_output=True, text=True, check=False)
+            if merge_base.returncode != 0:
+                return None, None, "the merge base could not be determined"
+            start = merge_base.stdout.strip()
+        else:
+            start = base
+        target = head
+    else:
+        return None, None, "no commit range was given"
+    if not (_commit_exists(root, start) and _commit_exists(root, target)):
+        return None, None, "the commit range is not in the checkout"
+    return start, target, ""
+
+
+def gitleaks(root: Path, tools: Path | None, config: str, baseline: str, base: str = "", head: str = "", compare: str = "direct",
+             lookup: Path | None = None, pins: Path | None = None, marker: Path | None = None, record_marker: Path | None = None,
+             github_output: Path | None = None) -> int:
+    """Gitleaks over the commits a run adds to a ref, or over all reachable history when the configuration, baseline or
+    pinned version changes, or when the default-branch marker is missing or does not match."""
+    start, target, fallback_reason = _resolve_gitleaks_range(root, base, head, compare, lookup)
+    full_scan = False
+    reason = ""
+    if start is None or target is None:
+        full_scan = True
+        reason = fallback_reason
+    else:
+        changed = changed_files(root, start, target, "direct")
+        config_rel = _relative_to_root(root, config)
+        baseline_rel = _relative_to_root(root, baseline)
+        pins_rel = _in_repo_pins_path(root)
+        if changed is None:
+            full_scan, reason = True, "the changed files could not be determined"
+        elif config_rel and config_rel in changed:
+            full_scan, reason = True, f"the Gitleaks configuration `{config_rel}` changed"
+        elif baseline_rel and baseline_rel in changed:
+            full_scan, reason = True, f"the Gitleaks baseline `{baseline_rel}` changed"
+        elif pins_rel and pins_rel in changed and _gitleaks_pin_changed(root, start, target, pins_rel):
+            full_scan, reason = True, "the pinned Gitleaks version changed"
+        elif marker is not None and not _marker_matches(marker, _gitleaks_marker_key(root, config, baseline, pins)):
+            full_scan, reason = True, "the default-branch Gitleaks marker is missing or differs from the current version, configuration or baseline"
+        else:
+            reason = f"scanning added commits {start}..{target}"
+
+    if full_scan:
+        log_opts = "--all"
+        print(f"gitleaks: full history scan ({reason})", flush=True)
+    else:
+        count = subprocess.run(["git", "rev-list", "--count", f"{start}..{target}"], cwd=root, capture_output=True, text=True, check=False)
+        if count.returncode == 0 and count.stdout.strip() == "0":
+            print(f"gitleaks: no added commits in {start}..{target}", flush=True)
+            if github_output is not None:
+                with github_output.open("a", encoding="utf-8") as handle:
+                    handle.write("recorded-marker=false\n")
+            return 0
+        log_opts = f"{start}..{target}"
+        print(f"gitleaks: {reason}", flush=True)
+
+    command = [str(executable("gitleaks", tools)), "git", f"--log-opts={log_opts}", "--redact", "--no-banner", "--no-color"]
     if config:
         command += ["--config", config]
     if baseline:
         command += ["--baseline-path", baseline]
-    return run(command + ["."], root)
+    returncode = run(command + ["."], root)
+    recorded = False
+    if returncode == 0 and full_scan and record_marker is not None:
+        key = _gitleaks_marker_key(root, config, baseline, pins)
+        if key["version"] is not None:
+            record_marker.parent.mkdir(parents=True, exist_ok=True)
+            record_marker.write_text(json.dumps(key, sort_keys=True) + "\n", encoding="utf-8")
+            recorded = True
+    if github_output is not None:
+        with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"recorded-marker={'true' if recorded else 'false'}\n")
+    return returncode
 
 
 def reuse(root: Path, tools: Path | None) -> int:
@@ -621,8 +779,17 @@ def build_parser() -> argparse.ArgumentParser:
         subcommand.add_argument("--root", type=Path, default=Path("."))
     subcommands.choices["zizmor"].add_argument("--persona", default="")
     subcommands.choices["zizmor"].add_argument("--policy", type=Path, default=ZIZMOR_POLICY)
-    subcommands.choices["gitleaks"].add_argument("--config", default="")
-    subcommands.choices["gitleaks"].add_argument("--baseline", default="")
+    gitleaks_parser = subcommands.choices["gitleaks"]
+    gitleaks_parser.add_argument("--config", default="")
+    gitleaks_parser.add_argument("--baseline", default="")
+    gitleaks_parser.add_argument("--base", default="")
+    gitleaks_parser.add_argument("--head", default="")
+    gitleaks_parser.add_argument("--compare", choices=("merge-base", "direct"), default="direct")
+    gitleaks_parser.add_argument("--lookup", type=Path)
+    gitleaks_parser.add_argument("--pins", type=Path)
+    gitleaks_parser.add_argument("--marker", type=Path)
+    gitleaks_parser.add_argument("--record-marker", type=Path)
+    gitleaks_parser.add_argument("--github-output", type=Path)
     coverage = subcommands.add_parser("coverage")
     coverage.add_argument("--root", type=Path, default=Path("."))
     coverage.add_argument("--ecosystems", type=Path, default=dependabot_coverage.ECOSYSTEMS_PATH)
@@ -691,7 +858,8 @@ def main(argv: list[str] | None = None) -> int:
             return zizmor(root, tools, arguments.persona, arguments.policy)
         if arguments.check == "reuse":
             return reuse(root, tools)
-        return gitleaks(root, tools, arguments.config, arguments.baseline)
+        return gitleaks(root, tools, arguments.config, arguments.baseline, arguments.base, arguments.head, arguments.compare,
+                        arguments.lookup, arguments.pins, arguments.marker, arguments.record_marker, arguments.github_output)
     except ToolMissing as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2

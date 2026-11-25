@@ -334,13 +334,52 @@ class PythonToolPlanTests(unittest.TestCase):
         self.assertTrue(any(item.startswith("gamma:") for item in result.unreachable), result.unreachable)
 
 
+    def test_windows_only_environment_markers_are_discovered_while_unrequested_extras_are_skipped(self) -> None:
+        report_items = [
+            {
+                "metadata": {
+                    "name": "gamma",
+                    "version": "1.1.0",
+                    "requires_dist": [
+                        'colorama>=0.4.6; sys_platform == "win32"',
+                        'tzdata>=2024.1; os_name == "nt" and python_version >= "3.12"',
+                        'win-only-extra>=1.0; extra == "extra" and platform_system == "Windows"',
+                        'pytest>=8.0; extra == "test"',
+                        'old-py>=1.0; python_version < "3.12"',
+                        "delta>=3.0",
+                    ],
+                }
+            }
+        ]
+        discovered = update_pins.missing_target_requirements(
+            report_items,
+            resolved={"gamma": "1.1.0", "delta": "3.0"},
+            requested_extras={"gamma": {"extra"}},
+        )
+        names = {update_pins.normalized(req.split(">=")[0].strip()) for req in discovered}
+        self.assertEqual({"colorama", "tzdata", "win-only-extra"}, names, discovered)
+
+
 class WorkflowInvocationTests(unittest.TestCase):
     def test_the_updater_workflow_invokes_the_script_with_options_it_accepts(self) -> None:
         invocations = script_invocations(REPOSITORY_ROOT / ".github" / "workflows" / "update-ci-pins.yml", "update_pins.py")
-        self.assertEqual(len(invocations), 2, "the plan step and the apply step")
+        self.assertEqual(len(invocations), 2, "the plan step and the apply-plan step")
         parsed = [update_pins.build_parser().parse_args(tokens) for tokens in invocations]
-        self.assertEqual([arguments.apply for arguments in parsed], [False, True])
-        self.assertTrue(all(arguments.cooldown_days == 7 and arguments.output and arguments.summary for arguments in parsed))
+        self.assertIsNotNone(parsed[0].write_plan, "plan job writes the verified plan artifact")
+        self.assertIsNone(parsed[0].apply_plan)
+        self.assertEqual(parsed[0].cooldown_days, 7)
+        self.assertTrue(parsed[0].output and parsed[0].summary)
+        self.assertIsNotNone(parsed[1].apply_plan, "propose job applies the verified plan without re-querying")
+        self.assertIsNone(parsed[1].write_plan)
+        self.assertTrue(parsed[1].output and parsed[1].pr_body)
+
+    def test_cooldown_days_expression_preserves_explicit_zero(self) -> None:
+        from tests.ci_policy_support import read_workflow
+        _, workflow = read_workflow(REPOSITORY_ROOT / ".github" / "workflows" / "update-ci-pins.yml")
+        step = next(s for s in workflow["jobs"]["plan"]["steps"] if s.get("id") == "pins")
+        expr = step["env"]["COOLDOWN_DAYS"]
+        self.assertNotIn("inputs.cooldown_days ||", expr, "falsy 0 must not fall back to 7")
+        self.assertEqual("${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.cooldown_days) || '7' }}", expr)
 
 
 class CommandLineTests(unittest.TestCase):
@@ -432,6 +471,25 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("::error::alpha 1.3.0: alpha_1.3.0_linux.tar.gz downloaded with sha256", result.stderr)
         self.assertEqual("changed=false\nfailed=true\n", output.read_text(encoding="utf-8"))
         self.assertEqual(before, self.pins_path.read_text(encoding="utf-8"))
+
+    def test_write_plan_and_apply_plan_avoid_repeating_upstream_queries(self) -> None:
+        plan_file = self.root / "plan.json"
+        output = self.root / "output.txt"
+        result = self.run_cli("--write-plan", str(plan_file), "--output", str(output), fetch_script=self.NEWER_BETA)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertTrue(plan_file.is_file())
+        self.assertEqual("changed=true\nfailed=false\n", output.read_text(encoding="utf-8"))
+        self.assertEqual("2.0.0", json.loads(self.pins_path.read_text(encoding="utf-8"))["tools"]["beta"]["version"],
+                         "--write-plan does not modify pins.json")
+
+        body = self.root / "body.md"
+        apply_output = self.root / "apply-output.txt"
+        forbid_network = "def fetch(url):\n    raise AssertionError(f'unexpected network query: {url}')\n"
+        result = self.run_cli("--apply-plan", str(plan_file), "--pr-body", str(body), "--output", str(apply_output), fetch_script=forbid_network)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("2.1.0", json.loads(self.pins_path.read_text(encoding="utf-8"))["tools"]["beta"]["version"])
+        self.assertIn("| beta | 2.0.0 | 2.1.0 |", body.read_text(encoding="utf-8"))
+        self.assertEqual("changed=true\nfailed=false\n", apply_output.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

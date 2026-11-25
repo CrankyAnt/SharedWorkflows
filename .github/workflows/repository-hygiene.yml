@@ -214,14 +214,41 @@ jobs:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" reuse --tools "$HYGIENE_TOOLS"
-      - name: Gitleaks over all reachable history
+      - name: Restore the default-branch Gitleaks scan marker
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gitleaks-marker/marker.json
+          key: gitleaks-marker-lookup-${{ github.run_id }}
+          restore-keys: gitleaks-marker-
+      - name: Gitleaks over added commits
+        id: gitleaks
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
           GITLEAKS_CONFIG: ${{ inputs.gitleaks-config }}
           GITLEAKS_BASELINE: ${{ inputs.gitleaks-baseline }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" gitleaks --tools "$HYGIENE_TOOLS" --config "$GITLEAKS_CONFIG" --baseline "$GITLEAKS_BASELINE"
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
+          RECORD_MARKER: ${{ github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch) }}
+        run: |
+          case "$EVENT" in
+            push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
+          esac
+          if [ "$RECORD_MARKER" = "true" ]; then
+            set -- "$@" --record-marker "$RUNNER_TEMP/gitleaks-marker/marker.json" --github-output "$GITHUB_OUTPUT"
+          fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" gitleaks "$@" --tools "$HYGIENE_TOOLS" --config "$GITLEAKS_CONFIG" --baseline "$GITLEAKS_BASELINE" --pins "$RESOURCE_PATH/pins.json" --marker "$RUNNER_TEMP/gitleaks-marker/marker.json"
+      - name: Store the default-branch Gitleaks scan marker
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.gitleaks.outputs.recorded-marker == 'true' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gitleaks-marker/marker.json
+          key: gitleaks-marker-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Record the passed checks for an edit of the pull request
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:

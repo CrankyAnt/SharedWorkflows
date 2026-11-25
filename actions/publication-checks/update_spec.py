@@ -87,7 +87,13 @@ def _fetch(url: str) -> bytes:
         return response.read()
 
 
-def update(root: Path, fetcher: Callable[[str], bytes] = _fetch, candidate_path: Path | None = None) -> dict[str, object]:
+def update(
+    root: Path,
+    fetcher: Callable[[str], bytes] = _fetch,
+    candidate_path: Path | None = None,
+    apply: bool = True,
+    write_candidate: Path | None = None,
+) -> dict[str, object]:
     specification_path, metadata_path, fixture_path = _paths(root)
     try:
         current = _load_json(specification_path.read_bytes(), "vendored specification")
@@ -102,25 +108,29 @@ def update(root: Path, fetcher: Callable[[str], bytes] = _fetch, candidate_path:
             if versioned != raw:
                 raise CandidateError("latest specification differs from its versioned document")
     except (CandidateError, OSError, urllib.error.URLError, TimeoutError) as error:
-        return {"changed": False, "message": f"Specification refresh skipped: {error}"}
+        return {"changed": False, "failed": True, "message": f"Specification refresh failed: {error}"}
 
     candidate_key = _version_key(version)
     current_key = _version_key(current_version)
     if candidate_key < current_key:
-        return {"changed": False, "message": f"Specification refresh skipped: upstream {version} is older than vendored {current_version}."}
+        return {"changed": False, "failed": False, "message": f"Specification refresh skipped: upstream {version} is older than vendored {current_version}."}
     if candidate_key == current_key:
         if raw != specification_path.read_bytes():
-            return {"changed": False, "message": f"Specification refresh needs review: upstream {version} is not newer and has changed content."}
-        return {"changed": False, "message": f"Specification refresh skipped: Conventional Branch {version} is current."}
+            return {"changed": False, "failed": True, "message": f"Specification refresh needs review: upstream {version} is not newer and has changed content."}
+        return {"changed": False, "failed": False, "message": f"Specification refresh skipped: Conventional Branch {version} is current."}
 
     metadata = {"version": version, "sha256": hashlib.sha256(raw).hexdigest(), "source": VERSIONED_URL.format(version=version)}
     fixture = {"version": version, "official_regex": regex, "cases": [{"branch": branch, "matches": match} for branch, match in zip(FIXTURE_BRANCHES, matches, strict=True)]}
     metadata_json = json.dumps(metadata, indent=2) + "\n"
     fixture_json = json.dumps(fixture, indent=2) + "\n"
-    specification_path.write_bytes(raw)
-    metadata_path.write_text(metadata_json, encoding="utf-8")
-    fixture_path.write_text(fixture_json, encoding="utf-8")
-    return {"changed": True, "version": version, "sha256": metadata["sha256"], "message": f"Updated Conventional Branch specification to {version}."}
+    if write_candidate is not None:
+        write_candidate.parent.mkdir(parents=True, exist_ok=True)
+        write_candidate.write_bytes(raw)
+    if apply:
+        specification_path.write_bytes(raw)
+        metadata_path.write_text(metadata_json, encoding="utf-8")
+        fixture_path.write_text(fixture_json, encoding="utf-8")
+    return {"changed": True, "failed": False, "version": version, "sha256": metadata["sha256"], "message": f"Updated Conventional Branch specification to {version}."}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -128,6 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[3])
     parser.add_argument("--candidate", type=Path)
+    parser.add_argument("--no-apply", action="store_true", help="Check and validate without modifying repository files.")
+    parser.add_argument("--write-candidate", type=Path, help="Write the verified candidate specification bytes to this file when changed.")
     parser.add_argument("--output", type=Path, help="Write GitHub Actions outputs to this file and the result message to stdout.")
     return parser
 
@@ -135,10 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
-    result = update(arguments.root.resolve(), candidate_path=arguments.candidate)
+    result = update(
+        arguments.root.resolve(),
+        candidate_path=arguments.candidate,
+        apply=not arguments.no_apply,
+        write_candidate=arguments.write_candidate,
+    )
     rendered = json.dumps(result, sort_keys=True)
     if arguments.output:
         lines = [f"changed={str(result['changed']).lower()}"]
+        if result.get("failed"):
+            lines.append("failed=true")
         for key in ("version", "sha256"):
             if key in result:
                 lines.append(f"{key}={result[key]}")
@@ -147,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         print(result["message"])
     else:
         print(rendered)
-    return 0
+    return 1 if result.get("failed") else 0
 
 
 if __name__ == "__main__":

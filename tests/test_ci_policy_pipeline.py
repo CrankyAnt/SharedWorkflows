@@ -30,7 +30,7 @@ DIFFERENT = {
     "Dependabot coverage of tracked package files": "the pipeline reads coverage-exclude from the configuration file, not from an input",
     "Relative links in tracked Markdown": "the pipeline reads link-exclude from the configuration file, not from an input",
     "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona",
-    "Gitleaks over all reachable history": "the pipeline takes the Gitleaks files by their fixed names, not from inputs",
+    "Gitleaks over added commits": "the pipeline takes the Gitleaks files by their fixed names, not from inputs",
 }
 # The steps that only the pipeline's hygiene job holds, each with its reason.
 PIPELINE_ONLY = {
@@ -234,7 +234,7 @@ class PipelineTests(unittest.TestCase):
     def test_repository_hygiene_takes_the_gitleaks_files_by_their_fixed_names_and_offers_no_other_choice(self) -> None:
         self.assertIn('if [ -f .gitleaks.toml ]; then config=".gitleaks.toml"; fi', self.text)
         self.assertIn('if [ -f .gitleaks-baseline.json ]; then baseline=".gitleaks-baseline.json"; fi', self.text)
-        self.assertIn('hygiene.py" gitleaks --tools "$HYGIENE_TOOLS" --config "$config" --baseline "$baseline"', self.text)
+        self.assertIn('hygiene.py" gitleaks "$@" --tools "$HYGIENE_TOOLS" --config "$config" --baseline "$baseline"', self.text)
         self.assertIn('hygiene.py" zizmor --tools "$HYGIENE_TOOLS" --persona ""', self.text)
 
     def test_the_coverage_and_link_checks_take_their_exclusions_from_the_configuration_file_and_a_change_to_one_starts_its_check(self) -> None:
@@ -629,7 +629,7 @@ class ConsumerPathTests(unittest.TestCase):
             with self.subTest(replacement=replacement):
                 text = PIPELINE.read_text(encoding="utf-8")
                 self.assertIn(install, text)
-                workflow = ci_definition().read_yaml(text.replace(install, replacement), str(PIPELINE))
+                workflow = ci_definition().read_yaml(text.replace(install, replacement, 1), str(PIPELINE))
                 problems = self.problems("pipeline.yml", workflow)
                 self.assertEqual(1, len(problems), problems)
                 self.assertTrue(problems[0].startswith("pipeline.yml: job repository-hygiene, step Install the pinned tools"), problems[0])

@@ -114,6 +114,57 @@ class PublicationSpecUpdateTests(unittest.TestCase):
         self.assertIn("Updated Conventional Branch specification to 1.2.0.", result.stdout)
         self.assertEqual(f"preserved=true\nchanged=true\nversion=1.2.0\nsha256={hashlib.sha256(NEWER).hexdigest()}\n", output.read_text(encoding="utf-8"))
 
+    def test_network_outage_and_same_version_drift_fail_with_non_zero_exit(self) -> None:
+        drifted = CURRENT.replace(b"[a-z]+", b"[0-9]+")
+        drift_result = update_spec.update(self.root, fetcher=lambda url: drifted)
+        self.assertTrue(drift_result["failed"])
+        self.assertFalse(drift_result["changed"])
+
+        def outage(url: str) -> bytes:
+            raise OSError("network unavailable")
+
+        outage_result = update_spec.update(self.root, fetcher=outage)
+        self.assertTrue(outage_result["failed"])
+        self.assertFalse(outage_result["changed"])
+
+        # CLI exits non-zero on same-version drift.
+        candidate = self.root / "drifted.json"
+        candidate.write_bytes(drifted)
+        output = self.root / "drift-output.txt"
+        ran = subprocess.run(
+            [sys.executable, str(MODULE_PATH), "--root", str(self.root), "--candidate", str(candidate), "--output", str(output)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(1, ran.returncode, ran.stdout + ran.stderr)
+        self.assertIn("changed=false\n", output.read_text(encoding="utf-8"))
+        self.assertIn("failed=true\n", output.read_text(encoding="utf-8"))
+
+        # CLI exits 0 on identical current version.
+        same = self.root / "same.json"
+        same.write_bytes(CURRENT)
+        ran_same = subprocess.run(
+            [sys.executable, str(MODULE_PATH), "--root", str(self.root), "--candidate", str(same)],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, ran_same.returncode, ran_same.stdout + ran_same.stderr)
+
+    def test_plan_writes_candidate_without_modifying_repo_and_propose_applies_without_network(self) -> None:
+        before = self._tree()
+        written_candidate = self.root / "planned-spec.json"
+        plan_result = update_spec.update(self.root, fetcher=lambda url: NEWER, apply=False, write_candidate=written_candidate)
+        self.assertTrue(plan_result["changed"])
+        self.assertFalse(plan_result["failed"])
+        self.assertEqual(before, self._tree(), "plan mode must not modify repository files")
+        self.assertEqual(NEWER, written_candidate.read_bytes())
+
+        def forbid_network(url: str) -> bytes:
+            raise AssertionError(f"unexpected network query: {url}")
+
+        apply_result = update_spec.update(self.root, fetcher=forbid_network, candidate_path=written_candidate)
+        self.assertTrue(apply_result["changed"])
+        self.assertFalse(apply_result["failed"])
+        self.assertEqual(NEWER, self._read("actions/publication-checks/spec.json"))
+
     def _read(self, relative: str) -> bytes:
         return (self.root / relative).read_bytes()
 
