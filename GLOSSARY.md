@@ -331,15 +331,15 @@ The shared step that records what a job's entry files and setups read, and compa
 _Avoid_: Tracer, recorder
 
 **Full recording**:
-The periodic run that records every entry file of a repository and, for each clean entry file, replaces its stored lists and renews its duration estimate, while every other entry file keeps both; the only run that removes a stored read.
+The periodic run that records every entry file of a repository and, for each clean entry file, replaces its stored lists and renews its duration estimate, while every other entry file keeps both; its close fails visibly and opens no pull request when a shard result is missing, applies complete suites, and reports partly recorded suites whose lists stay.
 _Avoid_: Re-seed, seeding, full trace
 
 **Clean entry file**:
-An entry file that, in a full recording, exited with 0 and whose test report shows no skipped test; only a clean entry file can lose a stored read or get a new duration estimate.
+An entry file that exited with 0 and whose test report in an accepted format (unittest, framed or quiet pytest, or complete TAP) shows no skipped or deselected test; only a clean entry file can replace its stored lists or get a new duration estimate.
 _Avoid_: Passing entry file, green entry file
 
 **Stored lists**:
-The path list, directory memberships, existence reads and lookup directories that the suite list holds for a suite or an entry file, written from recordings.
+The path list, directory memberships, existence reads and lookup directories that the suite list holds for a suite or an entry file, written from recordings; applying a complete pull-request run replaces them for each clean entry file (and for a pooled suite when every entry file ran clean), while an incomplete run only adds to them, and the full recording refreshes every suite periodically.
 _Avoid_: Read lists, path lists (for all of them)
 
 **Addition**:

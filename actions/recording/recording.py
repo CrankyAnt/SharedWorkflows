@@ -14,15 +14,17 @@ entry file runs in the job's environment before its setups, with only what its s
 process with the lookup report writes its module lookups beside the recording.
 ``check`` parses and classifies the recording, maps it to repository paths, assigns each setup's reads to the
 suites and entry files of the job that state the setup, and compares the reads with the stored lists. In a
-pull-request or push run it writes the additions, lists them in the job summary and fails when there are any; in the
-full-recording mode it writes the classified reads, the skip state and the duration of every entry file. ``keep``
+pull-request or push run it writes the additions (with full reads of clean entry files under ``replace_entries``),
+lists any additions in the job summary and fails when there are any; in the full-recording mode it writes the
+classified reads, the skip and deselected counts and the duration of every entry file. ``keep``
 marks the entry files that the additions name in the job's passed list, so that the job stores the passes of its other
-entry files and ``store`` keys those with additions only under the lists with the additions applied. ``apply`` adds a
-run's additions to the suite list, or, with the results of a full recording, replaces the lists of every entry file
-that exited with 0 and whose test report in an accepted format shows no skipped test, and writes the duration
-estimates, corrected for the speed of each shard job; ``--keep-lists`` and ``--keep-all-lists`` name the entry files
-whose recorded reads it adds instead. The lists of a suite selected per entry file are the union of its entry files'
-lists. ``docs/maintaining.md`` documents the commands.
+entry files and ``store`` keys those with additions only under the lists with the additions applied. ``apply`` applies
+a run's additions (replacing stored lists for clean entry files and adding for incomplete ones), or, with the results
+of a full recording, verifies any ``--expect-job`` shard names, replaces the lists of every clean entry file that
+exited with 0 and whose test report in an accepted format shows no skipped or deselected test, reports partly recorded
+suites without aborting complete ones, and writes the duration estimates, corrected for the speed of each shard job;
+``--keep-lists`` and ``--keep-all-lists`` name the entry files whose recorded reads it adds instead. The lists of a
+suite selected per entry file are the union of its entry files' lists. ``docs/maintaining.md`` documents the commands.
 
     python3 recording.py base [--file <file>]
     python3 recording.py start [--output <directory>] [--root <repository>] [--environment <file>] [--full [--job <name>]]
@@ -33,7 +35,7 @@ lists. ``docs/maintaining.md`` documents the commands.
                                 [--setup <name>] ... [--tool <tool>=<path>] ... [--pinned <tool>=<directory>] ...
     python3 recording.py check [--output <directory>] --suites <suite list> [--root <repository>] [--summary <file>]
     python3 recording.py keep --additions <additions> <passed list>
-    python3 recording.py apply [--root <repository>] [--suites <suite list>] [--keep-lists <selection> | --keep-all-lists] <additions or results> ...
+    python3 recording.py apply [--root <repository>] [--suites <suite list>] [--expect-job <name>] ... [--keep-lists <selection> | --keep-all-lists] <additions or results> ...
     python3 recording.py digest [--expect <digest>] [--github-output <file>]
 """
 
@@ -109,11 +111,17 @@ PATHSPEC_VARIABLES = frozenset({"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "
 SHORT_MAGIC = "/!^"
 CAT_FILE_MODES = frozenset({"-t", "-s", "-e", "-p"})  # without one, the first operand is the type
 FULL_OBJECT_ID = re.compile(r"^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})(\^\{(blob|tree|commit|tag|object)\})?$")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 UNITTEST_RAN = re.compile(r"^Ran \d+ tests? in ", re.MULTILINE)
 UNITTEST_STATUS = re.compile(r"^(OK|FAILED)\b.*$", re.MULTILINE)
+PYTEST_OUTCOME_WORDS = r"(?:passed|failed|skipped|deselected|xfailed|xpassed|errors?|subtests? (?:passed|failed|skipped))"
+PYTEST_ITEM = rf"\d+ (?:{PYTEST_OUTCOME_WORDS}|warnings?|reruns?)"
+PYTEST_OUTCOME = re.compile(rf"\b\d+ {PYTEST_OUTCOME_WORDS}\b")
 PYTEST_SUMMARY = re.compile(r"^=+ .* in [\d.]+s\b.*=+$", re.MULTILINE)
+PYTEST_QUIET_SUMMARY = re.compile(rf"^{PYTEST_ITEM}(?:, {PYTEST_ITEM})* in \d+(?:\.\d+)?s(?:\s+\(\d+:\d{{2}}:\d{{2}}\))?$", re.MULTILINE)
 SKIPPED_COUNT = re.compile(r"skipped=(\d+)")
-PYTEST_SKIPPED = re.compile(r"(\d+) skipped")
+PYTEST_SKIPPED = re.compile(r"\b(\d+) skipped\b")
+PYTEST_DESELECTED = re.compile(r"\b(\d+) deselected\b")
 TAP_PLAN = re.compile(r"^1\.\.(\d+)(?:\s+#.*)?$")
 TAP_TEST = re.compile(r"^(?:not )?ok(?: (.*))?$")
 TAP_SKIP = re.compile(r"(?:^|\s)#\s*skip(?:\s.*)?$", re.IGNORECASE)
@@ -309,20 +317,29 @@ def tap_report(output: str) -> tuple[str | None, int] | None:
     return None, (skipped if plans[0] else 1)
 
 
-def skip_count(output: str) -> tuple[int | None, str | None]:
-    """The number of skipped tests that the entry file's complete test reports in an accepted format state, or None when
-    it has none, and, when it has none, why its TAP report is incomplete. An incomplete TAP report counts as no report."""
-    tap = tap_report(output)
+def skip_count(output: str) -> tuple[int | None, int, str | None]:
+    """The number of skipped tests and deselected tests that the entry file's complete test reports in an accepted
+    format state, or None for skipped when it has none, and, when it has none, why its TAP report is incomplete. An
+    incomplete TAP report counts as no report."""
+    plain = ANSI_ESCAPE.sub("", output).replace("\r\n", "\n")
+    tap = tap_report(plain)
     counts = [tap[1]] if tap is not None and tap[0] is None else []
-    if UNITTEST_RAN.search(output):
-        lines = [match.group(0) for match in UNITTEST_STATUS.finditer(output)]
+    deselected = 0
+    if UNITTEST_RAN.search(plain):
+        lines = [match.group(0) for match in UNITTEST_STATUS.finditer(plain)]
         counts += [int(found.group(1)) if (found := SKIPPED_COUNT.search(line)) else 0 for line in lines]
-    for line in PYTEST_SUMMARY.findall(output):
-        found = PYTEST_SKIPPED.search(line)
-        counts.append(int(found.group(1)) if found else 0)
+    for pattern in (PYTEST_SUMMARY, PYTEST_QUIET_SUMMARY):
+        for line in pattern.findall(plain):
+            if not PYTEST_OUTCOME.search(line):
+                continue
+            found_skipped = PYTEST_SKIPPED.search(line)
+            counts.append(int(found_skipped.group(1)) if found_skipped else 0)
+            found_deselected = PYTEST_DESELECTED.search(line)
+            if found_deselected:
+                deselected += int(found_deselected.group(1))
     if counts:
-        return sum(counts), None
-    return None, None if tap is None else tap[0]
+        return sum(counts), deselected, None
+    return None, 0, None if tap is None else tap[0]
 
 
 def provisions(output: Path) -> dict[str, dict]:
@@ -548,11 +565,11 @@ def run_exec(options: argparse.Namespace) -> int:
     if not etw and trace.is_file():
         keep_pathspec_variables(trace)
     text = log.decode("utf-8", "replace")
-    skipped, incomplete = skip_count(text)
+    skipped, deselected, incomplete = skip_count(text)
     (output / "logs" / f"{unit}.log").write_text(text, encoding="utf-8")
     record = {"unit": unit, "kind": "setup" if options.setup else "entry", "name": options.setup or normalize_entry(options.entry),
               "suite": options.suite, "command": command, "exit_code": code, "seconds": round(seconds, 3), "skipped": skipped,
-              "incomplete_report": incomplete,
+              "deselected": deselected, "incomplete_report": incomplete,
               "trace": trace.name, "lookups": lookups.name, "temporary": str(temporary), "cache": str(cache),
               "cwd": str(getattr(options, "directory", None) or os.getcwd())}
     if "job" in settings:
@@ -1485,23 +1502,43 @@ def held_paths(root: Path) -> dict[str, list[str]]:
 
 
 def git_directory_reads(events: list[Event], copies: list[str], project: Checkout, root: str | None = None) -> Reads:
-    """The reads of the git processes that read the index, objects or refs of the checkout's Git directories or of the
-    Git directory of a repository copy in ``copies``, whose paths the .git rule of ``relative_events`` drops: a
+    """The reads of any process that reads the index, objects or refs of the checkout's Git directories or of the Git
+    directory of a repository copy in ``copies``, whose paths the .git rule of ``relative_events`` drops: a
     ``git ls-files`` that prints only names is what ``listing_reads`` gives, a ``git cat-file`` of full object ids a
-    content read of the tracked paths that hold each object, and any other such process a content read of every tracked
+    content read of the tracked paths that hold each object (falling back to ``**`` for any id not held by the checked
+    commit), and any other process — including non-``git`` readers of ``.git/`` state — a content read of every tracked
     path. ``root`` is the checkout in the form of the event paths, ``project.root`` by default."""
     directories = [*project.git_directories, *(copy + "/.git" for copy in copies)]
-    readers = {event.pid for event in events if is_git(event.executable) and in_git_state(event.path, directories)}
-    execs = {event.pid: event for event in events if event.kind == "exec" and event.pid in readers}  # each process's latest
+    active_exec: dict[str, Event] = {}
+    readers: list[Event | None] = []
+    seen: set[tuple[str, Event | None]] = set()
+    for event in events:
+        if event.kind == "exec":
+            active_exec[event.pid] = event
+            continue
+        if event.kind == "write":
+            continue
+        if in_git_state(event.path, directories):
+            exec_event = active_exec.get(event.pid)
+            key = (event.pid, exec_event)
+            if key not in seen:
+                seen.add(key)
+                readers.append(exec_event)
     roots = [root or str(project.root), *copies]
     reads = Reads()
-    for pid in readers:
-        command, options, arguments = git_command(execs.get(pid)) or ("", [], [])
+    for exec_event in readers:
+        command, options, arguments = git_command(exec_event) or ("", [], [])
         if command == "ls-files" and prints_only_names(arguments):
-            reads.update(listing_reads(execs[pid], options, arguments, roots))
+            assert exec_event is not None
+            reads.update(listing_reads(exec_event, options, arguments, roots))
         elif command == "cat-file" and (object_ids := full_object_ids(arguments)) is not None:
+            held = held_paths(project.root)
             for object_id in object_ids:
-                reads.paths.update(held_paths(project.root).get(object_id, ()))
+                paths = held.get(object_id)
+                if paths:
+                    reads.paths.update(paths)
+                else:
+                    reads.paths.add(EVERY_PATH)
         else:
             reads.paths.add(EVERY_PATH)
     return reads
@@ -1543,11 +1580,11 @@ def relative_events(events: list[Event], temporary: str | None, project: Checkou
     return [(event, relative) for event in events if (relative := mapped(event.path, event.kind)) is not None]
 
 
-def ignored_paths(project: Checkout, paths: set[str], directories: set[str]) -> set[str]:
+def ignored_paths(project: Checkout, paths: set[str], directories: set[str], *, fold: bool = False) -> set[str]:
     """The paths that the ignore rules of the checked commit match and that are not tracked; ``directories`` are the
     paths that the recording shows as a directory."""
     return {path for path in paths if path and path not in project.tracked and path not in project.directories
-            and project.ignore.ignored(path, path in directories)}
+            and project.ignore.ignored(path, path in directories, fold=fold)}
 
 
 def is_command_search(event: Event) -> bool:
@@ -1555,6 +1592,25 @@ def is_command_search(event: Event) -> bool:
     ``PATHEXT`` extension, as its command search probes it."""
     return event.kind == "absent" and event.executable in POWERSHELL and posixpath.dirname(event.path) == event.cwd \
         and event.path.lower().endswith(COMMAND_EXTENSIONS)
+
+
+def is_git_revision_path(event: Event, exec_event: Event | None) -> bool:
+    """An absent probe that a ``git`` process makes for a ``<revision>:<path>`` argument before ``--``."""
+    if event.kind != "absent" or not is_git(event.executable) or event.cwd is None:
+        return False
+    parsed = git_command(exec_event)
+    if parsed is None:
+        return False
+    _, _, arguments = parsed
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    for argument in before_dash:
+        if argument.startswith("-") or ":" not in argument or "://" in argument or argument.endswith(":"):
+            continue
+        if argument.startswith((":(", ":!", ":^", ":/")):
+            continue
+        if resolve(event.cwd, argument) == event.path:
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -1578,7 +1634,7 @@ class UnitRecording:
         return repository_paths(self.events, self.temporary, self.project, self.root, self.copies)
 
 
-def classify(unit: UnitRecording) -> Reads:
+def classify(unit: UnitRecording, *, fold: bool = False) -> Reads:
     """The reads of one unit's events and lookup reports. A listing is a directory membership unless the lookup report
     of its process attributes it to the import system: each process's listings of a directory count against the
     listings that its report names there. A module name looked up in a checkout directory without being found there, or
@@ -1587,20 +1643,28 @@ def classify(unit: UnitRecording) -> Reads:
     reads or runs that file or a report names it as a found module; a stat by any other process is a content read."""
     events, project, lookups, to_repository = unit.events, unit.project, unit.lookups, unit.to_repository
     reported = reported_stats(unit)
-    mapped = [(event, relative, index in reported) for index, event in enumerate(events)
-              if (relative := to_repository(event.path, event.kind)) is not None]
+    active_exec: dict[str, Event] = {}
+    mapped: list[tuple[Event, str, bool, Event | None]] = []
+    for index, event in enumerate(events):
+        if event.kind == "exec":
+            active_exec[event.pid] = event
+        if (relative := to_repository(event.path, event.kind)) is not None:
+            mapped.append((event, relative, index in reported, active_exec.get(event.pid)))
     missing = [(relative, module.name) for module in lookups.missing if (relative := to_repository(module.directory, "list")) is not None]
     found = [(relative, to_repository(module.file, "read")) for module in lookups.found
              if (relative := to_repository(module.directory, "list")) is not None]
-    shown = {relative for event, relative, _ in mapped if event.kind in ("list", "statdir", "diropen")}
+    shown = {relative for event, relative, _, _ in mapped
+             if event.kind in ("list", "statdir", "diropen")
+             or (event.kind in ("stat", "exists") and relative and relative not in project.tracked and (project.root / relative).is_dir())}
     shown.update(relative for relative, _ in missing + found)
-    dropped = ignored_paths(project, {relative for _, relative, _ in mapped} | shown | {file for _, file in found if file is not None}, shown)
+    dropped = ignored_paths(project, {relative for _, relative, _, _ in mapped} | shown | {file for _, file in found if file is not None},
+                            shown, fold=fold)
     reads = Reads()
     directories: set[str] = set()
     absent: set[str] = set()
     reported_files: set[str] = set()  # the existing files of the reported stats
     listed: dict[tuple[str, str], int] = {}
-    for event, relative, by_reporter in mapped:
+    for event, relative, by_reporter, exec_event in mapped:
         if relative in dropped:
             continue
         kind = event.kind
@@ -1624,7 +1688,7 @@ def classify(unit: UnitRecording) -> Reads:
         elif kind in ("statdir", "diropen"):
             directories.add(relative)
         elif kind in ("absent", "exec-absent"):
-            if not is_command_search(event):
+            if not is_command_search(event) and not is_git_revision_path(event, exec_event):
                 absent.add(relative)
     standard = suite_selection.standard_library_names()
     for relative, name in missing:
@@ -1716,14 +1780,42 @@ def ancestors(directory: str) -> list[str]:
     return chain
 
 
+# Non-project toolchain flags that consume the next argument as their value (e.g. dotnet --results-directory out).
+TOOLCHAIN_OPTIONS_WITH_VALUE = frozenset({
+    "-o", "--output", "--results-directory", "-r", "--runtime", "-f", "--framework",
+    "-c", "--configuration", "-l", "--logger", "-p", "--property", "-v", "--verbosity",
+    "--artifacts-path", "--arch", "-a", "--os", "--source", "-s", "--configfile",
+    "--packages", "--filter", "--diag", "--collect", "--settings", "--test-adapter-path",
+    "-e", "--environment", "--blame-hang-timeout", "--blame-crash-dump-type",
+    "--blame-hang-dump-type", "-t", "--target", "-m", "--maxCpuCount",
+})
+
+
+def non_option_arguments(argv: tuple[str, ...] | list[str]) -> list[str]:
+    """The non-option arguments of ``argv[1:]`` before ``--``, skipping values of non-project flags."""
+    found: list[str] = []
+    index = 1
+    while index < len(argv):
+        argument = argv[index]
+        if argument == "--":
+            break
+        if argument.startswith("-"):
+            if "=" not in argument and argument in TOOLCHAIN_OPTIONS_WITH_VALUE:
+                index += 2
+                continue
+            index += 1
+            continue
+        found.append(argument)
+        index += 1
+    return found
+
+
 def exec_start(event: Event, fold: bool) -> Start:
     """An exec event as a start: its absolute arguments, and its relative ones resolved against the process's working
     directory where the recording knows it. On Windows (``fold``) the recorded command gives the relative arguments of
     the only process with a known working directory, spelled as Git tracks them."""
     arguments = []
-    for argument in (event.arguments or ())[1:]:
-        if argument.startswith("-"):
-            continue
+    for argument in non_option_arguments(event.arguments or ()):
         if argument.startswith("/"):
             arguments.append(normalize(argument))
         elif event.cwd is not None and not fold:
@@ -1731,7 +1823,8 @@ def exec_start(event: Event, fold: bool) -> Start:
     return Start(event.executable, event.cwd, tuple(arguments))
 
 
-def working_directories(events: list[Event], temporary: str | None, project: Checkout, recorded: Start, root: str | None, fold: bool) -> set[str]:
+def working_directories(events: list[Event], temporary: str | None, project: Checkout, recorded: Start, root: str | None, fold: bool,
+                        copies: list[str] | None = None) -> set[str]:
     """The checkout directories in which the processes of ``events`` ran: each process's own working directory where
     the recording knows it; for a process whose working directory it does not know, the working directory of the
     recorded command and every checkout directory in which the process read."""
@@ -1742,13 +1835,13 @@ def working_directories(events: list[Event], temporary: str | None, project: Che
     if unplaced:
         if (relative := checkout_relative(recorded.cwd or "", base, fold)) is not None:
             directories.add(relative)
-        for event, relative in relative_events([event for event in events if event.pid in unplaced], temporary, project, root):
+        for event, relative in relative_events([event for event in events if event.pid in unplaced], temporary, project, root, copies):
             directories.add(relative if event.kind in ("list", "diropen", "statdir") else posixpath.dirname(relative))
     return directories
 
 
 def toolchain_probes(events: list[Event], temporary: str | None, project: Checkout, recorded: Start, root: str | None = None,
-                     fold: bool = False) -> set[str]:
+                     fold: bool = False, copies: list[str] | None = None) -> set[str]:
     """The names that the probe rules of each toolchain whose program the recording shows running probe: each name of a
     rule in each directory it starts from and, for an upward rule, in every directory above it in the checkout.
     ``recorded`` is the unit's recorded command."""
@@ -1760,9 +1853,9 @@ def toolchain_probes(events: list[Event], temporary: str | None, project: Checko
         toolchain_starts = [start for start in starts if start.program in toolchain.programs]
         if not toolchain.rules or not (toolchain_events or toolchain_starts):
             continue
-        working = {(directory, "") for directory in working_directories(toolchain_events, temporary, project, recorded, root, fold)}
+        working = {(directory, "") for directory in working_directories(toolchain_events, temporary, project, recorded, root, fold, copies)}
         anchors: dict[str, set[tuple[str, str]]] = {"project": set(), "solution": set(), "argument": set(), "working": working}
-        files = [relative for _, relative in relative_events([event for event in toolchain_events if event.kind == "read"], temporary, project, root)]
+        files = [relative for _, relative in relative_events([event for event in toolchain_events if event.kind == "read"], temporary, project, root, copies)]
         for start in toolchain_starts:
             for argument in start.arguments:
                 relative = checkout_relative(argument, base, fold)
@@ -1805,8 +1898,9 @@ def preceding_modules(unit: UnitRecording) -> dict[str, str]:
 def derived_existence_reads(unit: UnitRecording, recorded: Start, fold: bool = False) -> dict[str, str]:
     """The existence reads that ``check`` derives from a unit's events and lookup reports beside the reads it classifies:
     the names that the probe rules of a toolchain that ran probe, and the names that would precede a found module."""
-    derived = {path: "any" for path in toolchain_probes(unit.events, unit.temporary, unit.project, recorded, unit.root, fold)}
-    derived.update(preceding_modules(unit))
+    derived = {path: "any" for path in toolchain_probes(unit.events, unit.temporary, unit.project, recorded, unit.root, fold, unit.copies)}
+    for path, kind in preceding_modules(unit).items():
+        derived[path] = "any" if derived.get(path, kind) != kind else kind
     return derived
 
 
@@ -1815,8 +1909,13 @@ def unit_reads(unit: UnitRecording, start: Start, fold: bool = False, membership
     with ``memberships`` as directory memberships in place of any existence read of the same directory, without the
     existence reads that its directory memberships cover. ``start`` is the recorded command; ``fold`` compares paths
     without case, as on Windows."""
-    reads = classify(unit)
-    for path, kind in derived_existence_reads(unit, start, fold).items():
+    reads = classify(unit, fold=fold)
+    derived = derived_existence_reads(unit, start, fold)
+    derived_directories = {path for path, kind in derived.items() if kind == "directory"}
+    ignored_derived = ignored_paths(unit.project, set(derived), derived_directories, fold=fold)
+    for path, kind in derived.items():
+        if path in ignored_derived:
+            continue
         if path not in reads.paths and path not in reads.existence:
             reads.existence[path] = kind
     for directory in memberships:
@@ -1843,14 +1942,13 @@ def held_existence(path: str, kind: str, memberships: set[str], tracked: frozens
 def recorded_start(record: dict) -> Start:
     """The recorded command of a Linux unit as a start."""
     cwd = normalize(record["cwd"])
-    return Start(program_name(record["command"][0]), cwd, tuple(resolve(cwd, argument) for argument in record["command"][1:]
-                                                                if not argument.startswith("-")))
+    return Start(program_name(record["command"][0]), cwd, tuple(resolve(cwd, argument) for argument in non_option_arguments(record["command"])))
 
 
 def recorded_windows_start(record: dict, paths: WindowsPaths) -> Start:
     """The recorded command of a Windows unit as a start, its paths mapped as ``paths`` maps the event paths."""
     arguments = tuple(paths.convert(argument if re.match(r"^[A-Za-z]:[\\/]", argument) else record["cwd"] + "\\" + argument)
-                      for argument in record["command"][1:] if not argument.startswith("-"))
+                      for argument in non_option_arguments(record["command"]))
     return Start(program_name(record["command"][0]), paths.convert(record["cwd"]), arguments)
 
 
@@ -1881,30 +1979,114 @@ class Stored:
     lookup_directories: tuple[str, ...] = ()
     lookups: dict[str, tuple[str, ...]] = field(default_factory=dict)  # the suite list's module lookups by directory
 
+    @functools.cached_property
+    def literal_patterns(self) -> frozenset[str]:
+        return frozenset(pattern for pattern in self.patterns if literal(pattern))
+
+    @functools.cached_property
+    def covers_all(self) -> bool:
+        return any(pattern.strip("/") == "**" for pattern in self.patterns)
+
+    @functools.cached_property
+    def tree_bases(self) -> frozenset[str]:
+        return frozenset(stripped[:-3] for pattern in self.patterns
+                         if (stripped := pattern.strip("/")).endswith("/**") and literal(stripped[:-3]))
+
+    @functools.cached_property
+    def non_tree_globs(self) -> tuple[str, ...]:
+        return tuple(pattern for pattern in self.patterns
+                     if not literal(pattern) and (stripped := pattern.strip("/")) != "**"
+                     and not (stripped.endswith("/**") and literal(stripped[:-3])))
+
+    @functools.cached_property
+    def membership_set(self) -> frozenset[str]:
+        return frozenset(membership.strip("/") for membership in self.memberships)
+
+    @functools.cached_property
+    def membership_all(self) -> bool:
+        return "**" in self.membership_set
+
+    @functools.cached_property
+    def membership_tree_bases(self) -> frozenset[str]:
+        return frozenset(stored[:-3] for stored in self.membership_set if stored.endswith("/**") and literal(stored[:-3]))
+
+    @functools.cached_property
+    def existence_map(self) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for stored, stored_kind in self.existence:
+            mapping[stored] = stored_kind if mapping.get(stored, stored_kind) == stored_kind else "any"
+        return mapping
+
+    @functools.cached_property
+    def covered_directories(self) -> frozenset[str]:
+        directories: set[str] = set()
+        if self.covers_all:
+            covered_files: Collection[str] = self.tracked
+        elif not self.tree_bases and not self.non_tree_globs:
+            covered_files = self.literal_patterns & self.tracked
+        else:
+            covered_files = [file for file in self.tracked if self.covers_path(file)]
+        for file in covered_files:
+            directory = posixpath.dirname(file)
+            while directory and directory not in directories:
+                directories.add(directory)
+                directory = posixpath.dirname(directory)
+        return frozenset(directories)
+
+    @functools.cached_property
+    def lookup_directory_set(self) -> frozenset[str]:
+        return frozenset(self.lookup_directories)
+
+    @functools.cached_property
+    def lookup_sets(self) -> dict[str, frozenset[str]]:
+        return {directory: frozenset(names) for directory, names in self.lookups.items()}
+
+    def _in_bases(self, path: str, bases: frozenset[str], *, include_self: bool) -> bool:
+        if not bases:
+            return False
+        current = path if include_self else posixpath.dirname(path)
+        while current:
+            if current in bases:
+                return True
+            current = posixpath.dirname(current)
+        return False
+
     def covers_path(self, path: str) -> bool:
-        return any(suite_selection.matches(pattern, path) for pattern in self.patterns)
+        if self.covers_all or path in self.literal_patterns:
+            return True
+        if self._in_bases(path, self.tree_bases, include_self=False):
+            return True
+        return any(suite_selection.matches(pattern, path) for pattern in self.non_tree_globs)
 
     def covers_membership(self, directory: str) -> bool:
         base = "" if directory == "." else directory
-        for membership in self.memberships:
-            stored = membership.strip("/")
-            if stored in (directory, "." if base == "" else base) or (base == "" and stored == ""):
-                return True
-            if stored in ((base + "/*").lstrip("/"), (base + "/**").lstrip("/")) or covers_tree(stored, base):
-                return True
-        return any(covers_tree(pattern, base) for pattern in self.patterns)
+        if self.membership_all or self.covers_all:
+            return True
+        if directory in self.membership_set or (base == "" and ("." in self.membership_set or "" in self.membership_set)) or base in self.membership_set:
+            return True
+        if (base + "/*").lstrip("/") in self.membership_set or (base + "/**").lstrip("/") in self.membership_set:
+            return True
+        if self._in_bases(base, self.membership_tree_bases, include_self=True):
+            return True
+        return self._in_bases(base, self.tree_bases, include_self=True)
 
     def covers_existence(self, path: str, kind: str) -> bool:
-        if any(stored == path and (stored_kind == "any" or stored_kind == kind) for stored, stored_kind in self.existence):
+        stored_kind = self.existence_map.get(path)
+        if stored_kind is not None and (stored_kind == "any" or stored_kind == kind):
             return True
-        parent = posixpath.dirname(path)
-        if any(membership.strip("/") in (parent, "." if parent == "" else parent) for membership in self.memberships):
-            return True
-        if any(covers_tree(pattern, path) for pattern in self.patterns):
+        if kind == "any":
+            parent = posixpath.dirname(path)
+            if parent in self.membership_set or (parent == "" and ("." in self.membership_set or "" in self.membership_set)):
+                return True
+        if self.covers_all:
             return True
         if kind == "directory":
+            if self._in_bases(path, self.tree_bases, include_self=True):
+                return True
             # The directory exists in the checkout: it disappears only when the tracked files beneath it go.
-            return any(self.covers_path(file) for file in self.tracked if file.startswith(path + "/"))
+            return path in self.covered_directories
+        if self._in_bases(path, self.tree_bases, include_self=False):
+            return True
         return self.covers_path(path)
 
 
@@ -1924,11 +2106,12 @@ def outside(reads: Reads, stored: Stored | None) -> Reads:
     if stored is None:
         return Reads(set(reads.paths), dict(reads.existence), set(reads.memberships), set(reads.lookup_directories),
                      {directory: set(names) for directory, names in reads.lookups.items()})
-    lookups = {directory: {name for name in names if name not in stored.lookups.get(directory, ())} for directory, names in reads.lookups.items()}
+    lookups = {directory: {name for name in names if name not in stored.lookup_sets.get(directory, frozenset())}
+               for directory, names in reads.lookups.items()}
     return Reads({path for path in reads.paths if not stored.covers_path(path)},
                  {path: kind for path, kind in reads.existence.items() if not stored.covers_existence(path, kind)},
                  {directory for directory in reads.memberships if not stored.covers_membership(directory)},
-                 {directory for directory in reads.lookup_directories if directory not in stored.lookup_directories},
+                 {directory for directory in reads.lookup_directories if directory not in stored.lookup_directory_set},
                  {directory: names for directory, names in lookups.items() if names})
 
 
@@ -1972,7 +2155,7 @@ def unit_lookups(output: Path, record: dict, convert: Callable[[str], str], *, b
     return read_lookups(output / "lookups" / record["lookups"], convert, by_thread=by_thread) if record.get("lookups") else Lookups()
 
 
-def unreported_node_memberships(unit: UnitRecording) -> set[str]:
+def unreported_node_memberships(unit: UnitRecording, *, fold: bool = False) -> set[str]:
     """The checkout directories in which a Node process without a lookup report opened a file, the root as ``.``: on
     Windows no recording sees the modules it looks up, so each such directory is a directory membership."""
     node_pids = {event.pid for event in unit.events if event.executable in NODE and event.pid not in unit.lookups.processes}
@@ -1981,7 +2164,7 @@ def unreported_node_memberships(unit: UnitRecording) -> set[str]:
         if event.pid in node_pids and event.kind == "read" and (relative := unit.to_repository(event.path, event.kind)) is not None:
             if relative not in unit.project.directories and not (unit.project.root / relative).is_dir():
                 directories.add(posixpath.dirname(relative))
-    return {directory or "." for directory in directories - ignored_paths(unit.project, directories, directories)}
+    return {directory or "." for directory in directories - ignored_paths(unit.project, directories, directories, fold=fold)}
 
 
 def process_started(pid: int) -> int | None:
@@ -2074,7 +2257,7 @@ def classify_etw_units(output: Path, project: Checkout, records: list[dict], set
         unit_events = windows_events(grouped[record["unit"]], record, paths)
         recording = UnitRecording(unit_events, dos_form(record["temporary"]), project, root, unit_lookups(output, record, paths.convert, by_thread=False))
         units.append(Unit(record, unit_reads(recording, recorded_windows_start(record, paths), fold=True,
-                                             memberships=unreported_node_memberships(recording)),
+                                             memberships=unreported_node_memberships(recording, fold=True)),
                           tuple(sorted({event.path for event in unit_events if event.kind == "write"}))))
     settings["etw_note"] = (f"Stopped the ETW session in {seconds:.2f} s (the consumer drained it in {drained} ms: {events} events, "
                             f"{lines} lines, none lost); parsed and classified the event file in {time.perf_counter() - started:.2f} s.")
@@ -2115,11 +2298,12 @@ def entry_reads(suite_list: suite_selection.SuiteList, units: list[Unit]) -> lis
 def additions_document(list_path: str, suite_list: suite_selection.SuiteList, recorded: list[tuple[suite_selection.Suite, Unit, Reads]],
                        tracked: frozenset[str]) -> dict:
     suites: dict[str, dict] = {}
+    recorded_entries: dict[str, set[str]] = {}
     for suite, unit, reads in recorded:
         entry = unit.record["name"]
         missing = outside(reads, stored_lists(suite, entry, suite_list.always, tracked, suite_list.lookups_by_directory))
         item = suites.setdefault(suite.name, {"suite": suite.name, "create": suite.paths is None, "recorded_entries": []})
-        item["recorded_entries"] = sorted(set(item["recorded_entries"]) | {entry})
+        recorded_entries.setdefault(suite.name, set()).add(entry)
         if suite.entry_selection:
             if not missing.empty() or suite.paths is None or suite.lacks_list(entry):
                 item.setdefault("entries", {})[entry] = missing.document()
@@ -2127,7 +2311,12 @@ def additions_document(list_path: str, suite_list: suite_selection.SuiteList, re
             total = Reads.of(item.get("reads", {}))
             total.update(missing)
             item["reads"] = total.document()
-    changes = [item for item in suites.values() if item["create"] or item.get("entries") or not Reads.of(item.get("reads", {})).empty()]
+        if kept_reason(unit.record) is None:
+            item.setdefault("replace_entries", {})[entry] = reads.document()
+    for name, item in suites.items():
+        item["recorded_entries"] = sorted(recorded_entries[name])
+    changes = [item for item in suites.values()
+               if item["create"] or item.get("entries") or item.get("replace_entries") or not Reads.of(item.get("reads", {})).empty()]
     for item in changes:
         if "reads" in item and Reads.of(item["reads"]).empty() and not item["create"]:
             del item["reads"]
@@ -2329,8 +2518,10 @@ def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
                       recorded: list[tuple[suite_selection.Suite, Unit, Reads]], settings: dict,
                       departures: list[tuple[str, str]] = ()) -> int:
     document = {"kind": "full-recording", "suite_list": list_path,
+                **({"job": settings["job"]} if "job" in settings else {}),
                 "entries": [{"suite": suite.name, "entry": unit.record["name"], **({"job": unit.record["job"]} if "job" in unit.record else {}),
-                             "exit_code": unit.record["exit_code"], "skipped": unit.record["skipped"], "incomplete_report": unit.record.get("incomplete_report"),
+                             "exit_code": unit.record["exit_code"], "skipped": unit.record["skipped"],
+                             "deselected": unit.record.get("deselected", 0), "incomplete_report": unit.record.get("incomplete_report"),
                              "seconds": unit.record["seconds"], "reads": reads.document()}
                             for suite, unit, reads in recorded]}
     target = options.additions or output / "full-recording.json"
@@ -2369,10 +2560,17 @@ def entries_with_additions(document: object, source: Path) -> set[tuple[str, str
         if not isinstance(item, dict) or not isinstance(item.get("suite"), str):
             raise not_additions
         # A suite selected per entry file lists its entry files with additions; a pooled suite has no such list.
-        entries = item["entries"] if "entries" in item else item.get("recorded_entries")
-        if not isinstance(entries, (dict, list)) or not all(isinstance(entry, str) for entry in entries):
-            raise not_additions
-        marked |= {(item["suite"], entry) for entry in entries}
+        if "entries" in item:
+            entries = item["entries"]
+            if not isinstance(entries, dict) or not all(isinstance(entry, str) for entry in entries):
+                raise not_additions
+            marked |= {(item["suite"], entry) for entry in entries}
+        else:
+            entries = item.get("recorded_entries")
+            if not isinstance(entries, list) or not all(isinstance(entry, str) for entry in entries):
+                raise not_additions
+            if "reads" in item or item.get("create"):
+                marked |= {(item["suite"], entry) for entry in entries}
     return marked
 
 
@@ -2395,8 +2593,19 @@ def run_keep(options: argparse.Namespace) -> int:
 # --- apply ----------------------------------------------------------------------------------------------------
 
 
+def _unique_key(value: object) -> object:
+    return (value["path"], value["kind"]) if isinstance(value, dict) else value
+
+
 def add_unique(values: list, new: list) -> list:
-    return values + [value for value in new if value not in values]
+    seen = {_unique_key(value) for value in values}
+    result = list(values)
+    for value in new:
+        key = _unique_key(value)
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
 
 
 def add_reads(item: dict, reads: dict, entry: str | None) -> None:
@@ -2441,7 +2650,14 @@ def join_entry_lists(item: dict) -> None:
     if not item.get("entry_selection") or "entry_paths" not in item:
         return
     for read_field in READ_FIELDS:
-        joined = functools.reduce(add_unique, item.get(read_field.entry_key, {}).values(), [])
+        seen: set[object] = set()
+        joined: list = []
+        for values in item.get(read_field.entry_key, {}).values():
+            for value in values:
+                key = _unique_key(value)
+                if key not in seen:
+                    seen.add(key)
+                    joined.append(value)
         if joined or read_field.kept_empty:
             item[read_field.key] = joined
         else:
@@ -2472,9 +2688,10 @@ def drop_stale_keys(item: dict, suite: suite_selection.Suite) -> list[str]:
     """Remove from the per-entry fields that the recording writes every key that names no entry file any more, the key
     of a deleted or renamed file, and return those keys. ``suite`` is the suite with its patterns expanded to the
     tracked files."""
+    entries = set(suite.entries)
     stale: set[str] = set()
     for key in suite_selection.RECORDED_ENTRY_FIELDS:
-        gone = [entry for entry in item.get(key, {}) if entry not in suite.entries]
+        gone = [entry for entry in item.get(key, {}) if entry not in entries]
         for entry in gone:
             del item[key][entry]
         stale.update(gone)
@@ -2517,7 +2734,7 @@ def additions_problem(document: dict) -> str | None:
     for index, change in enumerate(document["suites"]):
         if not isinstance(change, dict):
             return f"suites[{index}] is no object"
-        unknown = sorted(set(change) - {"suite", "create", "recorded_entries", "reads", "entries"})
+        unknown = sorted(set(change) - {"suite", "create", "recorded_entries", "reads", "entries", "replace_entries"})
         if unknown:
             return f"suites[{index}] holds the unknown field {unknown[0]}"
         if not isinstance(change.get("suite"), str):
@@ -2528,12 +2745,57 @@ def additions_problem(document: dict) -> str | None:
             return f"suites[{index}].recorded_entries is no list of strings"
         if "reads" in change and (problem := reads_problem(change["reads"], f"suites[{index}].reads")):
             return problem
-        entries = change.get("entries", {})
-        if not isinstance(entries, dict):
-            return f"suites[{index}].entries is no object"
-        for entry, reads in entries.items():
-            if problem := reads_problem(reads, f"suites[{index}].entries[{entry}]"):
-                return problem
+        for field_name in ("entries", "replace_entries"):
+            entries = change.get(field_name, {})
+            if not isinstance(entries, dict):
+                return f"suites[{index}].{field_name} is no object"
+            for entry, reads in entries.items():
+                if problem := reads_problem(reads, f"suites[{index}].{field_name}[{entry}]"):
+                    return problem
+    return None
+
+
+def full_recording_problem(document: dict) -> str | None:
+    """Why a full-recording document is not in the form that ``write_full_result`` writes, or None."""
+    unknown_top = sorted(set(document) - {"kind", "suite_list", "entries", "job"})
+    if unknown_top:
+        return f"document holds the unknown field {unknown_top[0]}"
+    if not isinstance(document.get("suite_list"), str):
+        return "suite_list is no string"
+    if "job" in document and not isinstance(document["job"], str):
+        return "job is no string"
+    if not isinstance(document.get("entries"), list):
+        return "entries is no list"
+    allowed = {"suite", "entry", "job", "exit_code", "skipped", "deselected", "incomplete_report", "seconds", "reads"}
+    for index, entry in enumerate(document["entries"]):
+        if not isinstance(entry, dict):
+            return f"entries[{index}] is no object"
+        unknown = sorted(set(entry) - allowed)
+        if unknown:
+            return f"entries[{index}] holds the unknown field {unknown[0]}"
+        if not isinstance(entry.get("suite"), str):
+            return f"entries[{index}].suite is no string"
+        if not isinstance(entry.get("entry"), str):
+            return f"entries[{index}].entry is no string"
+        if "job" in entry and entry["job"] is not None and not isinstance(entry["job"], str):
+            return f"entries[{index}].job is no string"
+        exit_code = entry.get("exit_code")
+        if isinstance(exit_code, bool) or not isinstance(exit_code, int):
+            return f"entries[{index}].exit_code is no integer"
+        skipped = entry.get("skipped")
+        if skipped is not None and (isinstance(skipped, bool) or not isinstance(skipped, int)):
+            return f"entries[{index}].skipped is no integer or null"
+        deselected = entry.get("deselected", 0)
+        if isinstance(deselected, bool) or not isinstance(deselected, int):
+            return f"entries[{index}].deselected is no integer"
+        incomplete = entry.get("incomplete_report")
+        if incomplete is not None and not isinstance(incomplete, str):
+            return f"entries[{index}].incomplete_report is no string or null"
+        seconds = entry.get("seconds")
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            return f"entries[{index}].seconds is no number"
+        if problem := reads_problem(entry.get("reads"), f"entries[{index}].reads"):
+            return problem
     return None
 
 
@@ -2550,6 +2812,10 @@ def load_documents(paths: list[Path]) -> list[dict]:
             problem = additions_problem(document)
             if problem:
                 raise RecordingError(f"{path} is no valid additions document: {problem}")
+        else:
+            problem = full_recording_problem(document)
+            if problem:
+                raise RecordingError(f"{path} is no valid full-recording document: {problem}")
         documents.append(document)
     if len({document["kind"] for document in documents}) != 1:
         raise RecordingError("apply takes either additions or full-recording results, not both")
@@ -2569,8 +2835,15 @@ def run_apply(options: argparse.Namespace) -> int:
     if documents[0]["kind"] == "additions":
         if options.keep_lists is not None or options.keep_all_lists:
             raise RecordingError("--keep-lists and --keep-all-lists go with full-recording results")
+        if options.expect_job:
+            raise RecordingError("--expect-job goes with full-recording results")
         report = apply_additions(documents, raw, resolved, items, lookups)
     else:
+        if options.expect_job:
+            present = {entry["job"] for document in documents for entry in document["entries"] if entry.get("job")}
+            missing_jobs = [job for job in dict.fromkeys(options.expect_job) if job not in present]
+            if missing_jobs:
+                raise RecordingError(f"the full recording is missing the result of: {', '.join(missing_jobs)}")
         report = apply_full(documents, raw, resolved, items, lookups, kept_lists(options, resolved))
     for name, item in items.items():
         report += [f"{name}: removed the stored lists and the estimate of {entry}: no entry names it" for entry in drop_stale_keys(item, resolved[name])]
@@ -2578,7 +2851,7 @@ def run_apply(options: argparse.Namespace) -> int:
         canonical_order(item)
     document = suite_selection.suite_list_document(raw, [items[suite.name] for suite in raw.suites],
                                                    {directory: sorted(lookups[directory]) for directory in sorted(lookups)})
-    rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list(json.dumps(document), str(suites_path)))
+    rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list_document(document, str(suites_path)))
     if rendered != text:
         suites_path.write_text(rendered, encoding="utf-8", newline="\n")
     for line in report:
@@ -2606,41 +2879,92 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
     merged: dict[str, dict] = {}
     for document in documents:
         for change in document["suites"]:
-            target = merged.setdefault(change["suite"], {"create": False, "recorded": set(), "reads": Reads(), "entries": {}})
+            target = merged.setdefault(change["suite"], {"create": False, "recorded": set(), "reads": Reads(), "entries": {}, "replace_entries": {}})
             target["create"] |= change["create"]
             target["recorded"] |= set(change["recorded_entries"])
             target["reads"].update(Reads.of(change.get("reads", {})))
             for entry, reads in change.get("entries", {}).items():
                 target["entries"].setdefault(entry, Reads()).update(Reads.of(reads))
+            for entry, reads in change.get("replace_entries", {}).items():
+                target["replace_entries"].setdefault(entry, Reads()).update(Reads.of(reads))
     report = []
+    replaced: set[tuple[str, str]] = set()
+    recorded_lookups: dict[str, set[str]] = {}
     for name, change in sorted(merged.items()):
         suite = known_suite(resolved, name)
         item = items[name]
+        suite_entries = set(suite.entries)
         if change["create"] and suite.paths is None:
             start_list(item, suite, suite.entries, change["recorded"])
-        if not change["reads"].empty() or (change["create"] and not suite.entry_selection):
-            add_reads(item, change["reads"].document(), None)
-        for entry, reads in sorted(change["entries"].items()):
-            add_reads(item, reads.document(), entry)
-            add_lookups(lookups, reads)
-        add_lookups(lookups, change["reads"])
-        count = len(change["reads"].document()["paths"]) + sum(len(reads.paths) for reads in change["entries"].values())
-        report.append(f"{name}: added the recorded reads ({count} content path{'' if count == 1 else 's'} among them)")
+        replaced_here = 0
+        added_paths = 0
+        if suite.entry_selection:
+            for entry, reads in sorted(change["replace_entries"].items()):
+                if entry in suite_entries:
+                    replace_reads(item, reads.document(), entry)
+                    replaced.add((name, entry))
+                    replaced_here += 1
+                    for directory, names in reads.lookups.items():
+                        recorded_lookups.setdefault(directory, set()).update(names)
+            for entry, reads in sorted(change["entries"].items()):
+                if (name, entry) not in replaced:
+                    add_reads(item, reads.document(), entry)
+                    add_lookups(lookups, reads)
+                    added_paths += len(reads.paths)
+        elif suite_entries and suite_entries <= set(change["replace_entries"]):
+            union = Reads()
+            for entry in suite.entries:
+                union.update(change["replace_entries"][entry])
+            replace_reads(item, union.document(), None)
+            replaced.update((name, entry) for entry in suite.entries)
+            replaced_here = len(suite.entries)
+            for directory, names in union.lookups.items():
+                recorded_lookups.setdefault(directory, set()).update(names)
+        else:
+            if not change["reads"].empty() or change["create"]:
+                add_reads(item, change["reads"].document(), None)
+            add_lookups(lookups, change["reads"])
+            added_paths = len(change["reads"].paths)
+        if replaced_here and added_paths:
+            report.append(f"{name}: replaced the stored lists of {replaced_here} complete entry file{'' if replaced_here == 1 else 's'} "
+                          f"and added the recorded reads ({added_paths} content path{'' if added_paths == 1 else 's'} among them)")
+        elif replaced_here:
+            report.append(f"{name}: replaced the stored lists of {replaced_here} complete entry file{'' if replaced_here == 1 else 's'}")
+        else:
+            report.append(f"{name}: added the recorded reads ({added_paths} content path{'' if added_paths == 1 else 's'} among them)")
+    if replaced:
+        directories_of_kept_lists = {directory for suite in resolved.values() for entry in suite.entries if (suite.name, entry) not in replaced
+                                     for directory in suite.lookup_directories_of(entry)}
+        replaced_old_dirs = {directory for suite in resolved.values() for entry in suite.entries if (suite.name, entry) in replaced
+                             for directory in suite.lookup_directories_of(entry)}
+        for directory in sorted(replaced_old_dirs | set(recorded_lookups)):
+            kept_names = lookups.get(directory, []) if directory in directories_of_kept_lists else []
+            names = add_unique(kept_names, sorted(recorded_lookups.get(directory, ())))
+            if names:
+                lookups[directory] = names
+            else:
+                lookups.pop(directory, None)
     return report or ["No additions to apply."]
 
 
 def kept_reason(entry: dict | None) -> str | None:
-    """Why a full recording keeps an entry file's stored reads, or None when it may remove them."""
+    """Why a recording keeps an entry file's stored reads, or None when it may replace them."""
     if entry is None:
         return "it was not recorded"
-    if entry["exit_code"] != 0:
-        return f"it exited with {entry['exit_code']}"
-    if entry["skipped"] is None:
+    if entry.get("exit_code") != 0:
+        return f"it exited with {entry.get('exit_code')}"
+    if entry.get("skipped") is None:
         if entry.get("incomplete_report"):
             return f"it printed no complete test report: {entry['incomplete_report']}"
         return "its test runner reports no skip count"
+    parts = []
     if entry["skipped"]:
-        return f"{entry['skipped']} test{'' if entry['skipped'] == 1 else 's'} skipped"
+        parts.append(f"{entry['skipped']} test{'' if entry['skipped'] == 1 else 's'} skipped")
+    deselected = entry.get("deselected") or 0
+    if deselected:
+        parts.append(f"{deselected} test{'' if deselected == 1 else 's'} deselected")
+    if parts:
+        return ", ".join(parts)
     return None
 
 
@@ -2709,19 +3033,22 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
     entries: dict[tuple[str, str], dict] = {}
     jobs: dict[tuple[str, str], tuple] = {}
     report: list[str] = []
+    seen_report: set[str] = set()
+    resolved_entries = {name: set(suite.entries) for name, suite in resolved.items()}
     for index, document in enumerate(documents):
         for entry in document["entries"]:
             key = (entry["suite"], entry["entry"])
             if key[0] not in resolved:
                 line = f"left out the results of the suite {key[0]}: the suite list lacks it"
-            elif key[1] not in resolved[key[0]].entries:
+            elif key[1] not in resolved_entries[key[0]]:
                 line = f"{key[0]}: left out the result of {key[1]}: the suite list lacks it"
             else:
                 entries[key] = entry
                 # A result without a job comes from a workflow that names none at start; each such file is one job's result.
                 jobs[key] = ("job", entry["job"]) if entry.get("job") else ("result", index)
                 continue
-            if line not in report:
+            if line not in seen_report:
+                seen_report.add(line)
                 report.append(line)
     corrected = corrected_durations(entries, jobs, resolved, items)
     recorded_lookups: dict[str, set[str]] = {}
@@ -2729,10 +3056,16 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
         for directory, names in entry["reads"].get("module_lookups", {}).items():
             recorded_lookups.setdefault(directory, set()).update(names)
     replaced: set[tuple[str, str]] = set()
-    for name in sorted({suite for suite, _ in entries}):
+    for name in sorted(resolved):
         suite = known_suite(resolved, name)
         item = items[name]
         recorded = {entry: entries.get((name, entry)) for entry in suite.entries}
+        if suite.paths is None:
+            missing_entries = [entry for entry in suite.entries if recorded[entry] is None]
+            if missing_entries:
+                report.append(f"{name}: left without stored lists: partly recorded (missing {', '.join(missing_entries)})")
+                continue
+            start_list(item, suite, suite.entries, set(suite.entries))
         reasons = {entry: kept_reason(result) for entry, result in recorded.items()}
         # What keeps a list: the reason of the recording, and for an entry file that ran clean, the reason ``kept`` gives.
         list_reasons = {entry: reason if reason is not None else kept.get((name, entry)) for entry, reason in reasons.items()}
@@ -2744,8 +3077,6 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
                 report.append(f"{name}: kept the estimate of {entry}: {reasons[entry]}")
         if durations:
             item["entry_durations"] = durations
-        if suite.paths is None:
-            start_list(item, suite, suite.entries, {entry for entry, result in recorded.items() if result is not None})
         if suite.entry_selection:
             for entry, result in recorded.items():
                 if result is None and suite.lacks_list(entry):
@@ -2982,6 +3313,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     applying.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")
     applying.add_argument("--suites", type=Path, help="the suite list (default: the one the files name, under the root)")
     applying.add_argument("--summary", type=Path, help="append the Markdown report to this file")
+    applying.add_argument("--expect-job", action="append", default=[], help="a shard job whose full-recording result must be present (repeatable)")
     kept = applying.add_mutually_exclusive_group()
     kept.add_argument("--keep-lists", type=Path, help="the output of select --json-output for the change since the recorded commit: "
                       "the recorded reads of each entry file it selects are added to its stored lists instead of replacing them")

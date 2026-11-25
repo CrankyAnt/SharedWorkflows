@@ -104,11 +104,14 @@ class ClosingRunTests(unittest.TestCase):
         self.git(work, "config", "user.email", "fixture@example.invalid")
         return work
 
-    def start_step(self, name: str, work: Path, selection: Path = SELECTION_PART) -> subprocess.CompletedProcess[str]:
+    def start_step(self, name: str, work: Path, selection: Path = SELECTION_PART, *,
+                   shards: str = '[{"shard": 1, "entries": [{"suite": "per-entry", "entry": "tests/one.py"}]}]',
+                   windows: str = "") -> subprocess.CompletedProcess[str]:
         item = named(self.steps, name)
         values = {"steps.recording.outputs.path": str(RECORDING_PART), "steps.selection.outputs.path": str(selection),
                   "github.sha": self.a, "runner.temp": str(self.runner_temp), "steps.app-token.outputs.token": "app-token",
-                  "needs.full-recording.outputs.suites": "tests/suites.json", "needs.full-recording.outputs.validation-workflow": ".github/workflows/validate.yml"}
+                  "needs.full-recording.outputs.suites": "tests/suites.json", "needs.full-recording.outputs.validation-workflow": ".github/workflows/validate.yml",
+                  "needs.full-recording.outputs.shards": shards, "needs.full-recording.outputs.windows": windows}
         environment = {**os.environ, "GITHUB_SERVER_URL": "https://github.example", "GITHUB_REPOSITORY": "owner/repository",
                        "GITHUB_RUN_ID": "9", "GITHUB_STEP_SUMMARY": str(self.summary), "GITHUB_OUTPUT": str(self.base / "output"),
                        "RUNNER_TEMP": str(self.runner_temp),
@@ -116,8 +119,8 @@ class ClosingRunTests(unittest.TestCase):
                           for key, value in {**self.job_env, **item.get("env", {})}.items()}}
         return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", item["run"]], cwd=work, env=environment, capture_output=True, text=True)
 
-    def run_step(self, name: str, work: Path, selection: Path = SELECTION_PART) -> subprocess.CompletedProcess[str]:
-        ran = self.start_step(name, work, selection)
+    def run_step(self, name: str, work: Path, selection: Path = SELECTION_PART, **kwargs: str) -> subprocess.CompletedProcess[str]:
+        ran = self.start_step(name, work, selection, **kwargs)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         return ran
 
@@ -178,19 +181,35 @@ class ClosingRunTests(unittest.TestCase):
 
     def test_the_results_of_several_artifacts_are_each_applied(self) -> None:
         # Two results, each in the folder of its artifact: the shard's holds the suite per-entry, the other's whole.
+        shard2_entry = {**RESULTS["entries"][2], "job": "shard-2"}
         self.downloaded({"full-recording-shard-1": {**RESULTS, "entries": RESULTS["entries"][:2]},
-                         "full-recording-shard-2": {**RESULTS, "entries": RESULTS["entries"][2:]}})
+                         "full-recording-shard-2": {**RESULTS, "entries": [shard2_entry]}})
         work = self.checkout(self.a)
-        self.run_step(APPLY_STEP, work)
+        shards = json.dumps([{"shard": 1, "entries": [{"suite": "per-entry", "entry": "tests/one.py"}]},
+                             {"shard": 2, "entries": [{"suite": "whole", "entry": "tests/w.py"}]}])
+        self.run_step(APPLY_STEP, work, shards=shards)
         self.assertEqual({"per-entry": {"tests/one.py": ["data/one.txt", "tests/one.py"], "tests/two.py": ["tests/two.py"]},
                           "whole": ["tests/w.py"]}, self.stored(work))
 
-    def test_a_download_folder_without_a_result_fails_with_the_cannot_read_error(self) -> None:
+    def test_a_missing_shard_fails_close_visibly_and_changes_nothing(self) -> None:
+        work = self.checkout(self.a)
+        shards = json.dumps([{"shard": 1, "entries": [{"suite": "per-entry", "entry": "tests/one.py"}]},
+                             {"shard": 2, "entries": [{"suite": "whole", "entry": "tests/w.py"}]}])
+        ran = self.start_step(APPLY_STEP, work, shards=shards)
+        self.assertNotEqual(0, ran.returncode)
+        self.assertIn("::error::", ran.stdout)
+        self.assertIn("shard-2", ran.stdout + ran.stderr)
+        self.assertIn("shard-2", self.summary.read_text(encoding="utf-8"))
+        self.assertEqual("", self.git(work, "status", "--porcelain"))
+
+    def test_a_download_folder_without_a_result_fails_visibly_and_changes_nothing(self) -> None:
         self.downloaded({})
         work = self.checkout(self.a)
         ran = self.start_step(APPLY_STEP, work)
         self.assertNotEqual(0, ran.returncode)
-        self.assertIn(f"cannot read {self.runner_temp}/full-recording/**/full-recording.json", ran.stderr)
+        self.assertIn("::error::", ran.stdout)
+        self.assertIn("no result files", ran.stdout)
+        self.assertIn("no result files", self.summary.read_text(encoding="utf-8"))
         self.assertEqual("", self.git(work, "status", "--porcelain"))
 
 

@@ -84,6 +84,7 @@ from suite_list import (  # noqa: E402, F401
     matches,
     module_name,
     parse_suite_list,
+    parse_suite_list_document,
     pattern_regex,
     render_suite_list,
     resolve_entries,

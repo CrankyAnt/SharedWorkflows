@@ -345,6 +345,10 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
         raw = json.loads(text)
     except json.JSONDecodeError as error:
         raise SuiteListError(f"{source} is not valid JSON: {error}") from error
+    return parse_suite_list_document(raw, source)
+
+
+def parse_suite_list_document(raw: object, source: str = "the suite list") -> SuiteList:
     if not isinstance(raw, dict) or not {"always", "suites"} <= set(raw) <= set(TOP_LEVEL_KEYS):
         raise SuiteListError(f"{source} must be an object with the keys always and suites, and optionally jobs, setups and module_lookups")
     job_data = _jobs(raw["jobs"], f"{source}: jobs") if "jobs" in raw else ()
@@ -686,10 +690,13 @@ class IgnorePattern:
     regex: re.Pattern[str]
     negated: bool
     directory_only: bool
+    folded_base: str = ""
+    folded_regex: re.Pattern[str] | None = None
 
 
 def ignore_patterns(path: str, text: str) -> list[IgnorePattern]:
     base = path.rpartition("/")[0]
+    folded_base = base.lower()
     patterns = []
     for line in text.splitlines():
         line = re.sub(r"(?<!\\) +$", "", line)
@@ -703,35 +710,47 @@ def ignore_patterns(path: str, text: str) -> list[IgnorePattern]:
             continue
         anchored = "/" in line
         expression = ignore_regex(line.lstrip("/"))
-        patterns.append(IgnorePattern(base, re.compile(("" if anchored else "(?:.*/)?") + expression + r"\Z"), negated, directory_only))
+        pattern_text = ("" if anchored else "(?:.*/)?") + expression + r"\Z"
+        patterns.append(IgnorePattern(base, re.compile(pattern_text), negated, directory_only,
+                                      folded_base, re.compile(pattern_text, re.IGNORECASE)))
     return patterns
 
 
 class IgnoreRules:
     """The ignore rules of the tracked ``.gitignore`` files of one commit, as gitignore(5) defines them, matched
-    case-sensitively against repository paths with ``/`` separators; no other ignore source takes part."""
+    against repository paths with ``/`` separators (case-sensitively by default, or case-insensitively with ``fold``);
+    no other ignore source takes part."""
 
     def __init__(self, files: dict[str, str]) -> None:
         self.files = dict(files)
         ordered = sorted(self.files, key=lambda path: (path.count("/"), path))
         self.patterns = [pattern for path in ordered for pattern in ignore_patterns(path, self.files[path])]
-        self._decided: dict[tuple[str, bool], bool] = {}
+        self._decided: dict[tuple[str, bool, bool], bool] = {}
 
-    def ignored(self, path: str, directory: bool = False) -> bool:
+    def ignored(self, path: str, directory: bool = False, *, fold: bool = False) -> bool:
         """Whether the rules match the path, or one of its parent directories; ``directory`` says that the path is one."""
         parts = path.split("/")
-        return any(self._matched("/".join(parts[:index]), True) for index in range(1, len(parts))) or self._matched(path, directory)
+        return any(self._matched("/".join(parts[:index]), True, fold) for index in range(1, len(parts))) or self._matched(path, directory, fold)
 
-    def _matched(self, path: str, directory: bool) -> bool:
-        key = (path, directory)
+    def _matched(self, path: str, directory: bool, fold: bool = False) -> bool:
+        key = (path.lower() if fold else path, directory, fold)
         if key not in self._decided:
             result = False
+            folded = path.lower() if fold else path
             for pattern in self.patterns:
                 if pattern.directory_only and not directory:
                     continue
-                if pattern.base and not path.startswith(pattern.base + "/"):
-                    continue
-                if pattern.regex.match(path[len(pattern.base) + 1:] if pattern.base else path):
+                if fold:
+                    if pattern.folded_base and not folded.startswith(pattern.folded_base + "/"):
+                        continue
+                    regex = pattern.folded_regex or pattern.regex
+                    target = path[len(pattern.base) + 1:] if pattern.base else path
+                else:
+                    if pattern.base and not path.startswith(pattern.base + "/"):
+                        continue
+                    regex = pattern.regex
+                    target = path[len(pattern.base) + 1:] if pattern.base else path
+                if regex.match(target):
                     result = not pattern.negated
             self._decided[key] = result
         return self._decided[key]

@@ -428,6 +428,57 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertIn(f"`{outside}/leaked.txt`", summary)
         self.assertNotIn(f"{granted}/ok.txt", summary)
 
+    def test_a_complete_pull_request_run_replaces_stored_lists_and_an_incomplete_one_only_adds(self) -> None:
+        files = {
+            "tests/complete.py": "print('2 passed in 0.01s')\n",
+            "tests/skipped.py": "print('1 passed, 1 skipped in 0.01s')\n",
+            "tests/deselected.py": "print('1 passed, 1 deselected in 0.01s')\n",
+            "lib/stale.txt": "",
+            "lib/new.txt": "",
+        }
+        entries = ["tests/complete.py", "tests/skipped.py", "tests/deselected.py"]
+        fixture = RecordingFixture(self.addCleanup, files, [
+            suite("per-entry", entries, entry_selection=True, paths=[],
+                  entry_paths={entry: [entry, "lib/stale.txt"] for entry in entries}),
+        ])
+        self.assertEqual(0, fixture.start().returncode)
+        for entry in entries:
+            self.assertEqual(0, fixture.exec_entry(entry).returncode)
+        for unit_file in (fixture.output / "units").glob("*.json"):
+            unit = json.loads(unit_file.read_text(encoding="utf-8"))
+            (fixture.output / "traces" / unit["trace"]).write_text(
+                f'100 openat(AT_FDCWD<{fixture.root}>, "{unit["name"]}", O_RDONLY) = 3<{fixture.root}/{unit["name"]}>\n'
+                f'100 openat(AT_FDCWD<{fixture.root}>, "lib/new.txt", O_RDONLY) = 4<{fixture.root}/lib/new.txt>\n',
+                encoding="utf-8",
+            )
+        checked = fixture.check()
+        self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
+        applied = fixture.apply()
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        stored = fixture.suite("per-entry")["entry_paths"]
+        self.assertEqual(["lib/new.txt", "tests/complete.py"], stored["tests/complete.py"])
+        self.assertEqual(["lib/new.txt", "lib/stale.txt", "tests/skipped.py"], stored["tests/skipped.py"])
+        self.assertEqual(["lib/new.txt", "lib/stale.txt", "tests/deselected.py"], stored["tests/deselected.py"])
+
+    def test_a_complete_pull_request_run_with_only_stale_reads_exits_0_and_records_the_replacement(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/a.py": "print('3 passed in 0.02s')\n", "lib/stale.txt": ""},
+                                   [suite("per-entry", ["tests/a.py"], entry_selection=True, paths=["tests/a.py", "lib/stale.txt"],
+                                          entry_paths={"tests/a.py": ["tests/a.py", "lib/stale.txt"]})])
+        self.assertEqual(0, fixture.start().returncode)
+        self.assertEqual(0, fixture.exec_entry("tests/a.py").returncode)
+        [unit_file] = list((fixture.output / "units").glob("*.json"))
+        unit = json.loads(unit_file.read_text(encoding="utf-8"))
+        (fixture.output / "traces" / unit["trace"]).write_text(
+            f'100 openat(AT_FDCWD<{fixture.root}>, "tests/a.py", O_RDONLY) = 3<{fixture.root}/tests/a.py>\n',
+            encoding="utf-8",
+        )
+        github_output = fixture.base / "github-output.txt"
+        checked = fixture.run("check", "--output", str(fixture.output), "--suites", "suites.json", "--github-output", str(github_output))
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn("file=\n", github_output.read_text(encoding="utf-8"))
+        self.assertEqual(0, fixture.apply().returncode)
+        self.assertEqual(["tests/a.py"], fixture.suite("per-entry")["entry_paths"]["tests/a.py"])
+
 
 @requires_linux
 class SiblingReadsTests(unittest.TestCase):
@@ -745,6 +796,22 @@ class KeepPassedTests(unittest.TestCase):
         self.assertEqual(0, self.keep(additions, passed))
         self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
         self.assertEqual([("pooled", "tests/p1.py"), ("pooled", "tests/p2.py")], self.marked(passed))
+
+    def test_a_replacement_only_entry_without_additions_stays_unmarked(self) -> None:
+        selection = self.recording.suite_selection
+        suite_list = selection.resolve_entries(selection.parse_suite_list(json.dumps(KEEP_SUITES)), set(KEEP_TRACKED))
+        recorded = []
+        for entry, paths in (("tests/a.py", {"tests/a.py"}), ("tests/q.py", {"tests/q.py"})):
+            unit = self.recording.Unit({"kind": "entry", "name": entry, "exit_code": 0, "skipped": 0, "deselected": 0},
+                                       self.recording.Reads(paths=paths))
+            recorded.append((self.recording.suite_of(suite_list, unit.record), unit, unit.reads))
+        document = self.recording.additions_document("suites.json", suite_list, recorded, KEEP_TRACKED)
+        additions = self.directory / "additions.json"
+        additions.write_text(json.dumps(document), encoding="utf-8")
+        passed = self.passed([("per-entry", "tests/a.py"), ("clean", "tests/q.py")])
+        self.assertEqual(0, self.keep(additions, passed))
+        self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
+        self.assertEqual([], self.marked(passed))
 
     def test_a_suite_without_a_stored_path_list_marks_every_recorded_entry_file_whatever_it_read(self) -> None:
         additions = self.additions({"tests/n1.py": {"tests/n1.py"}, "tests/n2.py": {"tests/n2.py"}, "tests/m.py": {"tests/m.py"},

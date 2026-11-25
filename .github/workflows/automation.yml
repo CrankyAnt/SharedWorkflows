@@ -484,10 +484,30 @@ jobs:
           SELECTION: ${{ steps.selection.outputs.path }}
           RECORDED: ${{ github.sha }}
           VALIDATION_WORKFLOW: ${{ needs.full-recording.outputs.validation-workflow }}
+          SHARDS: ${{ needs.full-recording.outputs.shards }}
+          WINDOWS: ${{ needs.full-recording.outputs.windows }}
           REPORT: ${{ runner.temp }}/full-recording-report.md
         run: |
           set -euo pipefail
-          shopt -s globstar
+          shopt -s globstar nullglob
+          files=("$RUNNER_TEMP"/full-recording/**/full-recording.json)
+          if [ "${#files[@]}" -eq 0 ]; then
+            message="The full recording produced no result files under $RUNNER_TEMP/full-recording; no pull request is opened."
+            echo "::error::$message"
+            printf '## Full recording failed\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          expected=()
+          if [ -n "${SHARDS:-}" ] && [ "$SHARDS" != "[]" ]; then
+            while IFS= read -r job; do
+              [ -n "$job" ] && expected+=(--expect-job "$job")
+            done < <(jq -r '.[] | select((.entries // []) | length > 0) | "shard-\(.shard)"' <<<"$SHARDS")
+          fi
+          if [ -n "${WINDOWS:-}" ]; then
+            while IFS= read -r job; do
+              [ -n "$job" ] && expected+=(--expect-job "$job")
+            done < <(jq -r 'select((.entries // []) | length > 0) | "windows"' <<<"$WINDOWS")
+          fi
           printf 'The full recording of run %s/%s/actions/runs/%s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$REPORT"
           # On the default branch the checkout is its tip; when that moved past the recorded commit, the entry files that
           # the change selects keep their stored reads, and all of them when the change cannot be selected.
@@ -510,7 +530,17 @@ jobs:
               set -- --keep-all-lists
             fi
           fi
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" "$@" --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/full-recording/**/full-recording.json | sed 's/^/- /' >> "$REPORT"
+          err="$RUNNER_TEMP/full-recording-apply.err"
+          if ! report="$(PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" "${expected[@]}" "$@" --summary "$GITHUB_STEP_SUMMARY" "${files[@]}" 2>"$err")"; then
+            cat "$err" >&2
+            message="$(tr '\n' ' ' < "$err" | sed 's/ *$//')"
+            echo "::error::${message:-The full recording could not be applied; no pull request is opened.}"
+            printf '## Full recording failed\n\n%s\n' "${message:-The full recording could not be applied; no pull request is opened.}" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ -n "$report" ]; then
+            printf '%s\n' "$report" | sed 's/^/- /' >> "$REPORT"
+          fi
       - id: changes
         name: Find whether the stored lists changed
         run: |

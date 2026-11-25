@@ -88,7 +88,7 @@ LISTINGS = {
 
 
 recording = load_recording()
-suite_selection = recording.suite_selection
+import suite_selection  # noqa: E402
 
 
 class Matrix:

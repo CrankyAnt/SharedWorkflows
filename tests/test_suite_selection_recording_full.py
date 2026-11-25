@@ -254,5 +254,57 @@ class TapReportTests(unittest.TestCase):
                       applied.stdout)
 
 
+PYTEST = {
+    "framed": printing("======== 34 passed in 1.23s ========"),
+    "quiet": printing("34 passed in 1.23s"),
+    "quiet-warnings": printing("12 passed, 2 warnings in 120.50s (0:02:00)"),
+    "colored": printing("\x1b[32m5 passed\x1b[0m in 0.42s"),
+    "quiet-skipped": printing("3 passed, 1 skipped in 0.45s"),
+    "quiet-deselected": printing("3 passed, 2 deselected in 0.45s"),
+    "framed-deselected": printing("======== 3 passed, 1 deselected in 0.45s ========"),
+    "quiet-both": printing("2 passed, 1 skipped, 2 deselected in 0.45s"),
+    "prose": printing("finished 3 items in 1.23s"),
+}
+PYTEST_ENTRIES = [f"tests/pytest_{name}.py" for name in PYTEST]
+
+
+@requires_linux
+class PytestReportTests(unittest.TestCase):
+    """Entry files whose output holds a pytest summary, framed or quiet, with or without ANSI colour codes."""
+
+    def record(self) -> tuple[RecordingFixture, subprocess.CompletedProcess[str]]:
+        files = {**{f"tests/pytest_{name}.py": source for name, source in PYTEST.items()}, STALE: ""}
+        fixture = RecordingFixture(self.addCleanup, files, [suite("per-entry", PYTEST_ENTRIES, entry_selection=True, paths=[],
+                                                                   entry_paths={entry: [entry, STALE] for entry in PYTEST_ENTRIES})])
+        checked = fixture.record(PYTEST_ENTRIES, full=True)
+        self.assertEqual(0, checked.returncode, checked.stderr)
+        applied = fixture.apply(fixture.output / "full-recording.json")
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        return fixture, applied
+
+    def test_quiet_framed_and_colored_pytest_summaries_without_skipped_or_deselected_replace_the_list(self) -> None:
+        fixture, applied = self.record()
+        stored = fixture.suite("per-entry")["entry_paths"]
+        for entry in ("tests/pytest_framed.py", "tests/pytest_quiet.py", "tests/pytest_quiet-warnings.py", "tests/pytest_colored.py"):
+            with self.subTest(entry=entry):
+                self.assertNotIn(STALE, stored[entry])
+                self.assertNotIn(entry, applied.stdout)
+
+    def test_pytest_runs_with_skipped_or_deselected_tests_keep_the_list_and_report_why(self) -> None:
+        fixture, applied = self.record()
+        stored = fixture.suite("per-entry")["entry_paths"]
+        cases = (
+            ("tests/pytest_quiet-skipped.py", "1 test skipped"),
+            ("tests/pytest_quiet-deselected.py", "2 tests deselected"),
+            ("tests/pytest_framed-deselected.py", "1 test deselected"),
+            ("tests/pytest_quiet-both.py", "1 test skipped, 2 tests deselected"),
+            ("tests/pytest_prose.py", "its test runner reports no skip count"),
+        )
+        for entry, reason in cases:
+            with self.subTest(entry=entry):
+                self.assertIn(STALE, stored[entry])
+                self.assertIn(f"kept the list of {entry}: {reason}", applied.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

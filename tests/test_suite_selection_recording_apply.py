@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
-from tests.recording_fixtures import RecordingFixture, load_recording, requires_linux, suite
+from tests.recording_fixtures import ROOT, RecordingFixture, requires_linux, suite
 from tests.test_suite_selection_recording_check import BACKSLASH_READS, BACKSLASHES
+
+sys.path.insert(0, str(ROOT / "actions" / "suite-selection"))
+
+import suite_selection  # noqa: E402
 
 FILES = {"tests/a.py": "", "tests/c1.py": "", "tests/c2.py": "", "tests/c3.py": "", "tests/c4.py": "", "tests/w.py": ""}
 # The ratio of the wide trace set to the mid trace set, by which a Linux measurement of the full recording is divided.
@@ -233,7 +238,9 @@ class ApplyTests(unittest.TestCase):
                  ({"exit_code": 0, "skipped": None, "incomplete_report": "its TAP plan does not match its test lines"},
                   "it printed no complete test report: its TAP plan does not match its test lines"),
                  ({"exit_code": 0, "skipped": None}, "its test runner reports no skip count"),
-                 ({"exit_code": 0, "skipped": 2}, "2 tests skipped")]
+                 ({"exit_code": 0, "skipped": 2}, "2 tests skipped"),
+                 ({"exit_code": 0, "skipped": 0, "deselected": 3}, "3 tests deselected"),
+                 ({"exit_code": 0, "skipped": 1, "deselected": 2}, "1 test skipped, 2 tests deselected")]
         for outcome, reason in cases:
             with self.subTest(reason=reason):
                 fixture = self.fixture()
@@ -403,6 +410,8 @@ class ApplyTests(unittest.TestCase):
                 ("a module name no string", additions({**valid, "reads": {"module_lookups": {".": [1]}}})),
                 ("entries no object", additions({**valid, "entries": [reads(["x.txt"])]})),
                 ("an entry's reads no object", additions({**valid, "entries": {"tests/a.py": "x.txt"}})),
+                ("replace_entries no object", additions({**valid, "replace_entries": [reads(["x.txt"])]})),
+                ("a replace_entries read no object", additions({**valid, "replace_entries": {"tests/a.py": "x.txt"}})),
                 ("an unknown change field", additions({**valid, "command": "echo"}))):
             with self.subTest(shape=shape):
                 fixture = self.fixture()
@@ -413,6 +422,116 @@ class ApplyTests(unittest.TestCase):
                 self.assertIn(f"{path} is no valid additions document:", refused.stderr)
                 self.assertNotIn("Traceback", refused.stderr)
                 self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+
+    def test_apply_replaces_stored_lists_for_complete_pull_request_entries_and_adds_for_incomplete_ones(self) -> None:
+        fixture = self.fixture([
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["tests/c1.py", "tests/c2.py", "stale.txt"],
+                  entry_paths={"tests/c1.py": ["tests/c1.py", "stale.txt"], "tests/c2.py": ["tests/c2.py", "stale.txt"]},
+                  entry_existence_reads={"tests/c1.py": [{"path": "old-probe", "kind": "any"}]},
+                  entry_directory_memberships={"tests/c1.py": ["old-dir"]},
+                  entry_lookup_directories={"tests/c1.py": ["old_lookups", "shared"], "tests/c2.py": ["shared"]},
+                  entry_extra_paths={"tests/c1.py": ["docs/**"]}),
+        ])
+        raw = fixture.suites()
+        raw["module_lookups"] = {"old_lookups": ["stale_mod"], "shared": ["kept_mod"]}
+        (fixture.root / "suites.json").write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        change = additions({
+            "suite": "per-entry", "create": False, "recorded_entries": ["tests/c1.py", "tests/c2.py"],
+            "entries": {"tests/c1.py": reads(["lib/new.py"]), "tests/c2.py": reads(["lib/other.py"])},
+            "replace_entries": {"tests/c1.py": {**reads(["tests/c1.py", "lib/new.py"]),
+                                                "lookup_directories": ["shared"], "module_lookups": {"shared": ["fresh_mod"]}}},
+        })
+        applied = fixture.apply(self.write(fixture, "additions.json", change))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        stored = fixture.suite("per-entry")
+        # tests/c1.py ran complete: stale path, existence read, directory membership and unshared lookup directory are removed.
+        self.assertEqual(["lib/new.py", "tests/c1.py"], stored["entry_paths"]["tests/c1.py"])
+        self.assertNotIn("entry_existence_reads", stored)
+        self.assertNotIn("entry_directory_memberships", stored)
+        self.assertEqual({"tests/c1.py": ["shared"], "tests/c2.py": ["shared"]}, stored["entry_lookup_directories"])
+        self.assertEqual({"tests/c1.py": ["docs/**"]}, stored["entry_extra_paths"])
+        # tests/c2.py was incomplete (not in replace_entries): its stale read stays alongside the new addition.
+        self.assertEqual(["lib/other.py", "stale.txt", "tests/c2.py"], stored["entry_paths"]["tests/c2.py"])
+        # old_lookups was used only by replaced tests/c1.py so it drops; shared is still used by kept tests/c2.py so kept_mod stays.
+        self.assertEqual({"shared": ["fresh_mod", "kept_mod"]}, fixture.suites()["module_lookups"])
+
+    def test_apply_replaces_a_pooled_suite_only_when_every_entry_file_ran_complete(self) -> None:
+        fixture = self.fixture([suite("whole", ["tests/c1.py", "tests/c2.py"], paths=["tests/c1.py", "tests/c2.py", "stale.txt"])])
+        partial = self.write(fixture, "partial.json", additions({
+            "suite": "whole", "create": False, "recorded_entries": ["tests/c1.py"],
+            "reads": reads(["lib/new.py"]),
+            "replace_entries": {"tests/c1.py": reads(["tests/c1.py", "lib/new.py"])},
+        }))
+        applied = fixture.apply(partial)
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual(["lib/new.py", "stale.txt", "tests/c1.py", "tests/c2.py"], fixture.suite("whole")["paths"])
+        second = self.write(fixture, "second.json", additions({
+            "suite": "whole", "create": False, "recorded_entries": ["tests/c2.py"],
+            "replace_entries": {"tests/c2.py": reads(["tests/c2.py"])},
+        }))
+        applied_both = fixture.apply(partial, second)
+        self.assertEqual(0, applied_both.returncode, applied_both.stderr)
+        self.assertEqual(["lib/new.py", "tests/c1.py", "tests/c2.py"], fixture.suite("whole")["paths"])
+
+    def test_apply_with_expect_job_fails_visibly_when_a_shard_is_missing_or_empty(self) -> None:
+        fixture = self.fixture()
+        before = (fixture.root / "suites.json").read_text(encoding="utf-8")
+        shard1 = self.write(fixture, "shard-1.json", {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.65, "reads": reads(["tests/a.py"])}]})
+        empty_shard2 = self.write(fixture, "shard-2.json", {"kind": "full-recording", "suite_list": "suites.json", "entries": []})
+        missing = fixture.run("apply", "--expect-job", "shard-1", "--expect-job", "shard-2", str(shard1))
+        self.assertEqual(2, missing.returncode)
+        self.assertIn("shard-2", missing.stderr)
+        self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+        empty = fixture.run("apply", "--expect-job", "shard-1", "--expect-job", "shard-2", str(shard1), str(empty_shard2))
+        self.assertEqual(2, empty.returncode)
+        self.assertIn("shard-2", empty.stderr)
+        self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+        # --expect-job is refused with additions documents.
+        change = self.write(fixture, "additions.json", additions())
+        refused = fixture.run("apply", "--expect-job", "shard-1", str(change))
+        self.assertEqual(2, refused.returncode)
+        self.assertIn("--expect-job goes with full-recording results", refused.stderr)
+
+    def test_a_full_recording_document_of_the_wrong_shape_fails_naming_the_file_and_changes_nothing(self) -> None:
+        valid_entry = {"suite": "whole", "entry": "tests/a.py", "exit_code": 0, "skipped": 0, "seconds": 1.0, "reads": reads(["tests/a.py"])}
+        for shape, document in (
+                ("no entries", {"kind": "full-recording", "suite_list": "suites.json"}),
+                ("entries no list", {"kind": "full-recording", "suite_list": "suites.json", "entries": {}}),
+                ("entry no object", {"kind": "full-recording", "suite_list": "suites.json", "entries": ["x"]}),
+                ("unknown top field", {"kind": "full-recording", "suite_list": "suites.json", "entries": [], "extra": 1}),
+                ("unknown entry field", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "extra": 1}]}),
+                ("exit_code bool", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "exit_code": True}]}),
+                ("seconds string", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "seconds": "1.0"}]}),
+                ("bad reads", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "reads": []}]})):
+            with self.subTest(shape=shape):
+                fixture = self.fixture()
+                before = (fixture.root / "suites.json").read_text(encoding="utf-8")
+                path = self.write(fixture, "full.json", document)
+                refused = fixture.apply(path)
+                self.assertEqual(2, refused.returncode, refused.stderr)
+                self.assertIn(f"{path} is no valid full-recording document:", refused.stderr)
+                self.assertNotIn("Traceback", refused.stderr)
+                self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+
+    def test_a_full_recording_applies_complete_suites_and_reports_partly_recorded_listless_and_unrecorded_suites(self) -> None:
+        fixture = self.fixture([
+            suite("complete", ["tests/a.py"], paths=["tests/a.py", "stale.txt"]),
+            suite("partly-new", ["tests/c1.py", "tests/c2.py"], entry_selection=True),
+            suite("unrecorded", ["tests/w.py"], os="windows", paths=["tests/w.py", "stale.txt"]),
+        ])
+        result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "complete", "entry": "tests/a.py", "exit_code": 0, "skipped": 0, "seconds": 1.65, "reads": reads(["tests/a.py"])},
+            {"suite": "partly-new", "entry": "tests/c1.py", "exit_code": 0, "skipped": 0, "seconds": 1.65, "reads": reads(["tests/c1.py"])},
+        ]}
+        applied = fixture.apply(self.write(fixture, "full.json", result))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual(["tests/a.py"], fixture.suite("complete")["paths"])
+        self.assertNotIn("paths", fixture.suite("partly-new"))
+        self.assertNotIn("entry_paths", fixture.suite("partly-new"))
+        self.assertEqual(["stale.txt", "tests/w.py"], fixture.suite("unrecorded")["paths"])
+        self.assertIn("partly-new: left without stored lists: partly recorded (missing tests/c2.py)", applied.stdout)
+        self.assertIn("unrecorded: kept the list of tests/w.py: it was not recorded", applied.stdout)
 
 
 SELECTS = "the change since the recorded commit selects it"
@@ -682,8 +801,8 @@ class SuiteListMoveTests(unittest.TestCase):
         outputs.write_text("", encoding="utf-8")
         report, error = io.StringIO(), io.StringIO()
         with redirect_stdout(report), redirect_stderr(error):
-            code = load_recording().suite_selection.main(["select", "--root", str(fixture.root), "--suites", str(fixture.root / "suites.json"),
-                                                          "--json-output", str(outputs), *arguments])
+            code = suite_selection.main(["select", "--root", str(fixture.root), "--suites", str(fixture.root / "suites.json"),
+                                         "--json-output", str(outputs), *arguments])
         if code != 0:
             return code, error.getvalue().strip(), []
         values = dict(line.split("=", 1) for line in outputs.read_text(encoding="utf-8").splitlines())

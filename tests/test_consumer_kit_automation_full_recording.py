@@ -40,8 +40,8 @@ def named(steps: list[dict], name: str) -> dict:
     return next(step for step in steps if step.get("name") == name)
 
 
-def clean(suite: str, entry: str, paths: list[str]) -> dict:
-    return {"suite": suite, "entry": entry, "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.0,
+def clean(suite: str, entry: str, paths: list[str], job: str = "shard-1") -> dict:
+    return {"suite": suite, "entry": entry, "job": job, "exit_code": 0, "skipped": 0, "seconds": 1.0,
             "reads": {"paths": paths, "existence_reads": [], "directory_memberships": []}}
 
 
@@ -96,6 +96,8 @@ class CloseSteps(unittest.TestCase):
                   "steps.selection.outputs.path": str(REPOSITORY_ROOT / "actions" / "suite-selection"), "github.sha": self.recorded,
                   "runner.temp": str(self.runner_temp), "needs.full-recording.outputs.suites": SUITES,
                   "needs.full-recording.outputs.validation-workflow": ".github/workflows/validation.yml",
+                  "needs.full-recording.outputs.shards": '[{"shard": 1, "entries": [{"suite": "unit", "entry": "checks/test_a.py"}]}]',
+                  "needs.full-recording.outputs.windows": "",
                   "steps.app-token.outputs.token": "app-token", "github.event.repository.default_branch": "main"}
         environment = {**os.environ, "PATH": f"{self.base / 'bin'}{os.pathsep}{os.environ['PATH']}", "GH_CALLS": str(self.calls),
                        "GITHUB_SERVER_URL": "https://github.example", "GITHUB_REPOSITORY": REPOSITORY,
@@ -139,15 +141,24 @@ class FullRecordingApplyRunTest(CloseSteps):
 
     def test_the_results_of_several_downloaded_artifacts_are_each_applied(self) -> None:
         self.downloaded({"full-recording-shard-1": self.result(clean("unit", "checks/test_a.py", ["checks/test_a.py", "lib/data.txt"])),
-                         "full-recording-windows": self.result(clean("lint", "checks/lint.py", ["checks/lint.py"]))})
-        ran = self.run_step(APPLY_STEP)
+                         "full-recording-windows": self.result(clean("lint", "checks/lint.py", ["checks/lint.py"], job="windows"))})
+        ran = self.run_step(APPLY_STEP, WINDOWS='{"entries": [{"suite": "lint", "entry": "checks/lint.py"}]}')
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt"], "lint": ["checks/lint.py"]}, self.stored())
 
-    def test_a_download_folder_without_a_result_fails_with_the_cannot_read_error(self) -> None:
+    def test_a_missing_windows_result_fails_visibly_and_changes_nothing(self) -> None:
+        self.downloaded({"full-recording-shard-1": self.result(clean("unit", "checks/test_a.py", ["checks/test_a.py", "lib/data.txt"]))})
+        ran = self.run_step(APPLY_STEP, WINDOWS='{"entries": [{"suite": "lint", "entry": "checks/lint.py"}]}')
+        self.assertNotEqual(0, ran.returncode)
+        self.assertIn("::error::", ran.stdout)
+        self.assertIn("windows", ran.stdout + ran.stderr)
+        self.assertEqual("", subprocess.run(["git", "status", "--porcelain"], cwd=self.work, capture_output=True, text=True, check=True).stdout)
+
+    def test_a_download_folder_without_a_result_fails_visibly_and_changes_nothing(self) -> None:
         ran = self.run_step(APPLY_STEP)
         self.assertNotEqual(0, ran.returncode)
-        self.assertIn(f"cannot read {self.runner_temp}/full-recording/**/full-recording.json", ran.stderr)
+        self.assertIn("::error::", ran.stdout)
+        self.assertIn("no result files", ran.stdout)
         self.assertEqual("", subprocess.run(["git", "status", "--porcelain"], cwd=self.work, capture_output=True, text=True, check=True).stdout)
 
     def test_only_a_change_to_the_configured_suite_list_passes_the_check_of_the_changed_files(self) -> None:

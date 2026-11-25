@@ -141,6 +141,8 @@ class WindowsWorkFolderRemovalTests(WorkFolderRemovalCases, unittest.TestCase):
 class LiveEtwClassificationTests(ClassificationRules, unittest.TestCase):
     """The classification rules on a live ETW recording of the Windows fixture."""
 
+    case_insensitive_ignore = True
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.fixture = cls.record()
