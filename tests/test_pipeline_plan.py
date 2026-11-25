@@ -3,8 +3,12 @@ changes, and what it reports as switched off or newly registered compared with t
 
 from __future__ import annotations
 
+import http.server
 import json
+import os
+import threading
 import unittest
+from unittest import mock
 
 from tests.pipeline_fixtures import CONFIGURATION, FIXTURE_PARTS, SCHEMAS, PipelineFixture, git
 
@@ -530,6 +534,197 @@ class UnitDecisionPlanTests(PipelineFixture):
         self.assertIs(True, outcome.plan["parts"]["custom"]["reused"])
         self.assertIs(True, outcome.plan["parts"]["suite-selection"]["run"])
         self.assertNotIn("reused", outcome.plan["parts"]["suite-selection"])
+
+
+class _FakeGitHubApi(http.server.BaseHTTPRequestHandler):
+    routes: dict[str, tuple[int, object]] = {}
+
+    def do_GET(self) -> None:
+        status, payload = self.routes.get(self.path, (404, {"message": "not found"}))
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        return
+
+
+class EditedPullRequestTests(PipelineFixture):
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = SCHEMAS
+        self.routes: dict[str, tuple[int, object]] = {}
+        handler = type("Handler", (_FakeGitHubApi,), {"routes": self.routes})
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.addCleanup(self.server.server_close)
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.shutdown)
+        self.api_url = f"http://127.0.0.1:{self.server.server_port}"
+
+    def plan_edited(self, base: str, head: str, run_id: int = 200):
+        env = {"GITHUB_API_URL": self.api_url, "GITHUB_REPOSITORY": "example/repo", "GITHUB_TOKEN": "tok", "NO_PROXY": "127.0.0.1,localhost"}
+        with mock.patch.dict(os.environ, env):
+            return self.plan("--base", base, "--head", head, "--compare", "merge-base",
+                             "--event", "pull_request", "--event-action", "edited",
+                             "--workflow-ref", "example/repo/.github/workflows/ci.yml@refs/pull/12/merge",
+                             "--run-id", str(run_id))
+
+    def test_an_edited_run_runs_only_title_and_description_checks_and_takes_over_passed_head_results(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n  suite-selection:\n    suites: tests/suites.json\n"})
+        head = self.commit({"src/app.py": "print(1)\n"})
+        self.routes[f"/repos/example/repo/actions/workflows/ci.yml/runs?head_sha={head}&event=pull_request&per_page=100"] = (
+            200,
+            {"workflow_runs": [
+                {"id": 200, "status": "in_progress", "conclusion": None, "head_sha": head},
+                {"id": 100, "status": "completed", "conclusion": "success", "head_sha": head},
+            ]},
+        )
+        self.routes["/repos/example/repo/actions/runs/100/jobs?per_page=100"] = (
+            200,
+            {"jobs": [
+                {"name": "ci / plan", "status": "completed", "conclusion": "success",
+                 "steps": [{"name": "Decide which checks the changed files can affect", "conclusion": "success"}]},
+                {"name": "ci / repository-hygiene", "status": "completed", "conclusion": "success", "steps": []},
+                {"name": "ci / custom", "status": "completed", "conclusion": "success", "steps": []},
+                {"name": "ci / verdict", "status": "completed", "conclusion": "success", "steps": []},
+            ]},
+        )
+        outcome = self.plan_edited(base, head, run_id=200)
+        self.assertEqual(0, outcome.status, outcome.stdout + outcome.stderr + outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["repository-hygiene"]["run"])
+        self.assertIs(False, outcome.plan["parts"]["custom"]["run"])
+        self.assertIs(True, outcome.plan["parts"]["custom"]["reused"])
+        self.assertIs(False, outcome.plan["parts"]["suite-selection"]["run"])
+        self.assertIs(True, outcome.plan["parts"]["suite-selection"]["reused"])
+        self.assertEqual({"run_id": 100, "passed": True, "failures": []}, outcome.plan["head-results"])
+
+        needs = {
+            "plan": {"result": "success", "outputs": {"plan": outcome.outputs["plan"]}},
+            "repository-hygiene": {"result": "success", "outputs": {}},
+            "custom": {"result": "skipped", "outputs": {}},
+            "suite-selection-jobs": {"result": "skipped", "outputs": {}},
+            "suite-selection-results": {"result": "skipped", "outputs": {}},
+        }
+        verdict = self.verdict(needs)
+        self.assertEqual(0, verdict.status, verdict.stdout + verdict.summary)
+
+    def test_an_edited_run_carries_a_failed_code_check_of_the_same_head_into_the_verdict(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  python-test:\n    projects:\n      - python-version: '3.14'\n"})
+        head = self.commit({"app.py": "x = 1\n"})
+        self.routes[f"/repos/example/repo/actions/workflows/ci.yml/runs?head_sha={head}&event=pull_request&per_page=100"] = (
+            200,
+            {"workflow_runs": [{"id": 100, "status": "completed", "conclusion": "failure", "head_sha": head}]},
+        )
+        self.routes["/repos/example/repo/actions/runs/100/jobs?per_page=100"] = (
+            200,
+            {"jobs": [
+                {"name": "ci / plan", "status": "completed", "conclusion": "success",
+                 "steps": [{"name": "Decide which checks the changed files can affect", "conclusion": "success"}]},
+                {"name": "ci / repository-hygiene", "status": "completed", "conclusion": "success", "steps": []},
+                {"name": "ci / python-test (., 3.14)", "status": "completed", "conclusion": "failure", "steps": []},
+                {"name": "ci / verdict", "status": "completed", "conclusion": "failure", "steps": []},
+            ]},
+        )
+        outcome = self.plan_edited(base, head)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(False, outcome.plan["head-results"]["passed"])
+        self.assertEqual(["`ci / python-test (., 3.14)` ended failure in run 100"], outcome.plan["head-results"]["failures"])
+        verdict = self.verdict({
+            "plan": {"result": "success", "outputs": {"plan": outcome.outputs["plan"]}},
+            "repository-hygiene": {"result": "success", "outputs": {}},
+            "python-test": {"result": "skipped", "outputs": {}},
+        })
+        self.assertEqual(1, verdict.status)
+        self.assertIn("`ci / python-test (., 3.14)` ended failure in run 100", verdict.summary)
+
+    def test_an_edited_run_carries_a_failed_hygiene_code_step_but_clears_a_fixed_title_or_reference_failure(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\n"})
+        head = self.commit({"README.md": "hi\n"})
+        self.routes[f"/repos/example/repo/actions/workflows/ci.yml/runs?head_sha={head}&event=pull_request&per_page=100"] = (
+            200,
+            {"workflow_runs": [{"id": 100, "status": "completed", "conclusion": "failure", "head_sha": head}]},
+        )
+        # Subcase A: Gitleaks failed -> stays failed
+        self.routes["/repos/example/repo/actions/runs/100/jobs?per_page=100"] = (
+            200,
+            {"jobs": [
+                {"name": "ci / plan", "status": "completed", "conclusion": "success",
+                 "steps": [{"name": "Decide which checks the changed files can affect", "conclusion": "success"}]},
+                {"name": "ci / repository-hygiene", "status": "completed", "conclusion": "failure",
+                 "steps": [{"name": "Check the pull request title", "conclusion": "success"},
+                           {"name": "Gitleaks over added commits", "conclusion": "failure"}]},
+            ]},
+        )
+        failed_gitleaks = self.plan_edited(base, head)
+        self.assertIs(False, failed_gitleaks.plan["head-results"]["passed"])
+
+        # Subcase B: Only title and reference checks failed -> cleared when edited run passes both
+        self.routes["/repos/example/repo/actions/runs/100/jobs?per_page=100"] = (
+            200,
+            {"jobs": [
+                {"name": "ci / plan", "status": "completed", "conclusion": "failure",
+                 "steps": [{"name": "Decide which checks the changed files can affect", "conclusion": "success"},
+                           {"name": "Check the references to repositories of the owner", "conclusion": "failure"}]},
+                {"name": "ci / repository-hygiene", "status": "completed", "conclusion": "failure",
+                 "steps": [{"name": "Check the pull request title", "conclusion": "failure"},
+                           {"name": "Gitleaks over added commits", "conclusion": "success"}]},
+            ]},
+        )
+        title_only = self.plan_edited(base, head)
+        self.assertIs(True, title_only.plan["head-results"]["passed"])
+
+    def test_an_edited_run_skips_earlier_edited_and_cancelled_runs_and_fails_when_code_run_is_in_progress_or_missing(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\n"})
+        head = self.commit({"README.md": "hi\n"})
+        runs_path = f"/repos/example/repo/actions/workflows/ci.yml/runs?head_sha={head}&event=pull_request&per_page=100"
+        self.routes[runs_path] = (
+            200,
+            {"workflow_runs": [
+                {"id": 150, "status": "completed", "conclusion": "cancelled", "head_sha": head},
+                {"id": 140, "status": "completed", "conclusion": "failure", "head_sha": head},
+                {"id": 100, "status": "completed", "conclusion": "success", "head_sha": head},
+            ]},
+        )
+        self.routes["/repos/example/repo/actions/runs/140/jobs?per_page=100"] = (
+            200,
+            {"jobs": [
+                {"name": "ci / plan", "status": "completed", "conclusion": "success",
+                 "steps": [{"name": "Decide which checks the changed files can affect", "conclusion": "skipped"}]},
+                {"name": "ci / repository-hygiene", "status": "completed", "conclusion": "failure",
+                 "steps": [{"name": "Check the pull request title", "conclusion": "failure"}]},
+            ]},
+        )
+        self.routes["/repos/example/repo/actions/runs/100/jobs?per_page=100"] = (
+            200,
+            {"jobs": [
+                {"name": "ci / plan", "status": "completed", "conclusion": "success",
+                 "steps": [{"name": "Decide which checks the changed files can affect", "conclusion": "success"}]},
+                {"name": "ci / repository-hygiene", "status": "completed", "conclusion": "success", "steps": []},
+            ]},
+        )
+        skipped_edited = self.plan_edited(base, head)
+        self.assertEqual({"run_id": 100, "passed": True, "failures": []}, skipped_edited.plan["head-results"])
+
+        # In-progress code run -> cannot pass
+        self.routes[runs_path] = (200, {"workflow_runs": [{"id": 101, "status": "in_progress", "conclusion": None, "head_sha": head}]})
+        self.routes["/repos/example/repo/actions/runs/101/jobs?per_page=100"] = (
+            200,
+            {"jobs": [{"name": "ci / plan", "status": "completed", "conclusion": "success",
+                       "steps": [{"name": "Decide which checks the changed files can affect", "conclusion": "success"}]}]},
+        )
+        in_progress = self.plan_edited(base, head)
+        self.assertIs(False, in_progress.plan["head-results"]["passed"])
+        self.assertIn("is still in_progress", in_progress.plan["head-results"]["failures"][0])
+
+        # Missing code run -> cannot pass
+        self.routes[runs_path] = (200, {"workflow_runs": []})
+        missing = self.plan_edited(base, head)
+        self.assertIs(False, missing.plan["head-results"]["passed"])
+        self.assertIn("no completed code run found", missing.plan["head-results"]["failures"][0])
 
 
 if __name__ == "__main__":

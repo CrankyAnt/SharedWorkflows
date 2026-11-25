@@ -40,9 +40,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -56,9 +60,15 @@ ASSEMBLED = "ci-config.schema.json"
 SETUPS = "setups.json"
 PIPELINE = "pipeline.yml"
 PLAN_JOB = "plan"
+HYGIENE_JOB = "repository-hygiene"
+VERDICT_JOB = "verdict"
 SUITE_SELECTION_JOB = "suite-selection"
 SUITE_SELECTION_JOBS = "suite-selection-jobs"
 SUITE_SELECTION_RESULTS = "suite-selection-results"
+PLAN_CHANGES_STEP = "Decide which checks the changed files can affect"
+TITLE_STEP = "Check the pull request title"
+REFERENCES_STEP = "Check the references to repositories of the owner"
+API_TIMEOUT = 15
 FAILING_RESULTS = ("failure", "cancelled", "timed_out")
 ALL_ZERO = re.compile(r"^0+$")
 VERSION_FOLDER = re.compile(r"^v([1-9][0-9]*)$")
@@ -536,8 +546,90 @@ def combine_python_projects(decisions: dict) -> None:
             verify["reason"] = "combined into python-test"
 
 
+def github_get(api_url: str, repository: str, token: str | None, path: str) -> object:
+    """Read one JSON endpoint under ``repos/<repository>/<path>``."""
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"{api_url.rstrip('/')}/repos/{repository}/{path}", headers=headers)
+    with urllib.request.urlopen(request, timeout=API_TIMEOUT) as response:  # noqa: S310 - the API host of the run
+        return json.loads(response.read().decode("utf-8"))
+
+
+def is_edited_run(jobs: list[dict]) -> bool:
+    """Whether a run's ``plan`` job skipped change detection, which only an ``edited`` run does."""
+    plan_job = next((job for job in jobs if str(job.get("name", "")).rsplit(" / ", 1)[-1] == PLAN_JOB), None)
+    if not isinstance(plan_job, dict):
+        return False
+    return any(step.get("name") == PLAN_CHANGES_STEP and step.get("conclusion") == "skipped"
+               for step in (plan_job.get("steps") or []) if isinstance(step, dict))
+
+
+def code_failures_of_run(run: dict, jobs: list[dict], head: str) -> list[str]:
+    """Every non-title, non-reference failure in a completed code run of ``head``."""
+    run_id = run.get("id")
+    failures: list[str] = []
+    title_or_ref_failed = False
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        job_name = str(job.get("name", ""))
+        short_name = job_name.rsplit(" / ", 1)[-1]
+        if short_name == VERDICT_JOB:
+            continue
+        conclusion = job.get("conclusion")
+        if short_name in (PLAN_JOB, HYGIENE_JOB):
+            if conclusion in ("success", "skipped"):
+                continue
+            allowed = REFERENCES_STEP if short_name == PLAN_JOB else TITLE_STEP
+            bad_steps = [step.get("name") for step in (job.get("steps") or [])
+                         if isinstance(step, dict) and step.get("conclusion") in (*FAILING_RESULTS, "action_required")]
+            if bad_steps and all(step == allowed for step in bad_steps):
+                title_or_ref_failed = True
+            else:
+                failures.append(f"`{job_name}` ended {conclusion} in run {run_id}")
+        elif conclusion in (*FAILING_RESULTS, "action_required", "startup_failure"):
+            failures.append(f"`{job_name}` ended {conclusion} in run {run_id}")
+    if not failures and not title_or_ref_failed and run.get("conclusion") != "success":
+        failures.append(f"code run {run_id} for `{head}` ended {run.get('conclusion')}")
+    return failures
+
+
+def head_code_results(head: str | None, workflow_ref: str, run_id: str) -> dict:
+    """Look up the code results of ``head`` from the pull request's latest non-cancelled code run."""
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    token = os.environ.get("GITHUB_TOKEN") or None
+    if not head or not repository:
+        return {"run_id": None, "passed": False, "failures": ["the code results of the head could not be looked up: missing repository or head"]}
+    workflow_file = workflow_ref.split("@", 1)[0].rsplit("/", 1)[-1] if workflow_ref else "ci.yml"
+    try:
+        runs_doc = github_get(api_url, repository, token,
+                              f"actions/workflows/{urllib.parse.quote(workflow_file)}/runs?head_sha={urllib.parse.quote(head)}&event=pull_request&per_page=100")
+        runs = runs_doc.get("workflow_runs") if isinstance(runs_doc, dict) else None
+        if not isinstance(runs, list):
+            return {"run_id": None, "passed": False, "failures": [f"the code results of `{head}` could not be read"]}
+        for run in runs:
+            if not isinstance(run, dict) or str(run.get("id")) == str(run_id) or run.get("conclusion") == "cancelled":
+                continue
+            jobs_doc = github_get(api_url, repository, token, f"actions/runs/{run.get('id')}/jobs?per_page=100")
+            jobs = jobs_doc.get("jobs") if isinstance(jobs_doc, dict) else None
+            if not isinstance(jobs, list):
+                return {"run_id": run.get("id"), "passed": False, "failures": [f"the jobs of run {run.get('id')} could not be read"]}
+            if is_edited_run(jobs):
+                continue
+            if run.get("status") != "completed":
+                return {"run_id": run.get("id"), "passed": False, "failures": [f"code run {run.get('id')} for `{head}` is still {run.get('status')}"]}
+            failures = code_failures_of_run(run, jobs, head)
+            return {"run_id": run.get("id"), "passed": not failures, "failures": failures}
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        return {"run_id": None, "passed": False, "failures": [f"the code results of `{head}` could not be looked up: {error}"]}
+    return {"run_id": None, "passed": False, "failures": [f"no completed code run found for `{head}`"]}
+
+
 def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
-              workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None) -> dict:
+              workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None,
+              event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0") -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
@@ -548,25 +640,41 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     parts, base_parts = stated_parts(configuration), stated_parts(before)
     tested_base_parts = stated_parts(tested_before) if tested_base is not None else None
     decisions = {}
-    for name in version.parts_of(workflow):
-        run, reason, reused = decide(name, version, parts, base_parts, changed, identical_reason, tested_base_parts)
-        entry: dict = {"run": run, "reason": reason, "config": parts.get(name, {})}
-        if reused:
-            entry["reused"] = True
-        if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
-            entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
-        decisions[name] = entry
-    combine_python_projects(decisions)
-    selected_units = read_unit_decisions(unit_decisions)
-    if selected_units is not None and SUITE_SELECTION_JOB in decisions and SUITE_SELECTION_JOB in parts:
-        suite_entry = decisions[SUITE_SELECTION_JOB]
-        suite_entry["run"] = bool(selected_units["run"])
-        if isinstance(selected_units.get("reason"), str) and selected_units["reason"]:
-            suite_entry["reason"] = selected_units["reason"]
-        if not suite_entry["run"] and selected_units.get("reused") is True:
-            suite_entry["reused"] = True
-        else:
-            suite_entry.pop("reused", None)
+    head_results: dict | None = None
+    if event == "pull_request" and event_action == "edited" and workflow == PIPELINE:
+        head_results = head_code_results(head, workflow_ref, run_id)
+        for name in version.parts_of(workflow):
+            if name == HYGIENE_JOB:
+                entry: dict = {"run": True, "reason": "title and description checks", "config": parts.get(name, {})}
+            elif name not in parts:
+                entry = {"run": False, "reason": "switched off", "config": {}}
+            elif head_results["passed"]:
+                entry = {"run": False, "reason": f"took over from run {head_results['run_id']}", "config": parts.get(name, {}), "reused": True}
+            else:
+                entry = {"run": False, "reason": "edited pull request", "config": parts.get(name, {})}
+            if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
+                entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+            decisions[name] = entry
+    else:
+        for name in version.parts_of(workflow):
+            run, reason, reused = decide(name, version, parts, base_parts, changed, identical_reason, tested_base_parts)
+            entry = {"run": run, "reason": reason, "config": parts.get(name, {})}
+            if reused:
+                entry["reused"] = True
+            if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
+                entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+            decisions[name] = entry
+        combine_python_projects(decisions)
+        selected_units = read_unit_decisions(unit_decisions)
+        if selected_units is not None and SUITE_SELECTION_JOB in decisions and SUITE_SELECTION_JOB in parts:
+            suite_entry = decisions[SUITE_SELECTION_JOB]
+            suite_entry["run"] = bool(selected_units["run"])
+            if isinstance(selected_units.get("reason"), str) and selected_units["reason"]:
+                suite_entry["reason"] = selected_units["reason"]
+            if not suite_entry["run"] and selected_units.get("reused") is True:
+                suite_entry["reused"] = True
+            else:
+                suite_entry.pop("reused", None)
     known = registered_workflows(before)
     result: dict = {
         "version": version.version,
@@ -575,8 +683,10 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
         "switched-off": sorted(name for name in base_parts if name not in parts and name not in version.always),
         "local-workflows-added": [workflow for workflow in registered_workflows(configuration) if workflow not in known],
     }
-    if selected_units is not None:
+    if head_results is None and (selected_units := read_unit_decisions(unit_decisions)) is not None:
         result["units"] = selected_units["units"]
+    if head_results is not None:
+        result["head-results"] = head_results
     return result
 
 
@@ -603,6 +713,12 @@ def plan_markdown(plan: dict) -> str:
         for unit_name, unit in units.items():
             status = "yes" if unit.get("run") else ("no (taken over)" if unit.get("reused") is True else "no")
             lines.append(f"| `{unit_name}` | {status} | {unit.get('reason', '')} |")
+    head_results = plan.get("head-results")
+    if isinstance(head_results, dict):
+        if head_results.get("passed"):
+            lines += ["", f"Code results of the head: passed in run {head_results.get('run_id')}."]
+        else:
+            lines += ["", "Code results of the head: " + "; ".join(head_results.get("failures") or ["not passed"]) + "."]
     return "\n".join([*lines, "", *comparison_lines(plan)]) + "\n"
 
 
@@ -616,7 +732,8 @@ def run_plan(options: argparse.Namespace) -> int:
     try:
         versions = schema_versions(Path(options.schemas))
         plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare,
-                         options.shared_workflow, options.lookup, options.unit_decisions)
+                         options.shared_workflow, options.lookup, options.unit_decisions,
+                         options.event, options.event_action, options.workflow_ref, options.run_id)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
         print(f"The plan failed: {CONFIGURATION} cannot be used.")
@@ -773,6 +890,9 @@ def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOut
                 else:
                     outcome = "taken over" if part.get("reused") is True else "skipped"
                     checks.append(CheckOutcome(name, outcome, "not run", reason))
+            head_results = plan.get("head-results")
+            if isinstance(head_results, dict) and head_results.get("passed") is False:
+                reasons.extend(str(item) for item in (head_results.get("failures") or ["the code checks of the head did not pass"]))
             return reasons, plan, checks
     reasons += [f"`{name}` ended {job.get('result')}" for name, job in needs.items()
                 if name != PLAN_JOB and job.get("result") in FAILING_RESULTS]
@@ -889,7 +1009,9 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--lookup", help="the push lookup JSON file written by suite_selection.py lookup")
     planning.add_argument("--unit-decisions", help="the per-unit decisions JSON file written by suite_selection.py select")
     planning.add_argument("--workflow", default="pipeline", help="the name of the running workflow, for the concurrency groups")
+    planning.add_argument("--workflow-ref", default="", help="the workflow_ref of the running workflow, for looking up head runs")
     planning.add_argument("--event", default="", help="the name of the event of the run")
+    planning.add_argument("--event-action", default="", help="the action of the event, such as edited on pull_request")
     planning.add_argument("--pull-request", default="", help="the number of the pull request of the run, empty on another event")
     planning.add_argument("--run-id", default="0", help="the id of the run")
     planning.add_argument("--github-output", help="the file that receives the output plan")

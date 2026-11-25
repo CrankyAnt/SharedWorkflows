@@ -119,7 +119,7 @@ class TemplateTests(unittest.TestCase):
 
     def test_the_read_caller_runs_on_pull_requests_pushes_to_main_and_the_dispatch_after_a_dependabot_merge(self) -> None:
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "ci.yml")
-        self.assertEqual({"pull_request": None, "push": {"branches": "[main]"}, "repository_dispatch": {"types": "[dependabot-merged]"}}, caller["on"])
+        self.assertEqual({"pull_request": {"types": "[opened, synchronize, reopened, edited]"}, "push": {"branches": "[main]"}, "repository_dispatch": {"types": "[dependabot-merged]"}}, caller["on"])
         self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, caller["jobs"]["ci"]["permissions"])
 
     def test_both_fixed_pipeline_callers_group_pull_requests_never_cancel_pushes_dispatches_or_edits(self) -> None:

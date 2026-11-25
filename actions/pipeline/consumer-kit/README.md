@@ -184,7 +184,7 @@ The triage of Shared Workflows collects the open requests and answers each in a 
 
 ## A corrected title
 
-`ci.yml` does not start on `edited`, so correcting a pull request's title or body starts no run. The title check and the reference check read the current title and body from GitHub: after a correction, re-run the failed job.
+`ci.yml` starts on `edited` in a concurrency group of its own, so it cancels no code run of the pull request. An `edited` run runs only the title and description checks (reading the current title and body from GitHub) and takes over the code results of the same head, failures included.
 
 ## The sync App
 

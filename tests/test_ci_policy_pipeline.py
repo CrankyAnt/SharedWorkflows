@@ -33,6 +33,7 @@ DIFFERENT = {
     "Load the convention checks from this workflow revision": "the pipeline loads publication-checks in plan for branch/reference checks and in repository-hygiene for commitlint",
     "actions/setup-node": "the pipeline reads pr-author-skip from needs.plan.outputs",
     "Check the pull request branch": "the pipeline runs the light branch check in plan after the plan step succeeds",
+    "Check every pull request commit": "the pipeline skips commitlint on commits on an edited run",
     "Compute the commitlint cache key": "the pipeline reads pr-author-skip from needs.plan.outputs",
     "Restore the cached commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
     "Install the locked commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
@@ -40,13 +41,14 @@ DIFFERENT = {
     "Check the references to repositories of the owner": "the pipeline runs the light reference check in plan after the plan step succeeds",
     "Dependabot coverage of tracked package files": "the pipeline runs coverage in plan and reads coverage-exclude from the configuration file, not from an input",
     "Relative links in tracked Markdown": "the pipeline runs links in plan and reads link-exclude from the configuration file, not from an input",
-    "Compute the hygiene tools cache key": "the pipeline reads hygiene change flags from needs.plan.outputs and relies on plan for the dispatch check",
-    "Restore the cached hygiene tools": "the pipeline relies on plan for the dispatch check",
-    "Install the pinned tools and verify their checksums": "the pipeline reads hygiene change flags from needs.plan.outputs and relies on plan for the dispatch check",
+    "Compute the hygiene tools cache key": "the pipeline reads hygiene change flags from needs.plan.outputs, relies on plan for the dispatch check, and skips tools on edited",
+    "Restore the cached hygiene tools": "the pipeline relies on plan for the dispatch check and skips tools on edited",
+    "Install the pinned tools and verify their checksums": "the pipeline reads hygiene change flags from needs.plan.outputs, relies on plan for the dispatch check, and skips tools on edited",
     "actionlint with the pinned ShellCheck": "the pipeline reads hygiene-actionlint from needs.plan.outputs",
     "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona and reads hygiene-zizmor from needs.plan.outputs",
     "REUSE licence assignments": "the pipeline reads hygiene-reuse from needs.plan.outputs",
-    "Gitleaks over added commits": "the pipeline takes the Gitleaks files by their fixed names, not from inputs",
+    "Restore the default-branch Gitleaks scan marker": "the pipeline skips Gitleaks on an edited run",
+    "Gitleaks over added commits": "the pipeline takes the Gitleaks files by their fixed names, not from inputs, and skips Gitleaks on an edited run",
 }
 # The steps that only the pipeline's hygiene checks hold, each with its reason.
 PIPELINE_ONLY = {
@@ -464,13 +466,13 @@ class HygieneStepTests(unittest.TestCase):
         self.assertIn(f"{references}: the pipeline's hygiene job has no such step", hygiene_step_problems(self.shared, without, LEFT_OUT, DIFFERENT))
 
     def test_a_step_that_changed_in_one_job_only_is_named(self) -> None:
-        name = "Check every pull request commit"
+        name = "Store the default-branch Gitleaks scan marker"
         changed = [{**step, "run": "another command"} if step.get("name") == name else step for step in self.shared]
         self.assertIn(f"{name}: the step differs between the two jobs", hygiene_step_problems(changed, self.pipeline, LEFT_OUT, DIFFERENT))
 
     def test_a_stated_difference_that_no_longer_exists_is_named(self) -> None:
-        self.assertIn("Check every pull request commit: the step is equal in both jobs, but it is listed as different",
-                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, {**DIFFERENT, "Check every pull request commit": "none"}))
+        self.assertIn("Store the default-branch Gitleaks scan marker: the step is equal in both jobs, but it is listed as different",
+                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, {**DIFFERENT, "Store the default-branch Gitleaks scan marker": "none"}))
         self.assertIn("A removed step: listed as a difference, but the shared workflow has no such step",
                       hygiene_step_problems(self.shared, self.pipeline, {**LEFT_OUT, "A removed step": "none"}, DIFFERENT))
         self.assertIn("An extra step: only the pipeline's hygiene job has this step",
@@ -493,7 +495,7 @@ class HygieneStepTests(unittest.TestCase):
         self.assertEqual(["Fixed callers and local workflows", "Issues of the local workflow register", "Generated Dependabot configuration"], [step["name"] for step in checks])
         for step in checks:
             with self.subTest(step=step["name"]):
-                self.assertEqual("${{ !cancelled() && steps.plan.outcome == 'success' }}", step["if"])
+                self.assertEqual("${{ !cancelled() && steps.plan.outcome == 'success' && !(github.event_name == 'pull_request' && github.event.action == 'edited') }}", step["if"])
                 self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "GITHUB_TOKEN": "${{ github.token }}", "EVENT": "${{ github.event_name }}",
                                   "PR_AUTHOR": "${{ github.event.pull_request.user.login }}"}, step["env"])
                 self.assertIn('--event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"', step["run"])
@@ -695,7 +697,7 @@ class CallerTests(unittest.TestCase):
         self.text, self.caller = read_workflow(CALLER)
 
     def test_the_caller_runs_on_pull_requests_main_pushes_and_the_dispatch_after_a_dependabot_merge_only(self) -> None:
-        self.assertIn("\non:\n  pull_request:\n  push:\n    branches: [main]\n  repository_dispatch:\n    types: [dependabot-merged]\n\npermissions: {}\n", self.text)
+        self.assertIn("\non:\n  pull_request:\n    types: [opened, synchronize, reopened, edited]\n  push:\n    branches: [main]\n  repository_dispatch:\n    types: [dependabot-merged]\n\npermissions: {}\n", self.text)
 
     def test_the_caller_calls_the_pipeline_by_local_path_as_its_one_job_ci_so_that_the_verdict_s_check_is_ci_verdict(self) -> None:
         self.assertEqual(["ci"], list(self.caller["jobs"]))

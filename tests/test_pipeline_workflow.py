@@ -51,7 +51,7 @@ class PipelineInvocationTests(unittest.TestCase):
                                                     *[token for token in final_plan[1:] if token != "$@"]])
         self.assertEqual(".", options.root)
         self.assertEqual(str(plan_program.SCHEMAS), options.schemas, "the pipeline reads the schema of its own revision")
-        for name in ("base", "head", "workflow", "event", "pull_request", "github_output", "summary"):
+        for name in ("base", "head", "workflow", "workflow_ref", "event", "event_action", "pull_request", "github_output", "summary"):
             self.assertEqual("x", getattr(options, name), name)
         text = WORKFLOW.read_text(encoding="utf-8")
         for binding in ("BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}",
@@ -65,6 +65,22 @@ class PipelineInvocationTests(unittest.TestCase):
     def test_the_verdict_gets_the_needs_context_and_writes_its_summary(self) -> None:
         options = plan_program.parser().parse_args(self.invocations[-1])
         self.assertEqual(("x/needs.json", "x"), (options.needs, options.summary))
+
+    def test_an_edited_pull_request_runs_only_title_and_description_checks(self) -> None:
+        _, workflow = read_workflow(WORKFLOW)
+        plan_steps = {step["name"]: step for step in workflow["jobs"]["plan"]["steps"] if "name" in step}
+        hygiene_steps = {step["name"]: step for step in workflow["jobs"]["repository-hygiene"]["steps"] if "name" in step}
+        for name in ("Decide which checks the changed files can affect", "Take the digest of the shared recording step",
+                     "Look up the digest of the last passed run on the base branch", "Restore the passed results of the pull request",
+                     "Select the suites the changed files touch", "Check the pull request branch",
+                     "Fixed callers and local workflows", "Issues of the local workflow register", "Generated Dependabot configuration"):
+            self.assertIn("edited", str(plan_steps[name].get("if", "")), f"plan step {name} must skip on edited")
+        self.assertNotIn("edited", str(plan_steps["Check the references to repositories of the owner"].get("if", "")))
+        for name in ("Check every pull request commit", "Compute the hygiene tools cache key", "Restore the cached hygiene tools",
+                     "Install the pinned tools and verify their checksums", "Restore the default-branch Gitleaks scan marker",
+                     "Gitleaks over added commits"):
+            self.assertIn("edited", str(hygiene_steps[name].get("if", "")), f"hygiene step {name} must skip on edited")
+        self.assertNotIn("edited", str(hygiene_steps["Check the pull request title"].get("if", "")))
 
 
 @unittest.skipUnless(sys.platform != "win32" and shutil.which("bash") and shutil.which("python3"), "the plan step runs in Bash with python3 off Windows")
