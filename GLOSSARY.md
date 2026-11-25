@@ -72,6 +72,10 @@ _Avoid_: Shared workflow, internal workflow, maintenance workflow
 A part of Shared Workflows that a consumer can adopt, such as repository hygiene, Dependabot auto-merge or the suite selection, with its shared workflows and shared steps.
 _Avoid_: Central part, shared component, offering
 
+**Shared CI**:
+All shared parts of Shared Workflows taken as one CI, which consumers call at `v1`.
+_Avoid_: Central CI
+
 **Part folder**:
 The subfolder of `actions/` that holds one shared step: its composite action and the scripts and files it loads, and the consumer kit of its shared part where that kit lies.
 _Avoid_: Part (for the folder), tool folder, Tool
@@ -198,6 +202,14 @@ _Avoid_: Status check name, job name
 The one check that a repository requires, given by the pipeline as `ci / verdict` or by a validation run: it passes only when the plan or the suite selection succeeded and no shared part or unit it started failed or was cancelled.
 _Avoid_: Status check, gate job
 
+**Gating check**:
+A check the verdict stands for, on a proposed change and on the default branch alike: a green verdict means that it passed, took over a pass, or would pass if it ran.
+_Avoid_: Blocking check, required check
+
+**Departure**:
+A use of shared CI that does not meet a principle the shared code can check, such as a check whose inputs are not declared; reported while the check still runs.
+_Avoid_: Violation
+
 ### Runs
 
 **Tested tree**:
@@ -227,6 +239,14 @@ _Avoid_: Job, test case
 **Reuse**:
 Taking a unit's passed result instead of running the unit again, when everything that result depends on equals the run that passed.
 _Avoid_: Cache hit, skip
+
+**Fallback**:
+Selecting more than a change needs because selection lacks what it needs to decide, such as running a check with unknown inputs on every change; each fallback is counted by its reason.
+_Avoid_: Run-all, safety net
+
+**Accepted risk**:
+A named case in which a green verdict can be wrong, accepted because preventing it costs more than it guards against. The accepted risks are the only exceptions to a trustworthy verdict.
+_Avoid_: Known gap, waiver
 
 ### Suites
 
