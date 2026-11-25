@@ -44,7 +44,8 @@ class HygienePromotionTests(unittest.TestCase):
 
     def test_no_job_of_the_promotion_workflow_holds_a_write_token(self) -> None:
         self.assertNotIn(": write", self.text, "the tag pushes need no token of the run")
-        self.assertEqual({"decide": {"contents": "read", "pull-requests": "read"}, "await": {"actions": "read", "contents": "read"}, "move": {"contents": "read"}},
+        self.assertEqual({"decide": {"contents": "read", "pull-requests": "read"}, "await": {"checks": "read", "contents": "read"},
+                          "move": {"checks": "read", "contents": "read"}},
                          {name: job["permissions"] for name, job in self.jobs.items()})
         self.assertEqual({"ubuntu-slim"}, {job["runs-on"] for job in self.jobs.values()})
         self.assertEqual({"decide": "5", "await": "14", "move": "5"}, {name: job["timeout-minutes"] for name, job in self.jobs.items()})
@@ -75,7 +76,7 @@ class HygienePromotionTests(unittest.TestCase):
                          'promote_v1.py decide --commit "$COMMIT" --v1 "$V1" --v1-object "$V1_OBJECT" --pull-request "$RUNNER_TEMP/pull-request.json" --app-login "$APP_LOGIN" '
                          '--owner "$OWNER" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"',
                          'promote_v1.py await --commit "$COMMIT" --old "$OLD" --repository "$GITHUB_REPOSITORY" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"',
-                         'promote_v1.py move --deploy-key DEPLOY_KEY --remote promote --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"'):
+                         'promote_v1.py move --deploy-key DEPLOY_KEY --remote promote --repository "$GITHUB_REPOSITORY" --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"'):
             with self.subTest(fragment=fragment):
                 self.assertEqual(1, self.text.count(fragment))
         wait = self.step("await", "Wait for the CI on main")
@@ -93,12 +94,10 @@ class HygienePromotionTests(unittest.TestCase):
         self.assertNotIn("PUBLICATION_CHECKS_APP_PRIVATE_KEY", self.text.split("\n  await:\n", 1)[1], "the App's key is read by the decision alone")
         for step in self.jobs["move"]["steps"]:
             with self.subTest(step=step.get("name")):
-                self.assertNotIn("GH_TOKEN", step.get("env", {}), "a job with a key holds no token: the key alone pushes")
-                self.assertNotIn("github.token", str(step))
                 self.assertNotIn("credential.helper", str(step))
         push = self.jobs["move"]["steps"][-1]
         self.assertEqual("Move v1 under a lease on its previous commit", push["name"])
-        self.assertEqual({"DEPLOY_KEY": f"${{{{ secrets.{DEPLOY_KEY} }}}}", "OLD": "${{ needs.decide.outputs.old }}", "NEW": "${{ needs.decide.outputs.new }}"}, push["env"])
+        self.assertEqual({"DEPLOY_KEY": f"${{{{ secrets.{DEPLOY_KEY} }}}}", "GH_TOKEN": "${{ github.token }}", "OLD": "${{ needs.decide.outputs.old }}", "NEW": "${{ needs.decide.outputs.new }}"}, push["env"])
 
     def test_the_push_goes_over_ssh_with_the_deploy_key_which_the_program_alone_handles(self) -> None:
         run = self.jobs["move"]["steps"][-1]["run"]
@@ -116,7 +115,7 @@ class HygienePromotionTests(unittest.TestCase):
 
     def test_the_promotion_workflow_names_only_this_repository(self) -> None:
         self.assertEqual(["$GITHUB_REPOSITORY"] * 2, re.findall(r"\brepos/([^/\s\"]+)", self.text), "every API path takes the repository of the run")
-        self.assertEqual(2, self.text.count('--repository "$GITHUB_REPOSITORY"'), "read-tag and await read the repository of the run")
+        self.assertEqual(3, self.text.count('--repository "$GITHUB_REPOSITORY"'), "read-tag, await and move read the repository of the run")
         self.assertEqual(["$GITHUB_REPOSITORY.git"], re.findall(r"git@github\.com:(\S+?)\"", self.text))
         self.assertNotIn("CrankyAnt/", self.text, "no repository is named by its slug")
         for reach in ("dispatches", "repository_dispatch", "workflow_dispatch", "gh repo ", "gh search", "--repo ", " -R ", "repositories:", "owner:", "repository:"):

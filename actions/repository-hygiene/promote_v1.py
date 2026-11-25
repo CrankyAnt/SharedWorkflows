@@ -5,7 +5,7 @@ on ``main``, and by hand for every other move.
     python3 promote_v1.py decide --commit SHA --v1 SHA [--v1-object SHA] [--pull-request FILE] [--app-login LOGIN] [--owner LOGIN]
                                  [--repository-root DIR] [--surface shared-surface.json] [--output GITHUB_OUTPUT] [--summary FILE]
     python3 promote_v1.py await  --commit SHA --old OBJECT --repository OWNER/NAME [--output GITHUB_OUTPUT] [--summary FILE]
-    python3 promote_v1.py move   --old SHA --new SHA [--deploy-key VARIABLE] [--remote origin] [--repository-root DIR] [--summary FILE]
+    python3 promote_v1.py move   --repository OWNER/NAME --old SHA --new SHA [--deploy-key VARIABLE] [--remote origin] [--repository-root DIR] [--summary FILE]
     python3 promote_v1.py prepare [--commit SHA] [--remote origin] [--repository-root DIR]
     python3 promote_v1.py promote --old OBJECT --new SHA [--remote origin] [--repository-root DIR]
     python3 promote_v1.py caller  [--remote origin] [--repository-root DIR]
@@ -58,8 +58,10 @@ that start they ask GitHub about no other repository and send none an event. "Pr
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -71,7 +73,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterator, Mapping
+from typing import Callable, Iterator, Mapping, Sequence
 
 SURFACE_PATH = Path(__file__).resolve().parent / "shared-surface.json"
 TAG = "refs/tags/v1"
@@ -79,14 +81,23 @@ CLASSES = ("read", "write", "template")
 READ, TEMPLATE = "read", "template"
 REF_URL = "https://api.github.com/repos/{repository}/git/ref/tags/v1"
 TAG_OBJECT_URL = "https://api.github.com/repos/{repository}/git/tags/{sha}"
-RUNS_URL = "https://api.github.com/repos/{repository}/actions/workflows/{workflow}/runs?head_sha={commit}&event=push&branch=main&per_page=100"
+VERDICT_CHECK = "ci / verdict"
+GITHUB_ACTIONS_APP_ID = 15368
+CHECK_RUNS_URL = "https://api.github.com/repos/{repository}/commits/{commit}/check-runs?check_name=ci%20%2F%20verdict&per_page=100"
 API_HOST = "https://api.github.com/"
 GITHUB_REMOTE = re.compile(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$")
 GITLEAKS_OPTIONS = ("--config", ".gitleaks.toml", "--baseline-path", ".gitleaks-baseline.json")
 SCRIPT_COMMAND = "python3 actions/repository-hygiene/promote_v1.py"
 PROMOTION, ROLLBACK, FIRST_CREATION = "promotion", "rollback", "first creation"
 SCAN_REFUSAL = "the Gitleaks scan of the tag push reports a finding or could not run"
-CI_WORKFLOWS = ("ci.yml", "repository-hygiene-caller.yml", "python-tests-caller.yml")
+# Shared digest inputs, matching actions/recording/recording.py.
+RECORDING_DIR = "actions/recording"
+WINDOWS_ONLY_PARTS = ("etw-consumer/", "etw_consumer_build.py")
+SUITE_JOBS_WORKFLOW = ".github/workflows/suite-jobs.yml"
+TOOL_INSTALLER_FILES = ("actions/repository-hygiene/install_tools.py", "actions/repository-hygiene/pins.py")
+LANGUAGE_STEP_FOLDERS = {"python": "actions/python-language-step"}
+LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
+RECORDING_MODULE_SEARCH = ("actions/suite-selection", "actions/recording")
 # GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
 GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 MANAGEMENT_KEY = "sharedworkflows.managementRepository"
@@ -101,7 +112,6 @@ CI_TIMEOUT = 10 * 60
 CI_INTERVAL = 30
 REQUEST_TIMEOUT = 20
 Fetcher = Callable[[str], bytes | None]
-Conclusions = Mapping[str, str | None]
 
 
 class CiReadError(RuntimeError):
@@ -232,59 +242,169 @@ def read_tag(repository: str, fetcher: Fetcher) -> tuple[str, str]:
     return target["sha"], v1_object
 
 
-def newest_runs(repository: str, commit: str, fetcher: Fetcher) -> dict[str, CiRun]:
-    """The newest push run on ``main`` of each CI workflow for ``commit``."""
-    newest: dict[str, CiRun] = {}
-    for workflow in CI_WORKFLOWS:
-        body = fetcher(RUNS_URL.format(repository=repository, workflow=workflow, commit=commit))
-        runs = json.loads(body).get("workflow_runs", []) if body else []
-        run = max(runs, key=lambda item: item["id"], default=None)
-        newest[workflow] = CiRun(run["status"], run["conclusion"]) if run else CiRun(None, None)
-    return newest
+def verdict_run(repository: str, commit: str, fetcher: Fetcher) -> CiRun:
+    """The newest ``ci / verdict`` check run of GitHub Actions for ``commit``."""
+    body = fetcher(CHECK_RUNS_URL.format(repository=repository, commit=commit))
+    runs = json.loads(body).get("check_runs", []) if body else []
+    matching = [item for item in runs if isinstance(item, dict) and item.get("name") == VERDICT_CHECK
+                and (not isinstance(item.get("app"), dict) or item["app"].get("id") == GITHUB_ACTIONS_APP_ID)]
+    run = max(matching, key=lambda item: item["id"], default=None)
+    return CiRun(run.get("status"), run.get("conclusion")) if run else CiRun(None, None)
 
 
-def ci_conclusions(repository: str, commit: str, fetcher: Fetcher) -> Conclusions:
-    """The conclusion of the newest push run on ``main`` of each CI workflow for ``commit``; None while it has not completed or no run exists."""
-    return {workflow: run.conclusion if run.status == "completed" else None for workflow, run in newest_runs(repository, commit, fetcher).items()}
+def verdict_conclusion(repository: str, commit: str, fetcher: Fetcher) -> str | None:
+    """The conclusion of the newest ``ci / verdict`` check run for ``commit``; None while not completed or absent."""
+    run = verdict_run(repository, commit, fetcher)
+    return run.conclusion if run.status == "completed" else None
 
 
-def wait_for_ci(repository: str, commit: str, fetcher: Fetcher, timeout: float = CI_TIMEOUT, interval: float = CI_INTERVAL,
-                request_timeout: float = REQUEST_TIMEOUT, clock: Callable[[], float] = time.monotonic,
-                sleep: Callable[[float], None] = time.sleep) -> Conclusions:
-    """Poll the CI of ``commit`` until every run completed or one completed without success.
+def wait_for_verdict(repository: str, commit: str, fetcher: Fetcher, timeout: float = CI_TIMEOUT, interval: float = CI_INTERVAL,
+                     request_timeout: float = REQUEST_TIMEOUT, clock: Callable[[], float] = time.monotonic,
+                     sleep: Callable[[float], None] = time.sleep) -> str | None:
+    """Poll the ``ci / verdict`` check run of ``commit`` until it completes.
 
-    A poll starts only while it ends within ``timeout`` seconds even when each of its requests takes ``request_timeout``.
+    A poll starts only while it ends within ``timeout`` seconds even when its request takes ``request_timeout``.
     A failed read counts as not completed; when the last poll failed, :class:`CiReadError` names its error.
     """
-    deadline = clock() + timeout - len(CI_WORKFLOWS) * request_timeout
-    conclusions: Conclusions = dict.fromkeys(CI_WORKFLOWS)
+    deadline = clock() + timeout - request_timeout
+    conclusion: str | None = None
     while True:
         error = ""
         try:
-            conclusions = ci_conclusions(repository, commit, fetcher)
+            conclusion = verdict_conclusion(repository, commit, fetcher)
         except (OSError, ValueError) as caught:
             error = f"{type(caught).__name__}: {caught}"
         else:
-            values = conclusions.values()
-            if all(value is not None for value in values) or any(value not in (None, "success") for value in values):
-                return conclusions
+            if conclusion is not None:
+                return conclusion
         remaining = deadline - clock()
         if remaining <= 0:
             if error:
                 raise CiReadError(error)
-            return conclusions
+            return conclusion
         sleep(min(interval, remaining))
 
 
-def ci_stay_reason(conclusions: Conclusions) -> str | None:
-    """Why ``v1`` stays given the CI conclusions, or None when every run concluded ``success``."""
-    failed = [f"{workflow} concluded {conclusion}" for workflow, conclusion in conclusions.items() if conclusion not in (None, "success")]
-    if failed:
-        return f"the CI of this commit on main did not pass: {', '.join(failed)}."
-    pending = [workflow for workflow, conclusion in conclusions.items() if conclusion is None]
-    if pending:
-        return f"the CI of this commit on main had not completed when the wait ended: {', '.join(pending)}."
-    return None
+def verdict_stay_reason(conclusion: str | None) -> str | None:
+    """Why ``v1`` stays given the verdict conclusion, or None when it concluded ``success``."""
+    if conclusion == "success":
+        return None
+    if conclusion is not None:
+        return f"the verdict `{VERDICT_CHECK}` of this commit did not pass: concluded {conclusion}."
+    return f"the verdict `{VERDICT_CHECK}` of this commit had not completed when the wait ended."
+
+
+def _tree_blobs(root: Path, commit: str, paths: Sequence[str]) -> dict[str, str]:
+    """Map of tracked path to Git blob SHA in ``commit`` under ``paths``."""
+    result = subprocess.run(
+        ["git", "-C", str(root), "ls-tree", "-r", "--format=%(objectname)\t%(path)", commit, "--", *paths],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        return {}
+    blobs: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        blob, _, path = line.partition("\t")
+        if blob and path:
+            blobs[path] = blob
+    return blobs
+
+
+def _blob_bytes(root: Path, blob: str) -> bytes | None:
+    result = subprocess.run(["git", "-C", str(root), "cat-file", "blob", blob], capture_output=True, check=False)
+    return result.stdout if result.returncode == 0 else None
+
+
+def _loaded_recording_modules(root: Path, blobs: Mapping[str, str]) -> set[str]:
+    """Shared modules outside ``actions/recording`` that ``actions/recording/recording.py`` imports in a commit."""
+    entry = f"{RECORDING_DIR}/recording.py"
+    if entry not in blobs:
+        return set()
+    seen: set[str] = set()
+    pending = [entry]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        raw = _blob_bytes(root, blobs[current])
+        if raw is None:
+            continue
+        try:
+            tree = ast.parse(raw.decode("utf-8"))
+        except (UnicodeDecodeError, SyntaxError):
+            continue
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(alias.name.split(".", 1)[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names.add(node.module.split(".", 1)[0])
+        for name in names:
+            for folder in RECORDING_MODULE_SEARCH:
+                candidate = f"{folder}/{name}.py"
+                if candidate in blobs and candidate not in seen:
+                    pending.append(candidate)
+                    break
+    return seen
+
+
+def _digest_entries(entries: Mapping[str, str]) -> str:
+    lines = "".join(f"{entries[name]}  {name}\n" for name in sorted(entries))
+    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
+
+
+def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, str]:
+    """Per-platform, per-tool and per-language-step digest fingerprints of ``commit``, keyed like ``shared-digests``."""
+    if not commit or not has_commit(root, commit):
+        return {}
+    scope = [RECORDING_DIR, SUITE_JOBS_WORKFLOW, *TOOL_INSTALLER_FILES, *LANGUAGE_STEP_FOLDERS.values(), *RECORDING_MODULE_SEARCH, pins_path]
+    blobs = _tree_blobs(root, commit, scope)
+    digests: dict[str, str] = {}
+    recording_files = {path: blob for path, blob in blobs.items() if path.startswith(f"{RECORDING_DIR}/")}
+    if recording_files or SUITE_JOBS_WORKFLOW in blobs:
+        loaded = _loaded_recording_modules(root, blobs)
+        shared_extra = {path: blobs[path] for path in loaded if path in blobs}
+        if SUITE_JOBS_WORKFLOW in blobs:
+            shared_extra[SUITE_JOBS_WORKFLOW] = blobs[SUITE_JOBS_WORKFLOW]
+        linux_entries = {**{path: blob for path, blob in recording_files.items()
+                            if not path.removeprefix(f"{RECORDING_DIR}/").startswith(WINDOWS_ONLY_PARTS)}, **shared_extra}
+        windows_entries = {**recording_files, **shared_extra}
+        digests["platform:linux"] = _digest_entries(linux_entries)
+        digests["platform:windows"] = _digest_entries(windows_entries)
+    installer = {path: blobs[path] for path in TOOL_INSTALLER_FILES if path in blobs}
+    pins: dict = {}
+    if pins_path in blobs:
+        raw = _blob_bytes(root, blobs[pins_path])
+        if raw is not None:
+            try:
+                loaded_pins = json.loads(raw.decode("utf-8"))
+                if isinstance(loaded_pins, dict):
+                    pins = loaded_pins
+            except (UnicodeDecodeError, ValueError):
+                pass
+    if isinstance(pins.get("node"), dict):
+        digests["tool:node"] = _digest_entries({"pins:node": json.dumps(pins["node"], sort_keys=True, separators=(",", ":"))})
+    for section in ("tools", "python"):
+        entries = pins.get(section)
+        if isinstance(entries, dict):
+            for name, entry in sorted(entries.items()):
+                digests[f"tool:{name}"] = _digest_entries({**installer, f"pins:{section}/{name}": json.dumps(entry, sort_keys=True, separators=(",", ":"))})
+    python_pins = pins.get("python") if isinstance(pins.get("python"), dict) else {}
+    for name, folder in sorted(LANGUAGE_STEP_FOLDERS.items()):
+        lang_files = {path: blob for path, blob in blobs.items() if path.startswith(f"{folder}/")}
+        if lang_files:
+            extra = {f"pins:python/{tool}": json.dumps(python_pins[tool], sort_keys=True, separators=(",", ":"))
+                     for tool in LANGUAGE_STEP_PYTHON_TOOLS.get(name, ()) if tool in python_pins}
+            digests[f"language:{name}"] = _digest_entries({**lang_files, **installer, **extra})
+    return dict(sorted(digests.items()))
+
+
+def moved_digests(root: Path, old_commit: str, new_commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> list[str]:
+    """The sorted names of the shared digests that differ between ``old_commit`` and ``new_commit``."""
+    before = commit_digests(root, old_commit, pins_path) if old_commit else {}
+    after = commit_digests(root, new_commit, pins_path)
+    return sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
 
 
 def changed_files(root: Path, base: str, head: str, paths: list[str] | None = None) -> list[str]:
@@ -323,16 +443,18 @@ def class_text(grouped: Mapping[str | None, list[str]]) -> str:
     return "; ".join(f"{', '.join(members)} ({f'{name} class' if name else 'no promotion class'})" for name, members in grouped.items())
 
 
-def move_question(v1: str, target: str, kind: str, grouped: Mapping[str | None, list[str]]) -> str:
-    """The question of a move of ``v1`` by hand, which names the changed shared-surface files with their classes."""
+def move_question(v1: str, target: str, kind: str, grouped: Mapping[str | None, list[str]], changed_digests: Sequence[str] = ()) -> str:
+    """The question of a move of ``v1`` by hand, which names the changed shared-surface files with their classes and the changed shared digests."""
     files = class_text(grouped)
     if kind == FIRST_CREATION:
         move_text = f"Create v1 at {target}, the first creation, which carries the shared-surface files {files}?"
     else:
         move_text = f"Move v1 from {v1} to {target}, a {kind} that changes the shared-surface files {files}?"
+    digests_text = (f" It changes the shared {'digest' if len(changed_digests) == 1 else 'digests'} {', '.join(changed_digests)}."
+                    if changed_digests else " It changes no shared digest.")
     sync = (" It changes the template class, so right after it the management repository's caller is replaced when it differs from the caller at the "
             "target, and the sync starts.") if TEMPLATE in grouped else ""
-    return f"Question: {move_text} The move changes the later runs of every caller.{sync} Answer yes or no."
+    return f"Question: {move_text} The move changes the later runs of every caller.{digests_text}{sync} Answer yes or no."
 
 
 def has_commit(root: Path, sha: str) -> bool:
@@ -408,22 +530,24 @@ def decide(root: Path, commit: str, v1: str, surface: dict, v1_object: str = "",
         if refusal is None:
             return Decision(True, f"a pins-only pull request of the updater App from {surface['updater_branch']}, merged by the repository owner, landed, and the "
                                   f"shared surface otherwise stays in the read class compared with `v1`. {follows}", lease, commit)
+        digests = moved_digests(root, v1, commit, surface["pins"])
         return stay(f"the changes compared with v1 leave the read class: {class_text(outside)}. The pins file moves automatically only with the updater's "
-                    f"pull request, and {refusal}.", move_question(v1, commit, PROMOTION, grouped))
+                    f"pull request, and {refusal}.", move_question(v1, commit, PROMOTION, grouped, digests))
     if outside:
-        return stay(f"the changes compared with v1 leave the read class: {class_text(outside)}.", move_question(v1, commit, PROMOTION, grouped))
+        digests = moved_digests(root, v1, commit, surface["pins"])
+        return stay(f"the changes compared with v1 leave the read class: {class_text(outside)}.", move_question(v1, commit, PROMOTION, grouped, digests))
     return Decision(True, f"its changes compared with `v1` stay in the read class: {', '.join(surface_files)}. {follows}", lease, commit)
 
 
-def follow(old: str, new: str, *, ci: Callable[[], Conclusions]) -> Outcome:
-    """Whether ``v1`` follows the commit to ``new``; ``ci`` gives the conclusions of the CI on ``main``."""
+def follow(old: str, new: str, *, ci: Callable[[], str | None]) -> Outcome:
+    """Whether ``v1`` follows the commit to ``new``; ``ci`` gives the conclusion of the ``ci / verdict`` check run."""
     try:
-        reason = ci_stay_reason(ci())
+        reason = verdict_stay_reason(ci())
     except CiReadError as error:
-        reason = f"the CI runs of this commit on main could not be read when the wait ended: {error}."
+        reason = f"the verdict `{VERDICT_CHECK}` of this commit could not be read when the wait ended: {error}."
     if reason:
         return Outcome(False, reason, old, new)
-    return Outcome(True, "the CI of this commit on main passed.", old, new)
+    return Outcome(True, f"the verdict `{VERDICT_CHECK}` of this commit passed.", old, new)
 
 
 def leased_push(root: Path, remote: str, old: str, new: str) -> subprocess.CompletedProcess:
@@ -434,9 +558,17 @@ def leased_push(root: Path, remote: str, old: str, new: str) -> subprocess.Compl
     )
 
 
-def move(root: Path, remote: str, old: str, new: str) -> tuple[bool, str]:
-    """Push ``new`` to ``v1`` only while the remote tag still names ``old``; after a failed push, read the remote tag again
-    to tell a lease rejection from a push that failed while ``v1`` kept ``old``."""
+def move(root: Path, remote: str, old: str, new: str, *, ci: Callable[[], CiRun] | None = None) -> tuple[bool, str]:
+    """Recheck the verdict when given, then push ``new`` to ``v1`` only while the remote tag still names ``old``; after
+    a failed push, read the remote tag again to tell a lease rejection from a push that failed while ``v1`` kept ``old``."""
+    if ci is not None:
+        try:
+            run = ci()
+        except (OSError, ValueError, RuntimeError) as error:
+            return False, f"## v1 promotion\n\nThe verdict `{VERDICT_CHECK}` of `{new}` could not be read before moving `v1`: {error}. Nothing was pushed.\n"
+        refusal = verdict_refusal(run)
+        if refusal:
+            return False, f"## v1 promotion\n\n`v1` stays at `{old or 'no v1 tag'}`: {refusal} Nothing was pushed.\n"
     result = leased_push(root, remote, old, new)
     if result.returncode == 0:
         return True, f"## v1 promotion\n\n`v1` moved from `{old}` to `{new}`.\n"
@@ -464,9 +596,9 @@ def gh_fetch(url: str) -> bytes | None:
     return result.stdout.encode("utf-8")
 
 
-def github_ci(repository: str, commit: str) -> dict[str, CiRun]:
-    """The newest push run on ``main`` of each CI workflow for ``commit``, read once through ``gh``."""
-    return newest_runs(repository, commit, gh_fetch)
+def github_verdict(repository: str, commit: str) -> CiRun:
+    """The newest ``ci / verdict`` check run for ``commit``, read once through ``gh``."""
+    return verdict_run(repository, commit, gh_fetch)
 
 
 def github_repository(root: Path, remote: str) -> str:
@@ -509,16 +641,14 @@ def peel(root: Path, sha: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else sha
 
 
-def ci_refusals(runs: Mapping[str, CiRun]) -> list[str]:
-    refusals = []
-    for workflow, run in runs.items():
-        if run.status is None:
-            refusals.append(f"the CI of the target on main did not pass: {workflow} has no push run on main for the target.")
-        elif run.status != "completed":
-            refusals.append(f"CI is still running: {workflow} has not completed ({run.status}); run prepare again once it has.")
-        elif run.conclusion != "success":
-            refusals.append(f"the CI of the target on main did not pass: {workflow} concluded {run.conclusion}.")
-    return refusals
+def verdict_refusal(run: CiRun) -> str | None:
+    if run.status is None:
+        return f"the verdict `{VERDICT_CHECK}` of the target did not pass: no `{VERDICT_CHECK}` check run exists for the target."
+    if run.status != "completed":
+        return f"CI is still running: `{VERDICT_CHECK}` has not completed ({run.status}); run prepare again once it has."
+    if run.conclusion != "success":
+        return f"the verdict `{VERDICT_CHECK}` of the target did not pass: concluded {run.conclusion}."
+    return None
 
 
 @dataclass(frozen=True)
@@ -531,12 +661,13 @@ class Preparation:
     kind: str
     surface_files: list[str]
     commits: list[str]
-    ci: Mapping[str, CiRun]
+    ci: CiRun | None
     scan: ScanResult
     refusals: list[str]
     classes: Mapping[str, str] = field(default_factory=dict)
     management: bool = False
     caller_changes: bool = False
+    changed_digests: list[str] = field(default_factory=list)
 
     @property
     def grouped(self) -> dict[str | None, list[str]]:
@@ -544,14 +675,14 @@ class Preparation:
 
     def report(self) -> str:
         current = f"{self.v1} (object {self.v1_object})" if self.v1 else "none: no remote v1 exists"
+        state = ("not read" if self.ci is None else "no run" if self.ci.status is None
+                 else self.ci.conclusion if self.ci.status == "completed" else f"running ({self.ci.status})")
         lines = [f"Current v1: {current}", f"Target: {self.target}", f"Kind of move: {self.kind or 'none: the target and v1 are unrelated'}",
                  "Changed shared-surface files:",
                  *([f"  {path} ({name} class)" if name else f"  {path} (no promotion class)" for name, members in self.grouped.items() for path in members] or ["  (none)"]),
-                 "Commits between:", *(f"  {commit}" for commit in self.commits or ["(none)"]), "CI on main of the target:"]
-        for workflow in CI_WORKFLOWS:
-            run = self.ci.get(workflow)
-            state = "not read" if run is None else "no run" if run.status is None else run.conclusion if run.status == "completed" else f"running ({run.status})"
-            lines.append(f"  {workflow}: {state}")
+                 f"Changed shared digests: {', '.join(self.changed_digests) if self.changed_digests else '(none)'}",
+                 "Commits between:", *(f"  {commit}" for commit in self.commits or ["(none)"]),
+                 "CI on main of the target:", f"  {VERDICT_CHECK}: {state}"]
         lines.append(f"Gitleaks scan of the tag push: {'no findings' if self.scan.passed else 'did not pass'}")
         if not self.scan.passed:
             lines.extend(f"  {line}" for line in self.scan.output.splitlines())
@@ -563,7 +694,7 @@ class Preparation:
         return "\n".join(lines)
 
     def question(self) -> str:
-        return move_question(self.v1, self.target, self.kind, self.grouped)
+        return move_question(self.v1, self.target, self.kind, self.grouped, self.changed_digests)
 
     def command(self, remote: str, root: Path | None) -> str:
         old = f"--old {shlex.quote(self.v1_object)}" if self.v1_object else "--old="
@@ -580,10 +711,10 @@ def script_command(subcommand: str, remote: str, root: Path | None) -> str:
     return " ".join(parts)
 
 
-def prepare(root: Path, remote: str, commit: str, surface: dict, *, ci: Callable[[str], Mapping[str, CiRun]], scan: Callable[[str], ScanResult]) -> Preparation:
+def prepare(root: Path, remote: str, commit: str, surface: dict, *, ci: Callable[[str], CiRun], scan: Callable[[str], ScanResult]) -> Preparation:
     """Fetch ``remote`` and gather the facts of moving ``v1`` to ``commit``, the head of its ``main`` when empty.
 
-    ``ci`` reads the CI runs of the target once and ``scan`` runs the push gate's Gitleaks scan of the tag push.
+    ``ci`` reads the ``ci / verdict`` check run of the target once and ``scan`` runs the push gate's Gitleaks scan of the tag push.
     """
     fetch_remote(root, remote)
     v1_object = remote_object(root, remote)
@@ -609,13 +740,15 @@ def prepare(root: Path, remote: str, commit: str, surface: dict, *, ci: Callable
             commits = [line for line in git(root, "log", "--format=%h %s", span).splitlines() if line]
         if kind and not surface_files:
             refusals.append("the shared surface is identical at the current v1 and the target: no move is needed.")
-    runs: Mapping[str, CiRun] = {}
+    verdict: CiRun | None = None
     try:
-        runs = ci(target)
+        verdict = ci(target)
     except (OSError, ValueError, RuntimeError) as error:
-        refusals.append(f"the CI runs of the target on main could not be read: {error}")
+        refusals.append(f"the verdict `{VERDICT_CHECK}` of the target could not be read: {error}")
     else:
-        refusals.extend(ci_refusals(runs))
+        refusal = verdict_refusal(verdict)
+        if refusal:
+            refusals.append(refusal)
     scanned = scan(target)
     if not scanned.passed:
         refusals.append(f"{SCAN_REFUSAL}.")
@@ -624,7 +757,8 @@ def prepare(root: Path, remote: str, commit: str, surface: dict, *, ci: Callable
     if caller_changes and not management:
         refusals.append(f"the move changes the sync caller, {CALLER_PATH}, and this checkout names no management repository, whose caller would stay "
                         f"behind: name it with {MANAGEMENT_SETTING} and run prepare again.")
-    return Preparation(v1, v1_object, target, kind, surface_files, commits, runs, scanned, refusals, surface["classes"], management, caller_changes)
+    digests = moved_digests(root, v1, target, surface["pins"]) if (not v1 or has_commit(root, v1)) else []
+    return Preparation(v1, v1_object, target, kind, surface_files, commits, verdict, scanned, refusals, surface["classes"], management, caller_changes, digests)
 
 
 def management_repository(root: Path) -> str:
@@ -757,16 +891,23 @@ def sync_after_move(root: Path, old_commit: str, new_commit: str, surface: dict,
 
 
 def promote(root: Path, remote: str, old: str, new: str, surface: dict, *, scan: Callable[[str], ScanResult],
-            recovery: str = f"{SCRIPT_COMMAND} caller") -> tuple[bool, str]:
-    """Scan, then push ``new`` to ``v1`` under the lease on ``old``, the object ``prepare`` reported, and right after a
-    move that changes the template class bring the management repository's caller in line with ``v1`` and start the
-    sync. False with a pushed tag means that the caller update or the start is still to do; ``recovery`` is the
-    command that repeats both."""
+            ci: Callable[[str], CiRun], recovery: str = f"{SCRIPT_COMMAND} caller") -> tuple[bool, str]:
+    """Scan and recheck the verdict, then push ``new`` to ``v1`` under the lease on ``old``, the object ``prepare``
+    reported, and right after a move that changes the template class bring the management repository's caller in line
+    with ``v1`` and start the sync. False with a pushed tag means that the caller update or the start is still to do;
+    ``recovery`` is the command that repeats both."""
     fetch_remote(root, remote)
     new_commit = git(root, "rev-parse", "--verify", f"{new}^{{commit}}")
     scanned = scan(new_commit)
     if not scanned.passed:
         return False, f"{SCAN_REFUSAL[0].upper()}{SCAN_REFUSAL[1:]}; nothing was pushed.\n{scanned.output}"
+    try:
+        verdict = ci(new_commit)
+    except (OSError, ValueError, RuntimeError) as error:
+        return False, f"The verdict `{VERDICT_CHECK}` of {new_commit} could not be read: {error}. Nothing was pushed."
+    refusal = verdict_refusal(verdict)
+    if refusal:
+        return False, f"{refusal} Nothing was pushed."
     old_commit = peel(root, old) if old else ""
     result = leased_push(root, remote, old, new_commit)
     if result.returncode != 0:
@@ -819,6 +960,7 @@ def build_parser() -> argparse.ArgumentParser:
     await_parser.add_argument("--summary", type=Path)
     move_parser = subcommands.add_parser("move")
     move_parser.add_argument("--deploy-key", default="", metavar="VARIABLE", help=key_help)
+    move_parser.add_argument("--repository", required=True, help="OWNER/NAME of the repository whose verdict is rechecked before pushing")
     move_parser.add_argument("--repository-root", type=Path, default=Path("."))
     move_parser.add_argument("--remote", default="origin")
     move_parser.add_argument("--old", required=True)
@@ -847,17 +989,17 @@ def manual_move(arguments: argparse.Namespace) -> int:
     remote = arguments.remote
     scan = lambda commit: gitleaks_scan(root, remote, commit)  # noqa: E731
     recovery = script_command("caller", remote, arguments.repository_root)
+    ci = lambda commit: github_verdict(github_repository(root, remote), commit)  # noqa: E731
     try:
         if arguments.command == "caller":
             done, text = caller(root, remote, recovery)
             print(text)
             return 0 if done else 1
         if arguments.command == "promote":
-            moved, text = promote(root, remote, arguments.old, arguments.new, load_surface(SURFACE_PATH), scan=scan, recovery=recovery)
+            moved, text = promote(root, remote, arguments.old, arguments.new, load_surface(SURFACE_PATH), scan=scan, ci=ci, recovery=recovery)
             print(text)
             return 0 if moved else 1
-        preparation = prepare(root, remote, arguments.commit, load_surface(SURFACE_PATH), scan=scan,
-                              ci=lambda commit: github_ci(github_repository(root, remote), commit))
+        preparation = prepare(root, remote, arguments.commit, load_surface(SURFACE_PATH), scan=scan, ci=ci)
     except RuntimeError as error:
         print(f"{arguments.command} stopped: {error}")
         return 1
@@ -902,14 +1044,15 @@ def run(arguments: argparse.Namespace) -> int:
         _append(arguments.output, f"follow={str(decision.follow).lower()}\nold={decision.old}\nnew={decision.new}\n")
         return 0
     if arguments.command == "await":
-        outcome = follow(arguments.old, arguments.commit, ci=lambda: wait_for_ci(arguments.repository, arguments.commit, fetch))
+        outcome = follow(arguments.old, arguments.commit, ci=lambda: wait_for_verdict(arguments.repository, arguments.commit, fetch))
         print(outcome.summary())
         _append(arguments.summary, outcome.summary())
         _append(arguments.output, f"move={str(outcome.move).lower()}\nold={outcome.old}\nnew={outcome.new}\n")
-        return 0
+        return 0 if outcome.move else 1
     if arguments.command in ("prepare", "promote", "caller"):
         return manual_move(arguments)
-    moved, summary = move(arguments.repository_root.resolve(), arguments.remote, arguments.old, arguments.new)
+    moved, summary = move(arguments.repository_root.resolve(), arguments.remote, arguments.old, arguments.new,
+                          ci=lambda: verdict_run(arguments.repository, arguments.new, fetch))
     print(summary)
     _append(arguments.summary, summary)
     return 0 if moved else 1

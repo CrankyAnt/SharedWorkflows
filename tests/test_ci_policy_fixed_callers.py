@@ -21,12 +21,13 @@ CLASSES = {
     "ci.yml": {"class": "read", "events": {"pull_request", "push", "repository_dispatch"}, "calls": "pipeline.yml"},
     "automation.yml": {"class": "write", "events": {"workflow_run", "schedule", "workflow_dispatch", "issues"}, "calls": "automation.yml"},
     "release.yml": {"class": "release", "events": {"push", "workflow_dispatch"}, "calls": "release.yml",
-                    "rights": {"attestations": "write", "contents": "write", "id-token": "write"}},
+                    "rights": {"attestations": "write", "checks": "read", "contents": "write", "id-token": "write"},
+                    "previous_rights": {"attestations": "write", "contents": "write", "id-token": "write"}},
 }
 LEVELS = {"none": 0, "read": 1, "write": 2}
 
 
-def caller_problems(name: str, text: str) -> list[str]:
+def caller_problems(name: str, text: str, *, allow_previous: bool = False) -> list[str]:
     """Each way the text of a fixed caller breaks the rules of its trigger class."""
     rules = CLASSES[name]
     problems = []
@@ -58,9 +59,11 @@ def caller_problems(name: str, text: str) -> list[str]:
         elif rules["class"] == "read":
             problems += [f"{name}: the job {job_name} holds {scope}: {level} in the read class"
                          for scope, level in job["permissions"].items() if level != "read"]
-        elif "rights" in rules and job["permissions"] != rules["rights"]:
-            rights = ", ".join(f"{scope}: {level}" for scope, level in rules["rights"].items())
-            problems.append(f"{name}: the job {job_name} does not hold exactly {rights}")
+        elif "rights" in rules:
+            allowed = (rules["rights"], rules["previous_rights"]) if allow_previous and "previous_rights" in rules else (rules["rights"],)
+            if job["permissions"] not in allowed:
+                rights = ", ".join(f"{scope}: {level}" for scope, level in rules["rights"].items())
+                problems.append(f"{name}: the job {job_name} does not hold exactly {rights}")
     return problems
 
 
@@ -104,7 +107,7 @@ class TemplateTests(unittest.TestCase):
     def test_every_previous_version_follows_the_rules_of_its_trigger_class(self) -> None:
         for name, text in previous_versions().items():
             with self.subTest(previous=name):
-                self.assertEqual([], caller_problems(name, text))
+                self.assertEqual([], caller_problems(name, text, allow_previous=True))
 
     def test_the_record_names_only_fixed_files_whose_previous_version_is_tracked_and_differs_from_the_template(self) -> None:
         record = json.loads(RECORD.read_text(encoding="utf-8"))
@@ -168,7 +171,7 @@ class TemplateTests(unittest.TestCase):
     def test_the_release_caller_runs_on_tag_pushes_only_and_by_hand(self) -> None:
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "release.yml")
         self.assertEqual({"push": {"tags": '["**"]'}, "workflow_dispatch": None}, caller["on"])
-        self.assertEqual({"attestations": "write", "contents": "write", "id-token": "write"}, caller["jobs"]["release"]["permissions"])
+        self.assertEqual({"attestations": "write", "checks": "read", "contents": "write", "id-token": "write"}, caller["jobs"]["release"]["permissions"])
         self.assertNotIn("secrets", caller["jobs"]["release"])
 
     def test_a_caller_that_breaks_a_rule_is_named(self) -> None:
@@ -187,9 +190,9 @@ class TemplateTests(unittest.TestCase):
             ("release.yml", self.templates["release.yml"].replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  schedule:\n    - cron: \"0 0 * * *\"\n"),
              ["release.yml starts on schedule, which is outside the release class"]),
             ("release.yml", self.templates["release.yml"].replace("      id-token: write\n", ""),
-             ["release.yml: the job release does not hold exactly attestations: write, contents: write, id-token: write"]),
+             ["release.yml: the job release does not hold exactly attestations: write, checks: read, contents: write, id-token: write"]),
             ("release.yml", self.templates["release.yml"].replace("      contents: write\n", "      contents: write\n      packages: write\n"),
-             ["release.yml: the job release does not hold exactly attestations: write, contents: write, id-token: write"]),
+             ["release.yml: the job release does not hold exactly attestations: write, checks: read, contents: write, id-token: write"]),
         )
         for name, text, problems in cases:
             with self.subTest(problems=problems):

@@ -74,7 +74,8 @@ class GitHubStandIn:
     def __init__(self) -> None:
         self.releases: dict[int, dict] = {}
         self.tags: dict[str, dict] = {}  # tag -> the object its ref holds: {"type": "commit" or "tag", "sha": ...}
-        self.tag_objects: dict[str, dict] = {}  # SHA of a tag object -> the object it names
+        self.tag_objects: dict[str, dict] = {}  # SHA of a tag object -> the Git tag object document
+        self.check_runs: dict[str, list[dict]] = {}  # commit -> check_runs list
         self.contents: dict[tuple[str, str], object] = {}  # (commit, path) -> the bytes of the file there, or the document that answers
         self.assets: dict[int, dict[str, bytes]] = {}
         self.requests: list[Request] = []
@@ -118,7 +119,11 @@ class GitHubStandIn:
                     return self.answer(200, {"ref": f"refs/tags/{tag}", "object": held}) if held else self.answer(404, {"message": "Not Found"})
                 if self.command == "GET" and address.path.startswith(objects):
                     named = stand_in.tag_objects.get(address.path.removeprefix(objects))
-                    return self.answer(200, {"object": named}) if named else self.answer(404, {"message": "Not Found"})
+                    return self.answer(200, named) if named else self.answer(404, {"message": "Not Found"})
+                if self.command == "GET" and address.path.startswith(f"/repos/{CONSUMER}/commits/") and address.path.endswith("/check-runs"):
+                    commit = address.path.removeprefix(f"/repos/{CONSUMER}/commits/").removesuffix("/check-runs")
+                    runs = stand_in.check_runs.get(commit, [])
+                    return self.answer(200, {"total_count": len(runs), "check_runs": runs})
                 if self.command == "GET" and address.path == f"/repos/{CONSUMER}":
                     return self.answer(200, {"full_name": CONSUMER, "owner": {"login": stand_in.owner}})
                 if self.command == "GET" and address.path == prefix:  # newest first, in pages, drafts included as for a token that may push
@@ -182,14 +187,21 @@ class GitHubStandIn:
         """The documents of the requests to releases/generate-notes."""
         return [request.document for request in self.requests if request.method == "POST" and request.path.endswith("/releases/generate-notes")]
 
-    def hold_tag(self, tag: str, commit: str, annotated: bool = True) -> None:
+    def hold_tag(self, tag: str, commit: str, annotated: bool = True, *, tag_object: str | None = None, header_tag: str | None = None) -> str:
         """Let the repository hold the tag on the commit: through a tag object of its own, or as a lightweight tag."""
         if not annotated:
             self.tags[tag] = {"type": "commit", "sha": commit}
-            return
-        tag_object = f"{len(self.tag_objects) + 10:040x}"
-        self.tags[tag] = {"type": "tag", "sha": tag_object}
-        self.tag_objects[tag_object] = {"type": "commit", "sha": commit}
+            return commit
+        sha = tag_object or f"{len(self.tag_objects) + 10:040x}"
+        self.tags[tag] = {"type": "tag", "sha": sha}
+        self.tag_objects[sha] = {"sha": sha, "tag": tag if header_tag is None else header_tag, "object": {"type": "commit", "sha": commit}}
+        return sha
+
+    def hold_verdict(self, commit: str, status: str = "completed", conclusion: str | None = "success", *, app_id: int = 15368, run_id: int = 1) -> None:
+        """Let the repository hold a ``ci / verdict`` check run on ``commit``."""
+        self.check_runs.setdefault(commit, []).append(
+            {"id": run_id, "name": "ci / verdict", "status": status, "conclusion": conclusion, "app": {"id": app_id}}
+        )
 
     @property
     def published(self) -> list[dict]:

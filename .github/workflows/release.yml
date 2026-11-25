@@ -9,21 +9,33 @@ jobs:
   plan:
     runs-on: ubuntu-26.04
     permissions:
+      checks: read
       contents: read
     outputs:
-      plan: ${{ steps.plan.outputs.plan }}
+      plan: ${{ steps.plan.outputs.plan || steps.preflight.outputs.plan }}
     steps:
       - name: Load the release program from this workflow revision
         id: resources
         uses: $/actions/pipeline
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Decide before cloning whether the ref matches a release part
+        id: preflight
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/release.py" preflight --ref "$REF" --sha "$SHA" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - if: ${{ steps.preflight.outputs.match == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Decide from the configuration file, the tag and its signature whether the run publishes
+      - name: Decide from the configuration file, the tag, its signature and the verdict whether the run publishes
+        if: ${{ steps.preflight.outputs.match == 'true' }}
         id: plan
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
           REF: ${{ github.ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/release.py" plan --root . --ref "$REF" --default-branch "$DEFAULT_BRANCH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
@@ -133,6 +145,7 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       attestations: write
+      checks: read
       contents: write
       id-token: write
     concurrency:
