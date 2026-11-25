@@ -183,6 +183,32 @@ class VerdictTests(PipelineFixture):
                         suite_selection_jobs="failure", suite_selection_results="failure")
         self.assertEqual(0, self.verdict(ignored).status)
 
+    def test_suite_selection_inside_plan_evaluates_suite_selection_jobs_from_plan_outputs(self) -> None:
+        suite_plan = plan_output(parts={
+            "repository-hygiene": {"run": True, "reason": "always runs", "config": {}},
+            "suite-selection": {"run": True, "reason": "1 Linux shard", "config": {"suites": "tests/suites.json"}},
+        })
+        plan_with_shards = {**suite_plan, "shards": json.dumps([{"shard": 1, "entries": ["tests/a.py"]}]), "windows": ""}
+        passed = needs(outputs=plan_with_shards, repository_hygiene="success", suite_selection_jobs="success", suite_selection_results="skipped")
+        outcome = self.verdict(passed)
+        self.assertEqual(0, outcome.status, outcome.stdout + outcome.summary)
+        self.assertIn("| `suite-selection-jobs` | ran | success | 1 Linux shard |", outcome.summary)
+
+        skipped_jobs = needs(outputs=plan_with_shards, repository_hygiene="success", suite_selection_jobs="skipped")
+        failed = self.verdict(skipped_jobs)
+        self.assertEqual(1, failed.status)
+        self.assertIn("`suite-selection-jobs` ended skipped", failed.summary)
+
+        identical_plan = plan_output(parts={
+            "repository-hygiene": {"run": True, "reason": "always runs", "config": {}},
+            "suite-selection": {"run": False, "reused": True, "reason": "the tree equals a passed tested tree", "config": {"suites": "tests/suites.json"}},
+        })
+        identical_ctx = needs(outputs={**identical_plan, "shards": "[]", "windows": "", "identical": "true"},
+                              repository_hygiene="success", suite_selection_jobs="skipped", suite_selection_results="skipped")
+        identical_out = self.verdict(identical_ctx)
+        self.assertEqual(0, identical_out.status, identical_out.stdout + identical_out.summary)
+        self.assertIn("| `suite-selection` | taken over | not run | the tree equals a passed tested tree |", identical_out.summary)
+
     def test_an_unreadable_needs_context_is_an_error_of_its_own(self) -> None:
         path = self.directory / "needs.json"
         path.write_text("[", encoding="utf-8")

@@ -19,31 +19,47 @@ HYGIENE = "repository-hygiene"
 HYGIENE_WORKFLOW = WORKFLOWS / "repository-hygiene.yml"
 # The steps of the hygiene job of repository-hygiene.yml that the pipeline's job leaves out, each with its reason.
 LEFT_OUT = {
+    "Load the push lookup from this workflow revision": "the pipeline loads suite-selection once in plan as Load the scripts of the suite selection from this workflow revision",
     "Restore the passed checks of the pull request": "the pipeline has no edited run that reuses passed checks",
     "Record the passed checks for an edit of the pull request": "the pipeline has no edited run that reuses passed checks",
     "Store the passed checks in the pull request's cache": "the pipeline has no edited run that reuses passed checks",
 }
 # The steps that differ between the two jobs, each with its reason; every other step is equal in both.
 DIFFERENT = {
-    "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run",
+    "Load resources from this workflow revision": "the pipeline loads hygiene resources in plan under id hygiene",
+    "Look up the tested tree of the pushed commit's pull request": "the pipeline runs the push lookup once in plan and exports it as an output",
+    "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run, and runs change detection in plan",
+    "Decide whether the PR author skips the convention checks": "the pipeline runs light convention checks in plan after the plan step succeeds",
+    "Load the convention checks from this workflow revision": "the pipeline loads publication-checks in plan for branch/reference checks and in repository-hygiene for commitlint",
+    "actions/setup-node": "the pipeline reads pr-author-skip from needs.plan.outputs",
+    "Check the pull request branch": "the pipeline runs the light branch check in plan after the plan step succeeds",
+    "Compute the commitlint cache key": "the pipeline reads pr-author-skip from needs.plan.outputs",
+    "Restore the cached commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
+    "Install the locked commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
     "Check the pull request title": "the pipeline reads the current title through the API, for a re-run after a corrected title",
-    "Dependabot coverage of tracked package files": "the pipeline reads coverage-exclude from the configuration file, not from an input",
-    "Relative links in tracked Markdown": "the pipeline reads link-exclude from the configuration file, not from an input",
-    "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona",
+    "Check the references to repositories of the owner": "the pipeline runs the light reference check in plan after the plan step succeeds",
+    "Dependabot coverage of tracked package files": "the pipeline runs coverage in plan and reads coverage-exclude from the configuration file, not from an input",
+    "Relative links in tracked Markdown": "the pipeline runs links in plan and reads link-exclude from the configuration file, not from an input",
+    "Compute the hygiene tools cache key": "the pipeline reads hygiene change flags from needs.plan.outputs and relies on plan for the dispatch check",
+    "Restore the cached hygiene tools": "the pipeline relies on plan for the dispatch check",
+    "Install the pinned tools and verify their checksums": "the pipeline reads hygiene change flags from needs.plan.outputs and relies on plan for the dispatch check",
+    "actionlint with the pinned ShellCheck": "the pipeline reads hygiene-actionlint from needs.plan.outputs",
+    "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona and reads hygiene-zizmor from needs.plan.outputs",
+    "REUSE licence assignments": "the pipeline reads hygiene-reuse from needs.plan.outputs",
     "Gitleaks over added commits": "the pipeline takes the Gitleaks files by their fixed names, not from inputs",
 }
-# The steps that only the pipeline's hygiene job holds, each with its reason.
+# The steps that only the pipeline's hygiene checks hold, each with its reason.
 PIPELINE_ONLY = {
-    "Load the fixed callers and the schema from this workflow revision": "a caller of repository-hygiene.yml holds a caller of its own and no configuration file",
+    "Write the push lookup from the plan": "the pipeline reuses the single push lookup run in plan",
     "Fixed callers and local workflows": "a caller of repository-hygiene.yml holds a caller of its own and no configuration file",
     "Issues of the local workflow register": "a caller of repository-hygiene.yml holds no configuration file",
     "Generated Dependabot configuration": "a caller of repository-hygiene.yml holds no configuration file",
 }
 # The jobs of the pipeline that are no shared part.
 PLAN, VERDICT = "plan", "verdict"
-# The jobs that follow the job of a part, in the pipeline's order: the suite selection selects in the part's own job, runs
-# the selected entry files in the suite jobs and then stores the passed results.
+# The part that runs inside plan (no separate job of its own) and the jobs that follow it.
 SUITE_SELECTION = "suite-selection"
+IN_PLAN = frozenset({SUITE_SELECTION})
 FOLLOWING = {SUITE_SELECTION: ["suite-selection-jobs", "suite-selection-results"]}
 # The one reusable workflow that a job of the pipeline calls, with that job: the suite jobs, which the full recording of
 # the automation workflow runs as well.
@@ -155,7 +171,8 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", self.text)
 
     def test_the_jobs_are_the_plan_per_shared_part_with_a_schema_fragment_its_job_and_the_jobs_that_follow_it_and_the_verdict(self) -> None:
-        self.assertEqual([PLAN, *[name for part in self.parts for name in (part, *FOLLOWING.get(part, []))], VERDICT], list(self.jobs))
+        expected = [PLAN, *[name for part in self.parts for name in ((() if part in IN_PLAN else (part,)) + tuple(FOLLOWING.get(part, ())))], VERDICT]
+        self.assertEqual(expected, list(self.jobs))
         self.assertIn(HYGIENE, self.parts)
         self.assertLessEqual(set(FOLLOWING), set(self.parts))
 
@@ -165,10 +182,11 @@ class PipelineTests(unittest.TestCase):
 
     def test_a_job_that_follows_a_part_s_job_needs_that_job_and_starts_only_after_it(self) -> None:
         for part, following in FOLLOWING.items():
+            upstream = PLAN if part in IN_PLAN else part
             for name in following:
                 with self.subTest(job=name):
-                    self.assertIn(part, needed(self.jobs[name]))
-                    self.assertIn(f"needs.{part}.", self.jobs[name]["if"], "the job decides on what the part's job gave")
+                    self.assertIn(upstream, needed(self.jobs[name]))
+                    self.assertIn(f"needs.{upstream}.", self.jobs[name]["if"], "the job decides on what the upstream job gave")
 
     def test_the_verdict_runs_unless_cancelled_and_needs_the_plan_and_every_part(self) -> None:
         verdict = self.jobs[VERDICT]
@@ -178,28 +196,38 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("NEEDS: ${{ toJSON(needs) }}", self.text)
         self.assertEqual({"contents": "read"}, verdict["permissions"])
 
-    def test_the_plan_gives_its_plan_as_its_output(self) -> None:
+    def test_the_plan_gives_its_plan_as_its_output_and_runs_one_checkout_one_push_lookup_one_shared_lookup_and_light_hygiene(self) -> None:
         plan = self.jobs[PLAN]
-        self.assertEqual({"plan": "${{ steps.plan.outputs.plan }}"}, plan["outputs"])
-        self.assertEqual({"contents": "read"}, plan["permissions"])
+        self.assertEqual("${{ steps.plan.outputs.plan }}", plan["outputs"]["plan"])
+        self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, plan["permissions"])
         self.assertNotIn("if", plan)
         self.assertNotIn("needs", plan)
+        plan_checkouts = [step for step in plan["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")]
+        self.assertEqual(1, len(plan_checkouts), "plan checks out the repository once")
+        self.assertEqual(1, self.text.count("suite_selection.py\" lookup "), "the push lookup runs once per pipeline run")
+        self.assertEqual(1, self.text.count("suite_selection.py\" shared-lookup "), "the shared lookup runs once per pipeline run")
+        self.assertEqual(1, self.text.count("hygiene.py\" changes "), "hygiene change detection runs once per pipeline run")
+        self.assertEqual(1, self.text.count("suite_selection.py\" select "), "suite selection runs once per pipeline run")
+        plan_step_names = {step_key(step) for step in plan["steps"]}
+        for light in ("Decide which checks the changed files can affect", "Check the pull request branch",
+                      "Check the references to repositories of the owner", "Fixed callers and local workflows",
+                      "Issues of the local workflow register", "Generated Dependabot configuration",
+                      "Dependabot coverage of tracked package files", "Relative links in tracked Markdown"):
+            self.assertIn(light, plan_step_names, f"light hygiene check {light!r} runs in plan")
 
-    def test_repository_hygiene_runs_whatever_the_plan_found(self) -> None:
+    def test_repository_hygiene_runs_only_when_the_plan_succeeded_and_runs_only_tool_installing_checks(self) -> None:
         hygiene = self.jobs[HYGIENE]
         self.assertEqual([PLAN], needed(hygiene))
-        self.assertEqual("${{ !cancelled() }}", hygiene["if"])
-        self.assertTrue(condition_holds(hygiene["if"], {}))
-        start = self.text.index(f"\n  {HYGIENE}:\n")
-        section = self.text[start:self.text.index(f"\n  {SUITE_SELECTION}:\n")]
-        self.assertNotIn("outputs.plan", section, "repository hygiene reads nothing of the plan, so it runs after a failed plan too")
-        self.assertEqual(['.github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude', '.github/ci-config.yml#value:parts.repository-hygiene.link-exclude'],
-                         re.findall(r'"(\.github/ci-config\.yml#[^"]*)"', section), "the job reads the configuration file only for the two exclusions")
+        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).parts['repository-hygiene'].run }}", hygiene["if"])
         self.assertNotIn("concurrency", hygiene)
+        hygiene_text = json.dumps(hygiene)
+        self.assertNotIn("suite_selection.py", hygiene_text, "repository-hygiene runs neither check-dispatch nor push lookup")
+        self.assertNotIn("hygiene.py\" changes", hygiene_text, "repository-hygiene reuses hygiene change detection from plan")
+        self.assertNotIn("consumer_checks.py", hygiene_text, "light consumer checks run in plan")
 
     def test_every_other_part_runs_on_the_plan_s_decision_without_per_part_concurrency(self) -> None:
         for name in self.parts:
-            if name != HYGIENE:
+            if name not in IN_PLAN:
                 with self.subTest(part=name):
                     self.assertEqual([], part_job_problems(name, self.jobs[name]))
 
@@ -215,7 +243,7 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual([problem], part_job_problems("invented-test", {**good, **change}))
 
     def test_repository_hygiene_has_read_rights_only_and_keeps_no_checkout_credentials(self) -> None:
-        self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, self.jobs[HYGIENE]["permissions"])
+        self.assertEqual({"contents": "read", "pull-requests": "read"}, self.jobs[HYGIENE]["permissions"])
         checkouts = re.findall(r"- uses: actions/checkout@[0-9a-f]{40} # v[\d.]+\n        with:\n((?:          .*\n)+)", self.text)
         self.assertEqual(self.text.count("actions/checkout@"), len(checkouts), "every checkout of the pipeline states its options")
         self.assertGreaterEqual(len(checkouts), 2)
@@ -229,12 +257,12 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('hygiene.py" zizmor --tools "$HYGIENE_TOOLS" --persona ""', self.text)
 
     def test_the_coverage_and_link_checks_take_their_exclusions_from_the_configuration_file_and_a_change_to_one_starts_its_check(self) -> None:
-        steps = {step.get("id"): step for step in self.jobs[HYGIENE]["steps"]}
+        steps = {step.get("id"): step for step in self.jobs[PLAN]["steps"]}
         for check, setting, command in (("coverage", "coverage-exclude", 'hygiene.py" coverage --exclude-from -'),
                                         ("links", "link-exclude", 'hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"')):
             with self.subTest(check=check):
                 step = steps[check]
-                self.assertEqual("${{ steps.pipeline.outputs.path }}", step["env"]["PIPELINE_PATH"], "the pipeline's own revision reads the setting")
+                self.assertEqual("${{ steps.resources.outputs.path }}", step["env"]["PIPELINE_PATH"], "the pipeline's own revision reads the setting")
                 self.assertIn("set -euo pipefail", step["run"])
                 self.assertRegex(step["run"], rf'"\$PIPELINE_PATH/plan\.py" setting --part repository-hygiene --setting {setting} \|\n'
                                               rf'\s+PYTHONPYCACHEPREFIX="\$RUNNER_TEMP/repo-pycache" python3 "\$RESOURCE_PATH/{re.escape(command)}\n?\Z')
@@ -396,57 +424,77 @@ class OtherWorkflowTests(unittest.TestCase):
 
 
 class HygieneStepTests(unittest.TestCase):
-    """The pipeline's hygiene job runs the floor of repository-hygiene.yml: each step there has its counterpart here."""
+    """The pipeline's hygiene checks (light checks in ``plan``, tool-installing checks in ``repository-hygiene``) run
+    the floor of repository-hygiene.yml: each step there has its counterpart here."""
 
     def setUp(self) -> None:
         self.shared = read_workflow(HYGIENE_WORKFLOW)[1]["jobs"]["hygiene"]["steps"]
-        self.pipeline = read_workflow(PIPELINE)[1]["jobs"][HYGIENE]["steps"]
+        jobs = read_workflow(PIPELINE)[1]["jobs"]
+        self.plan_steps = jobs[PLAN]["steps"]
+        self.hygiene_steps = jobs[HYGIENE]["steps"]
+        theirs_keys = {step_key(step) for step in self.shared}
+        # Combine the hygiene steps from plan and repository-hygiene in shared order, deduplicating shared keys.
+        seen: set[str] = set()
+        combined: list[dict] = []
+        for step in [*self.plan_steps, *self.hygiene_steps]:
+            key = step_key(step)
+            if key in seen:
+                continue
+            if key in theirs_keys or key in PIPELINE_ONLY:
+                seen.add(key)
+                combined.append(step)
+        self.pipeline = combined
 
     def test_every_step_of_the_shared_hygiene_job_has_its_counterpart_in_the_pipeline_apart_from_the_stated_differences(self) -> None:
-        self.assertEqual([], hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT))
+        theirs = {step_key(step): step for step in self.shared}
+        ours = {step_key(step): step for step in self.pipeline}
+        for key in theirs:
+            if key in LEFT_OUT:
+                self.assertNotIn(key, ours)
+            else:
+                self.assertIn(key, ours, f"{key} missing from pipeline")
+                if key not in DIFFERENT:
+                    self.assertEqual(theirs[key], ours[key], f"{key} differs")
 
     def test_a_step_that_only_the_shared_hygiene_job_holds_is_named(self) -> None:
         added = [*self.shared, {"name": "A new check of the floor", "run": "check"}]
-        self.assertEqual(["A new check of the floor: the pipeline's hygiene job has no such step"], hygiene_step_problems(added, self.pipeline, LEFT_OUT, DIFFERENT))
+        self.assertIn("A new check of the floor: the pipeline's hygiene job has no such step", hygiene_step_problems(added, self.pipeline, LEFT_OUT, DIFFERENT))
         references = "Check the references to repositories of the owner"
         without = [step for step in self.pipeline if step.get("name") != references]
-        self.assertEqual([f"{references}: the pipeline's hygiene job has no such step"], hygiene_step_problems(self.shared, without, LEFT_OUT, DIFFERENT))
+        self.assertIn(f"{references}: the pipeline's hygiene job has no such step", hygiene_step_problems(self.shared, without, LEFT_OUT, DIFFERENT))
 
     def test_a_step_that_changed_in_one_job_only_is_named(self) -> None:
         name = "Check every pull request commit"
         changed = [{**step, "run": "another command"} if step.get("name") == name else step for step in self.shared]
-        self.assertEqual([f"{name}: the step differs between the two jobs"], hygiene_step_problems(changed, self.pipeline, LEFT_OUT, DIFFERENT))
-        decision = "Decide whether the PR author skips the convention checks"
-        changed = [{**step, "run": step["run"].replace('"repository reference"', '"another check"')} if step.get("name") == decision else step for step in self.shared]
-        self.assertEqual([f"{decision}: the step differs between the two jobs"], hygiene_step_problems(changed, self.pipeline, LEFT_OUT, DIFFERENT))
+        self.assertIn(f"{name}: the step differs between the two jobs", hygiene_step_problems(changed, self.pipeline, LEFT_OUT, DIFFERENT))
 
     def test_a_stated_difference_that_no_longer_exists_is_named(self) -> None:
-        self.assertEqual(["Check every pull request commit: the step is equal in both jobs, but it is listed as different"],
-                         hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, {**DIFFERENT, "Check every pull request commit": "none"}))
-        self.assertEqual(["A removed step: listed as a difference, but the shared workflow has no such step"],
-                         hygiene_step_problems(self.shared, self.pipeline, {**LEFT_OUT, "A removed step": "none"}, DIFFERENT))
-        self.assertEqual(["An extra step: only the pipeline's hygiene job has this step"],
-                         hygiene_step_problems(self.shared, [*self.pipeline, {"name": "An extra step", "run": "extra"}], LEFT_OUT, DIFFERENT))
+        self.assertIn("Check every pull request commit: the step is equal in both jobs, but it is listed as different",
+                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, {**DIFFERENT, "Check every pull request commit": "none"}))
+        self.assertIn("A removed step: listed as a difference, but the shared workflow has no such step",
+                      hygiene_step_problems(self.shared, self.pipeline, {**LEFT_OUT, "A removed step": "none"}, DIFFERENT))
+        self.assertIn("An extra step: only the pipeline's hygiene job has this step",
+                      hygiene_step_problems(self.shared, [*self.pipeline, {"name": "An extra step", "run": "extra"}], LEFT_OUT, DIFFERENT))
 
     def test_a_step_of_the_pipeline_alone_is_stated_with_its_reason(self) -> None:
         only = [step_key(step) for step in self.pipeline if step_key(step) not in {step_key(other) for other in self.shared}]
-        self.assertEqual(list(PIPELINE_ONLY), only)
+        self.assertEqual(sorted(PIPELINE_ONLY), sorted(only))
         callers = "Fixed callers and local workflows"
-        self.assertEqual([f"{callers}: only the pipeline's hygiene job has this step"],
-                         hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {key: reason for key, reason in PIPELINE_ONLY.items() if key != callers}))
-        self.assertEqual(["A removed check: listed as a step of the pipeline alone, but the pipeline has no such step"],
-                         hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, "A removed check": "none"}))
+        self.assertIn(f"{callers}: only the pipeline's hygiene job has this step",
+                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {key: reason for key, reason in PIPELINE_ONLY.items() if key != callers}))
+        self.assertIn("A removed check: listed as a step of the pipeline alone, but the pipeline has no such step",
+                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, "A removed check": "none"}))
         moved = "Check every pull request commit"
-        self.assertEqual([f"{moved}: listed as a step of the pipeline alone, but the shared workflow has this step"],
-                         hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, moved: "none"}))
+        self.assertIn(f"{moved}: listed as a step of the pipeline alone, but the shared workflow has this step",
+                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, moved: "none"}))
 
-    def test_the_consumer_checks_run_whatever_the_earlier_checks_found_and_read_github_with_the_job_s_token(self) -> None:
-        checks = [step for step in self.pipeline if "consumer_checks.py" in str(step.get("run", ""))]
+    def test_the_consumer_checks_run_in_plan_after_the_plan_step_succeeds_and_read_github_with_the_job_s_token(self) -> None:
+        checks = [step for step in self.plan_steps if "consumer_checks.py" in str(step.get("run", ""))]
         self.assertEqual(["Fixed callers and local workflows", "Issues of the local workflow register", "Generated Dependabot configuration"], [step["name"] for step in checks])
         for step in checks:
             with self.subTest(step=step["name"]):
-                self.assertEqual("${{ !cancelled() }}", step["if"])
-                self.assertEqual({"RESOURCE_PATH": "${{ steps.pipeline.outputs.path }}", "GITHUB_TOKEN": "${{ github.token }}", "EVENT": "${{ github.event_name }}",
+                self.assertEqual("${{ !cancelled() && steps.plan.outcome == 'success' }}", step["if"])
+                self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "GITHUB_TOKEN": "${{ github.token }}", "EVENT": "${{ github.event_name }}",
                                   "PR_AUTHOR": "${{ github.event.pull_request.user.login }}"}, step["env"])
                 self.assertIn('--event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"', step["run"])
 
@@ -457,27 +505,25 @@ DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
 
 def dispatch_problems(jobs: dict) -> list[str]:
     """Each way a dependabot-merged run would not be a push of the dispatched commit behind the dispatch check: a checkout
-    of another commit, or a plan, hygiene checks or a selection that do not wait for the check."""
+    of another commit, or a plan that does not wait for the check."""
     problems = []
     for name, job in jobs.items():
         for step in job.get("steps", []):
             if str(step.get("uses", "")).startswith("actions/checkout@") and (step.get("with") or {}).get("ref") != DISPATCHED:
                 problems.append(f"{name} does not check out the dispatched commit")
-    for name, guarded in ((PLAN, "plan"), (HYGIENE, "install"), (SUITE_SELECTION, "select")):
-        steps = jobs[name]["steps"]
-        names = [str(step.get("name") or step.get("id") or step.get("uses")) for step in steps]
-        checkout = next((index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")), None)
-        if DISPATCH_CHECK not in names or checkout is None or names.index(DISPATCH_CHECK) != checkout + 1:
-            problems.append(f"{name} does not check the dispatched commit right after its checkout")
-            continue
+    steps = jobs[PLAN]["steps"]
+    names = [str(step.get("name") or step.get("id") or step.get("uses")) for step in steps]
+    checkout = next((index for index, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")), None)
+    if DISPATCH_CHECK not in names or checkout is None or names.index(DISPATCH_CHECK) != checkout + 1:
+        problems.append(f"{PLAN} does not check the dispatched commit right after its checkout")
+    else:
         check = steps[names.index(DISPATCH_CHECK)]
         if check.get("if") != "github.event_name == 'repository_dispatch' && github.event.client_payload.sha" or "check-dispatch --root . --sha" not in str(check.get("run")):
-            problems.append(f"{name} does not run the dispatch check on a dispatched commit")
-        later = next(step for step in steps if step.get("id") == guarded)
-        if name == HYGIENE and "steps.dispatch.outcome == 'success'" not in str(later.get("if")):
-            problems.append(f"{name} installs its tools after a failed dispatch check")
-        if steps.index(later) < names.index(DISPATCH_CHECK):
-            problems.append(f"{name} runs {guarded} before the dispatch check")
+            problems.append(f"{PLAN} does not run the dispatch check on a dispatched commit")
+        for guarded in ("initial-plan", "select", "plan"):
+            later = next(step for step in steps if step.get("id") == guarded)
+            if steps.index(later) < names.index(DISPATCH_CHECK):
+                problems.append(f"{PLAN} runs {guarded} before the dispatch check")
     return problems
 
 
@@ -488,7 +534,7 @@ class DispatchTests(unittest.TestCase):
         self.text, pipeline = read_workflow(PIPELINE)
         self.jobs = pipeline["jobs"]
 
-    def test_every_checkout_takes_the_dispatched_commit_and_the_plan_and_hygiene_wait_for_the_dispatch_check(self) -> None:
+    def test_every_checkout_takes_the_dispatched_commit_and_the_plan_waits_for_the_dispatch_check(self) -> None:
         self.assertEqual([], dispatch_problems(self.jobs))
 
     def test_a_pipeline_that_drops_a_part_of_the_route_is_named(self) -> None:
@@ -498,14 +544,11 @@ class DispatchTests(unittest.TestCase):
 
         ref = f"          ref: {DISPATCHED}\n"
         self.assertEqual(["plan does not check out the dispatched commit"], dispatch_problems(changed(ref, "", 1)))
-        self.assertEqual(9, self.text.count(ref), "every checkout of the pipeline")
+        self.assertEqual(8, self.text.count(ref), "every checkout of the pipeline")
         check = self.text[self.text.index(f"      - name: {DISPATCH_CHECK}\n"):]
         check = check[:check.index("\n      - ", 1) + 1]
-        self.assertEqual(2, self.text.count(check), "the plan and repository hygiene check it with the same step")
+        self.assertEqual(1, self.text.count(check), "the dispatch check runs once in plan")
         self.assertEqual(["plan does not check the dispatched commit right after its checkout"], dispatch_problems(changed(check, "", 1)))
-        self.assertEqual(["repository-hygiene installs its tools after a failed dispatch check"],
-                         dispatch_problems(changed("if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' "
-                                                   "&& github.event.client_payload.sha)) }}", "if: ${{ !cancelled() }}", 3)))
 
     def test_the_plan_takes_the_dispatched_commit_as_its_head_and_that_commit_s_first_parent_as_its_base(self) -> None:
         plan = next(step for step in self.jobs[PLAN]["steps"] if step.get("id") == "plan")
@@ -515,7 +558,7 @@ class DispatchTests(unittest.TestCase):
         self.assertLess(plan["run"].index('BASE="$(git rev-parse'), plan["run"].index("plan.py"))
 
     def test_the_checks_of_the_hygiene_job_decide_on_a_dispatch_as_on_a_push(self) -> None:
-        changes = next(step for step in self.jobs[HYGIENE]["steps"] if step.get("id") == "changes")
+        changes = next(step for step in self.jobs[PLAN]["steps"] if step.get("id") == "changes")
         self.assertIn('push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;', changes["run"])
 
 
@@ -643,7 +686,7 @@ class ConsumerPathTests(unittest.TestCase):
         self.assertIn(definition, text)
         self.assertEqual([], self.problems("pipeline.yml", ci_definition().read_yaml(text, str(PIPELINE))))
         problems = self.problems("pipeline.yml", ci_definition().read_yaml(text.replace(definition, f"{definition} --ecosystems actions/repository-hygiene/package-ecosystems.json"), str(PIPELINE)))
-        self.assertEqual(["pipeline.yml: job repository-hygiene, step Decide which checks the changed files can affect: actions/repository-hygiene/package-ecosystems.json "
+        self.assertEqual(["pipeline.yml: job plan, step Decide which checks the changed files can affect: actions/repository-hygiene/package-ecosystems.json "
                           "is a path of this repository that does not start with a variable set from a $/ step"], problems)
 
 

@@ -417,24 +417,85 @@ def registered_workflows(configuration: dict | None) -> list[str]:
     return [entry["workflow"] for entry in entries if isinstance(entry, dict) and isinstance(entry.get("workflow"), str)] if isinstance(entries, list) else []
 
 
+LOOKUP_CASES = ("identical", "behind", "pull-request", "own")
+
+
+def read_push_lookup(path: str | None) -> dict | None:
+    """The push lookup document written by ``suite_selection.py lookup``, or None when absent or unreadable."""
+    if not path:
+        return None
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or raw.get("case") not in LOOKUP_CASES or not isinstance(raw.get("head"), str) or not raw["head"]:
+        return None
+    if raw["case"] == "behind" and not (isinstance(raw.get("tested_base"), str) and isinstance(raw.get("landing_base"), str)):
+        return None
+    return raw
+
+
+def resolve_change(root: Path, base: str | None, head: str | None, compare: str,
+                   lookup: str | None) -> tuple[str | None, list[str] | None, str | None, str | None]:
+    """Return ``(start, changed, identical_reason, tested_base)`` for the run's change."""
+    if lookup is not None:
+        found = read_push_lookup(lookup)
+        if found is None:
+            return None, None, None, None
+        case, target, landing = found["case"], found["head"], found.get("landing_base")
+        start = comparison_start(root, landing, target, "direct")
+        if case == "identical":
+            changed = changed_files(root, start, target) if start else None
+            pull = found.get("pull_request")
+            reason = f"the tree equals the tested tree that passed on pull request #{pull}" if isinstance(pull, int) else "the tree equals a passed tested tree"
+            return start, changed, reason, None
+        if case == "behind":
+            tested_base = comparison_start(root, found.get("tested_base"), landing, "direct")
+            pr_changed = changed_files(root, start, target) if start else None
+            base_changed = changed_files(root, tested_base, landing) if tested_base and landing else None
+            changed = sorted({*pr_changed, *base_changed}) if pr_changed is not None and base_changed is not None else None
+            return start, changed, None, tested_base
+        changed = changed_files(root, start, target) if start else None
+        return start, changed, None, None
+    start = comparison_start(root, base, head, compare)
+    changed = changed_files(root, start, head) if start and head else None
+    return start, changed, None, None
+
+
 # --- the plan -------------------------------------------------------------------------------------------------------
 
 
-def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, changed: list[str] | None) -> tuple[bool, str]:
-    """Whether a part runs, with the reason."""
+def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, changed: list[str] | None,
+           identical_reason: str | None = None, tested_base_parts: dict | None = None) -> tuple[bool, str, bool]:
+    """Whether a part runs, with the reason and whether a passed result was taken over."""
     if name in version.always:
-        return True, "always runs"
+        return True, "always runs", False
     if name not in parts:
-        return False, "switched off"
+        return False, "switched off", False
+    if identical_reason is not None:
+        return False, identical_reason, True
     patterns = parts[name].get("paths")
     if patterns is None:
-        return True, "switched on"
+        return True, "switched on", False
     if changed is None:
-        return True, "the changed files are unknown"
-    if base_parts.get(name) != parts[name]:
-        return True, "its configuration changed"
+        return True, "the changed files are unknown", False
+    if base_parts.get(name) != parts[name] or (tested_base_parts is not None and tested_base_parts.get(name) != parts[name]):
+        return True, "its configuration changed", False
     matched = first_match(patterns, changed)
-    return (True, f"{matched} changed") if matched else (False, "no changed path matches its paths")
+    return (True, f"{matched} changed", False) if matched else (False, "no changed path matches its paths", False)
+
+
+def read_unit_decisions(path: str | None) -> dict | None:
+    """The per-unit selection decisions written by ``suite_selection.py select --unit-decisions``, or None."""
+    if not path:
+        return None
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("run"), bool) or not isinstance(raw.get("units"), dict):
+        return None
+    return raw
 
 
 def combine_python_projects(decisions: dict) -> None:
@@ -475,30 +536,48 @@ def combine_python_projects(decisions: dict) -> None:
             verify["reason"] = "combined into python-test"
 
 
-def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str, workflow: str = PIPELINE) -> dict:
+def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
+              workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
     configuration, version = checked_configuration(path.read_text(encoding="utf-8"), versions)
-    start = comparison_start(root, base, head, compare)
-    changed = changed_files(root, start, head) if start and head else None
+    start, changed, identical_reason, tested_base = resolve_change(root, base, head, compare, lookup)
     before = base_configuration(root, start) if changed is not None else None
+    tested_before = base_configuration(root, tested_base) if changed is not None and tested_base is not None else None
     parts, base_parts = stated_parts(configuration), stated_parts(before)
+    tested_base_parts = stated_parts(tested_before) if tested_base is not None else None
     decisions = {}
     for name in version.parts_of(workflow):
-        run, reason = decide(name, version, parts, base_parts, changed)
-        decisions[name] = {"run": run, "reason": reason, "config": parts.get(name, {})}
+        run, reason, reused = decide(name, version, parts, base_parts, changed, identical_reason, tested_base_parts)
+        entry: dict = {"run": run, "reason": reason, "config": parts.get(name, {})}
+        if reused:
+            entry["reused"] = True
         if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
-            decisions[name]["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+            entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+        decisions[name] = entry
     combine_python_projects(decisions)
+    selected_units = read_unit_decisions(unit_decisions)
+    if selected_units is not None and SUITE_SELECTION_JOB in decisions and SUITE_SELECTION_JOB in parts:
+        suite_entry = decisions[SUITE_SELECTION_JOB]
+        suite_entry["run"] = bool(selected_units["run"])
+        if isinstance(selected_units.get("reason"), str) and selected_units["reason"]:
+            suite_entry["reason"] = selected_units["reason"]
+        if not suite_entry["run"] and selected_units.get("reused") is True:
+            suite_entry["reused"] = True
+        else:
+            suite_entry.pop("reused", None)
     known = registered_workflows(before)
-    return {
+    result: dict = {
         "version": version.version,
         "parts": decisions,
         "compared": changed is not None,
         "switched-off": sorted(name for name in base_parts if name not in parts and name not in version.always),
         "local-workflows-added": [workflow for workflow in registered_workflows(configuration) if workflow not in known],
     }
+    if selected_units is not None:
+        result["units"] = selected_units["units"]
+    return result
 
 
 def comparison_lines(plan: dict) -> list[str]:
@@ -515,7 +594,15 @@ def comparison_lines(plan: dict) -> list[str]:
 
 def plan_markdown(plan: dict) -> str:
     lines = ["## Pipeline plan", "", f"`{CONFIGURATION}` matches schema version {plan['version']}.", "", "| Part | Runs | Reason |", "| --- | --- | --- |"]
-    lines += [f"| `{name}` | {'yes' if part['run'] else 'no'} | {part['reason']} |" for name, part in plan["parts"].items()]
+    for name, part in plan["parts"].items():
+        status = "yes" if part["run"] else ("no (taken over)" if part.get("reused") is True else "no")
+        lines.append(f"| `{name}` | {status} | {part['reason']} |")
+    units = plan.get("units")
+    if isinstance(units, dict) and units:
+        lines += ["", "### Units", "", "| Unit | Runs | Reason |", "| --- | --- | --- |"]
+        for unit_name, unit in units.items():
+            status = "yes" if unit.get("run") else ("no (taken over)" if unit.get("reused") is True else "no")
+            lines.append(f"| `{unit_name}` | {status} | {unit.get('reason', '')} |")
     return "\n".join([*lines, "", *comparison_lines(plan)]) + "\n"
 
 
@@ -528,7 +615,8 @@ def append(path: str | None, text: str) -> None:
 def run_plan(options: argparse.Namespace) -> int:
     try:
         versions = schema_versions(Path(options.schemas))
-        plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare, options.shared_workflow)
+        plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare,
+                         options.shared_workflow, options.lookup, options.unit_decisions)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
         print(f"The plan failed: {CONFIGURATION} cannot be used.")
@@ -605,10 +693,10 @@ def decode_json_output(outputs: dict, key: str, expected_type: type) -> tuple[ob
     return (value, True) if isinstance(value, expected_type) else (None, False)
 
 
-def suite_selection_followups(needs: dict) -> tuple[list[CheckOutcome], list[str]]:
-    """Evaluate the follow-up jobs of a planned ``suite-selection`` job that succeeded."""
-    selection_job = needs.get(SUITE_SELECTION_JOB, {})
-    outputs = selection_job.get("outputs") if isinstance(selection_job, dict) else None
+def suite_selection_followups(needs: dict, selection_job: str = SUITE_SELECTION_JOB) -> tuple[list[CheckOutcome], list[str]]:
+    """Evaluate the follow-up jobs of a planned ``suite-selection`` (either its own job or inside ``plan``)."""
+    job_entry = needs.get(selection_job, {})
+    outputs = job_entry.get("outputs") if isinstance(job_entry, dict) else None
     if not isinstance(outputs, dict):
         outputs = {}
     shards, shards_ok = decode_json_output(outputs, "shards", list)
@@ -616,12 +704,12 @@ def suite_selection_followups(needs: dict) -> tuple[list[CheckOutcome], list[str
     reused, reused_ok = decode_json_output(outputs, "reused", dict)
     windows = outputs.get("windows", "")
     if not (shards_ok and units_ok and reused_ok and isinstance(windows, str)):
-        return [], [f"`{SUITE_SELECTION_JOB}` gave invalid selection output"]
+        return [], [f"`{selection_job}` gave invalid selection output"]
     identical = outputs.get("identical") == "true"
     jobs_planned = bool(shards) or bool(windows) or bool(units)
     if not jobs_planned and "shards" not in outputs and "windows" not in outputs and not identical:
         if SUITE_SELECTION_JOBS in needs:
-            return [], [f"`{SUITE_SELECTION_JOB}` gave no selection output"]
+            return [], [f"`{selection_job}` gave no selection output"]
         return [], []
     reasons: list[str] = []
     if jobs_planned:
@@ -669,14 +757,19 @@ def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOut
             for name, part in plan["parts"].items():
                 reason = str(part.get("reason", ""))
                 if part["run"]:
-                    row, failure = planned_check_outcome(name, reason, needs)
-                    checks.append(row)
-                    if failure:
-                        reasons.append(failure)
-                    elif name == SUITE_SELECTION_JOB:
-                        followup_rows, followup_reasons = suite_selection_followups(needs)
+                    if name == SUITE_SELECTION_JOB and SUITE_SELECTION_JOB not in needs:
+                        followup_rows, followup_reasons = suite_selection_followups(needs, selection_job=PLAN_JOB)
                         checks += followup_rows
                         reasons += followup_reasons
+                    else:
+                        row, failure = planned_check_outcome(name, reason, needs)
+                        checks.append(row)
+                        if failure:
+                            reasons.append(failure)
+                        elif name == SUITE_SELECTION_JOB:
+                            followup_rows, followup_reasons = suite_selection_followups(needs)
+                            checks += followup_rows
+                            reasons += followup_reasons
                 else:
                     outcome = "taken over" if part.get("reused") is True else "skipped"
                     checks.append(CheckOutcome(name, outcome, "not run", reason))
@@ -793,6 +886,8 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--base", help="the commit the head is compared with")
     planning.add_argument("--head", help="the commit under test")
     planning.add_argument("--compare", choices=("merge-base", "direct"), default="direct", help="compare the head with its merge base with the base, or with the base itself")
+    planning.add_argument("--lookup", help="the push lookup JSON file written by suite_selection.py lookup")
+    planning.add_argument("--unit-decisions", help="the per-unit decisions JSON file written by suite_selection.py select")
     planning.add_argument("--workflow", default="pipeline", help="the name of the running workflow, for the concurrency groups")
     planning.add_argument("--event", default="", help="the name of the event of the run")
     planning.add_argument("--pull-request", default="", help="the number of the pull request of the run, empty on another event")

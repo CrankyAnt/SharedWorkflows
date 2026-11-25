@@ -1712,6 +1712,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     selecting.add_argument("--pinned-tool", action="append", default=[], choices=PINNED_TOOLS,
                            help="a pinned tool that the configuration file names under pinned-tools (repeatable)")
     selecting.add_argument("--pins", type=Path, help="the pins file that holds the version of each pinned tool; needed with --pinned-tool")
+    selecting.add_argument("--unit-decisions", type=Path, help="write the per-unit run/skip/reused decisions as JSON for plan.py")
     looking = commands.add_parser("lookup", help="find the tested tree of a pushed commit's pull request")
     looking.add_argument("--root", type=Path, required=True)
     looking.add_argument("--sha", required=True, help="the pushed commit, or client_payload.sha of a dependabot-merged run")
@@ -1840,6 +1841,16 @@ def run_select(options: argparse.Namespace) -> int:
         steps = {name: "run" if all(language_steps([name], side, files)[name] == "run" for files, side in sides) else "skip"
                  for name in options.language_step}
     write_selection(options, suite_list, selection, changed, steps=steps)
+    if options.unit_decisions is not None:
+        effective_steps = steps if steps is not None else language_steps(options.language_step, selection, changed)
+        tools = tool_versions(suite_list, root)
+        shards = json.loads(shards_json(selection, suite_list, effective_steps, False, tools))
+        windows = windows_json(selection, suite_list, False, tools)
+        options.unit_decisions.parent.mkdir(parents=True, exist_ok=True)
+        options.unit_decisions.write_text(
+            json.dumps(unit_decisions_document(suite_list, selection, reused or {}, identical, shards, windows), separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
     if options.json_output is not None and running is not None:
         with options.json_output.open("a", encoding="utf-8") as handle:
             handle.write(f"units={json.dumps(running, separators=(',', ':'))}\n")
@@ -1998,6 +2009,42 @@ def tested_parts(options: argparse.Namespace, root: Path, tracked: frozenset[str
     if not options.workflow:
         return unrecorded.Parts()
     return unrecorded.parts(unrecorded.Side(root, "HEAD", tracked), calling_workflow(options), unrecorded.entry_units(suite_list))
+
+
+def unit_decisions_document(suite_list: SuiteList, selection: Selection, reused: dict, identical: bool,
+                            shards: list, windows: str) -> dict:
+    """Per-unit run/reused/reason decisions and part summary for ``plan.py plan --unit-decisions``."""
+    suites_by_name = {suite.name: suite for suite in suite_list.suites}
+    unit_map: dict[str, dict] = {}
+    for decision in selection.decisions:
+        suite = suites_by_name.get(decision.suite)
+        if decision.run and suite is not None and suite.entry_selection and decision.entries:
+            for entry in decision.entries:
+                unit_map[f"{decision.suite}:{entry}"] = {"run": True, "reason": decision.reason}
+        else:
+            row: dict = {"run": decision.run, "reason": decision.reason}
+            if not decision.run and (identical or "reuses the passed result" in decision.reason):
+                row["reused"] = True
+            unit_map[decision.suite] = row
+    jobs_planned = bool(shards) or bool(windows)
+    if jobs_planned:
+        parts = []
+        if shards:
+            parts.append(f"{len(shards)} Linux shard{'' if len(shards) == 1 else 's'}")
+        if windows:
+            parts.append("Windows")
+        reason = " and ".join(parts)
+        if reused:
+            count = len(reused)
+            reason += f"; {count} passed unit{'' if count == 1 else 's'} taken over"
+        return {"run": True, "reused": False, "reason": reason, "units": unit_map}
+    if identical:
+        reason = selection.decisions[0].reason if selection.decisions else "the tree equals a passed tested tree"
+        return {"run": False, "reused": True, "reason": reason, "units": unit_map}
+    if reused:
+        count = len(reused)
+        return {"run": False, "reused": True, "reason": f"{count} passed unit{'' if count == 1 else 's'} taken over", "units": unit_map}
+    return {"run": False, "reused": False, "reason": "no suites selected", "units": unit_map}
 
 
 def write_selection(options: argparse.Namespace, suite_list: SuiteList, selection: Selection, changed: list[str] | None,

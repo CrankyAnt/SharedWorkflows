@@ -9,16 +9,40 @@ jobs:
   plan:
     runs-on: ubuntu-26.04
     permissions:
+      actions: read
       contents: read
+      issues: read
+      pull-requests: read
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
+      push-lookup: ${{ steps.lookup.outputs.lookup }}
+      hygiene-actionlint: ${{ steps.changes.outputs.actionlint }}
+      hygiene-zizmor: ${{ steps.changes.outputs.zizmor }}
+      hygiene-reuse: ${{ steps.changes.outputs.reuse }}
+      pr-author-skip: ${{ steps.author-decision.outputs.skip }}
+      suites: ${{ steps.select.outputs.suites }}
+      entries: ${{ steps.select.outputs.entries }}
+      shards: ${{ steps.select.outputs.shards }}
+      windows: ${{ steps.select.outputs.windows }}
+      jobs: ${{ steps.select.outputs.jobs }}
+      language-steps: ${{ steps.select.outputs.language-steps }}
+      units: ${{ steps.select.outputs.units }}
+      reused: ${{ steps.select.outputs.reused }}
+      shared-digest: ${{ steps.digest.outputs.shared-digest }}
+      identical: ${{ steps.select.outputs.identical }}
     steps:
       - name: Load the plan program from this workflow revision
         id: resources
         uses: $/actions/pipeline
-      - name: Load the dispatch check from this workflow revision
+      - name: Load resources from this workflow revision
+        id: hygiene
+        uses: $/actions/repository-hygiene
+      - name: Load the scripts of the suite selection from this workflow revision
         id: selection
         uses: $/actions/suite-selection
+      - name: Load the shared recording step from this workflow revision
+        id: recording
+        uses: $/actions/recording
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
@@ -32,6 +56,109 @@ jobs:
           PAYLOAD: ${{ github.event.client_payload.sha }}
           BRANCH: ${{ github.event.repository.default_branch }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
+      - name: Look up the tested tree of the pushed commit's pull request
+        id: lookup
+        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+          printf 'lookup=%s\n' "$(jq -c . "$RUNNER_TEMP/push-lookup.json")" >> "$GITHUB_OUTPUT"
+      - name: Decide which checks the changed files can affect
+        id: changes
+        env:
+          RESOURCE_PATH: ${{ steps.hygiene.outputs.path }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
+        run: |
+          case "$EVENT" in
+            push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
+          esac
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude" --markdown-definition ".github/workflows/pipeline.yml#step:links" --markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Check the configuration file and read part configuration
+        id: initial-plan
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'repository_dispatch' && github.event.client_payload.sha) || github.sha }}
+          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
+          WORKFLOW: ${{ github.workflow }}
+          EVENT: ${{ github.event_name }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set --
+          if [ -f "$RUNNER_TEMP/push-lookup.json" ]; then
+            set -- --lookup "$RUNNER_TEMP/push-lookup.json"
+          else
+            if [ "$EVENT" = repository_dispatch ]; then BASE="$(git rev-parse --verify --quiet "$HEAD^" || true)"; fi
+            set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE"
+          fi
+          set +e
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --event "$EVENT" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$RUNNER_TEMP/initial-plan-summary.md"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            cat "$RUNNER_TEMP/initial-plan-summary.md" >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
+      - name: Take the digest of the shared recording step
+        id: digest
+        if: ${{ fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
+      - name: Look up the digest of the last passed run on the base branch
+        if: ${{ fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
+        env:
+          RESOURCE_PATH: ${{ steps.selection.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          DIGEST: ${{ steps.digest.outputs.shared-digest }}
+          BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PUSHED: ${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && (github.event.client_payload.sha || github.sha) || '' }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Restore the passed results of the pull request
+        if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/suite-results/record.json
+          key: suite-results-${{ github.event.pull_request.number }}-run-lookup-${{ github.run_id }}
+          restore-keys: suite-results-${{ github.event.pull_request.number }}-run-
+      - name: Select the suites the changed files touch
+        id: select
+        if: ${{ fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
+        env:
+          RESOURCE_PATH: ${{ steps.selection.outputs.path }}
+          HYGIENE_PATH: ${{ steps.hygiene.outputs.path }}
+          SUITES: ${{ fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites }}
+          LANGUAGE_STEPS: ${{ join(fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config['language-steps'] || fromJSON('[]'), ' ') }}
+          PINNED_TOOLS: ${{ join(fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config['pinned-tools'] || fromJSON('[]'), ' ') }}
+          WORKFLOW: ${{ github.workflow_ref }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set --
+          for step in $LANGUAGE_STEPS; do set -- "$@" --language-step "$step"; done
+          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$HYGIENE_PATH/pins.json"; done
+          case "$EVENT" in
+            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            pull_request) set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT" ;;
+            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct ;;
+          esac
+          set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json" --unit-decisions "$RUNNER_TEMP/unit-decisions.json"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Check the configuration file and decide which parts run
         id: plan
         env:
@@ -44,9 +171,97 @@ jobs:
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          # A dependabot-merged run is a push of the dispatched commit: its base is that commit's first parent.
-          if [ "$EVENT" = repository_dispatch ]; then BASE="$(git rev-parse --verify --quiet "$HEAD^" || true)"; fi
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . --base "$BASE" --head "$HEAD" --compare "$COMPARE" --workflow "$WORKFLOW" --event "$EVENT" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          set --
+          if [ -f "$RUNNER_TEMP/push-lookup.json" ]; then
+            set -- --lookup "$RUNNER_TEMP/push-lookup.json"
+          else
+            # A dependabot-merged run is a push of the dispatched commit: its base is that commit's first parent.
+            if [ "$EVENT" = repository_dispatch ]; then BASE="$(git rev-parse --verify --quiet "$HEAD^" || true)"; fi
+            set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE"
+          fi
+          if [ -f "$RUNNER_TEMP/unit-decisions.json" ]; then
+            set -- "$@" --unit-decisions "$RUNNER_TEMP/unit-decisions.json"
+          fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --event "$EVENT" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Decide whether the PR author skips the convention checks
+        id: author-decision
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' }}
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          node <<'EOF'
+          const fs = require("node:fs");
+          const author = process.env.PR_AUTHOR ?? "";
+          const skip = author === "dependabot[bot]" || author === "renovate[bot]";
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `skip=${skip}\n`);
+          for (const check of ["branch", "commits", "pull request title", "repository reference"]) {
+            console.log(skip ? `Skipping ${check} check for bot PR author ${author}.` : `Running ${check} check for PR author ${author}.`);
+          }
+          EOF
+      - name: Load the convention checks from this workflow revision
+        id: conventions
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
+        uses: $/actions/publication-checks
+      - name: Check the pull request branch
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
+      - name: Check the references to repositories of the owner
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
+      - name: Fixed callers and local workflows
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" callers --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Issues of the local workflow register
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" register --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Generated Dependabot configuration
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" dependabot --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Dependabot coverage of tracked package files
+        id: coverage
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.changes.outputs.packages == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.hygiene.outputs.path }}
+          PIPELINE_PATH: ${{ steps.resources.outputs.path }}
+        run: |
+          set -euo pipefail
+          # The setting coverage-exclude of the configuration file; a file that cannot be used leaves nothing out.
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$PIPELINE_PATH/plan.py" setting --part repository-hygiene --setting coverage-exclude |
+            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" coverage --exclude-from -
+      - name: Relative links in tracked Markdown
+        id: links
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.changes.outputs.markdown == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.hygiene.outputs.path }}
+          PIPELINE_PATH: ${{ steps.resources.outputs.path }}
+        run: |
+          set -euo pipefail
+          # The setting link-exclude of the configuration file; a file that cannot be used leaves nothing out.
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$PIPELINE_PATH/plan.py" setting --part repository-hygiene --setting link-exclude |
+            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"
 
   custom:
     needs: plan
@@ -318,93 +533,37 @@ jobs:
 
   repository-hygiene:
     needs: plan
-    if: ${{ !cancelled() }}
+    if: ${{ fromJSON(needs.plan.outputs.plan).parts['repository-hygiene'].run }}
     runs-on: ubuntu-26.04
     permissions:
-      actions: read
       contents: read
-      issues: read
       pull-requests: read
     steps:
       - name: Load resources from this workflow revision
         id: resources
         uses: $/actions/repository-hygiene
-      - name: Load the push lookup from this workflow revision
-        id: selection
-        uses: $/actions/suite-selection
-      - name: Load the fixed callers and the schema from this workflow revision
-        id: pipeline
-        uses: $/actions/pipeline
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Check that the dispatched commit is on the default branch
-        id: dispatch
-        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+      - name: Write the push lookup from the plan
+        if: ${{ needs.plan.outputs.push-lookup != '' }}
         env:
-          SELECTION_PATH: ${{ steps.selection.outputs.path }}
-          PAYLOAD: ${{ github.event.client_payload.sha }}
-          BRANCH: ${{ github.event.repository.default_branch }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
-      - name: Look up the tested tree of the pushed commit's pull request
-        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
-        env:
-          SELECTION_PATH: ${{ steps.selection.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          WORKFLOW: ${{ github.workflow_ref }}
-          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
-          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Decide which checks the changed files can affect
-        id: changes
-        env:
-          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
-        run: |
-          case "$EVENT" in
-            push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
-            *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
-          esac
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude" --markdown-definition ".github/workflows/pipeline.yml#step:links" --markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Decide whether the PR author skips the convention checks
-        id: author-decision
-        if: github.event_name == 'pull_request'
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          node <<'EOF'
-          const fs = require("node:fs");
-          const author = process.env.PR_AUTHOR ?? "";
-          const skip = author === "dependabot[bot]" || author === "renovate[bot]";
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `skip=${skip}\n`);
-          for (const check of ["branch", "commits", "pull request title", "repository reference"]) {
-            console.log(skip ? `Skipping ${check} check for bot PR author ${author}.` : `Running ${check} check for PR author ${author}.`);
-          }
-          EOF
+          LOOKUP: ${{ needs.plan.outputs.push-lookup }}
+        run: printf '%s\n' "$LOOKUP" > "$RUNNER_TEMP/push-lookup.json"
       - name: Load the convention checks from this workflow revision
         id: conventions
-        if: steps.author-decision.outputs.skip == 'false'
+        if: needs.plan.outputs.pr-author-skip == 'false'
         uses: $/actions/publication-checks
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.author-decision.outputs.skip == 'false'
+        if: needs.plan.outputs.pr-author-skip == 'false'
         with:
           node-version: ${{ steps.resources.outputs.node-version }}
           package-manager-cache: false
-      - name: Check the pull request branch
-        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
-        env:
-          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
-          HEAD_BRANCH: ${{ github.head_ref }}
-        run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
       - name: Compute the commitlint cache key
         id: commitlint-key
-        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && needs.plan.outputs.pr-author-skip == 'false' }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
         run: |
@@ -413,14 +572,14 @@ jobs:
           printf 'hash=%s\n' "$hash" >> "$GITHUB_OUTPUT"
       - name: Restore the cached commitlint toolchain
         id: commitlint-cache
-        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && needs.plan.outputs.pr-author-skip == 'false' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/publication-checks-tools
           key: commitlint-${{ runner.os }}-node-${{ steps.resources.outputs.node-version }}-${{ steps.commitlint-key.outputs.hash }}
       - name: Install the locked commitlint toolchain
         id: commitlint
-        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && needs.plan.outputs.pr-author-skip == 'false' }}
         working-directory: ${{ runner.temp }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
@@ -459,68 +618,14 @@ jobs:
           title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .title)"
           printf '%s\n' "$title" |
             node "$COMMITLINT_CLI" --config "$COMMITLINT_CONFIG" --cwd "$GITHUB_WORKSPACE" --verbose
-      - name: Check the references to repositories of the owner
-        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
-        env:
-          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
-      - name: Fixed callers and local workflows
-        if: ${{ !cancelled() }}
-        env:
-          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" callers --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Issues of the local workflow register
-        if: ${{ !cancelled() }}
-        env:
-          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" register --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Generated Dependabot configuration
-        if: ${{ !cancelled() }}
-        env:
-          RESOURCE_PATH: ${{ steps.pipeline.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" dependabot --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Dependabot coverage of tracked package files
-        id: coverage
-        if: ${{ !cancelled() && steps.changes.outputs.packages == 'true' }}
-        env:
-          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          PIPELINE_PATH: ${{ steps.pipeline.outputs.path }}
-        run: |
-          set -euo pipefail
-          # The setting coverage-exclude of the configuration file; a file that cannot be used leaves nothing out.
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$PIPELINE_PATH/plan.py" setting --part repository-hygiene --setting coverage-exclude |
-            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" coverage --exclude-from -
-      - name: Relative links in tracked Markdown
-        id: links
-        if: ${{ !cancelled() && steps.changes.outputs.markdown == 'true' }}
-        env:
-          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          PIPELINE_PATH: ${{ steps.pipeline.outputs.path }}
-        run: |
-          set -euo pipefail
-          # The setting link-exclude of the configuration file; a file that cannot be used leaves nothing out.
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$PIPELINE_PATH/plan.py" setting --part repository-hygiene --setting link-exclude |
-            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"
       - name: Compute the hygiene tools cache key
         id: tools-key
-        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        if: ${{ !cancelled() }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          ACTIONLINT: ${{ steps.changes.outputs.actionlint }}
-          ZIZMOR: ${{ steps.changes.outputs.zizmor }}
-          REUSE: ${{ steps.changes.outputs.reuse }}
+          ACTIONLINT: ${{ needs.plan.outputs.hygiene-actionlint }}
+          ZIZMOR: ${{ needs.plan.outputs.hygiene-zizmor }}
+          REUSE: ${{ needs.plan.outputs.hygiene-reuse }}
         run: |
           set -euo pipefail
           tools="--tool gitleaks"
@@ -530,19 +635,19 @@ jobs:
           # shellcheck disable=SC2086 # $tools holds separate --tool options
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --print-cache-key --github-output "$GITHUB_OUTPUT" $tools
       - name: Restore the cached hygiene tools
-        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        if: ${{ !cancelled() }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/hygiene-tools
           key: hygiene-${{ runner.os }}-${{ steps.tools-key.outputs.key }}
       - name: Install the pinned tools and verify their checksums
         id: install
-        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        if: ${{ !cancelled() }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          ACTIONLINT: ${{ steps.changes.outputs.actionlint }}
-          ZIZMOR: ${{ steps.changes.outputs.zizmor }}
-          REUSE: ${{ steps.changes.outputs.reuse }}
+          ACTIONLINT: ${{ needs.plan.outputs.hygiene-actionlint }}
+          ZIZMOR: ${{ needs.plan.outputs.hygiene-zizmor }}
+          REUSE: ${{ needs.plan.outputs.hygiene-reuse }}
         run: |
           tools="--tool gitleaks"
           if [ "$ACTIONLINT" = "true" ]; then tools="$tools --tool actionlint --tool shellcheck"; fi
@@ -552,21 +657,21 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" $tools
       - name: actionlint with the pinned ShellCheck
         id: actionlint
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.actionlint == 'true' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && needs.plan.outputs.hygiene-actionlint == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" actionlint --tools "$HYGIENE_TOOLS"
       - name: zizmor over workflows and action definitions
         id: zizmor
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.zizmor == 'true' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && needs.plan.outputs.hygiene-zizmor == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" zizmor --tools "$HYGIENE_TOOLS" --persona ""
       - name: REUSE licence assignments
         id: reuse
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.reuse == 'true' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && needs.plan.outputs.hygiene-reuse == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
@@ -609,119 +714,25 @@ jobs:
           path: ${{ runner.temp }}/gitleaks-marker/marker.json
           key: gitleaks-marker-${{ github.run_id }}-${{ github.run_attempt }}
 
-  suite-selection:
-    needs: plan
-    if: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].run }}
-    runs-on: ubuntu-26.04
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    outputs:
-      suites: ${{ steps.select.outputs.suites }}
-      entries: ${{ steps.select.outputs.entries }}
-      shards: ${{ steps.select.outputs.shards }}
-      windows: ${{ steps.select.outputs.windows }}
-      jobs: ${{ steps.select.outputs.jobs }}
-      language-steps: ${{ steps.select.outputs.language-steps }}
-      units: ${{ steps.select.outputs.units }}
-      reused: ${{ steps.select.outputs.reused }}
-      shared-digest: ${{ steps.digest.outputs.shared-digest }}
-      identical: ${{ steps.select.outputs.identical }}
-    steps:
-      - name: Load the scripts of the suite selection from this workflow revision
-        id: resources
-        uses: $/actions/suite-selection
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Check that the dispatched commit is on the default branch
-        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
-        env:
-          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          PAYLOAD: ${{ github.event.client_payload.sha }}
-          BRANCH: ${{ github.event.repository.default_branch }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
-      - name: Look up the tested tree of the pushed commit's pull request
-        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
-        env:
-          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          WORKFLOW: ${{ github.workflow_ref }}
-          SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
-          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Load the shared recording step from this workflow revision
-        id: recording
-        uses: $/actions/recording
-      - name: Take the digest of the shared recording step
-        id: digest
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
-      - name: Look up the digest of the last passed run on the base branch
-        env:
-          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          WORKFLOW: ${{ github.workflow_ref }}
-          DIGEST: ${{ steps.digest.outputs.shared-digest }}
-          BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          PUSHED: ${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && (github.event.client_payload.sha || github.sha) || '' }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Restore the passed results of the pull request
-        if: github.event_name == 'pull_request' && github.run_attempt == 1
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/suite-results/record.json
-          key: suite-results-${{ github.event.pull_request.number }}-run-lookup-${{ github.run_id }}
-          restore-keys: suite-results-${{ github.event.pull_request.number }}-run-
-      - name: Select the suites the changed files touch
-        id: select
-        env:
-          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config.suites }}
-          LANGUAGE_STEPS: ${{ join(fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config['language-steps'] || fromJSON('[]'), ' ') }}
-          PINNED_TOOLS: ${{ join(fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config['pinned-tools'] || fromJSON('[]'), ' ') }}
-          WORKFLOW: ${{ github.workflow_ref }}
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: |
-          set --
-          for step in $LANGUAGE_STEPS; do set -- "$@" --language-step "$step"; done
-          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$RESOURCE_PATH/../repository-hygiene/pins.json"; done
-          case "$EVENT" in
-            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;
-            pull_request) set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT" ;;
-            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct ;;
-          esac
-          set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
-
   # The suite jobs are the one reusable workflow that the pipeline calls: the full recording of automation.yml runs the
   # same jobs, so their steps stand once.
   suite-selection-jobs:
-    needs: [plan, suite-selection]
-    if: ${{ (needs.suite-selection.outputs.shards != '' && needs.suite-selection.outputs.shards != '[]') || needs.suite-selection.outputs.windows != '' }}
+    needs: plan
+    if: ${{ (needs.plan.outputs.shards != '' && needs.plan.outputs.shards != '[]') || needs.plan.outputs.windows != '' }}
     permissions:
       contents: read
     uses: $/.github/workflows/suite-jobs.yml
     with:
       suites: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config.suites }}
-      shards: ${{ needs.suite-selection.outputs.shards }}
-      windows: ${{ needs.suite-selection.outputs.windows }}
-      jobs: ${{ needs.suite-selection.outputs.jobs }}
-      language-steps: ${{ needs.suite-selection.outputs.language-steps }}
-      shared-digest: ${{ needs.suite-selection.outputs.shared-digest }}
+      shards: ${{ needs.plan.outputs.shards }}
+      windows: ${{ needs.plan.outputs.windows }}
+      jobs: ${{ needs.plan.outputs.jobs }}
+      language-steps: ${{ needs.plan.outputs.language-steps }}
+      shared-digest: ${{ needs.plan.outputs.shared-digest }}
 
   suite-selection-results:
-    needs: [suite-selection, suite-selection-jobs]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.suite-selection.result == 'success' }}
+    needs: [plan, suite-selection-jobs]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -762,7 +773,7 @@ jobs:
         run: |
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
           if [ "$ADDITIONS" = true ]; then set -- --additions "$RUNNER_TEMP/suite-results/additions" --root .; else set --; fi
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" store --needs "$RUNNER_TEMP/needs.json" --selection-job suite-selection --passed "$RUNNER_TEMP/suite-results/passed" --run-id "$RUN_ID" "$@" --output "$RUNNER_TEMP/suite-results/record.json" --github-output "$GITHUB_OUTPUT"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" store --needs "$RUNNER_TEMP/needs.json" --selection-job plan --passed "$RUNNER_TEMP/suite-results/passed" --run-id "$RUN_ID" "$@" --output "$RUNNER_TEMP/suite-results/record.json" --github-output "$GITHUB_OUTPUT"
       - name: Store the passed results in the pull request's cache
         if: steps.store.outputs.stored == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -771,7 +782,7 @@ jobs:
           key: suite-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}
 
   verdict:
-    needs: [plan, custom, dotnet-test, node-test, python-test, python-verify, repository-hygiene, suite-selection, suite-selection-jobs, suite-selection-results]
+    needs: [plan, custom, dotnet-test, node-test, python-test, python-verify, repository-hygiene, suite-selection-jobs, suite-selection-results]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     permissions:

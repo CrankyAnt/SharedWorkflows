@@ -362,85 +362,84 @@ class UnrecordedInputRolesTests(unittest.TestCase):
 
 
 class PipelinePartTests(unittest.TestCase):
-    """The part `suite-selection` of the pipeline: the selection, the call of the suite jobs and the store of the results."""
+    """The part `suite-selection` of the pipeline: the selection runs in `plan`, followed by the suite jobs and the store of the results."""
 
     def setUp(self) -> None:
         self.text, workflow = read_workflow(PIPELINE)
         self.jobs = workflow["jobs"]
         self.inputs = read_workflow(SUITE_JOBS)[1]["on"]["workflow_call"]["inputs"]
 
-    def test_the_selection_job_runs_the_steps_of_the_shared_selection_workflow_on_the_configured_suite_list(self) -> None:
+    def test_the_plan_job_runs_the_selection_steps_on_the_configured_suite_list(self) -> None:
         shared = read_workflow(SELECTION)[1]["jobs"]["select"]
-        ours = self.jobs[PART]
-        self.assertEqual([step_key(step) for step in shared["steps"]], [step_key(step) for step in ours["steps"]])
-        for theirs, step in zip(shared["steps"], ours["steps"]):
-            with self.subTest(step=step_key(step)):
-                if step_key(step) == SELECT_STEP:
-                    self.assertEqual(f"${{{{ {PLANNED}.config.suites }}}}", step["env"]["SUITES"])
-                    self.assertEqual(f"${{{{ join({PLANNED}.config['language-steps'] || fromJSON('[]'), ' ') }}}}", step["env"]["LANGUAGE_STEPS"])
-                    self.assertEqual(f"${{{{ join({PLANNED}.config['pinned-tools'] || fromJSON('[]'), ' ') }}}}", step["env"]["PINNED_TOOLS"])
-                    self.assertEqual(set(theirs["env"]) - {"RUNNER_LABELS", "SETUP_VERSIONS"} | {"PINNED_TOOLS"}, set(step["env"]),
-                                     "the runner labels and the setups are data of the suite list, and the pinned tools a setting of the part")
-                    pinned = '\n          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$RESOURCE_PATH/../repository-hygiene/pins.json"; done'
-                    self.assertEqual(1, self.text.count(pinned), "select takes the pinned tools with the pins file of this revision")
-                    without = re.sub(r"\n +for (?:label|version) in [^\n]+", "", theirs["run"])
-                    ours_run = step["run"].replace(pinned.replace("\n          ", "\n"), "")
-                    self.assertNotEqual(ours_run, step["run"])
-                    self.assertEqual(re.sub(r"\s+", " ", without).replace("pull_request) set", "pull_request) set").strip(),
-                                     re.sub(r"\s+", " ", ours_run).replace(" ;; *)", " ;; *)").strip())
-                else:
-                    self.assertEqual(theirs, step, "a step of the selection is equal in both workflows")
-        self.assertEqual(shared["permissions"], ours["permissions"])
-        self.assertEqual(shared["runs-on"], ours["runs-on"])
+        plan_steps = {step_key(step): step for step in self.jobs["plan"]["steps"]}
+        self.assertNotIn(PART, self.jobs, "suite-selection runs in plan, not in a separate job")
+        for step in shared["steps"]:
+            self.assertIn(step_key(step), plan_steps, f"selection step {step_key(step)!r} runs in plan")
+        select = plan_steps[SELECT_STEP]
+        initial = "fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection']"
+        self.assertEqual(f"${{{{ {initial}.config.suites }}}}", select["env"]["SUITES"])
+        self.assertEqual(f"${{{{ join({initial}.config['language-steps'] || fromJSON('[]'), ' ') }}}}", select["env"]["LANGUAGE_STEPS"])
+        self.assertEqual(f"${{{{ join({initial}.config['pinned-tools'] || fromJSON('[]'), ' ') }}}}", select["env"]["PINNED_TOOLS"])
+        pinned = '\n          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$HYGIENE_PATH/pins.json"; done'
+        self.assertEqual(1, self.text.count(pinned), "select takes the pinned tools with the pins file of this revision")
+        self.assertIn('--unit-decisions "$RUNNER_TEMP/unit-decisions.json"', select["run"])
 
-    def test_the_selection_job_gives_the_outputs_of_select_and_the_jobs_of_the_suite_list(self) -> None:
+    def test_the_plan_job_gives_the_outputs_of_select_and_the_jobs_of_the_suite_list(self) -> None:
         shared = read_workflow(SELECTION)[1]["jobs"]["select"]["outputs"]
-        self.assertEqual({**shared, "jobs": "${{ steps.select.outputs.jobs }}"}, self.jobs[PART]["outputs"])
+        for key, value in {**shared, "jobs": "${{ steps.select.outputs.jobs }}"}.items():
+            self.assertEqual(value, self.jobs["plan"]["outputs"].get(key), key)
 
     def test_the_suite_jobs_run_when_the_selection_selects_an_entry_file_or_a_language_step(self) -> None:
         job = self.jobs[f"{PART}-jobs"]
         self.assertEqual(LOCAL_CALL, job["uses"])
-        self.assertEqual(["plan", PART], needed(job))
+        self.assertEqual(["plan"], needed(job))
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertNotIn("secrets", job)
         for shards, windows, runs in (("", "", False), ("[]", "", False), ('[{"shard":1}]', "", True), ("", '{"entries":[]}', True), ("[]", "x", True)):
             with self.subTest(shards=shards, windows=windows):
-                context = {"needs": {PART: {"outputs": {"shards": shards, "windows": windows}}}}
-                self.assertEqual(runs, bool(expression_value(job["if"].replace(f"needs.{PART}", "needs.selection"), {"needs": {"selection": context["needs"][PART]}})))
+                context = {"needs": {"plan": {"outputs": {"shards": shards, "windows": windows}}}}
+                self.assertEqual(runs, bool(expression_value(job["if"], context)))
 
     def test_the_suite_jobs_get_exactly_the_inputs_that_the_workflow_declares_from_the_selection_and_the_configuration(self) -> None:
         passed = self.jobs[f"{PART}-jobs"]["with"]
         self.assertEqual(set(self.inputs) - {"full"}, set(passed), "the mode stays the default: no full recording")
         self.assertEqual(f"${{{{ {PLANNED}.config.suites }}}}", passed["suites"])
         for name in ("shards", "windows", "jobs", "language-steps", "shared-digest"):
-            self.assertEqual(f"${{{{ needs.{PART}.outputs.{name} }}}}", passed[name])
+            self.assertEqual(f"${{{{ needs.plan.outputs.{name} }}}}", passed[name])
 
-    def test_suite_selection_and_suite_jobs_rely_on_workflow_level_concurrency(self) -> None:
-        self.assertNotIn("concurrency", self.jobs[PART])
+    def test_suite_jobs_rely_on_workflow_level_concurrency(self) -> None:
+        self.assertNotIn("concurrency", self.jobs["plan"])
         self.assertNotIn("concurrency", self.jobs[f"{PART}-jobs"])
 
     def test_the_results_job_stores_the_passed_results_of_a_pull_request_run_that_was_not_cancelled(self) -> None:
         job = self.jobs[f"{PART}-results"]
-        self.assertEqual([PART, f"{PART}-jobs"], needed(job))
+        self.assertEqual(["plan", f"{PART}-jobs"], needed(job))
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertEqual("ubuntu-slim", job["runs-on"])
-        condition = job["if"].replace(f"needs.{PART}.result", "needs.select.result")
-        for event, result, runs in (("pull_request", "success", True), ("push", "success", False), ("pull_request", "failure", False),
-                                    ("pull_request", "skipped", False), ("repository_dispatch", "success", False)):
-            with self.subTest(event=event, result=result):
-                self.assertEqual(runs, condition_holds(condition, {"github.event_name": event, "needs.select.result": result}))
+        for event, result, units, reused, runs in (
+            ("pull_request", "success", '{"k":1}', "", True),
+            ("pull_request", "success", "", '{"k":1}', True),
+            ("pull_request", "success", "", "", False),
+            ("push", "success", '{"k":1}', "", False),
+            ("pull_request", "failure", '{"k":1}', "", False),
+            ("pull_request", "skipped", '{"k":1}', "", False),
+            ("repository_dispatch", "success", '{"k":1}', "", False),
+        ):
+            with self.subTest(event=event, result=result, units=units, reused=reused):
+                context = {"github": {"event_name": event}, "needs": {"plan": {"result": result, "outputs": {"units": units, "reused": reused}}}}
+                self.assertEqual(runs, bool(expression_value(job["if"].replace("!cancelled() && ", ""), context)))
         self.assertIn("!cancelled()", job["if"], "the passes of a run with a failed suite job are stored; those of a cancelled run are not")
         shared = {step_key(step): step for step in read_workflow(VERDICT)[1]["jobs"]["validation"]["steps"]}
         names = [step_key(step) for step in job["steps"]]
         self.assertEqual([name for name in shared if name != "Decide the verdict from the selection and the results of the called jobs"], names)
         store = job["steps"][names.index("Write the record of the passed results")]
         self.assertEqual("${{ toJSON(needs) }}", store["env"]["NEEDS"])
-        self.assertIn(f"--selection-job {PART} ", store["run"])
+        self.assertIn("--selection-job plan ", store["run"])
         self.assertEqual(shared["Store the passed results in the pull request's cache"]["with"], job["steps"][-1]["with"])
         self.assertEqual("steps.store.outputs.stored == 'true'", job["steps"][-1]["if"])
 
-    def test_the_verdict_fails_on_a_failed_selection_suite_job_or_store(self) -> None:
-        self.assertLessEqual({PART, f"{PART}-jobs", f"{PART}-results"}, set(needed(self.jobs["verdict"])))
+    def test_the_verdict_fails_on_a_failed_plan_suite_job_or_store(self) -> None:
+        self.assertLessEqual({"plan", f"{PART}-jobs", f"{PART}-results"}, set(needed(self.jobs["verdict"])))
 
 
 class FullRecordingCallTests(unittest.TestCase):

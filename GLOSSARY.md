@@ -109,7 +109,7 @@ The shared workflow that the writing fixed caller calls: it runs the shared part
 _Avoid_: Write pipeline, bot workflow
 
 **Plan**:
-The first job of the pipeline, which checks the configuration file against its schema and decides, from the file and the change, which shared parts run and with which values.
+The first job of the pipeline, which checks out the repository once to validate the configuration file against its schema, runs the push lookup, the shared lookup, suite selection, hygiene change detection and the light hygiene checks, and decides per shared part and per selected unit whether it runs and why, turning off every tree-based shared part on a push whose tree already passed on its pull request.
 _Avoid_: Planner, setup job
 
 **Schema fragment**:

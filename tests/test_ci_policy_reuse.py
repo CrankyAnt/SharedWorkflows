@@ -87,9 +87,12 @@ class StoreStepTests(unittest.TestCase):
         self.assertEqual(PREFIX + "${{ github.run_id }}-${{ github.run_attempt }}", save["with"]["key"])
         self.assertNotIn("if", steps[-1], "the verdict itself reports on every run")
         pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
-        self.assertEqual(1, pipeline_text.count("uses: actions/cache/save"))
+        self.assertEqual(2, pipeline_text.count("uses: actions/cache/save"))
         results = pipeline["jobs"]["suite-selection-results"]
-        self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' && needs.suite-selection.result == 'success' }}", results["if"])
+        self.assertEqual(
+            "${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}",
+            results["if"],
+        )
         self.assertEqual(save["with"], results["steps"][-1]["with"], "the pipeline stores under the key that the selection restores")
 
     def test_store_keys_the_passed_units_under_the_run_s_additions_in_a_checkout_of_the_tested_tree(self) -> None:

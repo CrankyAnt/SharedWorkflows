@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from tests.pipeline_fixtures import CONFIGURATION, FIXTURE_PARTS, PipelineFixture, git
+from tests.pipeline_fixtures import CONFIGURATION, FIXTURE_PARTS, SCHEMAS, PipelineFixture, git
 
 
 class ConfigurationTests(PipelineFixture):
@@ -335,6 +335,201 @@ class OtherWorkflowTests(PipelineFixture):
                 outcome = self.plan()
                 self.assertEqual(1, outcome.status)
                 self.assertIn(message, outcome.summary)
+
+
+class PushLookupPlanTests(PipelineFixture):
+    """The plan command with a push lookup from ``suite_selection.py lookup``."""
+
+    def write_lookup(self, payload: dict | str) -> str:
+        path = self.directory / "push-lookup.json"
+        path.write_text(payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8")
+        return str(path)
+
+    def test_an_identical_tree_push_turns_off_every_non_always_part_including_parts_without_paths(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  fixture-build: {}\n  fixture-test:\n    paths: [src/]\n", "src/a.py": "1\n"})
+        head = self.commit({"src/a.py": "2\n"})
+        lookup = self.write_lookup({"case": "identical", "head": head, "landing_base": base, "pull_request": 12, "reason": "identical tree"})
+        outcome = self.plan("--lookup", lookup)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertTrue(outcome.plan["compared"])
+        for part in ("fixture-build", "fixture-test"):
+            with self.subTest(part=part):
+                self.assertIs(False, outcome.plan["parts"][part]["run"])
+                self.assertIs(True, outcome.plan["parts"][part]["reused"])
+                self.assertIn("#12", outcome.plan["parts"][part]["reason"])
+        self.assertIs(True, outcome.plan["parts"]["fixture-floor"]["run"])
+
+    def test_an_identical_tree_push_with_the_real_schema_turns_off_language_and_test_parts(self) -> None:
+        self.schemas = SCHEMAS
+        config = """\
+            version: 1
+            parts:
+              custom:
+                script: ci/check.sh
+              python-verify:
+                projects:
+                  - python-version: "3.14"
+              python-test:
+                projects:
+                  - python-version: "3.14"
+              dotnet-test:
+                projects:
+                  - sdk-version: "10.0.x"
+                    project: App.Tests.csproj
+              node-test:
+                projects:
+                  - working-directory: web
+              suite-selection:
+                suites: tests/suites.json
+            """
+        base = self.commit({CONFIGURATION: config, "src/app.py": "1\n"})
+        head = self.commit({"src/app.py": "2\n"})
+        lookup = self.write_lookup({"case": "identical", "head": head, "landing_base": base, "pull_request": 42, "reason": "identical tree"})
+        outcome = self.plan("--lookup", lookup)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        for part in ("custom", "python-verify", "python-test", "dotnet-test", "node-test", "suite-selection"):
+            with self.subTest(part=part):
+                self.assertIs(False, outcome.plan["parts"][part]["run"])
+                self.assertIs(True, outcome.plan["parts"][part]["reused"])
+        self.assertIs(True, outcome.plan["parts"]["repository-hygiene"]["run"])
+
+    def test_a_behind_push_runs_parts_affected_by_either_the_pull_request_or_the_newer_base(self) -> None:
+        parts = {
+            **FIXTURE_PARTS,
+            "fixture-docs": {"description": "Docs part.", "configuration": {"type": "object", "additionalProperties": False, "properties": {"paths": {"$ref": "#/$defs/paths"}}}},
+            "fixture-web": {"description": "Web part.", "configuration": {"type": "object", "additionalProperties": False, "properties": {"paths": {"$ref": "#/$defs/paths"}}}},
+        }
+        self.schemas = self.schema_folder("behind", versions=(1,), parts=parts)
+        config = """\
+            version: 1
+            parts:
+              fixture-test:
+                paths: [src/]
+              fixture-docs:
+                paths: [docs/]
+              fixture-web:
+                paths: [web/]
+            """
+        tested_base = self.commit({CONFIGURATION: config, "src/a.py": "1\n", "docs/a.md": "1\n", "web/a.js": "1\n"})
+        landing = self.commit({"docs/a.md": "2\n"})
+        head = self.commit({"src/a.py": "2\n"})
+        lookup = self.write_lookup({"case": "behind", "head": head, "landing_base": landing, "tested_base": tested_base, "pull_request": 12, "reason": "behind"})
+        outcome = self.plan("--lookup", lookup)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["fixture-test"]["run"])
+        self.assertIs(True, outcome.plan["parts"]["fixture-docs"]["run"])
+        self.assertIs(False, outcome.plan["parts"]["fixture-web"]["run"])
+
+    def test_an_own_or_pull_request_lookup_compares_from_the_landing_base_and_falls_back_when_absent(self) -> None:
+        config = "version: 1\nparts:\n  fixture-test:\n    paths: [src/]\n"
+        base = self.commit({CONFIGURATION: config, "README.md": "1\n", "src/a.py": "1\n"})
+        head = self.commit({"README.md": "2\n"})
+        for case in ("own", "pull-request"):
+            with self.subTest(case=case):
+                lookup = self.write_lookup({"case": case, "head": head, "landing_base": base, "reason": "fallback"})
+                outcome = self.plan("--lookup", lookup)
+                self.assertEqual(0, outcome.status, outcome.summary)
+                self.assertIs(False, outcome.plan["parts"]["fixture-test"]["run"])
+        lookup = self.write_lookup({"case": "own", "head": head, "landing_base": None, "reason": "no landing base"})
+        outcome = self.plan("--lookup", lookup)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["fixture-test"]["run"])
+        self.assertEqual("the changed files are unknown", outcome.plan["parts"]["fixture-test"]["reason"])
+
+    def test_an_unreadable_lookup_file_falls_back_to_unknown_changed_files(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  fixture-test:\n    paths: [src/]\n"})
+        for lookup in (str(self.directory / "missing.json"), self.write_lookup("{bad json")):
+            with self.subTest(lookup=lookup):
+                outcome = self.plan("--lookup", lookup)
+                self.assertEqual(0, outcome.status, outcome.summary)
+                self.assertFalse(outcome.plan["compared"])
+                self.assertIs(True, outcome.plan["parts"]["fixture-test"]["run"])
+                self.assertEqual("the changed files are unknown", outcome.plan["parts"]["fixture-test"]["reason"])
+
+
+class UnitDecisionPlanTests(PipelineFixture):
+    """The plan command with per-unit decisions from ``suite_selection.py select --unit-decisions``."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = SCHEMAS
+
+    def write_units(self, payload: dict) -> str:
+        path = self.directory / "unit-decisions.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return str(path)
+
+    def test_the_plan_includes_per_unit_decisions_and_reasons_in_its_output_and_summary(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  suite-selection:\n    suites: tests/suites.json\n"})
+        units_file = self.write_units({
+            "run": True,
+            "reused": False,
+            "reason": "1 Linux shard",
+            "units": {
+                "pipeline:tests/test_pipeline_plan.py": {"run": True, "reason": "actions/pipeline/plan.py changed"},
+                "pipeline:tests/test_pipeline_verdict.py": {"run": False, "reused": True, "reason": "reuses the passed result of run 7"},
+                "sync": {"run": False, "reason": "no read changed"},
+            },
+        })
+        outcome = self.plan("--unit-decisions", units_file)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["suite-selection"]["run"])
+        self.assertEqual("1 Linux shard", outcome.plan["parts"]["suite-selection"]["reason"])
+        self.assertEqual(
+            {
+                "pipeline:tests/test_pipeline_plan.py": {"run": True, "reason": "actions/pipeline/plan.py changed"},
+                "pipeline:tests/test_pipeline_verdict.py": {"run": False, "reused": True, "reason": "reuses the passed result of run 7"},
+                "sync": {"run": False, "reason": "no read changed"},
+            },
+            outcome.plan["units"],
+        )
+        self.assertIn("| `pipeline:tests/test_pipeline_plan.py` | yes | actions/pipeline/plan.py changed |", outcome.summary)
+        self.assertIn("| `pipeline:tests/test_pipeline_verdict.py` | no (taken over) | reuses the passed result of run 7 |", outcome.summary)
+        self.assertIn("| `sync` | no | no read changed |", outcome.summary)
+
+    def test_unit_decisions_that_run_nothing_mark_suite_selection_as_not_running_or_taken_over(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  suite-selection:\n    suites: tests/suites.json\n"})
+        reused_file = self.write_units({
+            "run": False,
+            "reused": True,
+            "reason": "2 passed units taken over",
+            "units": {"sync": {"run": False, "reused": True, "reason": "reuses the passed result of run 9"}},
+        })
+        reused = self.plan("--unit-decisions", reused_file)
+        self.assertEqual(0, reused.status, reused.summary)
+        self.assertIs(False, reused.plan["parts"]["suite-selection"]["run"])
+        self.assertIs(True, reused.plan["parts"]["suite-selection"]["reused"])
+        self.assertEqual("2 passed units taken over", reused.plan["parts"]["suite-selection"]["reason"])
+
+        skipped_file = self.write_units({
+            "run": False,
+            "reused": False,
+            "reason": "no suites selected",
+            "units": {"sync": {"run": False, "reason": "no read changed"}},
+        })
+        skipped = self.plan("--unit-decisions", skipped_file)
+        self.assertEqual(0, skipped.status, skipped.summary)
+        self.assertIs(False, skipped.plan["parts"]["suite-selection"]["run"])
+        self.assertNotIn("reused", skipped.plan["parts"]["suite-selection"])
+        self.assertEqual("no suites selected", skipped.plan["parts"]["suite-selection"]["reason"])
+
+    def test_unit_decisions_from_a_moved_digest_override_an_identical_push_lookup_for_suite_selection(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n  suite-selection:\n    suites: tests/suites.json\n"})
+        head = self.commit({"README.md": "x\n"})
+        lookup = self.directory / "push-lookup.json"
+        lookup.write_text(json.dumps({"case": "identical", "head": head, "landing_base": base, "pull_request": 5, "reason": "identical"}), encoding="utf-8")
+        units_file = self.write_units({
+            "run": True,
+            "reused": False,
+            "reason": "every suite runs: shared digest moved",
+            "units": {"sync": {"run": True, "reason": "every suite runs: shared digest moved"}},
+        })
+        outcome = self.plan("--lookup", str(lookup), "--unit-decisions", units_file)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(False, outcome.plan["parts"]["custom"]["run"])
+        self.assertIs(True, outcome.plan["parts"]["custom"]["reused"])
+        self.assertIs(True, outcome.plan["parts"]["suite-selection"]["run"])
+        self.assertNotIn("reused", outcome.plan["parts"]["suite-selection"])
 
 
 if __name__ == "__main__":

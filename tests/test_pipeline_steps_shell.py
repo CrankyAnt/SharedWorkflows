@@ -195,12 +195,13 @@ class PipelineStepShellTests(unittest.TestCase):
     # --- the tool installation and the Gitleaks step --------------------------------------------------------------
 
     def install(self, **changes: str) -> subprocess.CompletedProcess[str]:
-        outputs = {"actionlint": "false", "zizmor": "false", "reuse": "false", **changes}
-        ran, _ = self.run_step("repository-hygiene", "install", {"steps": {"resources": self.loaded("repository-hygiene"), "changes": {"outputs": outputs}}})
+        outputs = {"hygiene-actionlint": "false", "hygiene-zizmor": "false", "hygiene-reuse": "false",
+                   **{f"hygiene-{key}": value for key, value in changes.items()}}
+        ran, _ = self.run_step("repository-hygiene", "install", {"steps": {"resources": self.loaded("repository-hygiene")}, "needs": {"plan": {"outputs": outputs}}})
         return ran
 
     def installed(self) -> list[str]:
-        return sorted(path.name for path in (self.runner_temp / "hygiene-tools").iterdir())
+        return sorted(path.name for path in (self.runner_temp / "hygiene-tools").iterdir() if not path.name.startswith(".pin-"))
 
     def test_the_tool_installation_installs_gitleaks_alone_when_no_other_check_runs(self) -> None:
         self.commit({"README.md": "A consumer.\n"})

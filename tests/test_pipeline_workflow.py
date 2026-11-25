@@ -30,10 +30,14 @@ class PipelineInvocationTests(unittest.TestCase):
         self.invocations = script_invocations(WORKFLOW, "plan.py")
 
     def test_the_pipeline_starts_the_plan_and_then_the_verdict_with_options_that_the_program_accepts(self) -> None:
-        self.assertEqual(["plan", "setting", "setting", "verdict"], [tokens[0] for tokens in self.invocations])
+        self.assertEqual(["plan", "plan", "setting", "setting", "verdict"], [tokens[0] for tokens in self.invocations])
         for tokens in self.invocations:
             with self.subTest(command=tokens[0]):
-                plan_program.parser().parse_args(tokens)
+                if tokens[0] == "plan":
+                    for mode in (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--lookup", "x", "--unit-decisions", "x"]):
+                        plan_program.parser().parse_args([tokens[0], *mode, *[token for token in tokens[1:] if token != "$@"]])
+                else:
+                    plan_program.parser().parse_args(tokens)
 
     def test_the_hygiene_job_reads_the_two_exclusions_of_repository_hygiene_from_the_checkout(self) -> None:
         settings = [plan_program.parser().parse_args(tokens) for tokens in self.invocations if tokens[0] == "setting"]
@@ -42,7 +46,9 @@ class PipelineInvocationTests(unittest.TestCase):
             self.assertEqual((".", str(plan_program.SCHEMAS)), (options.root, options.schemas), "the setting is read with the schema of the pipeline's own revision")
 
     def test_the_plan_gets_the_change_and_the_run_and_writes_its_outputs_and_its_summary(self) -> None:
-        options = plan_program.parser().parse_args(self.invocations[0])
+        final_plan = [tokens for tokens in self.invocations if tokens[0] == "plan"][-1]
+        options = plan_program.parser().parse_args([final_plan[0], "--base", "x", "--head", "x", "--compare", "direct",
+                                                    *[token for token in final_plan[1:] if token != "$@"]])
         self.assertEqual(".", options.root)
         self.assertEqual(str(plan_program.SCHEMAS), options.schemas, "the pipeline reads the schema of its own revision")
         for name in ("base", "head", "workflow", "event", "pull_request", "github_output", "summary"):
@@ -170,7 +176,7 @@ class ExclusionStepRunTests(PipelineFixture):
     DEPENDABOT = "version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: /\n    schedule:\n      interval: weekly\n"
 
     def run_step(self, step_id: str, pipeline_path: str = str(REPOSITORY_ROOT / "actions" / "pipeline")) -> subprocess.CompletedProcess:
-        step = next(step for step in read_workflow(WORKFLOW)[1]["jobs"]["repository-hygiene"]["steps"] if step.get("id") == step_id)
+        step = next(step for step in read_workflow(WORKFLOW)[1]["jobs"]["plan"]["steps"] if step.get("id") == step_id)
         environment = {**os.environ, "RESOURCE_PATH": str(HYGIENE_FOLDER), "PIPELINE_PATH": pipeline_path,
                        "RUNNER_TEMP": str(self.directory), "GITHUB_STEP_SUMMARY": str(self.directory / "step-summary.md")}
         return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repository, env=environment, capture_output=True, text=True, encoding="utf-8")

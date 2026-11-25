@@ -226,7 +226,7 @@ class ReachTests(unittest.TestCase):
 
     def test_a_previous_version_that_keeps_a_job_of_the_pipeline_from_starting_is_named(self) -> None:
         older = ci_definition().read_yaml(self.template.replace("      issues: read\n", ""), "an invented older version")
-        self.assertEqual(["the job repository-hygiene needs issues: read, which the caller does not grant"], reach_problems(older, self.pipeline))
+        self.assertEqual(["the job plan needs issues: read, which the caller does not grant"], reach_problems(older, self.pipeline))
         without_push = ci_definition().read_yaml(self.template.replace("  push:\n    branches: [main]\n", ""), "an invented older version")
         self.assertEqual(["the caller does not run on push"], reach_problems(without_push, self.pipeline))
         without_dispatch = ci_definition().read_yaml(self.template.replace("  repository_dispatch:\n    types: [dependabot-merged]\n", ""), "an invented older version")

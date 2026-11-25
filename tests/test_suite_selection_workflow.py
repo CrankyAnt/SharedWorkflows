@@ -49,10 +49,20 @@ class SelectionReadsTheWorkflowTests(unittest.TestCase):
                 [sys.executable, str(REPOSITORY_ROOT / "actions/suite-selection/suite_selection.py"), "select", "--root", ".",
                  "--suites", "tests/suites.json", "--workflow", ".github/workflows/ci.yml", "--language-step", "python",
                  "--pinned-tool", "gitleaks", "--pins", "actions/repository-hygiene/pins.json",
-                 "--changed-file", "actions/python-language-step/python_language_step.py", "--json-output", str(output)],
+                 "--changed-file", "actions/python-language-step/python_language_step.py", "--json-output", str(output),
+                 "--unit-decisions", str(Path(directory) / "unit-decisions.json")],
                 cwd=checkout, capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertIn('language-steps={"python":"run"}\n', output.read_text(encoding="utf-8"))
+            import json
+
+            unit_doc = json.loads((Path(directory) / "unit-decisions.json").read_text(encoding="utf-8"))
+            self.assertIsInstance(unit_doc["run"], bool)
+            self.assertIsInstance(unit_doc["units"], dict)
+            self.assertTrue(unit_doc["units"], "unit-decisions names every selected or skipped unit with its reason")
+            for decision in unit_doc["units"].values():
+                self.assertIsInstance(decision["run"], bool)
+                self.assertIsInstance(decision["reason"], str)
 
 class SharedWorkflowTests(unittest.TestCase):
     def test_the_selection_workflow_holds_the_contract(self) -> None:
