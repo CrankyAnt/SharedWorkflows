@@ -144,11 +144,15 @@ BARE_DISPATCH_CONTEXT = {"github": {"event_name": "repository_dispatch", "sha": 
                                     "event": {"action": "dependabot-merged", "repository": {"default_branch": "main"}}}}
 
 
-def passed_list_steps(steps: list[dict], check_outcome: str, additions: str, keep_outcome: str = "success") -> list[str]:
-    """The ids, or names, of the steps of a suite job whose condition reads the check's outcome or outputs and that run on a
-    pull request after the step ``check`` ended with ``check_outcome`` and the action output ``additions``. The step
+def passed_list_steps(steps: list[dict], check_outcome: str, additions: str, keep_outcome: str = "success", *,
+                      event_name: str = "pull_request", ref_type: str = "branch", ref_name: str = "main",
+                      default_branch: str = "main") -> list[str]:
+    """The ids, or names, of the steps of a suite job whose condition reads the check's outcome or outputs and that run on
+    ``event_name`` after the step ``check`` ended with ``check_outcome`` and the action output ``additions``. The step
     ``keep`` ends with ``keep_outcome`` when it runs and with ``skipped`` otherwise."""
-    values = {"github.event_name": "pull_request", "steps.check.outcome": check_outcome, "steps.check.outputs.additions": additions,
+    values = {"github.event_name": event_name, "github.ref_type": ref_type, "github.ref_name": ref_name,
+              "github.event.repository.default_branch": default_branch,
+              "steps.check.outcome": check_outcome, "steps.check.outputs.additions": additions,
               "steps.keep.outcome": "skipped"}
     ran = []
     for step in steps:

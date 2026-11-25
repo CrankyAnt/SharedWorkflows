@@ -743,13 +743,17 @@ def read_lookup(path: Path) -> dict:
     return found
 
 
-def both_sides(pull_request: dict[str, tuple[bool, str]], main: dict[str, tuple[bool, str]]) -> dict[str, tuple[bool, str]]:
-    """A check runs on a behind push only when the pull request's side and main's side both select it."""
+def both_sides(pull_request: dict[str, tuple[bool, str]], main: dict[str, tuple[bool, str]], *,
+               landing_base_passed: bool = True) -> dict[str, tuple[bool, str]]:
+    """On a behind push whose landing base passed, a check runs only when both sides select it; until the landing base
+    has passed, every check the newer base selects runs so nothing it can affect is taken over."""
     decisions = {}
     for name in CHECKS:
-        (ours, reason), (theirs, _) = pull_request[name], main[name]
+        (ours, reason), (theirs, base_reason) = pull_request[name], main[name]
         if ours and theirs:
             decisions[name] = (True, f"both sides select it: {reason}")
+        elif theirs and not landing_base_passed:
+            decisions[name] = (True, f"the newer base has not passed: {base_reason}")
         elif ours:
             decisions[name] = (False, "only the pull request's side selects it")
         elif theirs:
@@ -807,7 +811,7 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
                     changed = None
                     decisions = decide_changes(None, definition, set(), set(), dependabot_coverage.load_ecosystems(ecosystems), root)
                 else:
-                    decisions = both_sides(ours, theirs)
+                    decisions = both_sides(ours, theirs, landing_base_passed=found.get("landing_base_passed") is True)
             else:
                 changed, decisions = decisions_between(root, landing, found["head"], "direct", *inputs)
     current_reuse_version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))

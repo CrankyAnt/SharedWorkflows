@@ -694,6 +694,8 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     }
     if head_results is None and (selected_units := read_unit_decisions(unit_decisions)) is not None:
         result["units"] = selected_units["units"]
+        if isinstance(selected_units.get("fallbacks"), dict) and selected_units["fallbacks"]:
+            result["fallbacks"] = selected_units["fallbacks"]
     if head_results is not None:
         result["head-results"] = head_results
     return result
@@ -728,6 +730,10 @@ def plan_markdown(plan: dict) -> str:
             lines += ["", f"Code results of the head: passed in run {head_results.get('run_id')}."]
         else:
             lines += ["", "Code results of the head: " + "; ".join(head_results.get("failures") or ["not passed"]) + "."]
+    fallbacks = plan.get("fallbacks")
+    if isinstance(fallbacks, dict) and fallbacks:
+        counts = ", ".join(f"`{name}` ({count})" for name, count in sorted(fallbacks.items()))
+        lines += ["", f"Fallbacks: {counts}."]
     return "\n".join([*lines, "", *comparison_lines(plan)]) + "\n"
 
 

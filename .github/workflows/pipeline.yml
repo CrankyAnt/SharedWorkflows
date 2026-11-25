@@ -15,6 +15,8 @@ jobs:
       pull-requests: read
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
+      commit: ${{ steps.tested-ref.outputs.commit }}
+      tree: ${{ steps.tested-ref.outputs.tree }}
       push-lookup: ${{ steps.lookup.outputs.lookup }}
       hygiene-actionlint: ${{ steps.changes.outputs.actionlint }}
       hygiene-zizmor: ${{ steps.changes.outputs.zizmor }}
@@ -56,6 +58,19 @@ jobs:
           PAYLOAD: ${{ github.event.client_payload.sha }}
           BRANCH: ${{ github.event.repository.default_branch }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
+      - name: Record the checked-out commit and tree
+        id: tested-ref
+        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
+        run: |
+          printf 'commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+      - name: Restore the default-branch record
+        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/default-branch-record/record.json
+          key: default-branch-record-lookup-${{ github.run_id }}
+          restore-keys: default-branch-record-
       - name: Look up the tested tree of the pushed commit's pull request
         id: lookup
         if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
@@ -67,7 +82,7 @@ jobs:
           BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
           printf 'lookup=%s\n' "$(jq -c . "$RUNNER_TEMP/push-lookup.json")" >> "$GITHUB_OUTPUT"
       - name: Restore the default-branch REUSE version marker
         if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
@@ -127,17 +142,12 @@ jobs:
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
-      - name: Look up the shared CI digests of the last passed run on the base branch
+      - name: Look up the shared CI digests from the default-branch record
         if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
         env:
           RESOURCE_PATH: ${{ steps.selection.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          WORKFLOW: ${{ github.workflow_ref }}
           DIGESTS: ${{ steps.digest.outputs.shared-digests }}
-          BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          PUSHED: ${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && (github.event.client_payload.sha || github.sha) || '' }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Restore the passed results of the pull request
         if: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' && github.run_attempt == 1 && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -164,9 +174,9 @@ jobs:
           for step in $LANGUAGE_STEPS; do set -- "$@" --language-step "$step"; done
           for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$HYGIENE_PATH/pins.json"; done
           case "$EVENT" in
-            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;
-            pull_request) set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT" ;;
-            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct ;;
+            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --run-attempt "$RUN_ATTEMPT" ;;
+            pull_request) set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --run-attempt "$RUN_ATTEMPT" ;;
+            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct --run-attempt "$RUN_ATTEMPT" ;;
           esac
           set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json" --unit-decisions "$RUNNER_TEMP/unit-decisions.json"
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
@@ -197,6 +207,23 @@ jobs:
             set -- "$@" --unit-decisions "$RUNNER_TEMP/unit-decisions.json"
           fi
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --workflow-ref "$WORKFLOW_REF" --event "$EVENT" --event-action "$EVENT_ACTION" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Record the tested state of the pull request
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' }}
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DIGESTS: ${{ steps.digest.outputs.shared-digests }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" tested-state --root . --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --digests "$DIGESTS" --output "$RUNNER_TEMP/tested-state.json"
+      - name: Upload the tested state of the pull request
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tested-state
+          path: ${{ runner.temp }}/tested-state.json
+          retention-days: 30
+          if-no-files-found: error
       - name: Decide whether the PR author skips the convention checks
         id: author-decision
         if: ${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' }}
@@ -811,9 +838,36 @@ jobs:
         id: resources
         uses: $/actions/pipeline
       - name: Decide the verdict from the plan and the results of the parts
+        id: verdict
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           NEEDS: ${{ toJSON(needs) }}
         run: |
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" verdict --needs "$RUNNER_TEMP/needs.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Load the scripts of the suite selection from this workflow revision
+        id: selection
+        if: ${{ !cancelled() && steps.verdict.outcome == 'success' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
+        uses: $/actions/suite-selection
+      - name: Download the entry files that passed in the run
+        if: ${{ !cancelled() && steps.verdict.outcome == 'success' && needs.suite-selection-jobs.result == 'success' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: suite-results-*
+          path: ${{ runner.temp }}/suite-results/passed
+      - name: Write the default-branch record
+        id: store-default
+        if: ${{ !cancelled() && steps.verdict.outcome == 'success' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
+        env:
+          SELECTION_PATH: ${{ steps.selection.outputs.path }}
+          RUN_ID: ${{ github.run_id }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          TREE: ${{ needs.plan.outputs.tree }}
+          DIGESTS: ${{ needs.plan.outputs.shared-digests }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" store --default-branch --needs "$RUNNER_TEMP/needs.json" --selection-job plan --passed "$RUNNER_TEMP/suite-results/passed" --run-id "$RUN_ID" --commit "$COMMIT" --tree "$TREE" --digests "$DIGESTS" --output "$RUNNER_TEMP/default-branch-record/record.json" --github-output "$GITHUB_OUTPUT"
+      - name: Store the default-branch record in the default branch's cache
+        if: ${{ !cancelled() && steps.verdict.outcome == 'success' && steps.store-default.outputs.stored == 'true' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/default-branch-record/record.json
+          key: default-branch-record-${{ github.run_id }}-${{ github.run_attempt }}

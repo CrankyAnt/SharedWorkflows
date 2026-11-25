@@ -27,6 +27,7 @@ LEFT_OUT = {
 # The steps that differ between the two jobs, each with its reason; every other step is equal in both.
 DIFFERENT = {
     "Load resources from this workflow revision": "the pipeline loads hygiene resources in plan under id hygiene",
+    "Restore the default-branch record": "the pipeline restores the default-branch record for pull requests as well as pushes, and skips it on edited",
     "Look up the tested tree of the pushed commit's pull request": "the pipeline runs the push lookup once in plan and exports it as an output",
     "Restore the default-branch REUSE version marker": "the pipeline restores the marker in plan and skips it on edited",
     "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run, and runs change detection in plan",

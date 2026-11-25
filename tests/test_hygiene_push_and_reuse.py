@@ -54,17 +54,31 @@ class PushLookupTests(HygieneFixture):
         self.assertIn("the tree equals the tested tree that passed on pull request #7", summary)
         self.assertIn("| Gitleaks | yes | every event |", summary)
 
-    def test_a_push_whose_pull_request_was_behind_runs_only_the_checks_both_sides_select(self) -> None:
+    def test_a_push_whose_pull_request_was_behind_runs_only_the_checks_both_sides_select_when_landing_base_passed(self) -> None:
         tested_base = self.base
         landing = self.commit({".github/workflows/ci.yml": "x: 1\n", "web/package.json": "{}\n"})
         head = self.commit({".github/workflows/other.yml": "y: 1\n", "docs/notes.md": "n\n"})
         decisions, stdout, _ = self.decide("--lookup", self.lookup(case="behind", head=head, landing_base=landing, tested_base=tested_base,
-                                                                   pull_request=7))
+                                                                   pull_request=7, landing_base_passed=True))
         self.assertEqual({"actionlint": "true", "zizmor": "true", "packages": "false", "markdown": "false", "reuse": "false"},
                          {name: decisions[name] for name in CHECKS})
         self.assertEqual("true", decisions["workflows"])
         self.assertIn("markdown=false: only the pull request's side selects it", stdout)
         self.assertIn("packages=false: only main's side selects it", stdout)
+
+    def test_a_push_whose_pull_request_was_behind_an_unpassed_landing_base_runs_every_check_the_newer_base_selects(self) -> None:
+        tested_base = self.base
+        landing = self.commit({".github/workflows/ci.yml": "x: 1\n", "web/package.json": "{}\n"})
+        head = self.commit({".github/workflows/other.yml": "y: 1\n", "docs/notes.md": "n\n"})
+        for extra in ({"landing_base_passed": False}, {}):
+            with self.subTest(extra=extra):
+                decisions, stdout, _ = self.decide("--lookup", self.lookup(case="behind", head=head, landing_base=landing, tested_base=tested_base,
+                                                                           pull_request=7, **extra))
+                self.assertEqual({"actionlint": "true", "zizmor": "true", "packages": "true", "markdown": "false", "reuse": "false"},
+                                 {name: decisions[name] for name in CHECKS})
+                self.assertEqual("true", decisions["workflows"])
+                self.assertIn("markdown=false: only the pull request's side selects it", stdout)
+                self.assertIn("packages=true: the newer base has not passed", stdout)
 
     def test_a_push_without_a_passed_tested_tree_decides_over_its_landing_base_and_without_one_runs_every_check(self) -> None:
         head = self.commit({"docs/notes.md": "n\n"})

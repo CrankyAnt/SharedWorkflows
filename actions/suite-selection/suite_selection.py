@@ -741,7 +741,14 @@ def identical_selection(suite_list: SuiteList, reason: str) -> Selection:
 
 
 def both_sides(first: Selection, second: Selection) -> Selection:
-    """The units that both selections run: a suite runs the entry files that both select."""
+    """The units that both selections run: a suite runs the entry files that both select.
+    If either side could not determine its changed files, every suite runs and ``undetermined`` is preserved."""
+    if first.undetermined is not None or second.undetermined is not None:
+        why = first.undetermined if first.undetermined is not None else second.undetermined
+        decisions = tuple(Decision(one.suite, True, f"the changed files could not be determined: {why}",
+                                   one.entries or other.entries, per_entry=one.per_entry or other.per_entry)
+                          for one, other in zip(first.decisions, second.decisions))
+        return Selection(decisions, (), why, tuple(dict.fromkeys([*first.started, *second.started])))
     decisions = []
     for one, other in zip(first.decisions, second.decisions):
         entries = tuple(entry for entry in one.entries if entry in set(other.entries)) if one.run and other.run else ()
@@ -751,8 +758,31 @@ def both_sides(first: Selection, second: Selection) -> Selection:
                                       tuple(dict.fromkeys(one.definition_reads + other.definition_reads))))
         else:
             decisions.append(Decision(one.suite, False, "the pull request and the base since its tested base do not both affect it", per_entry=per_entry))
-    undetermined = first.undetermined if first.undetermined is not None and second.undetermined is not None else None
-    return Selection(tuple(decisions), first.unread, undetermined)
+    return Selection(tuple(decisions), first.unread, None)
+
+
+def unpassed_base_selection(first: Selection, second: Selection) -> Selection:
+    """Selection for a behind merge whose landing base has not passed: nothing the newer base can affect is taken over."""
+    if first.undetermined is not None or second.undetermined is not None:
+        why = first.undetermined if first.undetermined is not None else second.undetermined
+        decisions = tuple(Decision(one.suite, True, f"the changed files could not be determined: {why}",
+                                   one.entries or other.entries, per_entry=one.per_entry or other.per_entry)
+                          for one, other in zip(first.decisions, second.decisions))
+        return Selection(decisions, (), why, tuple(dict.fromkeys([*first.started, *second.started])))
+    decisions = []
+    for one, other in zip(first.decisions, second.decisions):
+        per_entry = one.per_entry or other.per_entry
+        if other.run:
+            overlap = one.run and bool(set(one.entries) & set(other.entries))
+            reason = (f"both sides (newer base has not passed): {one.reason}; {other.reason}"
+                      if overlap else f"the newer base has not passed: {other.reason}")
+            decisions.append(Decision(other.suite, True, reason, other.entries, per_entry,
+                                      tuple(dict.fromkeys(one.definition_reads + other.definition_reads))))
+        else:
+            reason = ("only the pull request's side selects it, which passed on its tested tree"
+                      if one.run else "neither the pull request nor the newer base affects it")
+            decisions.append(Decision(other.suite, False, reason, per_entry=per_entry))
+    return Selection(tuple(decisions), second.unread, None, second.started)
 
 
 def unit_digests(suite: Suite, setups: tuple[str, ...], digests: dict[str, str] | None,
@@ -1086,6 +1116,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
                            help="the full recording: every entry file, in shards bounded by their wide-traced time")
     selecting.add_argument("--lookup", type=Path, help="the push lookup of a push or dispatch run, from the lookup command")
     selecting.add_argument("--results", type=Path, help="the record of passed results from the pull request's cache; the file may be missing")
+    selecting.add_argument("--default-record", type=Path, help="the default-branch record from the default branch's cache scope; the file may be missing")
     selecting.add_argument("--run-attempt", type=int, default=1, help="github.run_attempt; above 1 no earlier result is reused")
     selecting.add_argument("--runner-label", action="append", default=[], help="<os>=<label> of the job that runs that system's units (repeatable)")
     selecting.add_argument("--setup-version", action="append", default=[], help="<setup>=<version> that a setup pins (repeatable)")
@@ -1100,17 +1131,24 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     looking.add_argument("--before", default="", help="the previous head of the push; empty for a dispatch run")
     looking.add_argument("--workflow", required=True, help="the calling workflow: its repository path, or github.workflow_ref")
     looking.add_argument("--run-attempt", type=int, default=1, help="github.run_attempt")
+    looking.add_argument("--default-record", type=Path, help="the restored default-branch record; used to check whether the landing base passed")
     looking.add_argument("--output", type=Path, required=True, help="write the lookup as JSON to this file")
     looking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
-    shared_parser = commands.add_parser("shared-lookup", help="find the shared CI digests of the last passed run on the base branch")
+    writing_state = commands.add_parser("tested-state", help="write the structured tested-state JSON of a pull-request merge checkout")
+    writing_state.add_argument("--root", type=Path, required=True)
+    writing_state.add_argument("--pull-request", type=int, required=True)
+    writing_state.add_argument("--run-id", type=int, required=True)
+    writing_state.add_argument("--run-attempt", type=int, default=1)
+    writing_state.add_argument("--digests", default="", help="the shared CI digests JSON taken in the run, or empty")
+    writing_state.add_argument("--output", type=Path, required=True)
+    shared_parser = commands.add_parser("shared-lookup", help="compare the shared CI digests with the restored default-branch record")
     shared_parser.add_argument("--digests", required=True, help="the shared CI digests JSON that this run took")
-    shared_parser.add_argument("--root", type=Path, required=True, help="the checkout whose first-parent history of the base branch the lookup walks")
-    shared_parser.add_argument("--branch", required=True, help="the base branch: the pull request's base, or the pushed branch")
-    shared_parser.add_argument("--default-branch", default="", help="the default branch; on a pull request whose base differs from it, the "
-                               "lookup compares with the passed pull-request run of the base's tip, or else with the default branch")
-    shared_parser.add_argument("--pushed", default="", help="the pushed commit of a push or dispatch run, whose first parent starts the walk; "
-                               "empty to start at the fetched tip origin/<branch>")
-    shared_parser.add_argument("--workflow", required=True, help="the calling workflow: its repository path, or github.workflow_ref")
+    shared_parser.add_argument("--root", type=Path, default=Path("."), help="the checkout directory")
+    shared_parser.add_argument("--default-record", type=Path, help="the restored default-branch record; may be missing")
+    shared_parser.add_argument("--branch", default="", help="deprecated; kept for caller compatibility")
+    shared_parser.add_argument("--default-branch", default="", help="deprecated; kept for caller compatibility")
+    shared_parser.add_argument("--pushed", default="", help="deprecated; kept for caller compatibility")
+    shared_parser.add_argument("--workflow", default="", help="deprecated; kept for caller compatibility")
     shared_parser.add_argument("--output", type=Path, required=True, help="write the shared lookup as JSON to this file")
     shared_parser.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     storing = commands.add_parser("store", help="write the record of the passed results of a run")
@@ -1122,6 +1160,10 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     storing.add_argument("--github-output", type=Path, help="append stored=true or stored=false to this file")
     storing.add_argument("--additions", type=Path, help="a directory with the additions documents of the run's jobs")
     storing.add_argument("--root", type=Path, help="with --additions: the checkout of the tested tree")
+    storing.add_argument("--default-branch", action="store_true", help="write the structured default-branch record for a passed default-branch run")
+    storing.add_argument("--commit", default="", help="with --default-branch: the 40-character commit SHA tested on the default branch")
+    storing.add_argument("--tree", default="", help="with --default-branch: the 40-character Git tree SHA tested on the default branch")
+    storing.add_argument("--digests", default="", help="with --default-branch: the shared CI digests JSON taken in the run")
     checking = commands.add_parser("check-dispatch", help="fail unless client_payload.sha of a dependabot-merged run is a commit on the default branch")
     checking.add_argument("--root", type=Path, required=True, help="the checkout, with the default branch fetched as origin/<branch>")
     checking.add_argument("--sha", required=True, help="client_payload.sha of the dependabot-merged run")
@@ -1166,16 +1208,32 @@ def run_select(options: argparse.Namespace) -> int:
         return write_selection(options, suite_list, every_suite(suite_list, FULL_REASON), [], full=True)
     found = sides = None
     identical = False
+    fallbacks: dict[str, int] = {}
+
+    def count_fallback(reason: str, detail: str | None = None, *, emit: bool = True) -> None:
+        import reuse as _reuse
+
+        fallbacks[reason] = fallbacks.get(reason, 0) + 1
+        if emit and detail is not None:
+            print(_reuse.fallback_notice(reason, detail))
+
     if options.lookup is not None:
         with record_errors() as reuse:
             found = reuse.read_lookup(options.lookup)
+        if found.fallback:
+            count_fallback(found.fallback, emit=False)
         if found.case == "identical":
             identical = True
             changed, selection = [], identical_selection(suite_list, f"the tree equals the tested tree that passed on pull request #{found.pull_request}")
         elif found.case == "behind":
             sides = [selection_between(options, root, tracked, suite_list, found.landing_base, found.head),
                      selection_between(options, root, tracked, suite_list, found.tested_base, found.landing_base)]
-            changed, selection = sides[0][0], both_sides(sides[0][1], sides[1][1])
+            if found.landing_base_passed is True:
+                changed, selection = sides[0][0], both_sides(sides[0][1], sides[1][1])
+            else:
+                if not found.fallback:
+                    count_fallback("unpassed-landing-base", f"landing base {found.landing_base} has no passed default-branch record")
+                changed, selection = sides[1][0], unpassed_base_selection(sides[0][1], sides[1][1])
         else:
             changed, selection = selection_between(options, root, tracked, suite_list, found.landing_base or "", found.head)
     elif options.base is not None:
@@ -1186,15 +1244,23 @@ def run_select(options: argparse.Namespace) -> int:
             changed += [line.strip().replace("\\", "/") for line in options.changed_list.read_text(encoding="utf-8").splitlines() if line.strip()]
         changed = sorted(set(changed))
         selection = selected_on(options, root, tracked, suite_list, changed, None, None, None)
+    if selection.undetermined is not None:
+        count_fallback("changed-files-unknown", selection.undetermined)
     shared_lookup = None
     if options.shared_lookup is not None:
         with record_errors() as reuse:
             shared_lookup = reuse.read_shared_lookup(options.shared_lookup)
-        tested = reuse.tested_digests(found)
-        if tested is not None:
-            moved = shared_lookup.moved_digests(tested, use_given=True)
-            why = reuse.tested_reason(found, shared_lookup.digests)
+        if reuse.uses_tested_digests(found):
+            if found.tested_digests is None:
+                moved = None
+                why = reuse.tested_reason(found, shared_lookup.digests)
+                count_fallback("unreadable-tested-digests", why)
+            else:
+                moved = shared_lookup.moved_digests(found.tested_digests, use_given=True)
+                why = reuse.tested_reason(found, shared_lookup.digests)
         else:
+            if shared_lookup.fallback:
+                count_fallback(shared_lookup.fallback, emit=False)
             moved = shared_lookup.moved_digests()
             why = shared_lookup.reason
         if moved is None:
@@ -1207,7 +1273,7 @@ def run_select(options: argparse.Namespace) -> int:
             if affected:
                 identical = False
     running = reused = None
-    if options.results is not None:
+    if options.results is not None or options.default_record is not None:
         labels, versions = _pairs(options.runner_label, "--runner-label"), _pairs(options.setup_version, "--setup-version")
         if suite_list.setups is not None or suite_list.jobs:
             # The suite list states its jobs and setups as data: the key holds each job and each setup as stated, with
@@ -1220,15 +1286,58 @@ def run_select(options: argparse.Namespace) -> int:
         versions = {tool.name: tool.pin for tool in suite_list.pinned} | versions
         with record_errors() as reuse:
             tree = reuse.Tree(reuse.tree_entries(root), matches)
-            units = reuse_units(selection, suite_list, tree, versions, labels, shared_lookup.digests if shared_lookup is not None else None,
-                                ignore_content=tree.ignore_content(ignore_rules(root, "HEAD", tree.files)),
-                                parts=tested_parts(options, root, tree.files, suite_list))
-            record = reuse.read_record(options.results) if options.run_attempt <= 1 else {}
-        selection, running, reused = apply_reuse(selection, units, record)
+            ignore_content = tree.ignore_content(ignore_rules(root, "HEAD", tree.files))
+            parts = tested_parts(options, root, tree.files, suite_list)
+            digests_map = shared_lookup.digests if shared_lookup is not None else None
+            default_rec = None
+            if options.default_record is not None:
+                default_rec, default_fb, default_detail = reuse.read_default_record(options.default_record)
+                if default_fb is not None and default_fb not in fallbacks:
+                    count_fallback(default_fb, default_detail)
+            if options.results is not None:
+                units = reuse_units(selection, suite_list, tree, versions, labels, digests_map,
+                                    ignore_content=ignore_content, parts=parts)
+                if options.run_attempt <= 1:
+                    pr_record, pr_fb, pr_detail = reuse.read_pr_record_safe(options.results)
+                    if pr_fb is not None:
+                        count_fallback(pr_fb, pr_detail)
+                    default_passed = default_rec.passed if default_rec is not None else {}
+                    record = {**default_passed, **pr_record}
+                else:
+                    record = {}
+                selection, running, reused = apply_reuse(selection, units, record)
+            else:
+                units = reuse_units(selection, suite_list, tree, versions, labels, digests_map,
+                                    ignore_content=ignore_content, parts=parts)
+                running = {unit.key: {"suite": unit.decision.suite, "entries": list(unit.entries), "context": unit.context, "always": list(unit.always)}
+                           for unit in units}
+                all_units = reuse_units(every_suite(suite_list, ""), suite_list, tree, versions, labels, digests_map,
+                                        ignore_content=ignore_content, parts=parts)
+                carried: dict[str, int] = {}
+                for unit in all_units:
+                    if unit.key in running:
+                        continue
+                    if default_rec is not None and unit.key in default_rec.passed:
+                        carried[unit.key] = default_rec.passed[unit.key]
+                    elif found is not None and found.case == "identical" and found.tested_run is not None:
+                        carried[unit.key] = found.tested_run
+                    elif (found is not None and found.case == "behind" and found.tested_run is not None and sides is not None):
+                        pr_side = {d.suite: set(d.entries) for d in sides[0][1].decisions if d.run}
+                        base_side = {d.suite: set(d.entries) for d in sides[1][1].decisions if d.run}
+                        if all(e in pr_side.get(unit.decision.suite, set()) and e not in base_side.get(unit.decision.suite, set())
+                               for e in unit.entries):
+                            carried[unit.key] = found.tested_run
+                reused = carried
     steps = None
     if sides is not None:
-        steps = {name: "run" if all(language_steps([name], side, files)[name] == "run" for files, side in sides) else "skip"
-                 for name in options.language_step}
+        if sides[0][1].undetermined is not None or sides[1][1].undetermined is not None:
+            steps = {name: "run" for name in options.language_step}
+        elif found is not None and found.landing_base_passed is True:
+            steps = {name: "run" if (name in selection.started or all(language_steps([name], side, files)[name] == "run" for files, side in sides)) else "skip"
+                     for name in options.language_step}
+        else:
+            steps = {name: "run" if (name in selection.started or language_steps([name], sides[1][1], sides[1][0])[name] == "run") else "skip"
+                     for name in options.language_step}
     write_selection(options, suite_list, selection, changed, steps=steps)
     if options.unit_decisions is not None:
         effective_steps = steps if steps is not None else language_steps(options.language_step, selection, changed)
@@ -1236,10 +1345,10 @@ def run_select(options: argparse.Namespace) -> int:
         shards = json.loads(shards_json(selection, suite_list, effective_steps, False, tools))
         windows = windows_json(selection, suite_list, False, tools)
         options.unit_decisions.parent.mkdir(parents=True, exist_ok=True)
-        options.unit_decisions.write_text(
-            json.dumps(unit_decisions_document(suite_list, selection, reused or {}, identical, shards, windows), separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
+        pr_reused = (reused or {}) if options.results is not None else {}
+        doc = unit_decisions_document(suite_list, selection, pr_reused, identical, shards, windows)
+        doc["fallbacks"] = dict(sorted(fallbacks.items()))
+        options.unit_decisions.write_text(json.dumps(doc, separators=(",", ":")) + "\n", encoding="utf-8")
     if options.json_output is not None and running is not None:
         with options.json_output.open("a", encoding="utf-8") as handle:
             handle.write(f"units={json.dumps(running, separators=(',', ':'))}\n")
@@ -1250,7 +1359,10 @@ def run_select(options: argparse.Namespace) -> int:
                 handle.write("\n" + reuse.lookup_markdown(found))
             if shared_lookup is not None:
                 handle.write("\n" + reuse.shared_markdown(shared_lookup, found))
-            if options.results is not None and options.run_attempt > 1:
+            if fallbacks:
+                counts = ", ".join(f"`{name}` ({count})" for name, count in sorted(fallbacks.items()))
+                handle.write(f"\nFallbacks: {counts}.\n")
+            if (options.results is not None or options.default_record is not None) and options.run_attempt > 1:
                 handle.write(f"\nAttempt {options.run_attempt} is a re-run: it reuses no earlier result.\n")
     # The last write: a step that fails before it leaves the output unset.
     if options.json_output is not None and identical:
@@ -1465,12 +1577,29 @@ def run_lookup(options: argparse.Namespace) -> int:
     import reuse
 
     found = reuse.lookup(options.root.resolve(), reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.sha,
-                         options.before, options.run_attempt)
+                         options.before, options.run_attempt, options.default_record)
+    options.output.parent.mkdir(parents=True, exist_ok=True)
     options.output.write_text(json.dumps(found.document(), indent=2) + "\n", encoding="utf-8")
+    if found.fallback:
+        print(reuse.fallback_notice(found.fallback, found.reason))
     print(f"{found.case}: {found.reason}")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
             handle.write(reuse.lookup_markdown(found))
+    return 0
+
+
+def run_write_tested_state(options: argparse.Namespace) -> int:
+    import reuse
+
+    digests = reuse.parse_digests(options.digests) if options.digests else None
+    if options.digests and digests is None:
+        raise SuiteListError("--digests must be a non-empty JSON object from digest name to 64-character hex SHA-256")
+    try:
+        state = reuse.write_tested_state(options.root.resolve(), options.pull_request, options.run_id, options.run_attempt, digests, options.output)
+    except reuse.RecordError as error:
+        raise SuiteListError(str(error)) from error
+    print(f"Wrote tested state for pull request #{state['pull_request']} merge {state['tested_merge']}.")
     return 0
 
 
@@ -1480,11 +1609,13 @@ def run_shared_lookup(options: argparse.Namespace) -> int:
     digests = reuse.parse_digests(options.digests)
     if digests is None:
         raise SuiteListError("--digests must be a non-empty JSON object from digest name to 64-character hex SHA-256")
-    found = reuse.shared_lookup(options.root.resolve(), reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.branch,
-                                digests, options.pushed or None, options.default_branch or None)
+    found = reuse.shared_lookup(digests, options.default_record)
+    options.output.parent.mkdir(parents=True, exist_ok=True)
     options.output.write_text(json.dumps(found.document(), indent=2) + "\n", encoding="utf-8")
     for line in found.log:
         print(line)
+    if found.fallback:
+        print(reuse.fallback_notice(found.fallback, found.reason))
     print(f"{'moved' if found.moved else 'unchanged'}: {found.reason}")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
@@ -1539,6 +1670,27 @@ def run_store(options: argparse.Namespace) -> int:
     try:
         needs = parse_needs(options.needs.read_text(encoding="utf-8"))
         passed, with_additions = reuse.read_passed(options.passed)
+        if options.default_branch:
+            if not FULL_COMMIT_ID.fullmatch(options.commit):
+                raise SuiteListError("--default-branch requires --commit as a 40-character lowercase hex SHA")
+            if not FULL_COMMIT_ID.fullmatch(options.tree):
+                raise SuiteListError("--default-branch requires --tree as a 40-character lowercase hex SHA")
+            digests = reuse.parse_digests(options.digests) if options.digests else None
+            if options.digests and digests is None:
+                raise SuiteListError("--digests must be a non-empty JSON object from digest name to 64-character hex SHA-256")
+            default_record = reuse.store_default_branch(needs, passed, options.run_id, options.commit, options.tree, digests, options.selection_job)
+            if default_record is None:
+                print("Nothing to store: the default-branch run did not pass or was cancelled.")
+                stored = False
+            else:
+                options.output.parent.mkdir(parents=True, exist_ok=True)
+                options.output.write_text(json.dumps(default_record.document(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                print(f"Stored default-branch record for {default_record.commit} with {len(default_record.passed)} passed result{'' if len(default_record.passed) == 1 else 's'}.")
+                stored = True
+            if options.github_output is not None:
+                with options.github_output.open("a", encoding="utf-8") as handle:
+                    handle.write(f"stored={'true' if stored else 'false'}\n")
+            return 0
         applied, named = None, set()
         units, _ = reuse.selection_outputs(needs, options.selection_job)
         if options.additions is not None and units is not None:
@@ -1551,7 +1703,7 @@ def run_store(options: argparse.Namespace) -> int:
     except reuse.RecordError as error:
         raise SuiteListError(str(error)) from error
     if record is None:
-        print("Nothing to store: the selection did not succeed.")
+        print("Nothing to store: the selection did not succeed or the run was cancelled.")
     else:
         options.output.parent.mkdir(parents=True, exist_ok=True)
         options.output.write_text(json.dumps({"passed": record}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1609,6 +1761,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_verdict(options)
         if options.command == "lookup":
             return run_lookup(options)
+        if options.command == "tested-state":
+            return run_write_tested_state(options)
         if options.command == "shared-lookup":
             return run_shared_lookup(options)
         if options.command == "check-dispatch":

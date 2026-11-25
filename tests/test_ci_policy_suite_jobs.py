@@ -307,6 +307,11 @@ class RecordedJobTests(unittest.TestCase):
                 self.assertEqual([name for name in names if name != "keep"], passed_list_steps(plain, "success", ""), "a passed check uploads every pass")
                 self.assertEqual(names, passed_list_steps(plain, "failure", "additions"), "a check with additions uploads the kept passes")
                 self.assertEqual([], passed_list_steps(plain, "failure", ""), "after a recording error the job uploads no passed list")
+                self.assertEqual([name for name in names if name != "keep"],
+                                 passed_list_steps(plain, "success", "", event_name="push", ref_name="main"),
+                                 "a passed default-branch push uploads its passes for the default-branch record")
+                self.assertEqual([], passed_list_steps(plain, "success", "", event_name="push", ref_name="topic"),
+                                 "a non-default branch push uploads nothing")
 
 
 class UnrecordedInputRolesTests(unittest.TestCase):

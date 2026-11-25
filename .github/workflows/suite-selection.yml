@@ -87,6 +87,12 @@ jobs:
           PAYLOAD: ${{ github.event.client_payload.sha }}
           BRANCH: ${{ github.event.repository.default_branch }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"
+      - name: Restore the default-branch record
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/default-branch-record/record.json
+          key: default-branch-record-lookup-${{ github.run_id }}
+          restore-keys: default-branch-record-
       - name: Look up the tested tree of the pushed commit's pull request
         if: github.event_name == 'push' || github.event_name == 'repository_dispatch'
         env:
@@ -96,7 +102,7 @@ jobs:
           SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}
           BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Load the shared recording step from this workflow revision
         id: recording
         uses: $/actions/recording
@@ -105,16 +111,11 @@ jobs:
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
-      - name: Look up the shared CI digests of the last passed run on the base branch
+      - name: Look up the shared CI digests from the default-branch record
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          GITHUB_TOKEN: ${{ github.token }}
-          WORKFLOW: ${{ github.workflow_ref }}
           DIGESTS: ${{ steps.digest.outputs.shared-digests }}
-          BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          PUSHED: ${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && (github.event.client_payload.sha || github.sha) || '' }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Restore the passed results of the pull request
         if: github.event_name == 'pull_request' && github.run_attempt == 1
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -139,13 +140,30 @@ jobs:
           set --
           for step in $LANGUAGE_STEPS; do set -- "$@" --language-step "$step"; done
           case "$EVENT" in
-            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;
+            push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --run-attempt "$RUN_ATTEMPT" ;;
             pull_request)
-              set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT"
+              set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base --results "$RUNNER_TEMP/suite-results/record.json" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --run-attempt "$RUN_ATTEMPT"
               for label in $RUNNER_LABELS; do set -- "$@" --runner-label "$label"; done
               for version in $SETUP_VERSIONS; do set -- "$@" --setup-version "$version"; done
               ;;
-            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct ;;
+            *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct --run-attempt "$RUN_ATTEMPT" ;;
           esac
           set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Record the tested state of the pull request
+        if: github.event_name == 'pull_request' && github.event.action != 'edited'
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DIGESTS: ${{ steps.digest.outputs.shared-digests }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" tested-state --root . --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --digests "$DIGESTS" --output "$RUNNER_TEMP/tested-state.json"
+      - name: Upload the tested state of the pull request
+        if: github.event_name == 'pull_request' && github.event.action != 'edited'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tested-state
+          path: ${{ runner.temp }}/tested-state.json
+          retention-days: 30
+          if-no-files-found: error

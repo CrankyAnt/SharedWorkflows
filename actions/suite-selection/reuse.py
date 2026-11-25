@@ -1,31 +1,33 @@
 """The push lookup, the reuse key and the result store of the suite selection.
 
-The push lookup finds the pull request of a pushed commit through ``commits/<sha>/pulls``, reads the tested merge commit
-from the ``actions/checkout`` log of that pull request's last successful run of the calling workflow, and verifies it
-from its parents. It decides the case of the push: its tree equals the passed tested tree, its pull request was behind,
-the selection runs over the pull request's files, or over the push's own changed files. The shared lookup reads the
-digest of the shared recording step that the last passed run on the base branch took, found by walking the base
-branch's first-parent history and asking for the passed runs of each commit; for a pull request whose base is not the
-default branch, the passed pull-request run of the base's tip decides, or else the default branch where the base meets
-its first-parent line. For an identical tree the push
-lookup also reads the digest that the passed pull-request run took, which decides in its place. The reuse key of a unit
-holds the content of its reads in the tested tree, its command, the versions its setups pin, the runner label of its
-job, the content of every unrecorded input that selects it (``unrecorded.py``) and the digest of the shared recording
-step.
-``store`` writes the record of the passed results of a run, from the ``needs`` context of the closing job and the
-passed entry files of each job; in a run with additions it also keys each passed unit under the applied lists.
+The push lookup finds the pull request of a pushed commit through ``commits/<sha>/pulls``, reads the structured
+``tested-state`` artifact of that pull request's last successful code run of the calling workflow, and verifies the
+tested merge commit from its parents through ``git/commits/<merge>``. It decides the case of the push: its tree equals
+the passed tested tree, its pull request was behind (checking the restored default-branch record to tell whether the
+landing base passed), the selection runs over the pull request's files, or over the push's own changed files. The
+shared lookup reads the shared CI digests directly from the restored default-branch record without log scraping or a
+fixed walk limit. A missing, evicted or unreadable record or digest counts as changed and emits a counted fallback
+notice by reason. On an identical or behind merge, the digests that the pull request was tested under decide in place
+of the base branch's digests, and unreadable tested digests count as changed. The reuse key of a unit holds the
+content of its reads in the tested tree, its command, the versions its setups pin, the runner label of its job, the
+content of every unrecorded input that selects it (``unrecorded.py``) and the shared CI digests of its platform, tools
+and language steps.
+``store`` writes the record of the passed results of a pull-request run or, with ``--default-branch``, the structured
+default-branch record (version, run_id, commit, tree, digests, passed) for a passed default-branch run.
 ``suite_selection.py`` runs the commands; ``docs/maintaining.md`` documents them.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -34,19 +36,24 @@ from revisions import ALL_ZERO, commit_id, git
 from suite_selection import module_name
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from suite_selection import IgnoreRules
 
-LOG_LINE = re.compile(r"HEAD is now at ([0-9a-f]{7,40}) Merge ([0-9a-f]{40}) into ([0-9a-f]{40})")
-FETCH_LINE = re.compile(r"\+([0-9a-f]{40}):refs/remotes/pull/([0-9]+)/merge\b")  # git/commits answers only a full id
-DIGESTS_LINE = re.compile(r"shared CI digests (\{[^\r\n]+\})")  # printed by ``recording.py digest``
 DIGEST_STEP = "Take the shared CI digests"  # the step of plan / suite-selection.yml that prints them
 HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
-WALK_COMMITS = 20  # the first-parent commits of the base branch whose passed runs the shared lookup asks for
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
+DEFAULT_RECORD_VERSION = 1
+TESTED_STATE_VERSION = 1
+TESTED_STATE_ARTIFACT = "tested-state"
+TESTED_STATE_FILE = "tested-state.json"
 BRANCH_EVENTS = ("push", "repository_dispatch")
 CASES = ("identical", "behind", "pull-request", "own")
+FAILING_JOB_RESULTS = ("failure", "cancelled", "timed_out")
 API_TIMEOUT = 20  # seconds per request
+
+
+def fallback_notice(reason: str, detail: str) -> str:
+    """GitHub Actions notice emitted whenever selection or lookup falls back to running more."""
+    return f"::notice title=ci-fallback::{reason}: {detail}"
 
 
 class ApiError(Exception):
@@ -80,13 +87,16 @@ class Lookup:
     pull_request: int | None = None
     tested_merge: str | None = None
     tested_base: str | None = None
-    tested_run: int | None = None  # the passed pull-request run of an identical tree
-    tested_digests: dict[str, str] | None = None  # the shared CI digests that run took, when its log names them
+    tested_run: int | None = None  # the passed pull-request run of an identical or behind merge
+    tested_digests: dict[str, str] | None = None  # the shared CI digests that run took
+    landing_base_passed: bool | None = None  # for behind: whether the landing base has a passed default-branch record
+    fallback: str | None = None  # machine-readable fallback reason when selecting more
 
     def document(self) -> dict:
         return {"case": self.case, "head": self.head, "landing_base": self.landing_base, "reason": self.reason,
                 "pull_request": self.pull_request, "tested_merge": self.tested_merge, "tested_base": self.tested_base,
-                "tested_run": self.tested_run, "tested_digests": self.tested_digests}
+                "tested_run": self.tested_run, "tested_digests": self.tested_digests,
+                "landing_base_passed": self.landing_base_passed, "fallback": self.fallback}
 
 
 def read_lookup(path: Path) -> Lookup:
@@ -98,9 +108,14 @@ def read_lookup(path: Path) -> Lookup:
         raise RecordError(f"the push lookup {path} must name a case and the pushed commit")
     if raw["case"] == "behind" and not (isinstance(raw.get("tested_base"), str) and isinstance(raw.get("landing_base"), str)):
         raise RecordError(f"the push lookup {path} of a behind pull request must name the tested base and the landing base")
+    passed_base = raw.get("landing_base_passed")
+    fallback = raw.get("fallback")
     return Lookup(raw["case"], raw["head"], raw.get("landing_base") or None, str(raw.get("reason", "")), raw.get("pull_request"),
-                  raw.get("tested_merge"), raw.get("tested_base"), raw.get("tested_run") if isinstance(raw.get("tested_run"), int) else None,
-                  parse_digests(raw.get("tested_digests")))
+                  raw.get("tested_merge"), raw.get("tested_base"),
+                  raw.get("tested_run") if isinstance(raw.get("tested_run"), int) and not isinstance(raw.get("tested_run"), bool) else None,
+                  parse_digests(raw.get("tested_digests")),
+                  passed_base if isinstance(passed_base, bool) else None,
+                  fallback if isinstance(fallback, str) and fallback else None)
 
 
 # --- the GitHub API -------------------------------------------------------------------------------------------
@@ -150,8 +165,8 @@ class Api:
         except json.JSONDecodeError as error:
             raise ApiError(f"GET {path} returned no JSON") from error
 
-    def text(self, path: str) -> str:
-        """A text body; a redirect, such as that of a job log, is followed once without the token."""
+    def bytes(self, path: str) -> bytes:
+        """A raw body; a redirect, such as that of an artifact archive, is followed once without the token."""
         body, location = self._get(path)
         if location is not None:
             try:
@@ -161,10 +176,71 @@ class Api:
                 if isinstance(error, urllib.error.HTTPError):
                     error.close()
                 raise ApiError(f"GET {path} failed after its redirect: {error}") from error
-        return body.decode("utf-8", errors="replace")
+        return body
+
+    def text(self, path: str) -> str:
+        """A text body; a redirect is followed once without the token."""
+        return self.bytes(path).decode("utf-8", errors="replace")
 
 
-# --- the push lookup ------------------------------------------------------------------------------------------
+# --- the push lookup and structured tested state --------------------------------------------------------------
+
+
+def write_tested_state(root: Path, pull_request: int, run_id: int, run_attempt: int,
+                       digests: dict[str, str] | None, output: Path) -> dict:
+    """Write the structured tested-state document of a pull-request merge checkout."""
+    tested_merge = commit_id(root, "HEAD")
+    tested_base = commit_id(root, "HEAD^1")
+    head = commit_id(root, "HEAD^2")
+    tree_result = git(root, "rev-parse", "HEAD^{tree}")
+    tree = tree_result.stdout.strip() if tree_result.returncode == 0 else ""
+    if not (tested_merge and tested_base and head and FULL_SHA.fullmatch(tree)):
+        raise RecordError("HEAD must be a pull-request merge commit with two parents and a readable tree")
+    state = {
+        "version": TESTED_STATE_VERSION,
+        "pull_request": pull_request,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "head": head,
+        "tested_base": tested_base,
+        "tested_merge": tested_merge,
+        "tree": tree,
+        "digests": digests,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return state
+
+
+def _read_tested_state_artifact(api: Api, run_id: int, pull_request: int, head: str) -> tuple[dict | None, str | None, str]:
+    """Download and validate the ``tested-state`` artifact of ``run_id``.
+    Returns ``(state, fallback_reason, detail)``."""
+    listed = api.json(f"actions/runs/{run_id}/artifacts?name={TESTED_STATE_ARTIFACT}")
+    artifacts = listed.get("artifacts") if isinstance(listed, dict) else None
+    chosen = next(
+        (item for item in (artifacts or []) if isinstance(item, dict)
+         and item.get("name") == TESTED_STATE_ARTIFACT
+         and not item.get("expired")
+         and isinstance(item.get("id"), int) and not isinstance(item.get("id"), bool)),
+        None,
+    )
+    if chosen is None:
+        return None, "missing-pr-record", f"run {run_id} of pull request #{pull_request} has no active `{TESTED_STATE_ARTIFACT}` artifact"
+    archive_bytes = api.bytes(f"actions/artifacts/{chosen['id']}/zip")
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            raw = json.loads(archive.read(TESTED_STATE_FILE).decode("utf-8"))
+    except (zipfile.BadZipFile, KeyError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        return None, "unreadable-pr-record", f"the `{TESTED_STATE_ARTIFACT}` artifact of run {run_id} of pull request #{pull_request} cannot be read: {error}"
+    if (not isinstance(raw, dict)
+            or raw.get("version") != TESTED_STATE_VERSION or isinstance(raw.get("version"), bool)
+            or raw.get("pull_request") != pull_request or isinstance(raw.get("pull_request"), bool)
+            or raw.get("head") != head
+            or not isinstance(raw.get("tested_merge"), str) or not FULL_SHA.fullmatch(raw["tested_merge"])
+            or not isinstance(raw.get("tested_base"), str) or not FULL_SHA.fullmatch(raw["tested_base"])
+            or not isinstance(raw.get("tree"), str) or not FULL_SHA.fullmatch(raw["tree"])):
+        return None, "unreadable-pr-record", f"the `{TESTED_STATE_ARTIFACT}` artifact of run {run_id} of pull request #{pull_request} has an invalid structure"
+    return raw, None, ""
 
 
 def landing_base(root: Path, sha: str, before: str | None) -> str | None:
@@ -176,86 +252,94 @@ def landing_base(root: Path, sha: str, before: str | None) -> str | None:
     return commit_id(root, f"{sha}^1")
 
 
-def lookup(root: Path, api: Api | LoggedApi, workflow: str, sha: str, before: str | None = None, run_attempt: int = 1) -> Lookup:
+def lookup(root: Path, api: Api, workflow: str, sha: str, before: str | None = None, run_attempt: int = 1,
+           default_record: Path | None = None) -> Lookup:
     """The case of a pushed commit. ``workflow`` is the file name of the calling workflow, whose last successful
-    pull-request run names the tested merge commit. A failed request never skips: it falls back to a selection."""
+    non-edited pull-request run uploaded a structured ``tested-state`` artifact. For a behind merge, ``default_record``
+    decides whether the landing base has passed. Never reads job logs and never skips on a failed request."""
     landing = landing_base(root, sha, before)
     if run_attempt > 1:
         return Lookup("own", sha, landing, f"attempt {run_attempt} is a re-run, which selects over the push's own changed files")
     try:
         pulls = api.json(f"commits/{sha}/pulls")
     except ApiError as error:
-        return Lookup("own", sha, landing, f"the pull request of {sha} could not be looked up: {error}")
+        return Lookup("own", sha, landing, f"the pull request of {sha} could not be looked up: {error}", fallback="push-lookup-api-error")
     if not isinstance(pulls, list) or not pulls:
         return Lookup("own", sha, landing, f"{sha} belongs to no pull request")
     pull = next((item for item in pulls if isinstance(item, dict) and item.get("merge_commit_sha") == sha), pulls[0])
     number, head = pull.get("number"), (pull.get("head") or {}).get("sha")
-    if not isinstance(number, int) or not isinstance(head, str):
-        return Lookup("own", sha, landing, f"the pull request of {sha} names no head commit")
+    if not isinstance(number, int) or isinstance(number, bool) or not isinstance(head, str):
+        return Lookup("own", sha, landing, f"the pull request of {sha} names no head commit", fallback="unreadable-pr-record")
 
-    def fallback(reason: str, **found) -> Lookup:
-        return Lookup("pull-request", sha, landing, reason, number, **found)
+    def fallback_result(reason: str, fb: str, **found) -> Lookup:
+        return Lookup("pull-request", sha, landing, reason, number, **found, fallback=fb)
 
     try:
-        runs = api.json(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?head_sha={head}&event=pull_request&status=success&per_page=1")
-        run = (runs.get("workflow_runs") or [None])[0] if isinstance(runs, dict) else None
-        if not isinstance(run, dict) or not isinstance(run.get("id"), int):
-            return fallback(f"pull request #{number} has no successful run of `{workflow}` on its head {head}")
-        jobs = api.json(f"actions/runs/{run['id']}/jobs?per_page=100")
-        job = next((item for item in (jobs.get("jobs") or []) if isinstance(item, dict)
-                    and any("actions/checkout" in str(step.get("name", "")) for step in item.get("steps") or [])), None)
-        if job is None:
-            return fallback(f"run {run['id']} of pull request #{number} has no job with a checkout")
-        log = api.text(f"actions/jobs/{job['id']}/logs")
-        match = next((found for found in LOG_LINE.finditer(log) if found.group(2) == head), None)
-        if match is None:
-            return fallback(f"the checkout log of run {run['id']} names no tested merge commit of {head}")
-        short, base = match.group(1), match.group(3)
-        full = next((found.group(1) for found in FETCH_LINE.finditer(log)
-                     if found.group(1).startswith(short) and found.group(2) == str(number)), None)
-        if full is None:
-            return fallback(f"the checkout log of run {run['id']} holds no full id of the tested merge commit {short} of {head}")
+        runs_doc = api.json(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?head_sha={head}&event=pull_request&status=success&per_page=20")
+        raw_runs = runs_doc.get("workflow_runs") if isinstance(runs_doc, dict) else None
+        runs = [item for item in (raw_runs or []) if isinstance(item, dict)
+                and isinstance(item.get("id"), int) and not isinstance(item.get("id"), bool)
+                and item.get("conclusion") != "cancelled"]
+        if not runs:
+            return fallback_result(f"pull request #{number} has no successful run of `{workflow}` on its head {head}", "no-passed-pr-run")
+        chosen_run: int | None = None
+        state: dict | None = None
+        last_reason = ""
+        for item in runs:
+            candidate_state, state_fb, detail = _read_tested_state_artifact(api, item["id"], number, head)
+            if candidate_state is not None:
+                chosen_run, state = item["id"], candidate_state
+                break
+            if state_fb == "unreadable-pr-record":
+                return fallback_result(detail, state_fb)
+            last_reason = detail
+        if state is None or chosen_run is None:
+            return fallback_result(last_reason or f"pull request #{number} has no `{TESTED_STATE_ARTIFACT}` artifact", "missing-pr-record")
+        full, base, tree = state["tested_merge"], state["tested_base"], state["tree"]
         merge = api.json(f"git/commits/{full}")
     except ApiError as error:
-        return fallback(f"the tested merge commit of pull request #{number} could not be read: {error}")
+        return fallback_result(f"the tested merge commit of pull request #{number} could not be read: {error}", "push-lookup-api-error")
+
     parents = [parent.get("sha") for parent in merge.get("parents") or []] if isinstance(merge, dict) else []
-    tree = (merge.get("tree") or {}).get("sha") if isinstance(merge, dict) else None
-    if not isinstance(merge, dict) or merge.get("sha") != full or parents != [base, head] or not isinstance(tree, str):
-        return fallback(f"the tested merge commit {full} of run {run['id']} does not verify as the merge of {head} into {base} with a tree")
-    found = dict(tested_merge=full, tested_base=base)
+    merge_tree = (merge.get("tree") or {}).get("sha") if isinstance(merge, dict) else None
+    if not isinstance(merge, dict) or merge.get("sha") != full or parents != [base, head] or merge_tree != tree:
+        return fallback_result(f"the tested merge commit {full} of run {chosen_run} does not verify as the merge of {head} into {base} with tree {tree}",
+                               "unreadable-pr-record")
+    digests = parse_digests(state.get("digests"))
+    found = dict(tested_merge=full, tested_base=base, tested_run=chosen_run, tested_digests=digests)
     pushed_tree = git(root, "rev-parse", f"{sha}^{{tree}}")
     if pushed_tree.returncode == 0 and pushed_tree.stdout.strip() == tree:
-        return Lookup("identical", sha, landing, f"the tree of {sha} equals the tested tree of {full}, which passed in run {run['id']} of pull request #{number}",
-                      number, **found, tested_run=run["id"], tested_digests=run_digests(api, jobs, job["id"], log))
+        return Lookup("identical", sha, landing,
+                      f"the tree of {sha} equals the tested tree of {full}, which passed in run {chosen_run} of pull request #{number}",
+                      number, **found)
     if landing is not None and base != landing and git(root, "merge-base", "--is-ancestor", base, landing).returncode == 0:
-        return Lookup("behind", sha, landing, f"pull request #{number} was tested on {base} and landed on {landing}", number, **found)
-    return fallback(f"the tree of {sha} differs from the tested tree of {full}, and its tested base {base} is no earlier commit of the landing base", **found)
-
-
-def run_digests(api: Api | LoggedApi, jobs, read_job: int, read_log: str) -> dict[str, str] | None:
-    """The shared CI digests that a run took, from the log of its job with the digest step; the log of ``read_job`` is
-    ``read_log``. A run without that step, or a log that cannot be read or names no readable digests, gives None."""
-    job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
-                and any(step.get("name") == DIGEST_STEP for step in item.get("steps") or [] if isinstance(step, dict))), None)
-    if job is None:
-        return None
-    try:
-        log = read_log if job.get("id") == read_job else api.text(f"actions/jobs/{job['id']}/logs")
-    except ApiError:
-        return None
-    match = DIGESTS_LINE.search(log)
-    return parse_digests(match.group(1)) if match else None
+        default_rec, default_fb, default_detail = read_default_record(default_record)
+        if default_rec is not None and default_rec.commit == landing:
+            return Lookup("behind", sha, landing,
+                          f"pull request #{number} was tested on {base} and landed on {landing}, which passed in run {default_rec.run_id}",
+                          number, **found, landing_base_passed=True)
+        if default_rec is not None:
+            return Lookup("behind", sha, landing,
+                          f"pull request #{number} was tested on {base} and landed on {landing}, which has not passed (last passed default-branch commit is {default_rec.commit} in run {default_rec.run_id})",
+                          number, **found, landing_base_passed=False, fallback="unpassed-landing-base")
+        return Lookup("behind", sha, landing,
+                      f"pull request #{number} was tested on {base} and landed on {landing}, and {default_detail}",
+                      number, **found, landing_base_passed=False, fallback=default_fb)
+    return fallback_result(f"the tree of {sha} differs from the tested tree of {full}, and its tested base {base} is no earlier commit of the landing base",
+                           "tested-tree-differs", tested_merge=full, tested_base=base)
 
 
 @dataclass(frozen=True)
 class SharedLookup:
-    """The shared CI digests that a run took, and those the last passed run on its base branch took; ``previous`` is
-    None when that run or its digests cannot be found."""
+    """The shared CI digests that a run took, and those from the last passed default-branch record; ``previous`` is
+    None when that record or its digests are missing, evicted or unreadable."""
 
     digests: dict[str, str]
     previous: dict[str, str] | None
     reason: str
     run: int | None = None
+    commit: str | None = None
+    fallback: str | None = None
     log: tuple[str, ...] = field(default=(), compare=False)  # the lines the lookup logs; not in the document
 
     def moved_digests(self, previous: dict[str, str] | None = None, *, use_given: bool = False) -> frozenset[str] | None:
@@ -272,7 +356,8 @@ class SharedLookup:
         return moved is None or bool(moved)
 
     def document(self) -> dict:
-        return {"digests": self.digests, "previous": self.previous, "reason": self.reason, "run": self.run}
+        return {"digests": self.digests, "previous": self.previous, "reason": self.reason,
+                "run": self.run, "commit": self.commit, "fallback": self.fallback}
 
 
 def read_shared_lookup(path: Path) -> SharedLookup:
@@ -284,234 +369,64 @@ def read_shared_lookup(path: Path) -> SharedLookup:
     if digests is None:
         raise RecordError(f"the shared lookup {path} must name the shared CI digests")
     previous = parse_digests(raw.get("previous"))
+    run = raw.get("run")
+    commit = raw.get("commit")
+    fallback = raw.get("fallback")
     return SharedLookup(digests, previous, str(raw.get("reason", "")),
-                        raw.get("run") if isinstance(raw.get("run"), int) else None)
+                        run if isinstance(run, int) and not isinstance(run, bool) else None,
+                        commit if isinstance(commit, str) and commit else None,
+                        fallback if isinstance(fallback, str) and fallback else None)
 
 
-class LoggedApi:
-    """The requests of an ``Api``, each logged with the response's x-github-request-id and, where the answer has one,
-    its total_count; ``runs`` holds, for every answer with a list of workflow runs, the position in the log after its
-    request line and the runs it returned."""
-
-    def __init__(self, api: Api, log: list[str]) -> None:
-        self.api = api
-        self.log = log
-        self.runs: list[tuple[int, list]] = []
-
-    @property
-    def request_id(self) -> str | None:
-        return self.api.request_id
-
-    def _logged(self, path: str, read: Callable[[str], object]):
-        try:
-            answer = read(path)
-        except ApiError as error:
-            self.log.append(f"GET {path}: x-github-request-id {self.api.request_id or 'none'}, failed: {error}")
-            raise
-        count = f", total_count {answer['total_count']}" if isinstance(answer, dict) and "total_count" in answer else ""
-        self.log.append(f"GET {path}: x-github-request-id {self.api.request_id or 'none'}{count}")
-        if isinstance(answer, dict) and isinstance(answer.get("workflow_runs"), list):
-            self.runs.append((len(self.log), answer["workflow_runs"]))
-        return answer
-
-    def json(self, path: str):
-        return self._logged(path, self.api.json)
-
-    def text(self, path: str) -> str:
-        return self._logged(path, self.api.text)
+def shared_lookup(digests: dict[str, str], default_record: Path | None) -> SharedLookup:
+    """Compare ``digests`` with the shared CI digests stored in the restored default-branch record, with no log
+    scraping and no fixed walk limit. A missing, evicted or unreadable record or digest returns ``previous=None``
+    and records a fallback reason so selection runs more."""
+    rec, fb, detail = read_default_record(default_record)
+    if rec is None:
+        return SharedLookup(digests, None, detail, run=None, commit=None, fallback=fb,
+                            log=(f"No digests to compare with: {detail}.",))
+    if rec.digests is None:
+        why = f"the default-branch record of run {rec.run_id} on {rec.commit} holds no readable shared CI digests"
+        return SharedLookup(digests, None, why, run=rec.run_id, commit=rec.commit, fallback="unreadable-default-branch-digests",
+                            log=(f"No digests to compare with: {why}.",))
+    compared = "equal" if all(rec.digests.get(name) == value for name, value in digests.items()) else "differ from"
+    why = f"the shared CI digests {compared} those of run {rec.run_id}, the last passed default-branch record on {rec.commit}"
+    return SharedLookup(digests, rec.digests, why, run=rec.run_id, commit=rec.commit, fallback=None,
+                        log=(f"Read default-branch record of run {rec.run_id} on {rec.commit}.",))
 
 
-def run_line(run: object, verdict: str) -> str:
-    """The log line of a returned run with its verdict."""
-    if not isinstance(run, dict):
-        return f"  {json.dumps(run)}: not taken, it is no run object"
-    return f"  run {run.get('id')}: head_sha {run.get('head_sha')}, head_branch {run.get('head_branch')}, event {run.get('event')}: {verdict}"
-
-
-def run_mismatch(run: dict, commit: str, branch: str) -> str | None:
-    """Why the shared lookup does not take a returned run of ``commit``, or None when it is a passed push or dispatch
-    run of that commit on ``branch``: the base branch, or the default branch in the second step of a base that is not
-    the default branch."""
-    if not isinstance(run.get("id"), int) or isinstance(run.get("id"), bool):
-        return "it has no numeric id"
-    if run.get("head_sha") != commit:
-        return f"its head_sha is not {commit}"
-    if run.get("head_branch") != branch:
-        return f"its head_branch is not {branch}"
-    if run.get("event") not in BRANCH_EVENTS:
-        return f"its event is not {' or '.join(BRANCH_EVENTS)}"
-    return None
-
-
-def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digests: dict[str, str], pushed: str | None,
-                  default_branch: str | None = None) -> SharedLookup:
-    """The shared CI digests that the run to compare with took.
-
-    On a push, a dispatch run, and a pull request onto the default branch, that run is the last passed push or dispatch
-    run of the calling workflow on the base branch, found by ``walk`` from the fetched tip ``origin/<branch>`` or, on a
-    push, from the first parent of the pushed commit. On a pull request whose base is not ``default_branch``, step 1
-    takes the passed pull-request run that produced the base's tip, found as ``lookup`` finds the tested tree of an
-    identical push; when that run or its digests cannot be found, step 2 walks from the newest commit of the default
-    branch's first-parent line that the base's tip contains and takes only runs of the default branch. A lookup that
-    finds no readable digests leaves ``previous`` empty, so that every suite runs. ``log`` names every request, every
-    returned run with its verdict, each start, the step that decided and why."""
-    log: list[str] = []
-    logged = LoggedApi(api, log)
-
-    def result(previous: dict[str, str] | None, reason: str, run: int | None = None) -> SharedLookup:
-        if previous is None:
-            log.append(f"No digests to compare with: {reason}.")
-        return SharedLookup(digests, previous, reason, run, tuple(log))
-
-    def compared(previous: dict[str, str]) -> str:
-        return "equal" if all(previous.get(name) == value for name, value in digests.items()) else "differ from"
-
-    if pushed or not default_branch or default_branch == branch:
-        if pushed:
-            start, origin = commit_id(root, f"{pushed}^1"), f"the first parent of the pushed commit {pushed}"
-            if start is None:
-                return result(None, f"the pushed commit {pushed} has no first parent in this job's checkout")
-        else:
-            start, origin = commit_id(root, f"refs/remotes/origin/{branch}"), f"the tip of `origin/{branch}` fetched in this job"
-            if start is None:
-                return result(None, f"`origin/{branch}` is not in this job's checkout, so its first-parent history cannot be walked")
-        previous, why, run = walk(root, logged, workflow, branch, start, origin)
-        if previous is None:
-            return result(None, why, run)
-        return result(previous, f"the shared CI digests {compared(previous)} those of run {run}, the last passed run on `{branch}`", run)
-
-    log.append(f"`{branch}` is not the default branch `{default_branch}`: step 1 looks for the passed pull-request run that produced the tip of "
-               f"`{branch}`, step 2 for the last passed push or dispatch run on `{default_branch}` from where `{branch}` meets its first-parent line.")
-    previous, step_1, run = tip_run(root, logged, workflow, branch)
-    if previous is not None:
-        log.append(f"Step 1 decided: it took the digests of {step_1}.")
-        return result(previous, f"step 1 decided: the shared CI digests {compared(previous)} those of {step_1}", run)
-    log.append(f"Step 1 found no digests: {step_1}.")
-    anchor, step_2 = meeting_point(root, branch, default_branch)
-    run = None
-    if anchor is not None:
-        origin = f"the newest commit of the first-parent line of `origin/{default_branch}` that `origin/{branch}` contains"
-        previous, step_2, run = walk(root, logged, workflow, default_branch, anchor, origin)
-    if previous is None:
-        return result(None, f"step 1 found no digests: {step_1}; step 2 found no digests: {step_2}", run)
-    log.append(f"Step 2 decided: it took the digests of run {run} on `{default_branch}`.")
-    return result(previous, f"step 2 decided, since step 1 found no digests ({step_1}): the shared CI digests {compared(previous)} those of run {run}, "
-                            f"the last passed run on `{default_branch}` from {anchor}, where `{branch}` meets its first-parent line", run)
-
-
-def walk(root: Path, api: LoggedApi, workflow: str, branch: str, start: str, origin: str) -> tuple[dict[str, str] | None, str, int | None]:
-    """The shared CI digests of the last passed push or dispatch run of the calling workflow on ``branch``, with why
-    none was found and the run it took. The walk reads the first-parent history from ``start``, newest first, for at
-    most ``WALK_COMMITS`` commits, and asks for each commit's successful runs; the newest accepted run of the first
-    commit that has one decides, and its digests are read from the log of its job with the digest step. A walk that
-    reaches its bound, a failed request, or a step or a log line that cannot be found or parsed gives no digests."""
-    log = api.log
-    listing = git(root, "rev-list", "--first-parent", f"--max-count={WALK_COMMITS + 1}", start)
-    if listing.returncode != 0:
-        return None, f"the first-parent history of {start} cannot be read: {listing.stderr.strip()}", None
-    commits = listing.stdout.split()
-    log.append(f"The walk starts at {start}, {origin}, and reads at most {WALK_COMMITS} first-parent commits.")
-    run = None
-    try:
-        for number, commit in enumerate(commits[:WALK_COMMITS], 1):
-            answer = api.json(f"actions/workflows/{urllib.parse.quote(workflow)}/runs?head_sha={commit}&status=success&per_page=100")
-            accepted = []
-            for item in answer.get("workflow_runs") or [] if isinstance(answer, dict) else []:
-                mismatch = run_mismatch(item, commit, branch) if isinstance(item, dict) else "it is no run object"
-                log.append(run_line(item, f"not taken, {mismatch}" if mismatch else "accepted"))
-                if mismatch is None:
-                    accepted.append(item)
-            if accepted:
-                run = max(accepted, key=lambda item: (str(item.get("created_at") or ""), item["id"]))
-                log.append(f"Took run {run['id']} of {commit}: the newest accepted run of the newest first-parent commit that has one, "
-                           f"{number} commit{'' if number == 1 else 's'} into the walk.")
-                break
-        if run is None:
-            end = (f"the walk reached its bound of {WALK_COMMITS} first-parent commits" if len(commits) > WALK_COMMITS
-                   else f"the walk reached the first commit of `{branch}` after {len(commits)} first-parent commit{'' if len(commits) == 1 else 's'}")
-            return None, f"{end} from {start} without a passed push or dispatch run of `{workflow}` on `{branch}`", None
-        jobs = api.json(f"actions/runs/{run['id']}/jobs?per_page=100")
-        job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
-                    and any(step.get("name") == DIGEST_STEP for step in item.get("steps") or [] if isinstance(step, dict))), None)
-        if job is None:
-            return None, f"run {run['id']} on `{branch}` took no shared CI digests", run["id"]
-        match = DIGESTS_LINE.search(api.text(f"actions/jobs/{job['id']}/logs"))
-    except ApiError as error:
-        if run is None:
-            return None, f"a request of the walk over `{branch}` failed: {error}", None
-        return None, f"run {run['id']} on `{branch}` could not be read: {error}", run["id"]
-    parsed = parse_digests(match.group(1)) if match is not None else None
-    if parsed is None:
-        return None, f"the log of run {run['id']} on `{branch}` names no readable shared CI digests", run["id"]
-    return parsed, "", run["id"]
-
-
-def tip_run(root: Path, api: LoggedApi, workflow: str, branch: str) -> tuple[dict[str, str] | None, str, int | None]:
-    """Step 1 of a base that is not the default branch: the shared CI digests of the passed pull-request run that
-    produced the base's tip ``origin/<branch>``, with the run it names, or why it gives none. The run is the last
-    successful pull-request run of the tip's pull request whose tested tree equals the tip's tree, as ``lookup`` finds
-    it for an identical push. Under that runs request the log names the returned run with its verdict."""
-    tip = commit_id(root, f"refs/remotes/origin/{branch}")
-    if tip is None:
-        return None, f"`origin/{branch}` is not in this job's checkout", None
-    api.log.append(f"Step 1 starts at {tip}, the tip of `origin/{branch}` fetched in this job.")
-    answered = len(api.runs)
-    found = lookup(root, api, workflow, tip)
-    taken = found.case == "identical" and found.tested_digests is not None
-    if found.case == "identical":
-        why = f"no shared CI digests can be read from run {found.tested_run} of pull request #{found.pull_request}"
-    elif found.case == "behind":
-        why = f"the tree of {tip} differs from the tested tree {found.tested_merge} of pull request #{found.pull_request}"
-    else:
-        why = found.reason
-    for position, runs in reversed(api.runs[answered:]):  # the runs request of ``lookup``; the last insertion first keeps the positions
-        accepted = f"accepted, its tested tree equals the tree of {tip} and it took shared CI digests"
-        api.log[position:position] = [run_line(item, "not taken, only the last successful run counts" if index else accepted if taken else f"not taken, {why}")
-                                      for index, item in enumerate(runs)]
-    if not taken:
-        return None, why, None
-    return found.tested_digests, f"run {found.tested_run} of pull request #{found.pull_request}, which produced {tip}, the tip of `{branch}`", found.tested_run
-
-
-def meeting_point(root: Path, branch: str, default_branch: str) -> tuple[str | None, str]:
-    """The newest commit of the first-parent line of ``origin/<default_branch>`` that ``origin/<branch>`` contains, found
-    from the fetched refs without a bound, or None with why it cannot be found."""
-    default_tip = commit_id(root, f"refs/remotes/origin/{default_branch}")
-    if default_tip is None:
-        return None, f"`origin/{default_branch}` is not in this job's checkout, so its first-parent line cannot be read"
-    tip = commit_id(root, f"refs/remotes/origin/{branch}")
-    if tip is None:
-        return None, f"`origin/{branch}` is not in this job's checkout"
-    line = git(root, "rev-list", "--first-parent", default_tip)
-    contained = git(root, "rev-list", tip)
-    for listing in (line, contained):
-        if listing.returncode != 0:
-            return None, f"the histories of `origin/{default_branch}` and `origin/{branch}` cannot be read: {listing.stderr.strip()}"
-    ancestors = set(contained.stdout.split())
-    anchor = next((commit for commit in line.stdout.split() if commit in ancestors), None)
-    if anchor is None:
-        return None, f"`origin/{branch}` contains no commit of the first-parent line of `origin/{default_branch}`"
-    return anchor, ""
+def uses_tested_digests(found: Lookup | None) -> bool:
+    """Whether ``found`` relies on the pull request's tested run and therefore compares against its tested digests."""
+    return found is not None and found.case in ("identical", "behind")
 
 
 def tested_digests(found: Lookup | None) -> dict[str, str] | None:
-    """The shared CI digests that the passed pull-request run of an identical tree took. When they are known, that run
-    decides in place of the last passed run on the base branch, since its result is the one relied on."""
-    return found.tested_digests if found is not None and found.case == "identical" else None
+    """The shared CI digests that the passed pull-request run of an identical or behind merge took."""
+    return found.tested_digests if uses_tested_digests(found) else None
 
 
 def tested_reason(found: Lookup, digests: dict[str, str]) -> str:
-    if found.tested_digests is not None and all(found.tested_digests.get(name) == value for name, value in digests.items()):
+    if found.tested_digests is None:
+        who = f"run {found.tested_run} of pull request #{found.pull_request}" if found.tested_run is not None else f"pull request #{found.pull_request}"
+        return f"the shared CI digests of {who} could not be read"
+    if all(found.tested_digests.get(name) == value for name, value in digests.items()):
         return f"the tested tree took the same shared CI digests in run {found.tested_run} of pull request #{found.pull_request}"
-    return f"the shared CI digests differ from those of run {found.tested_run} of pull request #{found.pull_request}, whose tested tree the push equals"
+    return f"the shared CI digests differ from those of run {found.tested_run} of pull request #{found.pull_request}"
 
 
 def shared_markdown(found: SharedLookup, push: Lookup | None = None) -> str:
-    if push is not None and tested_digests(push) is not None:
-        moved = found.moved_digests(push.tested_digests, use_given=True)
-        prefix = "No suite runs: " if not moved else f"Moved digests ({', '.join(f'`{name}`' for name in sorted(moved))}): "
-        text = prefix + tested_reason(push, found.digests)
-        text += f", which decides in place of the base branch, where {found.reason}"
+    if push is not None and uses_tested_digests(push):
+        if push.tested_digests is None:
+            text = "Every suite runs: " + tested_reason(push, found.digests)
+        else:
+            moved = found.moved_digests(push.tested_digests, use_given=True)
+            if not moved:
+                prefix = "No suite runs: " if push.case == "identical" else "The selection runs as usual: "
+            else:
+                prefix = f"Moved digests ({', '.join(f'`{name}`' for name in sorted(moved))}): "
+            text = prefix + tested_reason(push, found.digests)
+            text += f", which decides in place of the base branch, where {found.reason}"
     else:
         moved = found.moved_digests()
         if moved is None:
@@ -525,9 +440,13 @@ def shared_markdown(found: SharedLookup, push: Lookup | None = None) -> str:
 
 
 def lookup_markdown(found: Lookup) -> str:
-    text = {"identical": "No suite runs: ", "behind": "Only units that both sides affect run: ",
-            "pull-request": "The selection runs over the pull request's files: ", "own": "The selection runs over the push's own changed files: "}
-    return f"## Push lookup\n\n{text[found.case]}{found.reason}.\n"
+    if found.case == "behind" and found.landing_base_passed is not True:
+        prefix = "Everything the newer base can affect runs: "
+    else:
+        text = {"identical": "No suite runs: ", "behind": "Only units that both sides affect run: ",
+                "pull-request": "The selection runs over the pull request's files: ", "own": "The selection runs over the push's own changed files: "}
+        prefix = text[found.case]
+    return f"## Push lookup\n\n{prefix}{found.reason}.\n"
 
 
 # --- the reuse key --------------------------------------------------------------------------------------------
@@ -622,6 +541,56 @@ def unit_key(reads: dict, context: str) -> str:
     return content_digest({"reads": reads, "context": context})
 
 
+@dataclass(frozen=True)
+class DefaultBranchRecord:
+    """Structured record written by a passed default-branch run in the default branch's cache scope."""
+
+    version: int
+    run_id: int
+    commit: str
+    tree: str
+    digests: dict[str, str] | None
+    passed: dict[str, int]
+
+    def document(self) -> dict:
+        return {
+            "version": self.version,
+            "run_id": self.run_id,
+            "commit": self.commit,
+            "tree": self.tree,
+            "digests": self.digests,
+            "passed": dict(sorted(self.passed.items())),
+        }
+
+
+def read_default_record(path: Path | None) -> tuple[DefaultBranchRecord | None, str | None, str]:
+    """Read and validate a default-branch record; returns ``(record, fallback_reason, detail)``.
+    Never raises on a missing, evicted or unreadable record so callers always fall back to running more."""
+    if path is None or not path.is_file():
+        where = f" {path}" if path is not None else ""
+        return None, "missing-default-branch-record", f"the default-branch record{where} is missing or evicted"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return None, "unreadable-default-branch-record", f"the default-branch record {path} cannot be read: {error}"
+    if not isinstance(raw, dict):
+        return None, "unreadable-default-branch-record", f"the default-branch record {path} must be a JSON object"
+    version = raw.get("version")
+    run_id = raw.get("run_id")
+    commit = raw.get("commit")
+    tree = raw.get("tree")
+    passed = raw.get("passed")
+    if (version != DEFAULT_RECORD_VERSION or isinstance(version, bool)
+            or not isinstance(run_id, int) or isinstance(run_id, bool)
+            or not isinstance(commit, str) or not FULL_SHA.fullmatch(commit)
+            or not isinstance(tree, str) or not FULL_SHA.fullmatch(tree)
+            or not isinstance(passed, dict)
+            or not all(isinstance(k, str) and k and isinstance(v, int) and not isinstance(v, bool) for k, v in passed.items())):
+        return None, "unreadable-default-branch-record", f"the default-branch record {path} has an invalid structure"
+    digests = parse_digests(raw.get("digests")) if raw.get("digests") is not None else None
+    return DefaultBranchRecord(version, run_id, commit, tree, digests, dict(passed)), None, ""
+
+
 def read_record(path: Path | None) -> dict[str, int]:
     """The passed results of a record: unit key to the run it passed in; a missing file holds none."""
     if path is None or not path.is_file():
@@ -631,9 +600,29 @@ def read_record(path: Path | None) -> dict[str, int]:
     except (OSError, json.JSONDecodeError) as error:
         raise RecordError(f"the result record {path} cannot be read: {error}") from error
     passed = raw.get("passed") if isinstance(raw, dict) else None
-    if not isinstance(passed, dict) or not all(isinstance(key, str) and isinstance(run, int) for key, run in passed.items()):
+    if not isinstance(passed, dict) or not all(isinstance(key, str) and isinstance(run, int) and not isinstance(run, bool) for key, run in passed.items()):
         raise RecordError(f"the result record {path} must hold passed, an object from unit key to run id")
     return passed
+
+
+def read_pr_record_safe(path: Path | None) -> tuple[dict[str, int], str | None, str]:
+    """Read a pull-request result record without failing selection when it is unreadable."""
+    if path is None or not path.is_file():
+        return {}, None, ""
+    try:
+        return read_record(path), None, ""
+    except RecordError as error:
+        return {}, "unreadable-pr-results", str(error)
+
+
+def has_cancelled_job(needs: dict) -> bool:
+    """Whether any job in ``needs`` was cancelled."""
+    return any(isinstance(job, dict) and job.get("result") == "cancelled" for job in needs.values())
+
+
+def has_failing_job(needs: dict) -> bool:
+    """Whether any job in ``needs`` failed, was cancelled, or timed out."""
+    return any(isinstance(job, dict) and job.get("result") in FAILING_JOB_RESULTS for job in needs.values())
 
 
 # --- the store ------------------------------------------------------------------------------------------------
@@ -678,16 +667,18 @@ def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job:
           with_additions: set[tuple[str, str]] = frozenset(), applied: dict[str, str] | None = None) -> dict[str, int] | None:
     """The record of a run: the results ``select`` reused, and every unit that ran and passed with all its entry
     files. ``selection_job`` names the job of the needs context that ran ``select``. None when the selection did not
-    succeed, so that nothing is stored.
+    succeed or any job was cancelled, so that nothing is stored.
 
     In a run whose checks reported additions, ``with_additions`` holds the passed entry files that the additions name,
     and ``applied`` maps the key of each running unit to its key under the suite list with every addition of the run
     applied. Every unit all of whose entry files passed, with or without additions, is then also stored under that key,
     and a unit with additions only under it: the applied lists cover all that it read, and its own key does not."""
+    if has_cancelled_job(needs):
+        return None
     units, reused = selection_outputs(needs, selection_job)
     if units is None or reused is None:
         return None
-    record = {key: run for key, run in reused.items() if isinstance(run, int)}
+    record = {key: run for key, run in reused.items() if isinstance(run, int) and not isinstance(run, bool)}
     for key, unit in units.items():
         if not isinstance(unit, dict) or not unit.get("entries"):
             continue
@@ -697,6 +688,18 @@ def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job:
         if applied is not None and key in applied and all(pair in passed or pair in with_additions for pair in pairs):
             record[applied[key]] = run_id
     return record
+
+
+def store_default_branch(needs: dict, passed: set[tuple[str, str]], run_id: int, commit: str, tree: str,
+                         digests: dict[str, str] | None, selection_job: str = "plan") -> DefaultBranchRecord | None:
+    """Build the default-branch record for a passed default-branch run, or None when any job failed or was cancelled."""
+    selection = needs.get(selection_job)
+    if not isinstance(selection, dict) or selection.get("result") != "success" or has_failing_job(needs):
+        return None
+    passed_map = store(needs, passed, run_id, selection_job)
+    if passed_map is None:
+        passed_map = {}
+    return DefaultBranchRecord(DEFAULT_RECORD_VERSION, run_id, commit, tree, digests, passed_map)
 
 
 def environment_api() -> Api:

@@ -180,7 +180,7 @@ jobs:
         if: ${{ !cancelled() && !inputs.full && matrix.shard.shard == 1 && inputs.language-steps != '' && fromJSON(inputs.language-steps).python == 'run' }}
         uses: $/actions/python-language-step
       - name: List the entry files that passed
-        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '') }}
+        if: ${{ !cancelled() && !inputs.full && ((github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '')) || ((github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) && steps.check.outcome == 'success')) }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/suite-results"
@@ -197,7 +197,7 @@ jobs:
           ADDITIONS: ${{ steps.check.outputs.additions }}
         run: python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"
       - name: Upload the entry files that passed
-        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
+        if: ${{ !cancelled() && !inputs.full && ((github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success')) || ((github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) && steps.check.outcome == 'success')) }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: suite-results-shard-${{ matrix.shard.shard }}
@@ -342,7 +342,7 @@ jobs:
           python "$env:RECORDING\recording.py" keep --additions "$env:ADDITIONS" "$env:RUNNER_TEMP\suite-results\passed.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload the entry files that passed
-        if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}
+        if: ${{ !cancelled() && !inputs.full && ((github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success')) || ((github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) && steps.check.outcome == 'success')) }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: suite-results-windows

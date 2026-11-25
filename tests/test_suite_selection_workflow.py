@@ -11,6 +11,7 @@ from pathlib import Path
 
 from tests import temporary_support
 from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, BARE_DISPATCH_TIP, entry_pathspecs, expression_value, read_workflow, tracked_files
+from tests.workflow_commands import script_invocations
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPOSITORY_ROOT / ".github/workflows"
@@ -76,7 +77,7 @@ class SharedWorkflowTests(unittest.TestCase):
         self.assertEqual(1, workflow.count("permissions:\n"), "the one job holds the read scopes of the push lookup")
         self.assertNotIn("write", workflow)
         self.assertNotIn("secrets", workflow)
-        self.assertEqual(2, workflow.count("github.token"), "only the push lookup and the shared lookup read the API")
+        self.assertEqual(1, workflow.count("github.token"), "only the push lookup reads the API")
         self.assertIn("          GITHUB_TOKEN: ${{ github.token }}\n", workflow)
         self.assertEqual(["$/actions/suite-selection", "$/actions/recording"],
                          [reference for reference in re.findall(r"uses: (\$/\S+)", workflow)])
@@ -88,7 +89,7 @@ class SharedWorkflowTests(unittest.TestCase):
         self.assertIn("        with:\n          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}\n          fetch-depth: 0\n", workflow)
         self.assertIn('suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"', workflow)
         self.assertIn('pull_request)\n              set -- "$@" --base "$BASE" --head "$HEAD" --compare merge-base', workflow)
-        self.assertIn('*) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct ;;', workflow)
+        self.assertIn('*) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct --run-attempt "$RUN_ATTEMPT" ;;', workflow)
 
     def test_the_selection_workflow_passes_the_language_steps_and_exposes_the_shards_and_the_windows_job(self) -> None:
         workflow = (WORKFLOWS / "suite-selection.yml").read_text(encoding="utf-8")
@@ -122,11 +123,11 @@ class SharedWorkflowTests(unittest.TestCase):
         lookup = named["Look up the tested tree of the pushed commit's pull request"]
         self.assertTrue(expression_value(lookup["if"], BARE_DISPATCH_CONTEXT))
         self.assertEqual((BARE_DISPATCH_TIP, ""), (expression_value(lookup["env"]["SHA"], BARE_DISPATCH_CONTEXT), expression_value(lookup["env"]["BEFORE"], BARE_DISPATCH_CONTEXT)))
-        shared = named["Look up the shared CI digests of the last passed run on the base branch"]
-        self.assertEqual(("main", BARE_DISPATCH_TIP), (expression_value(shared["env"]["BRANCH"], BARE_DISPATCH_CONTEXT), expression_value(shared["env"]["PUSHED"], BARE_DISPATCH_CONTEXT)))
+        shared = named["Look up the shared CI digests from the default-branch record"]
+        self.assertIn('--default-record "$RUNNER_TEMP/default-branch-record/record.json"', shared["run"])
         select = named["Select the suites the changed files touch"]
         self.assertEqual("repository_dispatch", expression_value(select["env"]["EVENT"], BARE_DISPATCH_CONTEXT))
-        self.assertIn('push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" ;;', select["run"])
+        self.assertIn('push|repository_dispatch) set -- "$@" --lookup "$RUNNER_TEMP/push-lookup.json" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --run-attempt "$RUN_ATTEMPT" ;;', select["run"])
 
     def test_both_workflows_name_the_step_by_the_scripts_it_loads(self) -> None:
         for name, job in (("suite-selection.yml", "select"), ("suite-verdict.yml", "validation")):
@@ -148,15 +149,10 @@ class SharedWorkflowTests(unittest.TestCase):
         self.assertIn('python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"', digest["run"])
         (lookup,) = [step for step in steps if '" shared-lookup ' in str(step.get("run", ""))]
         self.assertNotIn("if", lookup)
-        self.assertEqual({"DIGESTS": "${{ steps.digest.outputs.shared-digests }}", "GITHUB_TOKEN": "${{ github.token }}",
-                          "WORKFLOW": "${{ github.workflow_ref }}", "RESOURCE_PATH": "${{ steps.resources.outputs.path }}",
-                          "BRANCH": "${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' "
-                                    "&& github.event.repository.default_branch || github.ref_name }}",
-                          "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
-                          "PUSHED": "${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') "
-                                    "&& (github.event.client_payload.sha || github.sha) || '' }}"}, lookup["env"])
-        self.assertIn('suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" '
-                      '--pushed "$PUSHED" --workflow "$WORKFLOW" '
+        self.assertEqual({"DIGESTS": "${{ steps.digest.outputs.shared-digests }}",
+                          "RESOURCE_PATH": "${{ steps.resources.outputs.path }}"}, lookup["env"])
+        self.assertIn('suite_selection.py" shared-lookup --root . --digests "$DIGESTS" '
+                      '--default-record "$RUNNER_TEMP/default-branch-record/record.json" '
                       '--output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"', lookup["run"])
         names = [step.get("id") for step in steps]
         self.assertLess(names.index("digest"), steps.index(lookup))
@@ -165,6 +161,23 @@ class SharedWorkflowTests(unittest.TestCase):
         self.assertIn('set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"', [line.strip() for line in select.splitlines()])
         self.assertEqual("${{ steps.digest.outputs.shared-digests }}", workflow["jobs"]["select"]["outputs"]["shared-digests"])
         self.assertEqual("${{ jobs.select.outputs.shared-digests }}", workflow["on"]["workflow_call"]["outputs"]["shared-digests"]["value"])
+
+    def test_every_workflow_invocation_of_suite_selection_uses_options_the_program_accepts(self) -> None:
+        import suite_selection
+
+        int_flags = {"--pull-request", "--run-id", "--run-attempt"}
+        for name in ("pipeline.yml", "suite-selection.yml", "suite-verdict.yml", "repository-hygiene.yml"):
+            for tokens in script_invocations(WORKFLOWS / name, "suite_selection.py"):
+                cleaned = []
+                for index, token in enumerate(tokens):
+                    if token == "$@":
+                        continue
+                    cleaned.append("1" if index and tokens[index - 1] in int_flags else token)
+                with self.subTest(workflow=name, command=cleaned[0]):
+                    if cleaned[0] == "select":
+                        suite_selection.parse_arguments([cleaned[0], "--base", "a", "--head", "b", *cleaned[1:]])
+                    else:
+                        suite_selection.parse_arguments(cleaned)
 
 
 

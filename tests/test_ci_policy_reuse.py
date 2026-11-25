@@ -5,20 +5,35 @@ from __future__ import annotations
 import re
 import unittest
 
-from tests.ci_policy_support import REPOSITORY_ROOT, passed_list_steps, read_workflow
+from tests.ci_policy_support import REPOSITORY_ROOT, condition_holds, passed_list_steps, read_workflow
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 PREFIX = "suite-results-${{ github.event.pull_request.number }}-run-"
-LISTED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '') }}"
-KEPT = "${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}"
-DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
-DISPATCH_IF = "github.event_name == 'repository_dispatch' && github.event.client_payload.sha"
-UPLOADED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}"
 DEFAULT_BRANCH_ONLY = (
     "(github.event_name == 'repository_dispatch'"
     " || (github.event_name == 'push' && github.ref_type == 'branch'"
     " && github.ref_name == github.event.repository.default_branch))"
 )
+LISTED = (
+    "${{ !cancelled() && ((github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != ''))"
+    f" || ({DEFAULT_BRANCH_ONLY} && steps.check.outcome == 'success')) }}}}"
+)
+KEPT = "${{ !cancelled() && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}"
+DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
+DISPATCH_IF = "github.event_name == 'repository_dispatch' && github.event.client_payload.sha"
+UPLOADED = (
+    "${{ !cancelled() && ((github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success'))"
+    f" || ({DEFAULT_BRANCH_ONLY} && steps.check.outcome == 'success')) }}}}"
+)
+DEFAULT_RECORD_SAVE_IF = (
+    "${{ !cancelled() && steps.verdict.outcome == 'success'"
+    " && steps.store-default.outputs.stored == 'true'"
+    f" && {DEFAULT_BRANCH_ONLY} }}}}"
+)
+DEFAULT_RECORD_SAVE_WITH = {
+    "path": "${{ runner.temp }}/default-branch-record/record.json",
+    "key": "default-branch-record-${{ github.run_id }}-${{ github.run_attempt }}",
+}
 MARKER_SAVE_IF = (
     "${{ !cancelled() && steps.install-gitleaks.outcome == 'success'"
     " && steps.gitleaks.outputs.recorded-marker == 'true'"
@@ -59,23 +74,39 @@ class SelectionStepTests(unittest.TestCase):
         self.assertIn('suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"', check["run"])
         self.assertTrue(all("if" not in step or "always()" not in step["if"] and "cancelled()" not in step["if"] for step in self.steps),
                         "a failed dispatch check skips every later step")
-        lookup = self.steps[3]
+        restore_default = self.steps[3]
+        self.assertEqual("Restore the default-branch record", restore_default["name"])
+        self.assertTrue(restore_default["uses"].startswith("actions/cache/restore@"))
+        lookup = self.steps[4]
         self.assertIn('suite_selection.py" lookup --root . --sha "$SHA"', lookup["run"])
+        self.assertIn('--default-record "$RUNNER_TEMP/default-branch-record/record.json"', lookup["run"])
         self.assertEqual("github.event_name == 'push' || github.event_name == 'repository_dispatch'", lookup["if"])
         self.assertEqual("${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}", lookup["env"]["SHA"])
         self.assertEqual("${{ github.run_attempt }}", lookup["env"]["RUN_ATTEMPT"])
-        self.assertIn('--lookup "$RUNNER_TEMP/push-lookup.json"', self.steps[-1]["run"])
+        select = next(step for step in self.steps if step.get("id") == "select")
+        self.assertIn('--lookup "$RUNNER_TEMP/push-lookup.json"', select["run"])
 
-    def test_select_makes_one_cache_lookup_per_run_in_the_pull_request_s_scope_and_none_on_a_re_run(self) -> None:
-        self.assertEqual(1, len(re.findall(r"uses: actions/cache", self.text)))
-        restore = next(step for step in self.steps if str(step.get("uses", "")).startswith("actions/cache/"))
-        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), "select only reads the store")
-        self.assertEqual("github.event_name == 'pull_request' && github.run_attempt == 1", restore["if"])
-        self.assertEqual(PREFIX, restore["with"]["restore-keys"])
-        self.assertTrue(restore["with"]["key"].startswith(PREFIX))
-        self.assertEqual("${{ runner.temp }}/suite-results/record.json", restore["with"]["path"])
-        script = self.steps[-1]["run"]
-        self.assertIn('--results "$RUNNER_TEMP/suite-results/record.json" --run-attempt "$RUN_ATTEMPT"', script)
+    def test_select_makes_two_read_only_cache_lookups_for_default_branch_and_pull_request_records_and_writes_tested_state(self) -> None:
+        self.assertEqual(2, len(re.findall(r"uses: actions/cache", self.text)))
+        restores = [step for step in self.steps if str(step.get("uses", "")).startswith("actions/cache/")]
+        self.assertEqual(2, len(restores))
+        self.assertTrue(all(step["uses"].startswith("actions/cache/restore@") for step in restores), "select only reads the stores")
+        default_restore, pr_restore = restores
+        self.assertEqual("default-branch-record-", default_restore["with"]["restore-keys"])
+        self.assertEqual("${{ runner.temp }}/default-branch-record/record.json", default_restore["with"]["path"])
+        self.assertEqual("github.event_name == 'pull_request' && github.run_attempt == 1", pr_restore["if"])
+        self.assertEqual(PREFIX, pr_restore["with"]["restore-keys"])
+        self.assertTrue(pr_restore["with"]["key"].startswith(PREFIX))
+        self.assertEqual("${{ runner.temp }}/suite-results/record.json", pr_restore["with"]["path"])
+        select = next(step for step in self.steps if step.get("id") == "select")
+        script = select["run"]
+        self.assertIn('--results "$RUNNER_TEMP/suite-results/record.json" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --run-attempt "$RUN_ATTEMPT"', script)
+        write_state = next(step for step in self.steps if step.get("name") == "Record the tested state of the pull request")
+        upload_state = next(step for step in self.steps if step.get("name") == "Upload the tested state of the pull request")
+        self.assertEqual("github.event_name == 'pull_request' && github.event.action != 'edited'", write_state["if"])
+        self.assertEqual("github.event_name == 'pull_request' && github.event.action != 'edited'", upload_state["if"])
+        self.assertTrue(upload_state["uses"].startswith("actions/upload-artifact@"))
+        self.assertEqual("tested-state", upload_state["with"]["name"])
 
     def test_the_select_outputs_carry_the_units_the_reused_results_and_the_identical_tree_to_the_verdict(self) -> None:
         for output in ("units", "reused", "identical"):
@@ -110,15 +141,40 @@ class StoreStepTests(unittest.TestCase):
         self.assertEqual(PREFIX + "${{ github.run_id }}-${{ github.run_attempt }}", save["with"]["key"])
         self.assertNotIn("if", steps[-1], "the verdict itself reports on every run")
         pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
-        self.assertEqual(3, pipeline_text.count("uses: actions/cache/save"))
+        self.assertEqual(4, pipeline_text.count("uses: actions/cache/save"))
         pipeline_saves = {
             job: [step for step in body.get("steps", ()) if str(step.get("uses", "")).startswith("actions/cache/save@")]
             for job, body in pipeline["jobs"].items()
             if any(str(step.get("uses", "")).startswith("actions/cache/save@") for step in body.get("steps", ()))
         }
-        self.assertEqual({"repository-hygiene", "suite-selection-results"}, set(pipeline_saves))
+        self.assertEqual({"repository-hygiene", "suite-selection-results", "verdict"}, set(pipeline_saves))
         self.assertEqual(1, len(pipeline_saves["suite-selection-results"]))
         self.assertEqual(2, len(pipeline_saves["repository-hygiene"]))
+        self.assertEqual(1, len(pipeline_saves["verdict"]))
+        verdict_steps = steps_of(pipeline, "verdict")
+        verdict_decision = next(step for step in verdict_steps if step.get("id") == "verdict")
+        store_default = next(step for step in verdict_steps if step.get("id") == "store-default")
+        default_save = pipeline_saves["verdict"][0]
+        self.assertLess(verdict_steps.index(verdict_decision), verdict_steps.index(store_default))
+        self.assertLess(verdict_steps.index(store_default), verdict_steps.index(default_save))
+        self.assertEqual("Store the default-branch record in the default branch's cache", default_save["name"])
+        self.assertEqual(DEFAULT_RECORD_SAVE_IF, default_save["if"])
+        self.assertEqual(DEFAULT_RECORD_SAVE_WITH, default_save["with"])
+        for event, ref_type, ref_name, verdict_outcome, stored, expected in (
+            ("push", "branch", "main", "success", "true", True),
+            ("repository_dispatch", "branch", "main", "success", "true", True),
+            ("pull_request", "branch", "main", "success", "true", False),
+            ("push", "branch", "feat-branch", "success", "true", False),
+            ("push", "tag", "main", "success", "true", False),
+            ("push", "branch", "main", "failure", "true", False),
+            ("push", "branch", "main", "success", "", False),
+        ):
+            with self.subTest(event=event, ref_type=ref_type, ref_name=ref_name, verdict_outcome=verdict_outcome, stored=stored):
+                self.assertEqual(expected, condition_holds(default_save["if"], {
+                    "github.event_name": event, "github.ref_type": ref_type, "github.ref_name": ref_name,
+                    "github.event.repository.default_branch": "main",
+                    "steps.verdict.outcome": verdict_outcome, "steps.store-default.outputs.stored": stored,
+                }))
         results = pipeline["jobs"]["suite-selection-results"]
         self.assertEqual(
             "${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}",
@@ -249,6 +305,14 @@ class SuiteJobTests(unittest.TestCase):
                     ("no check", ("skipped", "", "success"), [])):
                 with self.subTest(job=job, case=case):
                     ran = passed_list_steps(steps, outcome, additions, keep)
+                    self.assertEqual((listed[job] if expected else []) + expected, ran)
+            for case, (event, ref_name, outcome, additions), expected in (
+                    ("default-branch push passed", ("push", "main", "success", ""), [upload]),
+                    ("default-branch dispatch passed", ("repository_dispatch", "main", "success", ""), [upload]),
+                    ("default-branch push with additions", ("push", "main", "failure", "additions_json"), []),
+                    ("non-default branch push passed", ("push", "topic", "success", ""), [])):
+                with self.subTest(job=job, case=case):
+                    ran = passed_list_steps(steps, outcome, additions, event_name=event, ref_name=ref_name)
                     self.assertEqual((listed[job] if expected else []) + expected, ran)
 
 

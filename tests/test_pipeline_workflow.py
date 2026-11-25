@@ -70,9 +70,11 @@ class PipelineInvocationTests(unittest.TestCase):
         _, workflow = read_workflow(WORKFLOW)
         plan_steps = {step["name"]: step for step in workflow["jobs"]["plan"]["steps"] if "name" in step}
         hygiene_steps = {step["name"]: step for step in workflow["jobs"]["repository-hygiene"]["steps"] if "name" in step}
-        for name in ("Decide which checks the changed files can affect", "Take the digest of the shared recording step",
-                     "Look up the digest of the last passed run on the base branch", "Restore the passed results of the pull request",
-                     "Select the suites the changed files touch", "Check the pull request branch", "Consumer checks"):
+        for name in ("Record the checked-out commit and tree", "Restore the default-branch record",
+                     "Decide which checks the changed files can affect", "Take the shared CI digests",
+                     "Look up the shared CI digests from the default-branch record", "Restore the passed results of the pull request",
+                     "Select the suites the changed files touch", "Record the tested state of the pull request",
+                     "Upload the tested state of the pull request", "Check the pull request branch", "Consumer checks"):
             self.assertIn("edited", str(plan_steps[name].get("if", "")), f"plan step {name} must skip on edited")
         self.assertNotIn("edited", str(plan_steps["Check the references to repositories of the owner"].get("if", "")))
         for name in ("Check every pull request commit", "Compute the hygiene tools cache key", "Restore the cached hygiene tools",
