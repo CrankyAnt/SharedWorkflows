@@ -210,6 +210,7 @@
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/reuse.py",
         "actions/suite-selection/revisions.py",
+        "actions/suite-selection/suite_list.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
         "actions/sync/action.yml",
@@ -405,7 +406,24 @@
           ".github/workflows/apply-additions.yml",
           ".github/workflows/automation-caller.yml",
           ".github/workflows/automation.yml",
+          ".github/workflows/ci.yml",
+          ".github/workflows/dependabot-auto-merge-caller.yml",
+          ".github/workflows/dependabot-auto-merge.yml",
+          ".github/workflows/pipeline.yml",
+          ".github/workflows/promote-v1.yml",
+          ".github/workflows/python-tests-caller.yml",
+          ".github/workflows/python-tests.yml",
           ".github/workflows/rebuild-etw-consumer.yml",
+          ".github/workflows/release-caller.yml",
+          ".github/workflows/release.yml",
+          ".github/workflows/repository-hygiene-caller.yml",
+          ".github/workflows/repository-hygiene.yml",
+          ".github/workflows/suite-jobs.yml",
+          ".github/workflows/suite-selection.yml",
+          ".github/workflows/suite-verdict.yml",
+          ".github/workflows/sync.yml",
+          ".github/workflows/update-ci-pins.yml",
+          ".github/workflows/update-publication-spec.yml",
           ".github/workflows/validate.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/apply-additions.yml",
@@ -474,6 +492,7 @@
         "tests/test_ci_policy_entry_files.py": [
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
           "tests/suites.json",
@@ -737,6 +756,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "actions/sync/action.yml",
@@ -927,6 +947,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
@@ -1400,6 +1421,9 @@
       ],
       "entry_directory_memberships": {
         "tests/test_ci_policy_action_pins.py": [
+          ".github/workflows"
+        ],
+        "tests/test_ci_policy_additions.py": [
           ".github/workflows"
         ],
         "tests/test_ci_policy_automation.py": [
@@ -2092,6 +2116,22 @@
         },
         {
           "path": "actions/suite-selection/revisions.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.so",
           "kind": "any"
         },
         {
@@ -3764,6 +3804,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -5179,6 +5235,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -6873,6 +6945,7 @@
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/reuse.py",
         "actions/suite-selection/revisions.py",
+        "actions/suite-selection/suite_list.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
         "catalogue.json",
@@ -6939,6 +7012,7 @@
           "actions/suite-selection/consumer-kit/validation.yml",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
           "tests/hygiene_fixtures.py",
@@ -6960,6 +7034,7 @@
           "actions/suite-selection/consumer-kit/full-recording.yml",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
           "tests/temporary_support.py",
@@ -7172,6 +7247,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
@@ -7487,6 +7563,22 @@
         },
         {
           "path": "actions/suite-selection/revisions.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.so",
           "kind": "any"
         },
         {
@@ -8225,6 +8317,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -8456,6 +8564,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -9683,6 +9807,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -9936,6 +10076,9 @@
         "actions/pipeline/schema/v1/setups.json",
         "actions/publication-checks/action.yml",
         "actions/python-language-step/action.yml",
+        "actions/python-language-step/consumer-kit/README.md",
+        "actions/python-language-step/consumer-kit/python-language-step.yml",
+        "actions/python-language-step/python_language_step.py",
         "actions/python-tests/action.yml",
         "actions/recording/action.yml",
         "actions/recording/etw-consumer/EtwConsumer.csproj",
@@ -9959,9 +10102,20 @@
         "actions/recording/stdlib_names.py",
         "actions/recording/toolchain_probes.json",
         "actions/repository-hygiene/action.yml",
+        "actions/repository-hygiene/consumer-kit/README.md",
+        "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
         "actions/repository-hygiene/dependabot_coverage.py",
+        "actions/repository-hygiene/hygiene.py",
+        "actions/repository-hygiene/install_tools.py",
+        "actions/repository-hygiene/link_check.py",
+        "actions/repository-hygiene/package-ecosystems.json",
         "actions/repository-hygiene/pins.json",
+        "actions/repository-hygiene/pins.py",
+        "actions/repository-hygiene/pins.schema.json",
+        "actions/repository-hygiene/promote_v1.py",
         "actions/repository-hygiene/shared-surface.json",
+        "actions/repository-hygiene/update_pins.py",
+        "actions/repository-hygiene/zizmor-policy.yml",
         "actions/suite-selection/action.yml",
         "actions/suite-selection/ci_definition.py",
         "actions/suite-selection/consumer-kit/README.md",
@@ -9972,6 +10126,7 @@
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/reuse.py",
         "actions/suite-selection/revisions.py",
+        "actions/suite-selection/suite_list.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
         "tests/ci_policy_support.py",
@@ -10851,6 +11006,10 @@
       "entry_paths": {
         "tests/test_suite_selection.py": [
           ".github/workflows/suite-jobs.yml",
+          "actions/python-language-step/action.yml",
+          "actions/python-language-step/consumer-kit/README.md",
+          "actions/python-language-step/consumer-kit/python-language-step.yml",
+          "actions/python-language-step/python_language_step.py",
           "actions/recording/action.yml",
           "actions/recording/etw-consumer/EtwConsumer.csproj",
           "actions/recording/etw-consumer/Program.cs",
@@ -10872,10 +11031,14 @@
           "actions/recording/stdlib_module_names.json",
           "actions/recording/stdlib_names.py",
           "actions/recording/toolchain_probes.json",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/recording_fixtures.py",
@@ -10897,6 +11060,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/consumer_checks_fixtures.py",
@@ -10912,6 +11076,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/temporary_support.py",
@@ -10922,6 +11087,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/test_suite_selection_code_boundary.py"
@@ -10938,6 +11104,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1256.tsv",
@@ -10957,6 +11124,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1256.tsv",
           "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1267.tsv",
@@ -11026,6 +11194,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/fixtures/recording_etw/classification/first/events.tsv",
           "tests/fixtures/recording_etw/classification/first/logs/etw.log",
@@ -11796,6 +11965,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/fixtures/recording_etw/classification/first/events.tsv",
@@ -11946,6 +12116,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/fixtures/recording_strace/commands/full-link/link.lookups/1294.tsv",
           "tests/fixtures/recording_strace/commands/full-link/link.lookups/1317.tsv",
@@ -11994,6 +12165,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
@@ -12006,6 +12178,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
@@ -12017,6 +12190,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
@@ -12031,6 +12205,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
@@ -12039,6 +12214,10 @@
           "tests/test_suite_selection_recording_setups.py"
         ],
         "tests/test_suite_selection_reuse.py": [
+          "actions/python-language-step/action.yml",
+          "actions/python-language-step/consumer-kit/README.md",
+          "actions/python-language-step/consumer-kit/python-language-step.yml",
+          "actions/python-language-step/python_language_step.py",
           "actions/recording/action.yml",
           "actions/recording/etw-consumer/EtwConsumer.csproj",
           "actions/recording/etw-consumer/Program.cs",
@@ -12060,6 +12239,21 @@
           "actions/recording/stdlib_module_names.json",
           "actions/recording/stdlib_names.py",
           "actions/recording/toolchain_probes.json",
+          "actions/repository-hygiene/action.yml",
+          "actions/repository-hygiene/consumer-kit/README.md",
+          "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/hygiene.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/link_check.py",
+          "actions/repository-hygiene/package-ecosystems.json",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
+          "actions/repository-hygiene/pins.schema.json",
+          "actions/repository-hygiene/promote_v1.py",
+          "actions/repository-hygiene/shared-surface.json",
+          "actions/repository-hygiene/update_pins.py",
+          "actions/repository-hygiene/zizmor-policy.yml",
           "actions/suite-selection/action.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/consumer-kit/README.md",
@@ -12070,6 +12264,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/suite_selection_fixtures.py",
@@ -12081,6 +12276,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/suite_selection_fixtures.py",
@@ -12115,6 +12311,7 @@
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/ci_policy_support.py",
@@ -12148,14 +12345,18 @@
         "actions/pipeline/schema",
         "actions/pipeline/schema/v1/parts",
         "actions/publication-checks/action.yml/**",
+        "actions/python-language-step",
         "actions/python-language-step/action.yml/**",
+        "actions/python-language-step/consumer-kit",
         "actions/python-tests/action.yml/**",
         "actions/recording",
         "actions/recording/action.yml/**",
         "actions/recording/etw-consumer",
         "actions/recording/etw-consumer/build",
         "actions/recording/etw-consumer/global.json/**",
+        "actions/repository-hygiene",
         "actions/repository-hygiene/action.yml/**",
+        "actions/repository-hygiene/consumer-kit",
         "actions/repository-hygiene/pins.json/**",
         "actions/suite-selection",
         "actions/suite-selection/action.yml/**",
@@ -12634,6 +12835,8 @@
       ],
       "entry_directory_memberships": {
         "tests/test_suite_selection.py": [
+          "actions/python-language-step",
+          "actions/python-language-step/consumer-kit",
           "actions/recording",
           "actions/recording/etw-consumer",
           "actions/recording/etw-consumer/build",
@@ -13043,9 +13246,13 @@
           "tests"
         ],
         "tests/test_suite_selection_reuse.py": [
+          "actions/python-language-step",
+          "actions/python-language-step/consumer-kit",
           "actions/recording",
           "actions/recording/etw-consumer",
           "actions/recording/etw-consumer/build",
+          "actions/repository-hygiene",
+          "actions/repository-hygiene/consumer-kit",
           "actions/suite-selection",
           "actions/suite-selection/consumer-kit"
         ],
@@ -13248,6 +13455,10 @@
         },
         {
           "path": ".github/workflows/validate.yml",
+          "kind": "any"
+        },
+        {
+          "path": "<unknown>",
           "kind": "any"
         },
         {
@@ -13616,6 +13827,22 @@
         },
         {
           "path": "actions/suite-selection/subprocess.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.so",
           "kind": "any"
         },
         {
@@ -14922,6 +15149,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -15180,6 +15423,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -15370,6 +15629,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -15532,6 +15807,10 @@
         ],
         "tests/test_suite_selection_recording_apply.py": [
           {
+            "path": "<unknown>",
+            "kind": "any"
+          },
+          {
             "path": "actions",
             "kind": "directory"
           },
@@ -15605,6 +15884,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -15786,6 +16081,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -15929,6 +16240,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -16107,6 +16434,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -16304,6 +16647,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -16490,6 +16849,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -16645,6 +17020,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -16810,6 +17201,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -16969,6 +17376,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -17296,6 +17719,22 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -17569,6 +18008,22 @@
           },
           {
             "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
             "kind": "any"
           },
           {
@@ -21258,10 +21713,37 @@
         "tests/test_python_language_step.py": 5.54
       },
       "paths": [
+        ".github/workflows/suite-jobs.yml",
+        "actions/python-language-step/action.yml",
+        "actions/python-language-step/consumer-kit/README.md",
+        "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-language-step/python_language_step.py",
+        "actions/recording/action.yml",
+        "actions/recording/etw-consumer/EtwConsumer.csproj",
+        "actions/recording/etw-consumer/Program.cs",
+        "actions/recording/etw-consumer/build/Dia2Lib.dll",
+        "actions/recording/etw-consumer/build/EtwConsumer.deps.json",
+        "actions/recording/etw-consumer/build/EtwConsumer.dll",
+        "actions/recording/etw-consumer/build/EtwConsumer.runtimeconfig.json",
+        "actions/recording/etw-consumer/build/Microsoft.Diagnostics.FastSerialization.dll",
+        "actions/recording/etw-consumer/build/Microsoft.Diagnostics.NETCore.Client.dll",
+        "actions/recording/etw-consumer/build/Microsoft.Diagnostics.Tracing.TraceEvent.dll",
+        "actions/recording/etw-consumer/build/Microsoft.Extensions.DependencyInjection.Abstractions.dll",
+        "actions/recording/etw-consumer/build/Microsoft.Extensions.Logging.Abstractions.dll",
+        "actions/recording/etw-consumer/build/TraceReloggerLib.dll",
+        "actions/recording/etw-consumer/global.json",
+        "actions/recording/etw-consumer/packages.lock.json",
+        "actions/recording/etw_consumer_build.py",
+        "actions/recording/recording.py",
+        "actions/recording/shared_lookup_report.py",
+        "actions/recording/stdlib_module_names.json",
+        "actions/recording/stdlib_names.py",
+        "actions/recording/toolchain_probes.json",
         "actions/repository-hygiene/install_tools.py",
         "actions/repository-hygiene/pins.json",
         "actions/repository-hygiene/pins.py",
+        "actions/suite-selection/recording_modules.py",
+        "actions/suite-selection/suite_list.py",
         "tests/hygiene_fixtures.py",
         "tests/setups/pinned-tool.sh",
         "tests/temporary_support.py",
@@ -21269,6 +21751,11 @@
       ],
       "directory_memberships": [
         ".",
+        "actions/python-language-step",
+        "actions/python-language-step/consumer-kit",
+        "actions/recording",
+        "actions/recording/etw-consumer",
+        "actions/recording/etw-consumer/build",
         "actions/repository-hygiene"
       ],
       "existence_reads": [
@@ -21314,6 +21801,126 @@
         },
         {
           "path": "actions/repository-hygiene/pins.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/__future__.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/argparse.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/ast.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/collections.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/concurrent.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/ctypes.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/dataclasses.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/functools.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/hashlib.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/json.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/math.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/os.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/pathlib.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/posixpath.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/re.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/recording_modules",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/recording_modules.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/recording_modules.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/shutil.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/stat.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/statistics.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/subprocess.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/sys.py",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/time.py",
           "kind": "any"
         },
         {
@@ -21440,7 +22047,9 @@
       "lookup_directories": [
         ".",
         "actions/python-language-step",
+        "actions/recording",
         "actions/repository-hygiene",
+        "actions/suite-selection",
         "tests"
       ]
     },
@@ -25958,6 +26567,7 @@
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/reuse.py",
         "actions/suite-selection/revisions.py",
+        "actions/suite-selection/suite_list.py",
         "actions/suite-selection/suite_selection.py",
         "actions/suite-selection/unrecorded.py",
         "actions/sync/sync.py",
@@ -27943,6 +28553,7 @@
         "actions/suite-selection/ci_definition.py",
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/revisions.py",
+        "actions/suite-selection/suite_list.py",
         "actions/suite-selection/suite_selection.py",
         "tests/ci_policy_support.py",
         "tests/etw_access.ps1",
@@ -27970,6 +28581,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/etw_access.ps1",
           "tests/record_etw_fixture.py",
@@ -27992,6 +28604,7 @@
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
           "tests/recording_fixtures.py",
@@ -28115,6 +28728,18 @@
         },
         {
           "path": "actions/suite-selection/revisions.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.cp313-win_amd64.pyd",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.pyd",
           "kind": "any"
         },
         {
@@ -28345,6 +28970,18 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cp313-win_amd64.pyd",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.pyd",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection/suite_selection",
             "kind": "directory"
           },
@@ -28544,6 +29181,18 @@
           },
           {
             "path": "actions/suite-selection/revisions.pyd",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cp313-win_amd64.pyd",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.pyd",
             "kind": "any"
           },
           {
