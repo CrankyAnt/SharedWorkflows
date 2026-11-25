@@ -21731,6 +21731,18 @@
         "tests/test_pipeline_plan.py": [
           "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/base.json",
+          "actions/pipeline/schema/v1/parts/additions.json",
+          "actions/pipeline/schema/v1/parts/custom.json",
+          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
+          "actions/pipeline/schema/v1/parts/dotnet-test.json",
+          "actions/pipeline/schema/v1/parts/full-recording.json",
+          "actions/pipeline/schema/v1/parts/github-release.json",
+          "actions/pipeline/schema/v1/parts/issue-title.json",
+          "actions/pipeline/schema/v1/parts/node-test.json",
+          "actions/pipeline/schema/v1/parts/python-test.json",
+          "actions/pipeline/schema/v1/parts/python-verify.json",
+          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
+          "actions/pipeline/schema/v1/parts/suite-selection.json",
           "actions/pipeline/schema/v1/setups.json",
           "actions/repository-hygiene/dependabot_coverage.py",
           "tests/pipeline_fixtures.py",
@@ -21917,6 +21929,10 @@
           "actions/pipeline/schema/v1/parts"
         ],
         "tests/test_pipeline_parts.py": [
+          "actions/pipeline/schema",
+          "actions/pipeline/schema/v1/parts"
+        ],
+        "tests/test_pipeline_plan.py": [
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
         ],
