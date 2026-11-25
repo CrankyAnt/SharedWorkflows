@@ -43,16 +43,17 @@ def run(dotnet: str, arguments: list[str], root: Path) -> int:
     return subprocess.run([dotnet, *arguments], cwd=root, env={**os.environ, **ENVIRONMENT}, check=False).returncode
 
 
-def executed_tests(results: Path) -> int:
-    """The executed tests that the TRX reports under ``results`` count together; a report that cannot be read counts none."""
+def executed_tests(results: Path) -> tuple[int, list[str]]:
+    """The executed tests counted across all TRX reports under ``results``, and any unreadable report messages."""
     executed = 0
+    unreadable: list[str] = []
     for report in sorted(results.rglob("*.trx")):
         try:
             counters = [element for element in ElementTree.parse(report).iter() if element.tag.rsplit("}", 1)[-1] == "Counters"]
             executed += sum(int(element.get("executed", "0")) for element in counters)
         except (ElementTree.ParseError, ValueError, OSError) as problem:
-            print(f"The test report {report.name} cannot be read: {problem}", flush=True)
-    return executed
+            unreadable.append(f"the test report {report.name} cannot be read: {problem}")
+    return executed, unreadable
 
 
 def run_console_program(dotnet: str, root: Path, project: str) -> int:
@@ -84,9 +85,13 @@ def build_and_test(root: Path, project: str, console_runner: bool = False) -> in
         if run(dotnet, ["test", project, "--no-build", "--logger", "trx", "--results-directory", str(results)], root) != 0:
             error(f"the tests of {project} failed")
             return 1
-        executed = executed_tests(results)
+        executed, unreadable = executed_tests(results)
     finally:
         shutil.rmtree(results, ignore_errors=True)
+    if unreadable:
+        for problem in unreadable:
+            error(f"corrupt test report in {project}: {problem}")
+        return 1
     if executed == 0:
         error(f"no test ran in {project}: dotnet test passed, but its TRX reports count no executed test; "
               "check that the configured project is a test project or a solution with one, and that it holds a test")

@@ -12,6 +12,21 @@ inputs:
 runs:
   using: composite
   steps:
+    - id: cache-key
+      shell: bash
+      env:
+        RESOURCE_PATH: ${{ github.action_path }}
+        ROOT: ${{ inputs.root }}
+        PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+      run: |
+        set -euo pipefail
+        key="$("$PYTHON" "$RESOURCE_PATH/python_language_step.py" --root "$ROOT" --print-cache-key "$RESOURCE_PATH/../repository-hygiene/pins.json")"
+        printf 'key=%s\n' "$key" >> "$GITHUB_OUTPUT"
+    - name: Restore cached Python language step tools
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/python-language-step-tools
+        key: python-language-step-${{ runner.os }}-${{ steps.cache-key.outputs.key }}
     - shell: bash
       env:
         RESOURCE_PATH: ${{ github.action_path }}

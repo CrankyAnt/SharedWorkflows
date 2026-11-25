@@ -185,6 +185,18 @@ class InstallTests(FixtureProject):
         self.assertEqual(["ruff"], self.installed({"app.py": CLEAN}))
         self.assertEqual(["ruff", "mypy"], self.installed({"app.py": CLEAN, "mypy.ini": "[mypy]\n"}))
 
+    def test_print_cache_key_reflects_whether_mypy_is_configured(self) -> None:
+        without_mypy = self.project("no-mypy", {"app.py": CLEAN})
+        with_mypy = self.project("with-mypy", {"app.py": CLEAN, "mypy.ini": "[mypy]\n"})
+        key_a = subprocess.run([sys.executable, str(STEP), "--root", str(without_mypy), "--print-cache-key", str(PINS)],
+                               capture_output=True, text=True, check=False)
+        key_b = subprocess.run([sys.executable, str(STEP), "--root", str(with_mypy), "--print-cache-key", str(PINS)],
+                               capture_output=True, text=True, check=False)
+        self.assertEqual(0, key_a.returncode, key_a.stderr)
+        self.assertEqual(0, key_b.returncode, key_b.stderr)
+        self.assertTrue(key_a.stdout.strip().startswith("tools-"))
+        self.assertNotEqual(key_a.stdout.strip(), key_b.stdout.strip())
+
 
 class MissingToolTests(FixtureProject):
     def test_a_missing_tool_is_a_failure(self) -> None:
@@ -193,6 +205,30 @@ class MissingToolTests(FixtureProject):
         result = step(self.project("app", {"app.py": CLEAN}), tools=empty)
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         self.assertIn("ruff is missing from", result.stderr)
+
+
+class MalformedConfigurationTests(FixtureProject):
+    def test_a_malformed_type_checker_configuration_fails_with_a_message_instead_of_a_traceback(self) -> None:
+        empty = self.root / "empty-tools"
+        empty.mkdir()
+        for name, filename, content in (
+            ("broken-pyproject", "pyproject.toml", "[tool.mypy\nstrict = true\n"),
+            ("non-table-tool", "pyproject.toml", 'tool = "not-a-table"\n'),
+            ("broken-mypy-ini", "mypy.ini", "not a section header\n"),
+            ("broken-dot-mypy-ini", ".mypy.ini", "[mypy]\n[mypy]\n"),
+            ("broken-setup-cfg", "setup.cfg", "not a section header\n"),
+        ):
+            with self.subTest(case=name):
+                project = self.project(name, {"app.py": CLEAN, filename: content})
+                result = step(project, tools=empty)
+                if name == "non-table-tool":
+                    # Valid TOML without a [tool.mypy] table: does not crash, reaches tool lookup cleanly.
+                    self.assertNotIn("Traceback", result.stderr)
+                    continue
+                self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertIn("error:", result.stderr)
+                self.assertIn(filename, result.stderr)
 
 
 if __name__ == "__main__":

@@ -39,6 +39,10 @@ if arguments[0] == "test" and "--results-directory" in arguments:
         os.makedirs(os.path.join(results, "nested"), exist_ok=True)
         with open(os.path.join(results, "nested", "report-%d.trx" % number), "w", encoding="utf-8") as stream:
             stream.write(os.environ.get("STAND_IN_REPORT", report))
+    if "STAND_IN_CORRUPT" in os.environ:
+        os.makedirs(os.path.join(results, "nested"), exist_ok=True)
+        with open(os.path.join(results, "nested", "corrupt.trx"), "w", encoding="utf-8") as stream:
+            stream.write(os.environ["STAND_IN_CORRUPT"])
 sys.exit(int(os.environ.get("STAND_IN_" + arguments[0].upper(), "0")))
 """
 BUILD = f"build {PROJECT}|11"
@@ -68,15 +72,17 @@ class DotnetTestFixture(unittest.TestCase):
             command.chmod(command.stat().st_mode | stat.S_IXUSR)
 
     def run_script(self, *arguments: str, path: str | None = None, executed: str | None = None, report: str | None = None,
-                   **exit_codes: int) -> subprocess.CompletedProcess[str]:
+                   corrupt: str | None = None, **exit_codes: int) -> subprocess.CompletedProcess[str]:
         environment = {**os.environ, "PATH": str(self.tools) + os.pathsep + os.environ["PATH"] if path is None else path, "STAND_IN_LOG": str(self.log),
                        "RUNNER_TEMP": str(self.temporary)}
-        for name in ("DOTNET_NOLOGO", "DOTNET_CLI_TELEMETRY_OPTOUT", "STAND_IN_EXECUTED", "STAND_IN_REPORT"):
+        for name in ("DOTNET_NOLOGO", "DOTNET_CLI_TELEMETRY_OPTOUT", "STAND_IN_EXECUTED", "STAND_IN_REPORT", "STAND_IN_CORRUPT"):
             environment.pop(name, None)
         if executed is not None:
             environment["STAND_IN_EXECUTED"] = executed
         if report is not None:
             environment["STAND_IN_REPORT"] = report
+        if corrupt is not None:
+            environment["STAND_IN_CORRUPT"] = corrupt
         environment.update({f"STAND_IN_{name.upper()}": str(code) for name, code in exit_codes.items()})
         return subprocess.run([sys.executable, str(SCRIPT), "--root", str(self.repository), *arguments], capture_output=True, text=True,
                               encoding="utf-8", env=environment, check=False)
@@ -157,11 +163,26 @@ class NoTestRanTests(DotnetTestFixture):
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("5 tests ran", completed.stdout)
 
-    def test_a_report_that_cannot_be_read_counts_no_test(self) -> None:
-        for report in ("no XML", "<TestRun><ResultSummary /></TestRun>", '<TestRun><ResultSummary><Counters executed="many" /></ResultSummary></TestRun>'):
-            with self.subTest(report=report):
+    def test_a_report_without_counters_counts_no_test(self) -> None:
+        self.assert_no_test_ran(self.run_script("--project", PROJECT, report="<TestRun><ResultSummary /></TestRun>"))
+
+    def test_a_corrupt_report_fails_even_when_another_report_is_readable(self) -> None:
+        for bad in ("no XML", '<TestRun><ResultSummary><Counters executed="many" /></ResultSummary></TestRun>'):
+            with self.subTest(bad=bad):
                 self.log.unlink(missing_ok=True)
-                self.assert_no_test_ran(self.run_script("--project", PROJECT, report=report))
+                completed = self.run_script("--project", PROJECT, executed="3", corrupt=bad)
+                self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+                self.assertIn("::error title=dotnet-test::", completed.stderr)
+                self.assertIn("corrupt.trx", completed.stderr)
+
+    def test_a_sole_corrupt_report_fails_and_names_the_report(self) -> None:
+        for bad in ("no XML", '<TestRun><ResultSummary><Counters executed="many" /></ResultSummary></TestRun>'):
+            with self.subTest(bad=bad):
+                self.log.unlink(missing_ok=True)
+                completed = self.run_script("--project", PROJECT, report=bad)
+                self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+                self.assertIn("::error title=dotnet-test::", completed.stderr)
+                self.assertIn("report-0.trx", completed.stderr)
 
     def test_failing_tests_are_reported_as_failing_and_not_as_no_test(self) -> None:
         completed = self.run_script("--project", PROJECT, executed="", test=1)

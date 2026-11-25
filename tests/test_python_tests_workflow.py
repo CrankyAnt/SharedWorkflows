@@ -17,7 +17,7 @@ RESOURCES = REPOSITORY_ROOT / "actions" / "python-tests"
 sys.path.insert(0, str(RESOURCES))
 import python_tests  # noqa: E402
 
-STEPS = ["resources", "selection", "checkout", "dispatch", "lookup", "decide", "setup-python", "install", "language-step", "tests"]
+STEPS = ["resources", "selection", "checkout", "dispatch", "lookup", "decide", "setup-python", "pip-key", "pip-cache", "install", "language-step", "tests"]
 
 
 def step_key(step: dict) -> str:
@@ -26,6 +26,8 @@ def step_key(step: dict) -> str:
         return "checkout"
     if uses.startswith("actions/setup-python@"):
         return "setup-python"
+    if uses.startswith("actions/cache@"):
+        return "pip-cache"
     if uses == "$/actions/python-language-step":
         return "language-step"
     if step.get("name") == "Look up the tested tree of the pushed commit's pull request":
@@ -70,12 +72,12 @@ class PythonTestsWorkflowTest(unittest.TestCase):
         self.assertEqual("a" * 40, expression_value(checkout["ref"], dispatch))
         self.assertEqual("", expression_value(checkout["ref"], {"github": {"event_name": "push", "sha": "b" * 40}}))
 
-    def test_setup_python_installs_the_input_version_as_the_job_s_python_without_a_cache(self) -> None:
+    def test_setup_python_installs_the_input_version_and_restores_pip_cache_by_lock_key(self) -> None:
         setup = self.steps["setup-python"]
         self.assertEqual({"python-version": "${{ inputs.python-version }}"}, setup["with"])
-        self.assertNotIn("actions/cache", self.text)
-        self.assertNotRegex(self.text, r"(?m)^\s*cache(?:-dependency-path)?:")
-        self.assertNotIn("PIP_CACHE_DIR", self.text)
+        self.assertRegex(self.steps["pip-cache"]["uses"], r"^actions/cache@[0-9a-f]{40}$")
+        self.assertEqual("pip-${{ runner.os }}-${{ steps.pip-key.outputs.key }}", self.steps["pip-cache"]["with"]["key"])
+        self.assertEqual("${{ runner.temp }}/pip-cache", self.steps["install"]["env"]["PIP_CACHE_DIR"])
 
     def test_the_language_step_runs_from_the_working_directory_with_the_format_check(self) -> None:
         self.assertEqual({"root": "${{ inputs.working-directory }}", "format-check": "${{ inputs.format-check }}"}, self.steps["language-step"]["with"])
@@ -111,7 +113,7 @@ class PythonTestsWorkflowTest(unittest.TestCase):
 
     def test_every_invocation_names_a_subcommand_and_options_the_script_accepts(self) -> None:
         invocations = script_invocations(WORKFLOW, "python_tests.py")
-        self.assertEqual(["decide", "install", "test"], [tokens[0] for tokens in invocations])
+        self.assertEqual(["decide", "cache-key", "install", "test"], [tokens[0] for tokens in invocations])
         for tokens in invocations:
             if tokens[0] == "decide":
                 self.assertIn("$@", tokens, "the decision takes the push lookup or the pull request's commits from the case before it")
@@ -123,8 +125,9 @@ class PythonTestsWorkflowTest(unittest.TestCase):
             with self.subTest(step=tokens[0]):
                 options = python_tests.parse_arguments(tokens)
                 self.assertEqual("x", options.root, "the working directory reaches the script")
-        install = python_tests.parse_arguments(invocations[1])
-        self.assertEqual("x", install.install, "the value reaches --install with an equals sign, so a leading - stays a value")
+        for index in (1, 2):
+            parsed = python_tests.parse_arguments(invocations[index])
+            self.assertEqual("x", parsed.install, "the value reaches --install with an equals sign, so a leading - stays a value")
 
 
 if __name__ == "__main__":

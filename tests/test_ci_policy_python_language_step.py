@@ -22,8 +22,11 @@ class PythonLanguageStepActionTests(unittest.TestCase):
     def test_it_runs_the_step_on_the_job_s_python_with_the_shared_pins(self) -> None:
         self.assertEqual("composite", self.action["runs"]["using"])
         steps = self.action["runs"]["steps"]
-        self.assertEqual(1, len(steps))
-        run = steps[0]
+        self.assertEqual(3, len(steps))
+        key_step, cache_step, run = steps
+        self.assertEqual("cache-key", key_step["id"])
+        self.assertIn("--print-cache-key", key_step["run"])
+        self.assertRegex(cache_step["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual("bash", run["shell"])
         self.assertEqual("${{ runner.os == 'Windows' && 'python' || 'python3' }}", run["env"]["PYTHON"])
         self.assertEqual("${{ runner.temp }}/python-language-step-tools", run["env"]["TOOLS"])
@@ -32,12 +35,12 @@ class PythonLanguageStepActionTests(unittest.TestCase):
 
     def test_the_root_is_an_optional_input_that_is_the_repository_root_by_default(self) -> None:
         self.assertEqual(".", self.action["inputs"]["root"]["default"])
-        self.assertEqual("${{ inputs.root }}", self.action["runs"]["steps"][0]["env"]["ROOT"])
+        self.assertEqual("${{ inputs.root }}", self.action["runs"]["steps"][-1]["env"]["ROOT"])
 
     def test_the_format_check_is_an_optional_input_that_is_off_by_default(self) -> None:
         self.assertEqual({"root", "format-check"}, set(self.action["inputs"]))
         self.assertEqual("false", self.action["inputs"]["format-check"]["default"])
-        run = self.action["runs"]["steps"][0]
+        run = self.action["runs"]["steps"][-1]
         self.assertEqual("${{ inputs.format-check }}", run["env"]["FORMAT_CHECK"])
         self.assertIn('if [[ "$FORMAT_CHECK" == true ]]; then options+=(--format-check); fi', run["run"])
 

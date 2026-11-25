@@ -29,7 +29,9 @@ parts:
         install: dev
     paths:
       - tests/fixtures/python_tests/
+      - actions/python-language-step/
       - actions/python-tests/
+      - actions/repository-hygiene/
       - actions/pipeline/
       - .github/workflows/pipeline.yml
       - .github/workflows/ci.yml

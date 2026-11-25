@@ -117,6 +117,49 @@ class InstallerTests(unittest.TestCase):
         installed = self.installer.install(self._pins(sha_a, "0" * 64), "test-x64", destination, ["alpha"], base_url=self.releases.as_uri())
         self.assertEqual([destination / "alpha"], installed)
 
+    def test_cache_key_changes_with_pin_platform_and_tool_selection(self) -> None:
+        sha_a = self._release("fixture/alpha", "1.2.3", "alpha_1.2.3_test.tar.gz", {"alpha": b"alpha"})
+        sha_b = self._release("fixture/beta", "2.0.0", "beta-v2.0.0.tar.xz", {"beta-v2.0.0/beta": b"beta"})
+        pins = self._pins(sha_a, sha_b)
+        key_ab = self.installer.cache_key(pins, "test-x64", ["alpha", "beta"])
+        self.assertEqual(key_ab, self.installer.cache_key(pins, "test-x64", ["beta", "alpha"]), "tool order does not alter the key")
+        self.assertNotEqual(key_ab, self.installer.cache_key(pins, "test-x64", ["alpha"]))
+        changed = self._pins(sha_a, "1" * 64)
+        self.assertNotEqual(key_ab, self.installer.cache_key(changed, "test-x64", ["alpha", "beta"]))
+        self.assertEqual(self.installer.cache_key(pins, "test-x64", ["alpha"]), self.installer.cache_key(changed, "test-x64", ["alpha"]),
+                         "an unselected tool pin does not alter the key")
+        pins_path = self.root / "pins.json"
+        pins_path.write_text(json.dumps(pins), encoding="utf-8")
+        cli = subprocess.run([sys.executable, str(RESOURCES / "install_tools.py"), "--pins", str(pins_path), "--platform", "test-x64",
+                              "--print-cache-key", "--tool", "alpha", "--tool", "beta"], capture_output=True, text=True, check=False)
+        self.assertEqual(0, cli.returncode, cli.stderr)
+        self.assertEqual(key_ab, cli.stdout.strip())
+
+    def test_cached_release_tools_with_matching_pin_skip_downloading(self) -> None:
+        sha_a = self._release("fixture/alpha", "1.2.3", "alpha_1.2.3_test.tar.gz", {"alpha": b"alpha"})
+        destination = self.root / "tools"
+        pins = self._pins(sha_a, "0" * 64)
+        self.installer.install(pins, "test-x64", destination, ["alpha"], base_url=self.releases.as_uri())
+        downloads: list[str] = []
+
+        def fail_download(url: str) -> bytes:
+            downloads.append(url)
+            raise AssertionError(f"unexpected download {url}")
+
+        installed = self.installer.install(pins, "test-x64", destination, ["alpha"], base_url=self.releases.as_uri(), fetch=fail_download)
+        self.assertEqual([destination / "alpha"], installed)
+        self.assertEqual([], downloads)
+
+    def test_cached_release_tool_reinstalls_when_pin_changes(self) -> None:
+        sha_v1 = self._release("fixture/alpha", "1.2.3", "alpha_1.2.3_test.tar.gz", {"alpha": b"v1"})
+        sha_v2 = self._release("fixture/alpha", "1.2.4", "alpha_1.2.4_test.tar.gz", {"alpha": b"v2"})
+        destination = self.root / "tools"
+        self.installer.install(self._pins(sha_v1, "0" * 64), "test-x64", destination, ["alpha"], base_url=self.releases.as_uri())
+        pins_v2 = self._pins(sha_v2, "0" * 64)
+        pins_v2["tools"]["alpha"]["version"] = "1.2.4"
+        self.installer.install(pins_v2, "test-x64", destination, ["alpha"], base_url=self.releases.as_uri())
+        self.assertEqual(b"v2", (destination / "alpha").read_bytes())
+
 
 def wheel(directory: Path, name: str, version: str, module: str, entry_point: bool) -> str:
     """A pure-Python wheel of ``module``, with a console script named ``name`` when ``entry_point`` is set."""
@@ -167,6 +210,15 @@ class PythonToolInstallerTests(unittest.TestCase):
         with self.assertRaisesRegex(install_tools.InstallError, "alpha 1.0.0: pip refused the locked packages"):
             install_tools.install(self.pins("1" * 64), "test-x64", destination, ["alpha"], python_find_links=self.index)
         self.assertEqual([], [path.name for path in destination.iterdir()] if destination.exists() else [])
+
+    def test_a_cached_python_tool_with_matching_pin_skips_rebuilding_the_venv(self) -> None:
+        destination = self.root / "tools"
+        pins = self.pins(self.tool_sha)
+        install_tools.install(pins, "test-x64", destination, ["alpha"], python_find_links=self.index)
+        # Passing a missing find_links directory proves pip is not invoked again when the pin matches.
+        installed = install_tools.install(pins, "test-x64", destination, ["alpha"], python_find_links=self.root / "missing-index")
+        executable = destination / ("alpha.exe" if os.name == "nt" else "alpha")
+        self.assertEqual([executable], installed)
 
 
 if __name__ == "__main__":

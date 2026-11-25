@@ -31,8 +31,11 @@ class WorkflowInvocationTests(unittest.TestCase):
             with self.subTest(step=tokens[0]):
                 parser.parse_args(tokens)
         install = script_invocations(REPOSITORY_ROOT / ".github" / "workflows" / "repository-hygiene.yml", "install_tools.py")
-        self.assertEqual(len(install), 1)
-        arguments = install_tools.build_parser().parse_args(install[0])
+        self.assertEqual(len(install), 2)
+        key_args = install_tools.build_parser().parse_args(install[0])
+        self.assertTrue(key_args.print_cache_key)
+        self.assertEqual((key_args.platform, key_args.tools), ("linux-x64", ["gitleaks"]))
+        arguments = install_tools.build_parser().parse_args(install[1])
         self.assertEqual((arguments.platform, arguments.tools), ("linux-x64", ["gitleaks"]), "Gitleaks always; each linter only for its selected inputs")
 
 

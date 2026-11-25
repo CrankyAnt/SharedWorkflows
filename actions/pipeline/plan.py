@@ -65,7 +65,7 @@ VERSION_FOLDER = re.compile(r"^v([1-9][0-9]*)$")
 WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.yml$")
 # The schema keywords that say nothing about a value, and those the check reads; any other keyword fails the check.
 ANNOTATIONS = {"$schema", "$id", "$defs", "title", "description", "examples", "default"}
-KEYWORDS = {"type", "const", "enum", "pattern", "minLength", "minimum", "minItems", "uniqueItems", "items", "properties", "required",
+KEYWORDS = {"type", "const", "enum", "pattern", "minLength", "minimum", "minItems", "maxItems", "uniqueItems", "items", "properties", "required",
             "additionalProperties", "oneOf", "$ref"}
 TYPES = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
 TYPE_NAMES = {"object": "a mapping", "array": "a list", "string": "a string", "integer": "a whole number", "boolean": "true or false", "null": "nothing"}
@@ -255,6 +255,9 @@ def problems(value: object, schema: dict, root: dict, path: tuple = ()) -> list[
         minimum = schema.get("minItems", 0)
         if len(value) < minimum:
             found.append(Problem(path, f"needs at least {minimum} item{'' if minimum == 1 else 's'}"))
+        maximum = schema.get("maxItems")
+        if maximum is not None and len(value) > maximum:
+            found.append(Problem(path, f"holds at most {maximum} item{'' if maximum == 1 else 's'}"))
         if schema.get("uniqueItems"):
             seen: list = []
             for item in value:
@@ -434,6 +437,44 @@ def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, cha
     return (True, f"{matched} changed") if matched else (False, "no changed path matches its paths")
 
 
+def combine_python_projects(decisions: dict) -> None:
+    """Fold matching python-verify projects into python-test so each Python project installs once per run."""
+    verify, test = decisions.get("python-verify"), decisions.get("python-test")
+    if not (verify and verify.get("run") and test and test.get("run")):
+        return
+    verify_projects = verify.get("config", {}).get("projects")
+    test_projects = test.get("config", {}).get("projects")
+    if not isinstance(verify_projects, list) or not isinstance(test_projects, list):
+        return
+    updated_test = [dict(project) for project in test_projects]
+    remaining_verify = []
+    for verify_project in verify_projects:
+        verify_dir = verify_project.get("working-directory", ".")
+        verify_version = verify_project.get("python-version")
+        verify_install = verify_project.get("install", "")
+        matched = False
+        for test_project in updated_test:
+            if (
+                not test_project.get("verify")
+                and test_project.get("runner-label", "ubuntu-26.04") == "ubuntu-26.04"
+                and test_project.get("python-version") == verify_version
+                and test_project.get("working-directory", ".") == verify_dir
+                and verify_install in ("", test_project.get("install", ""))
+            ):
+                test_project["verify"] = True
+                test_project["format-check"] = bool(verify_project.get("format-check", False))
+                matched = True
+                break
+        if not matched:
+            remaining_verify.append(verify_project)
+    if len(remaining_verify) != len(verify_projects):
+        test["config"] = {**test["config"], "projects": updated_test}
+        verify["config"] = {**verify["config"], "projects": remaining_verify}
+        if not remaining_verify:
+            verify["run"] = False
+            verify["reason"] = "combined into python-test"
+
+
 def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str, workflow: str = PIPELINE) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
@@ -449,6 +490,7 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
         decisions[name] = {"run": run, "reason": reason, "config": parts.get(name, {})}
         if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
             decisions[name]["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+    combine_python_projects(decisions)
     known = registered_workflows(before)
     return {
         "version": version.version,

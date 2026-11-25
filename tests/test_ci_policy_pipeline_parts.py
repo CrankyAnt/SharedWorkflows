@@ -52,9 +52,10 @@ PARTS = {
                         name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=False,
                         fixture_folder="working-directory",
                         paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
-    PYTHON_TEST: Part(shared_steps=["actions/python-tests"],
+    PYTHON_TEST: Part(shared_steps=["actions/python-tests", "actions/python-language-step"],
                       name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=True,
-                      fixture_folder="working-directory", paths=["tests/fixtures/python_tests/", "actions/python-tests/"]),
+                      fixture_folder="working-directory",
+                      paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
     DOTNET_TEST: Part(shared_steps=["actions/dotnet-test"], name="${{ matrix.project['project'] }}", runner_label=True,
                       fixture_folder="project", paths=["tests/fixtures/dotnet_test/", "tests/fixtures/dotnet_console/", "actions/dotnet-test/"]),
     NODE_TEST: Part(shared_steps=["actions/node-test", "actions/node-test"], name="${{ matrix.project['working-directory'] }}", runner_label=True,
@@ -121,11 +122,11 @@ class PartJobTests(unittest.TestCase):
             with self.subTest(part=part):
                 self.assertEqual({"contents": "read"}, self.jobs[part]["permissions"])
                 section = self.section(part)
-                lines = [line.strip() for line in section.splitlines() if CACHE_WORD.search(line)]
-                self.assertEqual(list(entry.cache_lines), lines, "the only cache settings of a job switch a cache off")
-                section = "\n".join(line for line in section.splitlines() if line.strip() not in entry.cache_lines)
-                for forbidden in ("secrets.", "github.token", "GITHUB_TOKEN", "inputs.", "vars.", "actions/cache", "cache:", "cache-mode", "PIP_CACHE_DIR"):
+                for forbidden in ("secrets.", "github.token", "GITHUB_TOKEN", "inputs.", "vars.", "cache-mode"):
                     self.assertNotIn(forbidden, section)
+                caches = [step for step in self.steps(part) if str(step.get("uses", "")).startswith("actions/cache@")]
+                self.assertEqual(1, len(caches), "each part restores a dependency cache keyed by its pin or lock hash")
+                self.assertTrue(caches[0]["with"].get("key"), "the cache is keyed")
                 checkouts = [step for step in self.steps(part) if str(step.get("uses", "")).startswith("actions/checkout@")]
                 self.assertEqual(1, len(checkouts))
                 self.assertEqual({"ref": "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}", "persist-credentials": "false"}, {key: str(item) for key, item in checkouts[0]["with"].items()},
@@ -168,10 +169,12 @@ class PartJobTests(unittest.TestCase):
     def test_python_verify_installs_the_configured_python_and_dependencies_and_runs_the_language_step_from_the_working_directory(self) -> None:
         job = self.jobs[PYTHON_VERIFY]
         self.assertEqual("ubuntu-26.04", job["runs-on"])
-        resources, checkout, setup, install, language = self.steps(PYTHON_VERIFY)
+        resources, checkout, setup, pip_key, pip_cache, install, language = self.steps(PYTHON_VERIFY)
         self.assertEqual("resources", resources["id"])
         self.assertRegex(setup["uses"], r"^actions/setup-python@[0-9a-f]{40}$")
         self.assertEqual({"python-version": f"${{{{ {value('python-version')} }}}}"}, setup["with"])
+        self.assertEqual("pip-key", pip_key["id"])
+        self.assertRegex(pip_cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual(f"${{{{ {value('working-directory')} || '.' }}}}", install["env"]["WORKING_DIRECTORY"])
         self.assertEqual(f"${{{{ {value('install')} }}}}", install["env"]["INSTALL"])
         self.assertIn('python3 "$RESOURCE_PATH/python_tests.py" install --root "$WORKING_DIRECTORY" --install="$INSTALL"', install["run"])
@@ -183,24 +186,28 @@ class PartJobTests(unittest.TestCase):
         job = self.jobs[PYTHON_TEST]
         self.assertEqual(f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}", job["runs-on"])
         self.assertEqual({"run": {"shell": "bash"}}, job["defaults"], "Windows runs the same commands")
-        resources, checkout, setup, install, tests = self.steps(PYTHON_TEST)
+        resources, checkout, setup, pip_key, pip_cache, install, language, tests = self.steps(PYTHON_TEST)
         self.assertEqual({"python-version": f"${{{{ {value('python-version')} }}}}"}, setup["with"])
+        self.assertEqual("pip-key", pip_key["id"])
+        self.assertRegex(pip_cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         for step in (install, tests):
             self.assertEqual("${{ runner.os == 'Windows' && 'python' || 'python3' }}", step["env"]["PYTHON"])
             self.assertEqual(f"${{{{ {value('working-directory')} || '.' }}}}", step["env"]["WORKING_DIRECTORY"])
             self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" ', step["run"])
         self.assertEqual(f"${{{{ {value('install')} }}}}", install["env"]["INSTALL"])
         self.assertIn('install --root "$WORKING_DIRECTORY" --install="$INSTALL"', install["run"])
+        self.assertEqual("$/actions/python-language-step", language["uses"])
+        self.assertIn("matrix.project['verify'] == true", language["if"], "combined python-verify projects run in the same job after one install")
         self.assertIn('test --root "$WORKING_DIRECTORY"', tests["run"])
-        self.assertNotIn("if", tests, "a failed installation skips the tests")
-        self.assertNotIn("python-language-step", self.section(PYTHON_TEST), "the language checks are the part python-verify")
+        self.assertIn("steps.install.outcome == 'success'", tests["if"], "a failed installation skips the tests, a failed language step does not")
 
     def test_dotnet_test_installs_the_configured_sdk_and_builds_and_tests_the_configured_project_on_the_configured_runner(self) -> None:
         job = self.jobs[DOTNET_TEST]
         self.assertEqual(f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}", job["runs-on"])
-        checkout, setup, step = self.steps(DOTNET_TEST)
+        checkout, setup, cache, step = self.steps(DOTNET_TEST)
         self.assertRegex(setup["uses"], r"^actions/setup-dotnet@[0-9a-f]{40}$")
         self.assertEqual({"dotnet-version": f"${{{{ {value('sdk-version')} }}}}"}, setup["with"])
+        self.assertRegex(cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual("$/actions/dotnet-test", step["uses"])
         self.assertEqual({"project": f"${{{{ {value('project')} }}}}", "console-runner": f"${{{{ {value('console-runner')} == true }}}}"}, step["with"],
                          "each item's own console-runner reaches the step, false for an item that states none")
@@ -208,13 +215,14 @@ class PartJobTests(unittest.TestCase):
     def test_node_test_checks_the_project_installs_the_node_of_its_nvmrc_and_runs_the_npm_commands_on_the_configured_runner(self) -> None:
         job = self.jobs[NODE_TEST]
         self.assertEqual(f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}", job["runs-on"])
-        checkout, check, setup, step = self.steps(NODE_TEST)
+        checkout, check, setup, cache, step = self.steps(NODE_TEST)
         directory = f"${{{{ {value('working-directory')} }}}}"
         self.assertEqual("$/actions/node-test", check["uses"])
         self.assertEqual({"command": "check", "working-directory": directory}, check["with"], "a missing .nvmrc fails before setup-node reads it")
         self.assertRegex(setup["uses"], r"^actions/setup-node@[0-9a-f]{40}$")
         self.assertEqual({"node-version-file": f"{directory}/.nvmrc", "package-manager-cache": "false"}, {key: str(item).lower() if isinstance(item, bool) else str(item) for key, item in setup["with"].items()},
-                         "the Node version of the project's .nvmrc, and no cache")
+                         "the Node version of the project's .nvmrc")
+        self.assertRegex(cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual("$/actions/node-test", step["uses"])
         self.assertEqual({"command": "test", "working-directory": directory}, step["with"])
         self.assertNotIn("if", step, "a failed check or setup skips the npm commands")

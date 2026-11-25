@@ -157,7 +157,7 @@
       "purpose": "A job of the pipeline per configured project that installs a Python version and the project's dependencies and runs the project's Python tests with pytest where the project configures it and otherwise with unittest.",
       "configuration": "actions/pipeline/schema/v1/parts/python-test.json",
       "workflows": [],
-      "steps": ["actions/python-tests"],
+      "steps": ["actions/python-tests", "actions/python-language-step"],
       "required_checks": [],
       "needs": "The pipeline, a Python project with tests that pytest or unittest discovers, its test dependencies in a requirements file or an extra of the project, and parts.python-test in .github/ci-config.yml with projects, a list of one or more projects that each name python-version, 3.11 or newer, and optionally working-directory, install and runner-label, the label of a GitHub-hosted runner; paths for the whole part is optional, and the schema fragment actions/pipeline/schema/v1/parts/python-test.json states every setting.",
       "applies": "A repository that runs the pipeline and has Python tests short enough that the suite selection does not pay, and not a repository that uses the suite selection, which runs its Python tests through that part.",

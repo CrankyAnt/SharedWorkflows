@@ -124,15 +124,36 @@ jobs:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
           HEAD_BRANCH: ${{ github.head_ref }}
         run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
+      - name: Compute the commitlint cache key
+        id: commitlint-key
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+        run: |
+          set -euo pipefail
+          hash="$(sha256sum "$CONVENTIONS_PATH/package-lock.json" "$CONVENTIONS_PATH/commitlint.config.cjs" | sha256sum | cut -c1-16)"
+          printf 'hash=%s\n' "$hash" >> "$GITHUB_OUTPUT"
+      - name: Restore the cached commitlint toolchain
+        id: commitlint-cache
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/publication-checks-tools
+          key: commitlint-${{ runner.os }}-node-${{ steps.resources.outputs.node-version }}-${{ steps.commitlint-key.outputs.hash }}
       - name: Install the locked commitlint toolchain
         id: commitlint
         if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
         working-directory: ${{ runner.temp }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          CACHE_HIT: ${{ steps.commitlint-cache.outputs.cache-hit }}
           npm_config_update_notifier: "false"
         run: |
           tool_directory="$RUNNER_TEMP/publication-checks-tools"
+          if [ "$CACHE_HIT" = "true" ] && [ -f "$tool_directory/node_modules/@commitlint/cli/lib/cli.js" ]; then
+            echo "Using cached commitlint toolchain in $tool_directory."
+            exit 0
+          fi
           mkdir -p "$tool_directory"
           cp "$CONVENTIONS_PATH/package.json" "$CONVENTIONS_PATH/package-lock.json" "$CONVENTIONS_PATH/commitlint.config.cjs" "$tool_directory/"
           npm ci --ignore-scripts --no-audit --no-fund --userconfig /dev/null --prefix "$tool_directory"
@@ -177,6 +198,28 @@ jobs:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           LINK_EXCLUDE: ${{ inputs.link-exclude }}
         run: printf '%s\n' "$LINK_EXCLUDE" | PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"
+      - name: Compute the hygiene tools cache key
+        id: tools-key
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          ACTIONLINT: ${{ steps.changes.outputs.actionlint }}
+          ZIZMOR: ${{ steps.changes.outputs.zizmor }}
+          REUSE: ${{ steps.changes.outputs.reuse }}
+        run: |
+          set -euo pipefail
+          tools="--tool gitleaks"
+          if [ "$ACTIONLINT" = "true" ]; then tools="$tools --tool actionlint --tool shellcheck"; fi
+          if [ "$ZIZMOR" = "true" ]; then tools="$tools --tool zizmor"; fi
+          if [ "$REUSE" = "true" ]; then tools="$tools --tool reuse"; fi
+          # shellcheck disable=SC2086 # $tools holds separate --tool options
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --print-cache-key --github-output "$GITHUB_OUTPUT" $tools
+      - name: Restore the cached hygiene tools
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/hygiene-tools
+          key: hygiene-${{ runner.os }}-${{ steps.tools-key.outputs.key }}
       - name: Install the pinned tools and verify their checksums
         id: install
         if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}

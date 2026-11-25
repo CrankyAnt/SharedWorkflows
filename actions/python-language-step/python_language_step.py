@@ -35,6 +35,10 @@ class ToolMissing(RuntimeError):
     """A required executable is not where the tools directory or PATH should hold it."""
 
 
+class ConfigurationError(RuntimeError):
+    """A type-checker configuration file at the root cannot be read or parsed."""
+
+
 def executable(name: str, tools: Path | None) -> Path:
     if tools is not None:
         for candidate in (tools / name, tools / f"{name}.exe"):
@@ -54,12 +58,20 @@ def mypy_configuration(root: Path) -> dict | None:
         if not path.is_file():
             continue
         if name == "pyproject.toml":
-            table = tomllib.loads(path.read_text(encoding="utf-8")).get("tool", {}).get("mypy")
+            try:
+                parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+            except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as error:
+                raise ConfigurationError(f"{path} cannot be read: {error}") from error
+            tool = parsed.get("tool")
+            table = tool.get("mypy") if isinstance(tool, dict) else None
             if isinstance(table, dict):
                 return table
             continue
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read(path, encoding="utf-8")
+        try:
+            parser.read(path, encoding="utf-8")
+        except (configparser.Error, UnicodeDecodeError, OSError) as error:
+            raise ConfigurationError(f"{path} cannot be read: {error}") from error
         if parser.has_section("mypy"):
             return dict(parser["mypy"])
         if name != "setup.cfg":
@@ -77,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=Path("."), help="the directory the checks run from: the repository root, or a project's directory below it")
     parser.add_argument("--tools", type=Path, help="the directory with the pinned tools; PATH without it")
     parser.add_argument("--install", type=Path, metavar="PINS", help="install the pinned tools the step needs into --tools from this pins file first")
+    parser.add_argument("--print-cache-key", type=Path, metavar="PINS", help="print the cache key for the pinned tools this root needs and exit")
     parser.add_argument("--format-check", action="store_true", help="also run ruff format --check")
     return parser
 
@@ -87,11 +100,23 @@ def main(argv: list[str] | None = None) -> int:
     if options.install is not None and options.tools is None:
         parser.error("--install needs --tools")
     root = options.root.resolve()
-    mypy_options = mypy_configuration(root)
+    try:
+        mypy_options = mypy_configuration(root)
+    except ConfigurationError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    needed_tools = ["ruff"] if mypy_options is None else ["ruff", "mypy"]
+    target_platform = "windows-x64" if os.name == "nt" else "linux-x64"
+    if options.print_cache_key is not None:
+        try:
+            print(install_tools.cache_key(load_pins(options.print_cache_key), target_platform, tools=needed_tools))
+        except (PinsError, install_tools.InstallError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        return 0
     if options.install is not None:
         try:
-            install_tools.install(load_pins(options.install), "windows-x64" if os.name == "nt" else "linux-x64", options.tools,
-                                  tools=["ruff"] if mypy_options is None else ["ruff", "mypy"])
+            install_tools.install(load_pins(options.install), target_platform, options.tools, tools=needed_tools)
         except (PinsError, install_tools.InstallError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2

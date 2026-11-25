@@ -193,7 +193,7 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertRegex(workflow, r"(?m)^        if: \$\{\{ !cancelled\(\) && steps\.changes\.outputs\.markdown == 'true' \}\}\n(?:        env:\n(?:          .*\n)+)?        run: .*hygiene\.py\" links ")
         self.assertNotIn("paths:", workflow)
         self.assertNotIn("paths-ignore:", workflow)
-        self.assertEqual(9, workflow.count('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/'))
+        self.assertEqual(10, workflow.count('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/'))
 
 
 if __name__ == "__main__":

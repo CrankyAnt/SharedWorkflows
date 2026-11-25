@@ -119,8 +119,11 @@ class HygieneInvocationTests(PipelineFixture):
                 with self.subTest(step=tokens[0], event=event):
                     parser.parse_args([tokens[0], *event, *[token for token in tokens[1:] if token != "$@"]])
         install = script_invocations(WORKFLOW, "install_tools.py")
-        self.assertEqual(1, len(install))
-        arguments = install_tools.build_parser().parse_args(install[0])
+        self.assertEqual(2, len(install))
+        key_args = install_tools.build_parser().parse_args(install[0])
+        self.assertTrue(key_args.print_cache_key)
+        self.assertEqual(("linux-x64", ["gitleaks"]), (key_args.platform, key_args.tools))
+        arguments = install_tools.build_parser().parse_args(install[1])
         self.assertEqual(("linux-x64", ["gitleaks"]), (arguments.platform, arguments.tools))
 
     def decide(self, base: str, head: str) -> dict[str, str]:

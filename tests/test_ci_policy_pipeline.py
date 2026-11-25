@@ -505,7 +505,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(["plan does not check the dispatched commit right after its checkout"], dispatch_problems(changed(check, "", 1)))
         self.assertEqual(["repository-hygiene installs its tools after a failed dispatch check"],
                          dispatch_problems(changed("if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' "
-                                                   "&& github.event.client_payload.sha)) }}", "if: ${{ !cancelled() }}")))
+                                                   "&& github.event.client_payload.sha)) }}", "if: ${{ !cancelled() }}", 3)))
 
     def test_the_plan_takes_the_dispatched_commit_as_its_head_and_that_commit_s_first_parent_as_its_base(self) -> None:
         plan = next(step for step in self.jobs[PLAN]["steps"] if step.get("id") == "plan")
@@ -623,7 +623,7 @@ class ConsumerPathTests(unittest.TestCase):
                 workflow = ci_definition().read_yaml(text.replace(install, replacement, 1), str(PIPELINE))
                 problems = self.problems("pipeline.yml", workflow)
                 self.assertEqual(1, len(problems), problems)
-                self.assertTrue(problems[0].startswith("pipeline.yml: job repository-hygiene, step Install the pinned tools"), problems[0])
+                self.assertTrue(problems[0].startswith("pipeline.yml: job repository-hygiene, step Compute the hygiene tools cache key"), problems[0])
                 self.assertIn(f"{path} is a path of this repository", problems[0])
 
     def test_a_program_s_own_path_and_a_variable_that_no_loaded_part_folder_set_are_named(self) -> None:

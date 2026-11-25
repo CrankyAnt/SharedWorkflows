@@ -278,6 +278,19 @@ class InstallTests(Fixture):
         self.assertEqual([str(python), "-m", "pip", "install", "--disable-pip-version-check", ".[test.extras_1]"],
                          python_tests.install_command("test.extras_1", python))
 
+    def test_cache_key_changes_with_lock_or_dependency_file_contents_and_install_value(self) -> None:
+        project = self.project({"pyproject.toml": "[project]\nname = 'a'\ndependencies = ['x==1']\n", "requirements-dev.txt": "pytest==8.0\n"})
+        first = self.interpreter.run("cache-key", "--root", str(project), "--install", "dev")
+        self.assertEqual(0, first.returncode, first.stderr)
+        self.assertTrue(first.stdout.strip().startswith("pip-py"))
+        same = self.interpreter.run("cache-key", "--root", str(project), "--install", "dev")
+        self.assertEqual(first.stdout.strip(), same.stdout.strip())
+        other_install = self.interpreter.run("cache-key", "--root", str(project), "--install", "requirements-dev.txt")
+        self.assertNotEqual(first.stdout.strip(), other_install.stdout.strip())
+        (project / "pyproject.toml").write_text("[project]\nname = 'a'\ndependencies = ['x==2']\n", encoding="utf-8")
+        changed = self.interpreter.run("cache-key", "--root", str(project), "--install", "dev")
+        self.assertNotEqual(first.stdout.strip(), changed.stdout.strip())
+
 
 class PytestConfigurationTests(unittest.TestCase):
     def setUp(self) -> None:

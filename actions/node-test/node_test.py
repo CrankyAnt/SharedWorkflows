@@ -94,9 +94,10 @@ def read_project(root: Path, working_directory: str) -> Project:
                                "state npm@<major>.<minor>.<patch>, or no packageManager for the npm of the installed Node")
         npm_version, npm_hash = exact["version"], exact["hash"]
     scripts = manifest.get("scripts", {})
-    if not isinstance(scripts, dict) or "test" not in scripts:
+    if not isinstance(scripts, dict) or not isinstance(scripts.get("test"), str) or not scripts["test"].strip():
         raise ProjectError(f"the package.json of {working_directory} defines no script test")
-    return Project(directory, node["version"] if node else None, npm_version, npm_hash, "build" in scripts)
+    has_build = isinstance(scripts.get("build"), str) and bool(scripts["build"].strip())
+    return Project(directory, node["version"] if node else None, npm_version, npm_hash, has_build)
 
 
 def command(tool: str, arguments: list[str], directory: Path, *, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -127,14 +128,16 @@ def install_build_and_test(project: Project, working_directory: str) -> int:
         error(f"node --version reports {reported_node or 'nothing'}, but the .nvmrc of {working_directory} names {project.node_version}")
         return 1
     if project.npm_version is not None:
-        if run(npm, ["install", "--global", f"npm@{project.npm_version}"], project.directory) != 0:
-            error(f"the installation of npm {project.npm_version}, the packageManager of {working_directory}/package.json, failed")
-            return 1
-        npm = shutil.which("npm") or npm
         reported = reported_version(npm, project.directory)
         if reported != project.npm_version:
-            error(f"npm --version reports {reported or 'nothing'} after the installation of npm {project.npm_version}")
-            return 1
+            if run(npm, ["install", "--global", f"npm@{project.npm_version}"], project.directory) != 0:
+                error(f"the installation of npm {project.npm_version}, the packageManager of {working_directory}/package.json, failed")
+                return 1
+            npm = shutil.which("npm") or npm
+            reported = reported_version(npm, project.directory)
+            if reported != project.npm_version:
+                error(f"npm --version reports {reported or 'nothing'} after the installation of npm {project.npm_version}")
+                return 1
         unverified = "" if project.npm_hash is None else f"; its hash {project.npm_hash} is not verified"
         print(f"npm {reported}, the packageManager of {working_directory}/package.json{unverified}", flush=True)
     else:
