@@ -39,7 +39,7 @@ The list in a configuration file of the workflows that stay in the consumer: eac
 _Avoid_: Allowlist, exception list
 
 **CI guide**:
-A consumer's document for agents about its CI. Its fixed part holds the pointer to the catalogue and the CI principles, equal in every consumer, followed by the repository's own choices.
+A consumer's document for agents about its CI. Its fixed part holds the pointer to the catalogue, the CI goal and the CI principles, equal in every consumer, followed by the repository's own choices.
 _Avoid_: Pointer document, ci.md
 
 **Decision rule**:
