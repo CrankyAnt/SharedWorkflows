@@ -14,16 +14,28 @@ KEPT = "${{ !cancelled() && github.event_name == 'pull_request' && steps.check.o
 DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
 DISPATCH_IF = "github.event_name == 'repository_dispatch' && github.event.client_payload.sha"
 UPLOADED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}"
-MARKER_SAVE_IF = (
-    "${{ !cancelled() && steps.install.outcome == 'success'"
-    " && steps.gitleaks.outputs.recorded-marker == 'true'"
-    " && (github.event_name == 'repository_dispatch'"
+DEFAULT_BRANCH_ONLY = (
+    "(github.event_name == 'repository_dispatch'"
     " || (github.event_name == 'push' && github.ref_type == 'branch'"
-    " && github.ref_name == github.event.repository.default_branch)) }}"
+    " && github.ref_name == github.event.repository.default_branch))"
+)
+MARKER_SAVE_IF = (
+    "${{ !cancelled() && steps.install-gitleaks.outcome == 'success'"
+    " && steps.gitleaks.outputs.recorded-marker == 'true'"
+    f" && {DEFAULT_BRANCH_ONLY} }}}}"
 )
 MARKER_SAVE_WITH = {
     "path": "${{ runner.temp }}/gitleaks-marker/marker.json",
     "key": "gitleaks-marker-${{ github.run_id }}-${{ github.run_attempt }}",
+}
+REUSE_MARKER_SAVE_IF = (
+    "${{ !cancelled() && steps.install-reuse.outcome == 'success'"
+    " && steps.reuse.outputs.recorded-marker == 'true'"
+    f" && {DEFAULT_BRANCH_ONLY} }}}}"
+)
+REUSE_MARKER_SAVE_WITH = {
+    "path": "${{ runner.temp }}/reuse-marker/marker.json",
+    "key": "reuse-marker-${{ github.run_id }}-${{ github.run_attempt }}",
 }
 
 
@@ -98,7 +110,7 @@ class StoreStepTests(unittest.TestCase):
         self.assertEqual(PREFIX + "${{ github.run_id }}-${{ github.run_attempt }}", save["with"]["key"])
         self.assertNotIn("if", steps[-1], "the verdict itself reports on every run")
         pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
-        self.assertEqual(2, pipeline_text.count("uses: actions/cache/save"))
+        self.assertEqual(3, pipeline_text.count("uses: actions/cache/save"))
         pipeline_saves = {
             job: [step for step in body.get("steps", ()) if str(step.get("uses", "")).startswith("actions/cache/save@")]
             for job, body in pipeline["jobs"].items()
@@ -106,7 +118,7 @@ class StoreStepTests(unittest.TestCase):
         }
         self.assertEqual({"repository-hygiene", "suite-selection-results"}, set(pipeline_saves))
         self.assertEqual(1, len(pipeline_saves["suite-selection-results"]))
-        self.assertEqual(1, len(pipeline_saves["repository-hygiene"]))
+        self.assertEqual(2, len(pipeline_saves["repository-hygiene"]))
         results = pipeline["jobs"]["suite-selection-results"]
         self.assertEqual(
             "${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}",
@@ -115,25 +127,30 @@ class StoreStepTests(unittest.TestCase):
         self.assertEqual(save["with"], results["steps"][-1]["with"], "the pipeline stores under the key that the selection restores")
         self.assertEqual(results["steps"][-1], pipeline_saves["suite-selection-results"][0])
         hygiene_text, hygiene = read_workflow(WORKFLOWS / "repository-hygiene.yml")
-        self.assertEqual(2, hygiene_text.count("uses: actions/cache/save"))
+        self.assertEqual(3, hygiene_text.count("uses: actions/cache/save"))
         hygiene_saves = {
             job: [step for step in body.get("steps", ()) if str(step.get("uses", "")).startswith("actions/cache/save@")]
             for job, body in hygiene["jobs"].items()
             if any(str(step.get("uses", "")).startswith("actions/cache/save@") for step in body.get("steps", ()))
         }
         self.assertEqual({"hygiene"}, set(hygiene_saves))
-        self.assertEqual(2, len(hygiene_saves["hygiene"]))
-        for label, wf_steps, marker_save in (
-            ("pipeline", steps_of(pipeline, "repository-hygiene"), pipeline_saves["repository-hygiene"][0]),
-            ("repository-hygiene", steps_of(hygiene, "hygiene"), hygiene_saves["hygiene"][0]),
+        self.assertEqual(3, len(hygiene_saves["hygiene"]))
+        for label, wf_steps, reuse_marker_save, marker_save in (
+            ("pipeline", steps_of(pipeline, "repository-hygiene"), pipeline_saves["repository-hygiene"][0], pipeline_saves["repository-hygiene"][1]),
+            ("repository-hygiene", steps_of(hygiene, "hygiene"), hygiene_saves["hygiene"][0], hygiene_saves["hygiene"][1]),
         ):
             with self.subTest(workflow=label):
+                reuse = next(step for step in wf_steps if step.get("id") == "reuse")
+                self.assertLess(wf_steps.index(reuse), wf_steps.index(reuse_marker_save))
+                self.assertEqual("Store the default-branch REUSE version marker", reuse_marker_save["name"])
+                self.assertEqual(REUSE_MARKER_SAVE_IF, reuse_marker_save["if"])
+                self.assertEqual(REUSE_MARKER_SAVE_WITH, reuse_marker_save["with"])
                 gitleaks = next(step for step in wf_steps if step.get("id") == "gitleaks")
                 self.assertLess(wf_steps.index(gitleaks), wf_steps.index(marker_save))
                 self.assertEqual("Store the default-branch Gitleaks scan marker", marker_save["name"])
                 self.assertEqual(MARKER_SAVE_IF, marker_save["if"])
                 self.assertEqual(MARKER_SAVE_WITH, marker_save["with"])
-        hygiene_pr_save = hygiene_saves["hygiene"][1]
+        hygiene_pr_save = hygiene_saves["hygiene"][2]
         self.assertEqual("Store the passed checks in the pull request's cache", hygiene_pr_save["name"])
         self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' }}", hygiene_pr_save["if"])
         self.assertEqual({

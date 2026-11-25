@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Check what a consumer holds beside its configuration file; the pipeline's hygiene job runs one command per step.
+"""Check what a consumer holds beside its configuration file; the pipeline runs ``all`` as one step.
 
+    python3 consumer_checks.py all        [--kit DIR] [--today DATE] [common options]
     python3 consumer_checks.py callers    [--kit DIR] [--today DATE] [common options]
     python3 consumer_checks.py register   [common options]
     python3 consumer_checks.py dependabot [--kit DIR] [common options]
@@ -52,6 +53,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -73,6 +75,10 @@ DEPENDABOT_FILE = ".github/dependabot.yml"
 DEPENDABOT_OTHER_NAME = ".github/dependabot.yaml"
 DEPENDABOT_AUTHOR = "dependabot[bot]"
 API_TIMEOUT = 20
+API_ATTEMPTS = 3
+API_BACKOFF = 0.5
+API_MAX_RETRY_AFTER = 5.0
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
 PIPELINE_CALL = re.compile(r"(?m)^\s*uses:\s*([^/\s]+/[^/\s]+)/\.github/workflows/pipeline\.yml@")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -155,10 +161,21 @@ def a_month_after(date: datetime.date) -> datetime.date:
 
 
 class Api:
-    """The GitHub API of one repository, read with the token of the run."""
+    """The GitHub API of one repository, read with the token of the run, with bounded retries on transient errors."""
 
-    def __init__(self, base: str, repository: str, token: str | None) -> None:
+    def __init__(self, base: str, repository: str, token: str | None, *, sleep=time.sleep, attempts: int = API_ATTEMPTS) -> None:
         self.base, self.repository, self.token = base.rstrip("/"), repository, token
+        self.sleep, self.attempts = sleep, attempts
+
+    def _retry_delay(self, attempt: int, retry_after: str | None = None) -> float:
+        if retry_after is not None:
+            try:
+                seconds = float(retry_after)
+            except ValueError:
+                seconds = API_BACKOFF * attempt
+            else:
+                return min(max(0.0, seconds), API_MAX_RETRY_AFTER)
+        return API_BACKOFF * attempt
 
     def get(self, path: str) -> tuple[int, object]:
         """The status and the document of ``repos/<repository>/<path>``; a 404 is an answer, any other failure an ApiError."""
@@ -166,15 +183,28 @@ class Api:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         request = urllib.request.Request(f"{self.base}/repos/{self.repository}/{path}", headers=headers)
-        try:
-            with urllib.request.urlopen(request, timeout=API_TIMEOUT) as response:  # noqa: S310 - the API host of the run
-                return response.status, json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return 404, None
-            raise ApiError(f"HTTP {error.code}") from error
-        except (urllib.error.URLError, OSError, ValueError) as error:
-            raise ApiError(str(getattr(error, "reason", error))) from error
+        for attempt in range(1, self.attempts + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=API_TIMEOUT) as response:  # noqa: S310 - the API host of the run
+                    return response.status, json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as error:
+                code = error.code
+                retry_after = error.headers.get("Retry-After") if error.headers else None
+                error.close()
+                if code == 404:
+                    return 404, None
+                if code in TRANSIENT_STATUSES and attempt < self.attempts:
+                    self.sleep(self._retry_delay(attempt, retry_after))
+                    continue
+                raise ApiError(f"HTTP {code}") from error
+            except (urllib.error.URLError, OSError) as error:
+                if attempt < self.attempts:
+                    self.sleep(self._retry_delay(attempt))
+                    continue
+                raise ApiError(str(getattr(error, "reason", error))) from error
+            except ValueError as error:
+                raise ApiError(str(error)) from error
+        raise ApiError("exhausted retries")
 
 
 def sync_pull_request_note(api: Api, branch: str, shared: str) -> str:
@@ -201,13 +231,13 @@ def catalogue_url(shared: str) -> str:
 # --- the configuration file -----------------------------------------------------------------------------------------
 
 
-def read_configuration(root: Path, schemas: Path) -> tuple[dict | None, list[str]]:
+def read_configuration(root: Path, schemas: Path, versions: dict | None = None) -> tuple[dict | None, list[str]]:
     """The configuration file when it matches its schema; otherwise None and each reason."""
     path = root / plan.CONFIGURATION
     if not path.is_file():
         return None, ["the file does not exist"]
     try:
-        configuration, _ = plan.checked_configuration(path.read_text(encoding="utf-8"), plan.schema_versions(schemas))
+        configuration, _ = plan.checked_configuration(path.read_text(encoding="utf-8"), plan.schema_versions(schemas) if versions is None else versions)
     except (plan.PlanError, plan.SchemaError) as error:
         return None, str(error).splitlines()
     return configuration, []
@@ -221,10 +251,10 @@ def settings_of(schema: object) -> set[str]:
     return set(properties).union(*(settings_of(inner) for inner in properties.values()), settings_of(schema.get("items")))
 
 
-def existing_parts(schemas: Path) -> dict[str, set[str]]:
+def existing_parts(schemas: Path, versions: dict | None = None) -> dict[str, set[str]]:
     """The shared parts that exist, each with the settings it knows: the parts of the current schema version of the
     pipeline's own revision. A part that always runs knows the settings of its configuration, and none without one."""
-    versions = plan.schema_versions(schemas)
+    versions = plan.schema_versions(schemas) if versions is None else versions
     current = versions[max(versions)]
     configurations = current.schema["properties"]["parts"]["properties"]
     return {part: settings_of(configurations.get(part)) for part in current.parts}
@@ -287,12 +317,12 @@ def holds_the_shared_parts(options: argparse.Namespace, kit: Path, title: str) -
 CALLERS_TITLE = "Fixed callers and local workflows"
 
 
-def run_callers(options: argparse.Namespace) -> int:
+def run_callers(options: argparse.Namespace, *, configuration_result: tuple[dict | None, list[str]] | None = None, shared: str | None = None) -> int:
     kit, root = Path(options.kit), Path(options.root)
-    if holds_the_shared_parts(options, kit, CALLERS_TITLE):
+    if shared is None and holds_the_shared_parts(options, kit, CALLERS_TITLE):
         return 0
     promoted, branch = read_record(kit)
-    shared = shared_repository(kit)
+    shared = shared_repository(kit) if shared is None else shared
     today = options.today or datetime.datetime.now(datetime.timezone.utc).date()
     findings, notes, differs = [], [], False
     guide = read_bytes(kit / CI_GUIDE)
@@ -305,13 +335,15 @@ def run_callers(options: argparse.Namespace) -> int:
         compared = fixed_part(held) if name == CI_GUIDE and held is not None else held
         if compared == template:
             continue
-        if name in promoted and compared == read_bytes(kit / "previous" / name):
+        previous_bytes = read_bytes(kit / "previous" / name) if name in promoted else None
+        previous_compared = fixed_part(previous_bytes) if name == CI_GUIDE and previous_bytes is not None else previous_bytes
+        if name in promoted and compared == previous_compared:
             until = a_month_after(promoted[name])
             if today <= until:
-                notes.append(Finding(f"`{path}` equals the previous version of its template, which passes until {until.isoformat()}; "
+                notes.append(Finding(f"`{path}` equals the previous version of its template, which passes until {until.isoformat()} (checked on {today.isoformat()}); "
                                      "the sync pull request brings the current one.", path))
                 continue
-            findings.append(Finding(f"`{path}` equals the previous version of its template, which passed until {until.isoformat()}.", path))
+            findings.append(Finding(f"`{path}` equals the previous version of its template, which passed until {until.isoformat()} (checked on {today.isoformat()}).", path))
         elif held is None:
             findings.append(Finding(f"`{path}` does not exist; every consumer holds this {'CI guide' if name == CI_GUIDE else 'fixed caller'}.", path))
         elif name != CI_GUIDE:
@@ -324,7 +356,7 @@ def run_callers(options: argparse.Namespace) -> int:
         differs = True
     if differs:
         findings.append(Finding(sync_pull_request_note(Api(options.api_url, options.repository, os.environ.get("GITHUB_TOKEN")), branch, shared)))
-    configuration, reasons = read_configuration(root, Path(options.schemas))
+    configuration, reasons = read_configuration(root, Path(options.schemas)) if configuration_result is None else configuration_result
     folder = root / WORKFLOWS
     local = sorted(f"{WORKFLOWS}/{item.name}" for item in (folder.iterdir() if folder.is_dir() else [])
                    if item.is_file() and item.suffix in (".yml", ".yaml") and item.name not in CALLERS)
@@ -335,7 +367,9 @@ def run_callers(options: argparse.Namespace) -> int:
         register = plan.registered_workflows(configuration)
         registered = [path for path in local if path in register]
         unregistered = [path for path in local if path not in register]
+        missing_registered = sorted(path for path in register if path not in local)
         findings += [Finding(f"`{path}` is neither a fixed caller nor registered under `local-workflows` in `{plan.CONFIGURATION}`.", path) for path in unregistered]
+        findings += [Finding(f"`{path}` is registered under `local-workflows` in `{plan.CONFIGURATION}`, but the workflow file does not exist.", plan.CONFIGURATION) for path in missing_registered]
         if unregistered:
             findings.append(Finding(f"The decision rule in the catalogue says where its work belongs: {catalogue_url(shared)}"))
     fixed = "Every fixed caller equals its template" if guide is None else "Every fixed caller and the CI guide equal their templates"
@@ -403,10 +437,10 @@ def free_job_request(request: int, waits_for: str) -> Waiting:
                    declined=f"remove `request` and `waits-for` from `parts.{FREE_JOB}`; the work stays in the free job")
 
 
-def run_register(options: argparse.Namespace) -> int:
-    if holds_the_shared_parts(options, Path(options.kit), REGISTER_TITLE):
+def run_register(options: argparse.Namespace, *, configuration_result: tuple[dict | None, list[str]] | None = None, versions: dict | None = None, shared: str | None = None) -> int:
+    if shared is None and holds_the_shared_parts(options, Path(options.kit), REGISTER_TITLE):
         return 0
-    configuration, reasons = read_configuration(Path(options.root), Path(options.schemas))
+    configuration, reasons = read_configuration(Path(options.root), Path(options.schemas), versions) if configuration_result is None else configuration_result
     if configuration is None:
         return report(options, REGISTER_TITLE, [unusable_configuration(reasons)], [])
     entries = configuration.get("local-workflows") or []
@@ -423,7 +457,7 @@ def run_register(options: argparse.Namespace) -> int:
     if len(stated) == 2:
         waiting.append(free_job_request(free_job["request"], free_job["waits-for"]))
     api = Api(options.api_url, options.repository, os.environ.get("GITHUB_TOKEN"))
-    existing = existing_parts(Path(options.schemas))
+    existing = existing_parts(Path(options.schemas), versions)
     for item in waiting:
         part, _, setting = item.waits_for.partition(".")
         if part in existing and (not setting or setting in existing[part]):
@@ -435,7 +469,7 @@ def run_register(options: argparse.Namespace) -> int:
         if problem:
             findings.append(Finding(f"{item.subject} names the {'declined ' if item.permanent else ''}request #{item.request}, which {problem}.", plan.CONFIGURATION))
     if switches:
-        findings.append(Finding(f"The catalogue describes the part: {catalogue_url(shared_repository(Path(options.kit)))}"))
+        findings.append(Finding(f"The catalogue describes the part: {catalogue_url(shared_repository(Path(options.kit)) if shared is None else shared)}"))
     passed = "Every entry of the local workflow register names its issue, and no part that an entry waits for exists yet."
     if stated:
         passed = (f"{passed} The free job names its request, and what it waits for does not exist yet." if entries else
@@ -481,11 +515,11 @@ def dependabot_text(ecosystems: dict[str, list[str]], shared: str) -> str:
     return text
 
 
-def run_dependabot(options: argparse.Namespace) -> int:
+def run_dependabot(options: argparse.Namespace, *, configuration_result: tuple[dict | None, list[str]] | None = None, shared: str | None = None) -> int:
     kit, root = Path(options.kit), Path(options.root)
-    if holds_the_shared_parts(options, kit, DEPENDABOT_TITLE):
+    if shared is None and holds_the_shared_parts(options, kit, DEPENDABOT_TITLE):
         return 0
-    configuration, reasons = read_configuration(root, Path(options.schemas))
+    configuration, reasons = read_configuration(root, Path(options.schemas)) if configuration_result is None else configuration_result
     if configuration is None:
         return report(options, DEPENDABOT_TITLE, [unusable_configuration(reasons)], [])
     ecosystems = configuration.get("dependabot") or {}
@@ -494,7 +528,7 @@ def run_dependabot(options: argparse.Namespace) -> int:
         findings = [Finding(f"`{name}` exists, but `{plan.CONFIGURATION}` states no Dependabot ecosystems under `dependabot`: state them there or remove the file.", name)
                     for name, content in ((DEPENDABOT_FILE, held), (DEPENDABOT_OTHER_NAME, other)) if content is not None]
         return report(options, DEPENDABOT_TITLE, findings, [f"`{plan.CONFIGURATION}` states no Dependabot ecosystems, and the repository holds no Dependabot configuration."])
-    expected = dependabot_text(ecosystems, shared_repository(kit))
+    expected = dependabot_text(ecosystems, shared_repository(kit) if shared is None else shared)
     findings = []
     if held is None:
         findings.append(Finding(f"`{DEPENDABOT_FILE}` does not exist; it is generated from `dependabot` in `{plan.CONFIGURATION}`.", DEPENDABOT_FILE))
@@ -506,13 +540,38 @@ def run_dependabot(options: argparse.Namespace) -> int:
     return report(options, DEPENDABOT_TITLE, findings, [f"`{DEPENDABOT_FILE}` equals the file generated from `dependabot` in `{plan.CONFIGURATION}`."], details=details)
 
 
+ALL_TITLE = "Consumer checks"
+
+
+def run_all(options: argparse.Namespace) -> int:
+    """Run callers, register and dependabot once, sharing one parsed configuration and schema."""
+    kit, root, schemas = Path(options.kit), Path(options.root), Path(options.schemas)
+    if holds_the_shared_parts(options, kit, ALL_TITLE):
+        return 0
+    shared = shared_repository(kit)
+    try:
+        versions = plan.schema_versions(schemas)
+    except plan.SchemaError as error:
+        configuration_result: tuple[dict | None, list[str]] = (None, str(error).splitlines())
+        versions = None
+    else:
+        configuration_result = read_configuration(root, schemas, versions)
+    statuses = [
+        run_callers(options, configuration_result=configuration_result, shared=shared),
+        run_register(options, configuration_result=configuration_result, versions=versions, shared=shared),
+        run_dependabot(options, configuration_result=configuration_result, shared=shared),
+    ]
+    return 1 if any(statuses) else 0
+
+
 # --- the command line -----------------------------------------------------------------------------------------------
 
 
 def parser() -> argparse.ArgumentParser:
     main_parser = argparse.ArgumentParser(description="Check a consumer's fixed callers, local workflow register and generated Dependabot configuration.")
     commands = main_parser.add_subparsers(dest="command", required=True)
-    for name, text in (("callers", "compare the fixed callers with their templates and the other workflow files with the register"),
+    for name, text in (("all", "run callers, register and dependabot as one check"),
+                       ("callers", "compare the fixed callers with their templates and the other workflow files with the register"),
                        ("register", "ask GitHub for the issue that each entry of the register names"),
                        ("dependabot", "compare the Dependabot configuration with the one generated from the configuration file")):
         command = commands.add_parser(name, help=text)
@@ -524,14 +583,15 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
         command.add_argument("--summary", help="the file that receives the Markdown summary")
         command.add_argument("--kit", default=str(KIT), help="the consumer kit with the templates and their record")
-    commands.choices["callers"].add_argument("--today", type=datetime.date.fromisoformat, help="the date of the run as YYYY-MM-DD; the current date in UTC without it")
+    for name in ("all", "callers"):
+        commands.choices[name].add_argument("--today", type=datetime.date.fromisoformat, help="the date of the run as YYYY-MM-DD; the current date in UTC without it")
     return main_parser
 
 
 def main(argv: list[str] | None = None) -> int:
     options = parser().parse_args(argv)
     try:
-        return {"callers": run_callers, "register": run_register, "dependabot": run_dependabot}[options.command](options)
+        return {"all": run_all, "callers": run_callers, "register": run_register, "dependabot": run_dependabot}[options.command](options)
     except KitError as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2

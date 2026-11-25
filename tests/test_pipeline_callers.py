@@ -134,6 +134,13 @@ class LocalWorkflowTests(ConsumerFixture):
         self.assertEqual(0, checked.status, checked.stdout)
         self.assertIn(f"`{LOCAL}` is registered", checked.summary)
 
+    def test_a_deleted_workflow_that_is_still_registered_fails(self) -> None:
+        self.consumer({CONFIGURATION: REGISTERED})
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status, checked.stdout)
+        self.assertIn(f"::error file={CONFIGURATION}::", checked.stdout)
+        self.assertIn(f"`{LOCAL}` is registered under `local-workflows` in `{CONFIGURATION}`, but the workflow file does not exist.", checked.summary)
+
     def test_a_file_that_is_no_workflow_is_left_alone(self) -> None:
         self.consumer({f"{WORKFLOWS}/README.md": "Notes.\n", f"{WORKFLOWS}/data/values.yml": "a: 1\n"})
         self.assertEqual(0, self.check("callers").status)
@@ -256,7 +263,14 @@ class PreviousCiGuideTests(ConsumerFixture):
                 checked = self.check("callers", "--today", today)
                 self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
                 self.assertIn(f"`{CI_GUIDE}` equals the previous version of its template, which passes until 2026-04-10", checked.summary)
+                self.assertIn(f"checked on {today}", checked.summary)
                 self.assertIn(f"::notice file={CI_GUIDE}::", checked.stdout)
+
+    def test_a_previous_guide_with_trailing_choices_still_matches_its_fixed_part(self) -> None:
+        write(self.kit, f"previous/{CI_GUIDE}", self.PREVIOUS + "\nTrailing template text.\n")
+        checked = self.check("callers", "--today", "2026-03-20")
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        self.assertIn("equals the previous version of its template", checked.summary)
 
     def test_after_that_month_a_pull_request_fails_with_the_open_sync_pull_request(self) -> None:
         url = self.api.sync_pull_request(31)
@@ -338,6 +352,33 @@ class SharedRepositoryTests(ConsumerFixture):
         self.assertEqual(0, checked.status)
         self.assertIn("This repository holds the shared parts", checked.summary)
         self.assertIn("nothing to check", checked.stdout)
+        self.assertEqual([], self.api.requests)
+
+
+class AllConsumerChecksTests(ConsumerFixture):
+    def test_all_runs_callers_register_and_dependabot_in_one_command(self) -> None:
+        self.consumer({LOCAL: "name: Nightly report\n", CONFIGURATION: REGISTERED})
+        self.api.issue(12, "open")
+        checked = self.start("all")
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        self.assertIn("## Fixed callers and local workflows", checked.summary)
+        self.assertIn("## Local workflow register", checked.summary)
+        self.assertIn("## Generated Dependabot configuration", checked.summary)
+
+    def test_all_reports_findings_from_every_check_and_fails_when_any_fails(self) -> None:
+        self.consumer({f"{WORKFLOWS}/ci.yml": template("ci.yml") + "# drift\n",
+                       CONFIGURATION: REGISTERED,
+                       ".github/dependabot.yml": "version: 2\nupdates: []\n"})
+        checked = self.check("all")
+        self.assertEqual(1, checked.status, checked.stdout + checked.stderr)
+        self.assertIn(f"`{WORKFLOWS}/ci.yml` differs from its template", checked.summary)
+        self.assertIn("is no issue of this repository", checked.summary)
+        self.assertIn("states no Dependabot ecosystems", checked.summary)
+
+    def test_all_passes_without_checking_in_the_shared_repository(self) -> None:
+        checked = self.check("all", repository=SHARED)
+        self.assertEqual(0, checked.status)
+        self.assertEqual(1, checked.summary.count("This repository holds the shared parts"))
         self.assertEqual([], self.api.requests)
 
 

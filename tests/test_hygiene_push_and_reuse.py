@@ -81,11 +81,38 @@ class PushLookupTests(HygieneFixture):
         result = hygiene("changes", self.repo, "--lookup", self.lookup(case="own", head=head, landing_base=self.base), "--base", self.base, "--head", head)
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
 
+    def test_a_missing_or_unreadable_lookup_selects_every_check_instead_of_none(self) -> None:
+        corrupt = self.root / "corrupt-lookup.json"
+        corrupt.write_text("{not json\n", encoding="utf-8")
+        incomplete = self.root / "incomplete-lookup.json"
+        incomplete.write_text(json.dumps({"case": "unknown"}), encoding="utf-8")
+        for path in (str(self.root / "missing-lookup.json"), str(corrupt), str(incomplete)):
+            with self.subTest(lookup=path):
+                decisions, stdout, summary = self.decide("--lookup", path)
+                self.assertEqual({"true"}, {decisions[name] for name in CHECKS if name != "reuse"}, stdout)
+                self.assertEqual("true", decisions["workflows"])
+                self.assertEqual("false", decisions["reuse"], "the fixture has no REUSE.toml")
+                self.assertIn("could not be read", summary)
+
+    def test_a_behind_lookup_with_an_unreadable_side_selects_every_check(self) -> None:
+        head = self.commit({"docs/notes.md": "n\n"})
+        decisions, _, _ = self.decide("--lookup", self.lookup(case="behind", head=head, landing_base=self.base, tested_base="0" * 40))
+        self.assertEqual({"true"}, {decisions[name] for name in CHECKS if name != "reuse"})
+        self.assertEqual("true", decisions["workflows"])
+
 
 class EditedReuseTests(HygieneFixture):
-    def record(self, tree: str, checks: dict[str, int]) -> str:
+    def record(self, tree: str, checks: dict[str, int], reuse_version: str | None = None) -> str:
         path = self.root / "record.json"
-        path.write_text(json.dumps({"tree": tree, "checks": checks}), encoding="utf-8")
+        payload: dict[str, object] = {"tree": tree, "checks": checks}
+        if reuse_version is not None:
+            payload["reuse_version"] = reuse_version
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return str(path)
+
+    def pins(self, reuse_version: str) -> str:
+        path = self.root / "pins.json"
+        path.write_text(json.dumps({"python": {"reuse": {"version": reuse_version}}}), encoding="utf-8")
         return str(path)
 
     def test_an_edited_run_reuses_each_selected_check_that_passed_on_the_same_tested_tree(self) -> None:
@@ -123,10 +150,29 @@ class EditedReuseTests(HygieneFixture):
         head = self.commit({"docs/notes.md": "n\n"})
         output = self.root / "stored.json"
         result = hygiene("record", self.repo, "--run-id", "444", "--outcome", "actionlint=success", "--outcome", "zizmor=failure",
-                         "--outcome", "markdown=skipped", "--outcome", "reuse=success", "--reused", json.dumps({"packages": 111}), "--output", str(output))
+                         "--outcome", "markdown=skipped", "--outcome", "reuse=success", "--reused", json.dumps({"packages": 111}),
+                         "--pins", self.pins("6.3.0"), "--output", str(output))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual({"tree": git(self.repo, "rev-parse", f"{head}^{{tree}}"), "checks": {"actionlint": 444, "packages": 111, "reuse": 444}},
+        self.assertEqual({"tree": git(self.repo, "rev-parse", f"{head}^{{tree}}"), "checks": {"actionlint": 444, "packages": 111, "reuse": 444},
+                          "reuse_version": "6.3.0"},
                          json.loads(output.read_text(encoding="utf-8")))
+
+    def test_an_edited_run_does_not_reuse_a_reuse_pass_from_another_pinned_reuse_version(self) -> None:
+        base = self.commit({"REUSE.toml": "version = 1\n", ".github/workflows/ci.yml": "x: 1\n"})
+        head = self.commit({".github/workflows/ci.yml": "x: 2\n", "src/new.py": "print(2)\n"})
+        tree = git(self.repo, "rev-parse", "HEAD^{tree}")
+        pins = self.pins("6.3.0")
+        for recorded_version in ("6.2.0", None):
+            with self.subTest(recorded_version=recorded_version):
+                rec = self.record(tree, {"actionlint": 111, "reuse": 111}, reuse_version=recorded_version)
+                decisions, _, _ = self.decide("--base", base, "--head", head, "--results", rec, "--pins", pins)
+                self.assertEqual("false", decisions["actionlint"])
+                self.assertEqual("true", decisions["reuse"])
+                self.assertEqual({"actionlint": 111}, json.loads(decisions["reused"]))
+        same = self.record(tree, {"actionlint": 111, "reuse": 111}, reuse_version="6.3.0")
+        decisions, _, _ = self.decide("--base", base, "--head", head, "--results", same, "--pins", pins)
+        self.assertEqual("false", decisions["reuse"])
+        self.assertEqual({"actionlint": 111, "reuse": 111}, json.loads(decisions["reused"]))
 
 
 if __name__ == "__main__":

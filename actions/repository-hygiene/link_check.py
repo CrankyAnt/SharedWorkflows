@@ -34,6 +34,7 @@ LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])[ \t]+")
 REFERENCE_DEFINITION = re.compile(r"^ {0,3}\[([^\]]+)\]:[ \t]*(<[^>]+>|\S+)")
 REFERENCE_START = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*(?:\n[ \t]*)?", re.MULTILINE)
 LINK_START = re.compile(r"!?\[(?:[^\[\]]|\[[^\[\]]*\])*\]\(")
+IMAGE_START = re.compile(r"!\[(?:[^\[\]]|\[[^\[\]]*\])*\]\(")
 # A link text, then spaces or tabs, one line break, or both, before an opening parenthesis: no inline link under CommonMark.
 SPLIT_LINK_START = re.compile(r"!?\[((?:[^\[\]]|\[[^\[\]]*\])*)\](?:[ \t]+|[ \t]*\n[ \t]*)\(")
 TASK_MARKERS = (" ", "x", "X")
@@ -353,6 +354,27 @@ def links(text: str) -> list[tuple[int, str, bool]]:
             continue
         target, end = inline
         found.append((match.start(), target, False))
+        inner_start = match.start() + (2 if masked_text[match.start()] == "!" else 1)
+        inner_text = masked_text[inner_start:match.end() - 2]
+        if "![" in inner_text:
+            inner_masked = list(inner_text)
+            for image in IMAGE_START.finditer(inner_text):
+                if escaped(inner_text, image.start()):
+                    continue
+                image_inline = inline_destination(inner_text, image.end(), image.start())
+                if image_inline is None:
+                    continue
+                found.append((inner_start + image.start(), image_inline[0], False))
+                for index in range(image.start(), image_inline[1]):
+                    if inner_masked[index] != "\n":
+                        inner_masked[index] = " "
+            inner_after = "".join(inner_masked)
+            for ref in REFERENCE_LINK.finditer(inner_after):
+                if inner_after[ref.start()] != "!" or escaped(inner_after, ref.start()):
+                    continue
+                ref_target = definitions.get(label(ref.group(2) or ref.group(1)))
+                if ref_target is not None:
+                    found.append((inner_start + ref.start(), ref_target, False))
         blank(match.start(), end)
     rebuild()
     newlines = [index for index, character in enumerate(masked_text) if character == "\n"]
@@ -449,6 +471,7 @@ def link_findings(root: Path, files: list[str]) -> list[tuple[str, bool]]:
             anchor_cache[path] = anchors(path.read_text(encoding="utf-8"))
         return anchor_cache[path]
 
+    normalized_root = Path(os.path.normpath(root))
     for relative in files:
         source = root / relative
         for number, raw, split in links(source.read_text(encoding="utf-8")):
@@ -462,6 +485,9 @@ def link_findings(root: Path, files: list[str]) -> list[tuple[str, bool]]:
             location = unquote(location.partition("?")[0])
             if location:
                 resolved = Path(os.path.normpath((root / location.lstrip("/")) if location.startswith("/") else (source.parent / location)))
+                if not resolved.is_relative_to(normalized_root):
+                    problems.append((f"{relative}:{number}: the link target {target} leaves the repository", False))
+                    continue
                 if not resolved.exists():
                     problems.append((f"{relative}:{number}: the link target {target} does not exist", False))
                     continue

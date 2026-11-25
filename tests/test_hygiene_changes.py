@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -49,6 +50,17 @@ class ChangeDecisionTests(unittest.TestCase):
                 self.assertIn("| actionlint, zizmor | yes |", summary)
                 self.assertIn("| Relative links | no |", summary)
                 self.assertIn("| Gitleaks | yes | every event |", summary)
+
+    def test_a_file_whose_name_only_ends_with_action_yml_does_not_select_workflow_linters(self) -> None:
+        base = self.base
+        for relative in ("foo-action.yml", "docs/my-action.yaml"):
+            with self.subTest(changed=relative):
+                head = self.commit({relative: "x: 1\n"})
+                decisions, _, _ = self.decide(base, head, all_checks=True)
+                base = head
+                self.assertEqual("false", decisions["workflows"])
+                self.assertEqual("false", decisions["actionlint"])
+                self.assertEqual("false", decisions["zizmor"])
 
     def test_a_dependabot_merged_dispatch_decides_as_a_push_from_the_merge_s_first_parent(self) -> None:
         git(self.repo, "switch", "-q", "-c", "dependabot")
@@ -531,6 +543,51 @@ class ReuseSelectionTests(unittest.TestCase):
                 self.assertEqual("true", decision, stdout)
                 self.assertIn(f"`{relative}` is the REUSE assignment or a licence text", stdout)
                 base = head
+
+    def test_a_change_to_a_nested_reuse_toml_or_a_dot_license_file_selects_reuse(self) -> None:
+        base = self.repository("nested", {"sub/REUSE.toml": "version = 1\n", "src/data.bin": "x\n", "src/data.bin.license": "SPDX-License-Identifier: MIT\n"})
+        for relative, content in (("sub/REUSE.toml", "version = 1\n# updated\n"), ("src/data.bin.license", "SPDX-License-Identifier: Apache-2.0\n")):
+            with self.subTest(changed=relative):
+                head = self.commit({relative: content})
+                decision, stdout, _ = self.reuse(base, head)
+                self.assertEqual("true", decision, stdout)
+                base = head
+
+    def test_a_change_to_an_spdx_or_reuse_tag_in_an_existing_file_selects_reuse(self) -> None:
+        initial = "# SPDX-FileCopyrightText: 2025 Fixture\n# SPDX-License-Identifier: MIT\nprint(1)\n"
+        base = self.repository("tags", {"REUSE.toml": "version = 1\n", "src/app.py": initial})
+        code_only = self.commit({"src/app.py": initial.replace("print(1)", "print(2)")})
+        self.assertEqual("false", self.reuse(base, code_only)[0], "untouched SPDX header with code-only edit does not select REUSE")
+        for label, updated in (
+            ("copyright", initial.replace("2025", "2026")),
+            ("license", initial.replace("MIT", "Apache-2.0")),
+            ("ignore", initial + "# REUSE-IgnoreStart\n# ignored\n# REUSE-IgnoreEnd\n"),
+            ("snippet", initial + "# SPDX-SnippetBegin\n# SPDX-SnippetEnd\n"),
+        ):
+            with self.subTest(tag=label):
+                head = self.commit({"src/app.py": updated})
+                decision, stdout, _ = self.reuse(code_only, head)
+                self.assertEqual("true", decision, stdout)
+                self.assertIn("`src/app.py` changed an SPDX or REUSE tag", stdout)
+                git(self.repo, "reset", "--quiet", "--hard", code_only)
+
+    def test_a_change_to_the_pinned_reuse_version_selects_reuse_in_a_consumer(self) -> None:
+        base = self.licensed()
+        head = self.commit({"src/app.py": "print(3)\n"})
+        pins = self.root / "pins.json"
+        pins.write_text(json.dumps({"python": {"reuse": {"version": "6.3.0"}}}), encoding="utf-8")
+        marker = self.root / "reuse-marker.json"
+        marker.write_text(json.dumps({"version": "6.3.0"}), encoding="utf-8")
+        self.assertEqual("false", self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker))[0])
+        marker.write_text(json.dumps({"version": "6.2.0"}), encoding="utf-8")
+        decision, stdout, _ = self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker))
+        self.assertEqual("true", decision, stdout)
+        self.assertIn("pinned REUSE version", stdout)
+        marker.unlink()
+        self.assertEqual("true", self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker))[0])
+        unlicensed_base = self.repository("unlicensed-pin", {"src/app.py": "print(1)\n"})
+        unlicensed_head = self.commit({"src/app.py": "print(2)\n"})
+        self.assertEqual("false", self.reuse(unlicensed_base, unlicensed_head, "--pins", str(pins), "--reuse-marker", str(marker))[0])
 
     def test_a_content_change_to_an_existing_file_does_not_select_reuse(self) -> None:
         base = self.licensed()

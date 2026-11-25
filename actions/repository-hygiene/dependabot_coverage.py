@@ -55,9 +55,17 @@ class Uncovered:
 
 def _strip_comment(line: str, number: int) -> str:
     quote: str | None = None
+    escaped = False
     for index, character in enumerate(line):
-        if quote:
-            if character == quote:
+        if quote == '"':
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quote = None
+        elif quote == "'":
+            if character == "'":
                 quote = None
         elif character in "'\"":
             quote = character
@@ -120,11 +128,20 @@ def _split_flow(body: str, number: int) -> list[str]:
     items: list[str] = []
     depth = 0
     quote: str | None = None
+    escaped = False
     current: list[str] = []
     for character in body:
-        if quote:
+        if quote == '"':
             current.append(character)
-            if character == quote:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quote = None
+        elif quote == "'":
+            current.append(character)
+            if character == "'":
                 quote = None
         elif character in "'\"":
             quote = character
@@ -167,9 +184,17 @@ def _flow(text: str, number: int) -> object:
 def _flow_spans_lines(text: str) -> bool:
     depth = 0
     quote: str | None = None
+    escaped = False
     for character in text:
-        if quote:
-            if character == quote:
+        if quote == '"':
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quote = None
+        elif quote == "'":
+            if character == "'":
                 quote = None
         elif character in "'\"":
             quote = character
@@ -311,7 +336,13 @@ def directory_glob_matches(pattern: str, directory: str) -> bool:
     index = 0
     pattern = normalize_directory(pattern)
     while index < len(pattern):
-        if pattern.startswith("**", index):
+        if pattern.startswith("/**/", index):
+            expression += "(?:/.*)?/"
+            index += 4
+        elif pattern.startswith("/**", index) and index + 3 == len(pattern):
+            expression += "(?:/.*)?"
+            index += 3
+        elif pattern.startswith("**", index):
             expression += ".*"
             index += 2
         elif pattern[index] == "*":

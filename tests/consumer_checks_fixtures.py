@@ -52,6 +52,7 @@ class GitHubStandIn:
         self.issues: dict[int, dict] = {}
         self.pull_requests: list[dict] = []
         self.status: int | None = None
+        self.statuses: list[int] = []
         self.requests: list[tuple[str, dict[str, str]]] = []
         stand_in = self
 
@@ -62,7 +63,9 @@ class GitHubStandIn:
                 query = parse_qs(address.query)
                 code, document = 404, {"message": "Not Found"}
                 prefix = f"/repos/{CONSUMER}/"
-                if stand_in.status is not None:
+                if stand_in.statuses:
+                    code, document = stand_in.statuses.pop(0), {"message": "transient"}
+                elif stand_in.status is not None:
                     code, document = stand_in.status, {"message": "refused"}
                 elif address.path.startswith(prefix + "issues/"):
                     number = address.path.removeprefix(prefix + "issues/")

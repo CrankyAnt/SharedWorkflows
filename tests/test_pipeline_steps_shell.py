@@ -195,9 +195,11 @@ class PipelineStepShellTests(unittest.TestCase):
     # --- the tool installation and the Gitleaks step --------------------------------------------------------------
 
     def install(self, **changes: str) -> subprocess.CompletedProcess[str]:
-        outputs = {"hygiene-actionlint": "false", "hygiene-zizmor": "false", "hygiene-reuse": "false",
-                   **{f"hygiene-{key}": value for key, value in changes.items()}}
-        ran, _ = self.run_step("repository-hygiene", "install", {"steps": {"resources": self.loaded("repository-hygiene")}, "needs": {"plan": {"outputs": outputs}}})
+        context = {"steps": {"resources": self.loaded("repository-hygiene")}}
+        ran, _ = self.run_step("repository-hygiene", "install-gitleaks", context)
+        for tool in ("actionlint", "zizmor", "reuse"):
+            if ran.returncode == 0 and changes.get(tool) == "true":
+                ran, _ = self.run_step("repository-hygiene", f"install-{tool}", context)
         return ran
 
     def installed(self) -> list[str]:

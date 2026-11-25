@@ -72,13 +72,12 @@ class PipelineInvocationTests(unittest.TestCase):
         hygiene_steps = {step["name"]: step for step in workflow["jobs"]["repository-hygiene"]["steps"] if "name" in step}
         for name in ("Decide which checks the changed files can affect", "Take the digest of the shared recording step",
                      "Look up the digest of the last passed run on the base branch", "Restore the passed results of the pull request",
-                     "Select the suites the changed files touch", "Check the pull request branch",
-                     "Fixed callers and local workflows", "Issues of the local workflow register", "Generated Dependabot configuration"):
+                     "Select the suites the changed files touch", "Check the pull request branch", "Consumer checks"):
             self.assertIn("edited", str(plan_steps[name].get("if", "")), f"plan step {name} must skip on edited")
         self.assertNotIn("edited", str(plan_steps["Check the references to repositories of the owner"].get("if", "")))
         for name in ("Check every pull request commit", "Compute the hygiene tools cache key", "Restore the cached hygiene tools",
-                     "Install the pinned tools and verify their checksums", "Restore the default-branch Gitleaks scan marker",
-                     "Gitleaks over added commits"):
+                     "Install actionlint and ShellCheck", "Install zizmor", "Install REUSE", "Install Gitleaks",
+                     "Restore the default-branch Gitleaks scan marker", "Gitleaks over added commits"):
             self.assertIn("edited", str(hygiene_steps[name].get("if", "")), f"hygiene step {name} must skip on edited")
         self.assertNotIn("edited", str(hygiene_steps["Check the pull request title"].get("if", "")))
 
@@ -119,9 +118,9 @@ class PlanStepRunTests(PipelineFixture):
 
 
 class ConsumerCheckInvocationTests(unittest.TestCase):
-    def test_the_hygiene_job_starts_the_three_consumer_checks_with_options_that_the_program_accepts(self) -> None:
+    def test_the_hygiene_job_starts_the_consumer_checks_as_one_command_with_options_that_the_program_accepts(self) -> None:
         invocations = script_invocations(WORKFLOW, "consumer_checks.py")
-        self.assertEqual(["callers", "register", "dependabot"], [tokens[0] for tokens in invocations])
+        self.assertEqual(["all"], [tokens[0] for tokens in invocations])
         for tokens in invocations:
             with self.subTest(command=tokens[0]):
                 options = consumer_checks.parser().parse_args(tokens)
@@ -136,22 +135,38 @@ class HygieneInvocationTests(PipelineFixture):
         self.assertEqual(["changes", "coverage", "links", "actionlint", "zizmor", "reuse", "gitleaks"], [tokens[0] for tokens in invocations])
         parser = hygiene.build_parser()
         for tokens in invocations:
-            events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"]) if tokens[0] in ("changes", "gitleaks") else ([],)
+            if tokens[0] in ("changes", "gitleaks"):
+                events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"])
+            elif tokens[0] == "reuse":
+                events = ([], ["--record-marker", "x", "--github-output", "x"])
+            else:
+                events = ([],)
             for event in events:
                 with self.subTest(step=tokens[0], event=event):
                     parser.parse_args([tokens[0], *event, *[token for token in tokens[1:] if token != "$@"]])
         install = script_invocations(WORKFLOW, "install_tools.py")
-        self.assertEqual(2, len(install))
+        self.assertEqual(5, len(install))
         key_args = install_tools.build_parser().parse_args(install[0])
         self.assertTrue(key_args.print_cache_key)
         self.assertEqual(("linux-x64", ["gitleaks"]), (key_args.platform, key_args.tools))
-        arguments = install_tools.build_parser().parse_args(install[1])
-        self.assertEqual(("linux-x64", ["gitleaks"]), (arguments.platform, arguments.tools))
+        for tokens, tools in zip(install[1:], [["actionlint", "shellcheck"], ["zizmor"], ["reuse"], ["gitleaks"]], strict=True):
+            arguments = install_tools.build_parser().parse_args(tokens)
+            self.assertEqual(("linux-x64", tools), (arguments.platform, arguments.tools))
 
     def decide(self, base: str, head: str) -> dict[str, str]:
         """The decision of the pipeline's hygiene job with the definitions that its step `changes` names."""
         tokens = next(tokens for tokens in script_invocations(WORKFLOW, "hygiene.py") if tokens[0] == "changes")
-        definitions = [token for token in tokens[1:] if token not in ("$@", "x") and not token.startswith("--github-output") and not token.startswith("--summary")]
+        definitions = []
+        skip_next = False
+        for token in tokens[1:]:
+            if skip_next:
+                skip_next = False
+                continue
+            if token in ("--github-output", "--summary", "--pins", "--reuse-marker"):
+                skip_next = True
+                continue
+            if token != "$@":
+                definitions.append(token)
         outputs = self.directory / "hygiene-output"
         outputs.unlink(missing_ok=True)
         completed = subprocess.run([sys.executable, str(HYGIENE_FOLDER / "hygiene.py"), "changes", "--root", str(self.repository), "--base", base, "--head", head,

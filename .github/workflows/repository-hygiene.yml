@@ -55,7 +55,7 @@ jobs:
           persist-credentials: false
       - name: Check that the dispatched commit is on the default branch
         id: dispatch
-        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha
+        if: github.event_name == 'repository_dispatch'
         env:
           SELECTION_PATH: ${{ steps.selection.outputs.path }}
           PAYLOAD: ${{ github.event.client_payload.sha }}
@@ -78,8 +78,16 @@ jobs:
           path: ${{ runner.temp }}/hygiene-results/record.json
           key: hygiene-results-${{ github.event.pull_request.number }}-run-lookup-${{ github.run_id }}
           restore-keys: hygiene-results-${{ github.event.pull_request.number }}-run-
+      - name: Restore the default-branch REUSE version marker
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/reuse-marker/marker.json
+          key: reuse-marker-lookup-${{ github.run_id }}
+          restore-keys: reuse-marker-
       - name: Decide which checks the changed files can affect
         id: changes
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           EVENT: ${{ github.event_name }}
@@ -93,10 +101,10 @@ jobs:
             *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
           esac
           if [ "$REUSE_RESULTS" = "true" ]; then set -- "$@" --results "$RUNNER_TEMP/hygiene-results/record.json"; fi
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/repository-hygiene.yml#step:coverage" --packages-definition ".github/workflows/repository-hygiene.yml#coverage-exclude" --packages-definition ".github/workflows/repository-hygiene-caller.yml#coverage-exclude" --markdown-definition ".github/workflows/repository-hygiene.yml#step:links" --markdown-definition ".github/workflows/repository-hygiene.yml#link-exclude" --markdown-definition ".github/workflows/repository-hygiene-caller.yml#link-exclude" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --pins "$RESOURCE_PATH/pins.json" --reuse-marker "$RUNNER_TEMP/reuse-marker/marker.json" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/repository-hygiene.yml#step:coverage" --packages-definition ".github/workflows/repository-hygiene.yml#coverage-exclude" --packages-definition ".github/workflows/repository-hygiene-caller.yml#coverage-exclude" --markdown-definition ".github/workflows/repository-hygiene.yml#step:links" --markdown-definition ".github/workflows/repository-hygiene.yml#link-exclude" --markdown-definition ".github/workflows/repository-hygiene-caller.yml#link-exclude" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Decide whether the PR author skips the convention checks
         id: author-decision
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
@@ -111,10 +119,10 @@ jobs:
           EOF
       - name: Load the convention checks from this workflow revision
         id: conventions
-        if: steps.author-decision.outputs.skip == 'false'
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
         uses: $/actions/publication-checks
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.author-decision.outputs.skip == 'false'
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
         with:
           node-version: ${{ steps.resources.outputs.node-version }}
           package-manager-cache: false
@@ -200,7 +208,7 @@ jobs:
         run: printf '%s\n' "$LINK_EXCLUDE" | PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" links --exclude-from - --summary "$GITHUB_STEP_SUMMARY"
       - name: Compute the hygiene tools cache key
         id: tools-key
-        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           ACTIONLINT: ${{ steps.changes.outputs.actionlint }}
@@ -215,50 +223,71 @@ jobs:
           # shellcheck disable=SC2086 # $tools holds separate --tool options
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --print-cache-key --github-output "$GITHUB_OUTPUT" $tools
       - name: Restore the cached hygiene tools
-        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/hygiene-tools
           key: hygiene-${{ runner.os }}-${{ steps.tools-key.outputs.key }}
-      - name: Install the pinned tools and verify their checksums
-        id: install
-        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}
+      - name: Install actionlint and ShellCheck
+        id: install-actionlint
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') && steps.changes.outputs.actionlint == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-          ACTIONLINT: ${{ steps.changes.outputs.actionlint }}
-          ZIZMOR: ${{ steps.changes.outputs.zizmor }}
-          REUSE: ${{ steps.changes.outputs.reuse }}
-        run: |
-          tools="--tool gitleaks"
-          if [ "$ACTIONLINT" = "true" ]; then tools="$tools --tool actionlint --tool shellcheck"; fi
-          if [ "$ZIZMOR" = "true" ]; then tools="$tools --tool zizmor"; fi
-          if [ "$REUSE" = "true" ]; then tools="$tools --tool reuse"; fi
-          # shellcheck disable=SC2086 # $tools holds separate --tool options
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" $tools
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" --tool actionlint --tool shellcheck
       - name: actionlint with the pinned ShellCheck
         id: actionlint
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.actionlint == 'true' }}
+        if: ${{ !cancelled() && steps.install-actionlint.outcome == 'success' && steps.changes.outputs.actionlint == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" actionlint --tools "$HYGIENE_TOOLS"
+      - name: Install zizmor
+        id: install-zizmor
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') && steps.changes.outputs.zizmor == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" --tool zizmor
       - name: zizmor over workflows and action definitions
         id: zizmor
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.zizmor == 'true' }}
+        if: ${{ !cancelled() && steps.install-zizmor.outcome == 'success' && steps.changes.outputs.zizmor == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
           ZIZMOR_PERSONA: ${{ inputs.zizmor-persona }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" zizmor --tools "$HYGIENE_TOOLS" --persona "$ZIZMOR_PERSONA"
+      - name: Install REUSE
+        id: install-reuse
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') && steps.changes.outputs.reuse == 'true' }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" --tool reuse
       - name: REUSE licence assignments
         id: reuse
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.changes.outputs.reuse == 'true' }}
+        if: ${{ !cancelled() && steps.install-reuse.outcome == 'success' && steps.changes.outputs.reuse == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" reuse --tools "$HYGIENE_TOOLS"
+          RECORD_MARKER: ${{ github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch) }}
+        run: |
+          set --
+          if [ "$RECORD_MARKER" = "true" ]; then
+            set -- --record-marker "$RUNNER_TEMP/reuse-marker/marker.json" --github-output "$GITHUB_OUTPUT"
+          fi
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" reuse "$@" --tools "$HYGIENE_TOOLS" --pins "$RESOURCE_PATH/pins.json"
+      - name: Store the default-branch REUSE version marker
+        if: ${{ !cancelled() && steps.install-reuse.outcome == 'success' && steps.reuse.outputs.recorded-marker == 'true' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/reuse-marker/marker.json
+          key: reuse-marker-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Install Gitleaks
+        id: install-gitleaks
+        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') }}
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/install_tools.py" --pins "$RESOURCE_PATH/pins.json" --platform linux-x64 --destination "$RUNNER_TEMP/hygiene-tools" --tool gitleaks
       - name: Restore the default-branch Gitleaks scan marker
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install-gitleaks.outcome == 'success' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/gitleaks-marker/marker.json
@@ -266,7 +295,7 @@ jobs:
           restore-keys: gitleaks-marker-
       - name: Gitleaks over added commits
         id: gitleaks
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install-gitleaks.outcome == 'success' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
@@ -287,7 +316,7 @@ jobs:
           fi
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" gitleaks "$@" --tools "$HYGIENE_TOOLS" --config "$GITLEAKS_CONFIG" --baseline "$GITLEAKS_BASELINE" --pins "$RESOURCE_PATH/pins.json" --marker "$RUNNER_TEMP/gitleaks-marker/marker.json"
       - name: Store the default-branch Gitleaks scan marker
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.gitleaks.outputs.recorded-marker == 'true' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
+        if: ${{ !cancelled() && steps.install-gitleaks.outcome == 'success' && steps.gitleaks.outputs.recorded-marker == 'true' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/gitleaks-marker/marker.json
@@ -303,7 +332,7 @@ jobs:
           PACKAGES: ${{ steps.coverage.outcome }}
           MARKDOWN: ${{ steps.links.outcome }}
           REUSE: ${{ steps.reuse.outcome }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" record --run-id "$RUN_ID" --outcome "actionlint=$ACTIONLINT" --outcome "zizmor=$ZIZMOR" --outcome "packages=$PACKAGES" --outcome "markdown=$MARKDOWN" --outcome "reuse=$REUSE" --reused "$REUSED" --output "$RUNNER_TEMP/hygiene-results/record.json"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" record --run-id "$RUN_ID" --outcome "actionlint=$ACTIONLINT" --outcome "zizmor=$ZIZMOR" --outcome "packages=$PACKAGES" --outcome "markdown=$MARKDOWN" --outcome "reuse=$REUSE" --reused "$REUSED" --pins "$RESOURCE_PATH/pins.json" --output "$RUNNER_TEMP/hygiene-results/record.json"
       - name: Store the passed checks in the pull request's cache
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

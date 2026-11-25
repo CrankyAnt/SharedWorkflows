@@ -75,6 +75,16 @@ class YamlSubsetTests(unittest.TestCase):
         self.assertIs(True, nuget["enabled"])
         self.assertIsNone(coverage.parse_yaml("# only a comment\n"))
 
+    def test_reads_escaped_double_quotes_before_comments_and_in_flow_collections(self) -> None:
+        document = coverage.parse_yaml(
+            'name: "a \\" # not a comment" # real comment\n'
+            'list: ["x \\", z", "ok"] # trailing\n'
+            'escaped_backslash: "tail\\\\" # real comment\n'
+        )
+        self.assertEqual('a " # not a comment', document["name"])
+        self.assertEqual(['x ", z', "ok"], document["list"])
+        self.assertEqual("tail\\", document["escaped_backslash"])
+
     def test_reports_unsupported_constructs_instead_of_guessing(self) -> None:
         for text, message in [
             ("a: |\n  block\n", "block scalars"),
@@ -136,6 +146,20 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(["package.json npm"], self.check(wrong_ecosystem))
         wrong_directory = repository(self.root / "wrong-dir", {"a/package.json": "{}\n", ".github/dependabot.yml": config(entry("npm", "/"), entry("npm", directories=["/b/*"]))})
         self.assertEqual(["a/package.json npm"], self.check(wrong_directory))
+
+    def test_double_star_directory_glob_matches_zero_or_more_segments(self) -> None:
+        repo = repository(self.root / "zero-segments", {
+            "tests/package.json": "{}\n",
+            "a/b/tests/package.json": "{}\n",
+            "src/tests/requirements.txt": "flask\n",
+            "src/a/b/tests/requirements.txt": "flask\n",
+            "other/package.json": "{}\n",
+            ".github/dependabot.yml": config(
+                entry("npm", directories=["/**/tests"]),
+                entry("pip", directories=["/src/**/tests"]),
+            ),
+        })
+        self.assertEqual(["other/package.json npm"], self.check(repo))
 
     def test_without_configuration_the_check_passes_only_when_no_package_file_exists(self) -> None:
         empty = repository(self.root / "empty", {"README.md": "x\n", "src/main.py": "print()\n"})
