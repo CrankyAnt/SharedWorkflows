@@ -150,9 +150,10 @@ def stored_reads(suite, entry: str) -> tuple[set, set, set, set]:
     return set(suite.patterns_of(entry)), set(suite.memberships_of(entry)), set(suite.existence_reads_of(entry)), set(suite.lookup_directories_of(entry))
 
 
-def removed_lookups(previous, current, suite, entry: str) -> bool:
+def removed_lookups(previous, current, old, suite, entry: str) -> bool:
     """Whether the change removes a module lookup of a directory in which the entry file looks up modules."""
-    return any(set(previous.lookups_in(directory)) - set(current.lookups_in(directory)) for directory in suite.lookup_directories_of(entry))
+    return any(set(previous.unit_lookups_in(old, entry, directory)) - set(current.unit_lookups_in(suite, entry, directory))
+               for directory in old.lookup_directories_of(entry))
 
 
 def suite_list_changes(previous, current, list_path: str) -> dict[EntryFile, str]:
@@ -188,7 +189,7 @@ def suite_list_changes(previous, current, list_path: str) -> dict[EntryFile, str
                 selected[EntryFile(suite.name, entry)] = f"the setups of `{entry}` in `{list_path}` changed"
             elif old.paths is not None and suite.paths is not None and (any(
                     before_reads - now_reads for before_reads, now_reads in zip(stored_reads(old, entry), stored_reads(suite, entry)))
-                    or removed_lookups(previous, current, old, entry)):
+                    or removed_lookups(previous, current, old, suite, entry)):
                 holder = f"`{entry}`" if suite.entry_selection else "the suite"
                 selected[EntryFile(suite.name, entry)] = f"`{list_path}` removes reads from the lists of {holder}"
     return selected

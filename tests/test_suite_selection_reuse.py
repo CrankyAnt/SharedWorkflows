@@ -794,6 +794,137 @@ class ReuseTests(FixtureRepository):
         units = json.loads(outputs["units"])
         self.assertNotIn("pr-only", [units[key]["suite"] for key in json.loads(self.record.read_text(encoding="utf-8"))["passed"]])
 
+    def test_a_pass_of_a_new_suite_is_stored_under_its_applied_key_and_reused_after_additions(self) -> None:
+        with_new = json.loads(json.dumps(SUITES))
+        with_new["suites"].append({
+            "name": "brand-new",
+            "entries": ["tests/test_new.py"],
+            "command": ["python3", "-m", "unittest"],
+            "setups": ["python"],
+        })
+        first = self.head({"suites.json": json.dumps(with_new, indent=2) + "\n", "tests/test_new.py": "new test\n"})
+        outputs = self.select_head(first)
+        self.assertIn("brand-new", self.runs(outputs))
+        self.assertIn("brand-new", [unit["suite"] for unit in json.loads(outputs["units"]).values()],
+                      "a new suite without paths is emitted in units so store --additions can key it")
+        # Without additions, a pass of an unlisted suite is never stored under its sentinel key.
+        self.assertTrue(self.store(outputs, [("brand-new", "tests/test_new.py")], 9040))
+        self.assertEqual({}, json.loads(self.record.read_text(encoding="utf-8"))["passed"])
+        self.record.unlink()
+
+        reads = self.NO_READS | {"paths": ["tests/test_new.py", "src/feature.py"]}
+        kept, additions = self.job_with_additions(9041, "shard-1", [("brand-new", "tests/test_new.py")], [
+            {"suite": "brand-new", "create": True, "recorded_entries": ["tests/test_new.py"], "reads": reads}])
+        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9041, additions=additions))
+
+        # Before additions are applied, a later head still runs the new suite.
+        unapplied = self.select_head(self.head({"README.md": "unread\n"}))
+        self.assertIn("brand-new", self.runs(unapplied))
+        git(self.root, "checkout", "-q", first)
+
+        # Once additions are applied, the next run takes over the pass from run 9041.
+        app = self.app_commit(*additions.rglob("additions.json"))
+        later = self.select_head(app)
+        self.assertNotIn("brand-new", self.runs(later))
+        self.assertIn(9041, json.loads(later["reused"]).values())
+
+        # Changing one of its recorded reads makes it run again.
+        changed = self.select_head(self.head({"src/feature.py": "feature changed\n"}))
+        self.assertIn("brand-new", self.runs(changed))
+
+    def test_a_pass_of_a_new_entry_file_is_stored_under_its_applied_key_and_reused_after_additions(self) -> None:
+        with_entry = json.loads(json.dumps(SUITES))
+        with_entry["suites"][3]["entries"].append("tests/test_three.py")
+        first = self.head({"suites.json": json.dumps(with_entry, indent=2) + "\n", "tests/test_three.py": "third test\n"})
+        outputs = self.select_head(first)
+        self.assertEqual(["tests/test_three.py"], json.loads(outputs["entries"])["per-entry"])
+        self.assertIn(["tests/test_three.py"], self.running(outputs),
+                      "a new entry file without a stored list is emitted in units so store --additions can key it")
+
+        reads = self.NO_READS | {"paths": ["tests/test_three.py", "src/other.py"]}
+        kept, additions = self.job_with_additions(9042, "shard-1", [("per-entry", "tests/test_three.py")], [
+            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_three.py"],
+             "entries": {"tests/test_three.py": reads}}])
+        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9042, additions=additions))
+
+        # Before additions are applied, a later head still runs the new entry file.
+        unapplied = self.select_head(self.head({"README.md": "unread\n"}))
+        self.assertEqual(["tests/test_three.py"], json.loads(unapplied["entries"])["per-entry"])
+        git(self.root, "checkout", "-q", first)
+
+        # Once additions are applied, the next run takes over the pass from run 9042.
+        app = self.app_commit(*additions.rglob("additions.json"))
+        later = self.select_head(app)
+        self.assertNotIn("per-entry", self.runs(later))
+        self.assertIn(9042, json.loads(later["reused"]).values())
+
+        # Changing one of its recorded reads makes it run again.
+        changed = self.select_head(self.head({"src/other.py": "other changed\n"}))
+        self.assertIn("tests/test_three.py", json.loads(changed["entries"])["per-entry"])
+
+    def test_a_unit_reused_in_an_additions_run_is_rekeyed_under_the_applied_lists(self) -> None:
+        suites = json.loads(json.dumps(SUITES))
+        suites["suites"][0]["lookup_directories"] = ["src"]
+        suites["module_lookups"] = {"src": ["alpha"]}
+        git(self.root, "checkout", "-q", self.base)
+        self.base = self.commit("legacy module lookup", {"suites.json": json.dumps(suites, indent=2) + "\n"})
+
+        # Run 9050 passes pr-only (and the other suites touched by src/feature.py).
+        first = self.head({"src/feature.py": "feature v2\n"})
+        first_outputs = self.select_head(first)
+        self.assertTrue(self.store(first_outputs, self.ALL, 9050))
+
+        # Run 9051 touches src/other.py: pr-only is reused from 9050, while test_two.py runs and reports
+        # a new module lookup in src/, which changes pr-only's key under the applied suite list.
+        second = self.head({"src/other.py": "other v2\n"})
+        second_outputs = self.select_head(second)
+        self.assertNotIn("pr-only", self.runs(second_outputs))
+        self.assertIn(9050, json.loads(second_outputs["reused"]).values())
+        reads = self.NO_READS | {"lookup_directories": ["src"], "module_lookups": {"src": ["beta"]}}
+        kept, additions = self.job_with_additions(9051, "shard-1", [("per-entry", "tests/test_two.py")], [
+            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_two.py"],
+             "entries": {"tests/test_two.py": reads}}])
+        self.assertTrue(self.store(second_outputs, {"suite-results-shard-1": kept}, 9051, additions=additions))
+
+        # After applying additions, pr-only must still be reused from run 9050 (re-keyed under applied lists).
+        app = self.app_commit(*additions.rglob("additions.json"))
+        later = self.select_head(app)
+        self.assertEqual([], self.runs(later), "both the running unit with additions and the reused unit take over their passes")
+        self.assertEqual([9050, 9050, 9050, 9050, 9051], sorted(json.loads(later["reused"]).values()))
+
+    def test_adding_a_module_lookup_name_leaves_the_keys_of_units_that_did_not_look_it_up_unchanged(self) -> None:
+        suites = json.loads(json.dumps(SUITES))
+        suites["suites"][0]["lookup_directories"] = ["src"]
+        suites["suites"][0]["module_lookups"] = {"src": ["alpha"]}
+        suites["suites"][3]["lookup_directories"] = ["src"]
+        suites["suites"][3]["entry_lookup_directories"] = {"tests/test_one.py": ["src"], "tests/test_two.py": ["src"]}
+        suites["suites"][3]["module_lookups"] = {"src": ["alpha"]}
+        suites["suites"][3]["entry_module_lookups"] = {"tests/test_one.py": {"src": ["alpha"]}, "tests/test_two.py": {}}
+        suites["module_lookups"] = {"src": ["alpha"]}
+        git(self.root, "checkout", "-q", self.base)
+        self.base = self.commit("per-unit module lookups", {"suites.json": json.dumps(suites, indent=2) + "\n"})
+
+        first = self.head({"src/feature.py": "feature v2\n", "src/other.py": "other v2\n"})
+        first_outputs = self.select_head(first)
+        self.assertTrue(self.store(first_outputs, self.ALL + [("per-entry", "tests/test_two.py")], 9060))
+
+        # Add "beta" to top-level module_lookups["src"] and only to tests/test_two.py's entry_module_lookups.
+        updated = json.loads(json.dumps(suites))
+        updated["module_lookups"]["src"] = ["alpha", "beta"]
+        updated["suites"][3]["module_lookups"]["src"] = ["alpha", "beta"]
+        updated["suites"][3]["entry_module_lookups"]["tests/test_two.py"] = {"src": ["beta"]}
+        later = self.head({"suites.json": json.dumps(updated, indent=2) + "\n"})
+        later_outputs = self.select_head(later)
+        self.assertEqual(["per-entry"], self.runs(later_outputs), "units that did not look up beta keep their reuse keys")
+        self.assertEqual(["tests/test_two.py"], json.loads(later_outputs["entries"])["per-entry"])
+        self.assertEqual([9060] * 4, sorted(json.loads(later_outputs["reused"]).values()))
+
+        # Adding src/beta.py affects only tests/test_two.py, not pr-only or tests/test_one.py.
+        with_beta = self.head({"src/beta.py": "beta module\n"})
+        beta_outputs = self.select_head(with_beta)
+        self.assertEqual(["per-entry"], self.runs(beta_outputs))
+        self.assertEqual(["tests/test_two.py"], json.loads(beta_outputs["entries"])["per-entry"])
+
 
 class DefaultBranchRecordTests(FixtureRepository):
     """Passed default-branch runs store a structured record that pull requests restore for exact-key takeover."""

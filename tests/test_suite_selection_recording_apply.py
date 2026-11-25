@@ -312,6 +312,9 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual({"tests/c1.py": ["tests"], "tests/c2.py": ["lib", "tests"]}, fixture.suite("per-entry")["entry_lookup_directories"])
         self.assertEqual(["lib", "tests"], fixture.suite("per-entry")["lookup_directories"])
+        self.assertEqual({"tests/c1.py": {"tests": ["helper"]}, "tests/c2.py": {"lib": ["absent"], "tests": ["other"]}},
+                         fixture.suite("per-entry")["entry_module_lookups"])
+        self.assertEqual({"lib": ["absent"], "tests": ["helper", "other"]}, fixture.suite("per-entry")["module_lookups"])
         self.assertEqual({"lib": ["absent"], "tests": ["helper", "other"]}, fixture.suites()["module_lookups"])
 
         def full(*entries: tuple[str, dict]) -> dict:
@@ -323,10 +326,14 @@ class ApplyTests(unittest.TestCase):
         applied = fixture.apply(self.write(fixture, "full-one.json", full(("tests/c1.py", lookups(["tests"], {"tests": ["fresh"]})))))
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual({"lib": ["absent"], "tests": ["fresh", "helper", "other"]}, fixture.suites()["module_lookups"])
+        self.assertEqual({"tests/c1.py": {"tests": ["fresh"]}, "tests/c2.py": {"lib": ["absent"], "tests": ["other"]}},
+                         fixture.suite("per-entry")["entry_module_lookups"])
         applied = fixture.apply(self.write(fixture, "full-both.json", full(("tests/c1.py", lookups(["tests"], {"tests": ["fresh"]})),
                                                                            ("tests/c2.py", lookups(["lib"], {})))))
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual({"tests": ["fresh"]}, fixture.suites()["module_lookups"])
+        self.assertEqual({"tests/c1.py": {"tests": ["fresh"]}, "tests/c2.py": {}}, fixture.suite("per-entry")["entry_module_lookups"])
+        self.assertEqual({"tests": ["fresh"]}, fixture.suite("per-entry")["module_lookups"])
         self.assertEqual({"tests/c1.py": ["tests"], "tests/c2.py": ["lib"]}, fixture.suite("per-entry")["entry_lookup_directories"])
 
     def test_two_applies_of_the_same_results_in_another_order_write_the_same_suite_list(self) -> None:

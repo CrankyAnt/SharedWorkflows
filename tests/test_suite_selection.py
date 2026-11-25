@@ -598,8 +598,14 @@ class GlobEntrySelectionTests(FixtureRepositoryTests):
         selection = suite_selection.every_suite(suite_list, "test")
         self.assertEqual(selection.decisions[0].entries, ("tests/test_a.py", "tests/test_b.py", "tests/test_new.py"))
         units = suite_selection.reuse_units(selection, suite_list, reuse.Tree(files, suite_selection.matches), {}, {}, ignore_content={})
-        self.assertEqual([unit.entries for unit in units], [("tests/test_a.py",), ("tests/test_b.py",)],
-                         "the file without a list has unknown inputs, so it gets no reuse key")
+        self.assertEqual([(unit.entries, unit.unlisted) for unit in units],
+                         [(("tests/test_a.py",), False), (("tests/test_b.py",), False), (("tests/test_new.py",), True)],
+                         "the file without a list is emitted as unlisted so store --additions can key it after it passes")
+        after, running, reused = suite_selection.apply_reuse(selection, units, {unit.key: 100 for unit in units})
+        self.assertEqual(after.decisions[0].entries, ("tests/test_new.py",),
+                         "an unlisted file is never looked up or reused even if its sentinel key were present in the record")
+        self.assertEqual(len(reused), 2)
+        self.assertEqual([unit["entries"] for unit in running.values()], [["tests/test_new.py"]])
 
     def test_the_estimate_of_a_file_that_no_entry_names_any_more_is_dropped_and_unmeasured_entries_stay_none(self) -> None:
         document = json.loads(json.dumps(self.SUITES))

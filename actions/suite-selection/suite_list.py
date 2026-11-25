@@ -25,9 +25,11 @@ WIDE_TO_MID = 1.65  # traced test time under the wide set divided by the time un
 SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_selection", "entry_paths",
                         "entry_extra_paths", "directory_memberships", "entry_directory_memberships", "existence_reads", "entry_existence_reads",
                         "extra_directory_memberships", "extra_existence_reads", "lookup_directories", "entry_lookup_directories",
+                        "module_lookups", "entry_module_lookups",
                         "os", "command", "setups", "entry_setups", "entry_durations"})
 # The per-entry fields that the recording writes; the repository writes entry_extra_paths and entry_setups.
-RECORDED_ENTRY_FIELDS = ("entry_paths", "entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories", "entry_durations")
+RECORDED_ENTRY_FIELDS = ("entry_paths", "entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories",
+                         "entry_module_lookups", "entry_durations")
 TOP_LEVEL_KEYS = ("always", "jobs", "setups", "suites", "module_lookups")
 TOOLS = ("python", "node", "dotnet")  # the tools that a suite job installs with its pinned action, outside the recording
 # The pinned tools: the setups that the suite jobs give at the version of the pins file when the configuration file names
@@ -92,6 +94,8 @@ class Suite:
     extra_existence_reads: tuple[ExistenceRead, ...] = ()  # existence reads no recording sees
     lookup_directories: tuple[str, ...] = ()  # the checkout directories in which the suite looks up modules, the root as .
     entry_lookup_directories: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    module_lookups: tuple[tuple[str, tuple[str, ...]], ...] | None = None  # per-suite module lookups by directory; None falls back to top-level
+    entry_module_lookups: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...] = ()  # per-entry module lookups by directory
     command: tuple[str, ...] | None = None  # the command that runs one entry file, with the entry file appended
     setups: tuple[str, ...] | None = None  # the setups the suite needs, or None when it states none
     entry_setups: tuple[tuple[str, tuple[str, ...]], ...] = ()  # further setups per entry file of a suite selected per entry
@@ -152,6 +156,11 @@ class Suite:
             item["lookup_directories"] = list(self.lookup_directories)
         if self.entry_lookup_directories:
             item["entry_lookup_directories"] = {entry: list(directories) for entry, directories in self.entry_lookup_directories}
+        if self.module_lookups is not None:
+            item["module_lookups"] = {directory: list(names) for directory, names in self.module_lookups}
+        if self.entry_module_lookups:
+            item["entry_module_lookups"] = {entry: {directory: list(names) for directory, names in lookups}
+                                            for entry, lookups in self.entry_module_lookups}
         return item
 
     # Each of the three takes an entry file or None. An entry file of a suite selected per entry file has its own lists;
@@ -183,6 +192,14 @@ class Suite:
         """The stored checkout directories in which the suite or the entry file looks up modules."""
         own = self._own(entry)
         return self.lookup_directories if own is None else dict(self.entry_lookup_directories).get(own, ())
+
+    def own_module_lookups(self, entry: str | None) -> dict[str, tuple[str, ...]] | None:
+        """The unit's own stored module lookups by directory, or None when the suite list has none for this unit."""
+        own = self._own(entry)
+        if own is None:
+            return dict(self.module_lookups) if self.module_lookups is not None else None
+        per_entry = dict(self.entry_module_lookups)
+        return dict(per_entry[own]) if own in per_entry else None
 
     def per_entry[T](self, lists_of: Callable[[str], T]) -> tuple[tuple[str, T], ...]:
         """The lists of each entry file of a suite selected per entry file; none for a suite selected as a whole."""
@@ -270,6 +287,19 @@ class SuiteList:
 
     def lookups_in(self, directory: str) -> tuple[str, ...]:
         return self.lookups_by_directory.get(directory, ())
+
+    def unit_lookups_in(self, suite: Suite, entry: str | None, directory: str) -> tuple[str, ...]:
+        """The module-lookup names of one unit in ``directory``: the unit's own stored names when present, otherwise
+        the suite list's top-level ``module_lookups`` for ``directory``."""
+        own = suite.own_module_lookups(entry)
+        if own is not None:
+            return own.get(directory, ())
+        return self.lookups_in(directory)
+
+    def unit_lookups_map(self, suite: Suite, entry: str | None) -> dict[str, tuple[str, ...]]:
+        """The module-lookup map for one unit: its own stored map when present, otherwise the top-level map."""
+        own = suite.own_module_lookups(entry)
+        return own if own is not None else self.lookups_by_directory
 
 
 def _strings(value, location: str) -> tuple[str, ...]:
@@ -398,6 +428,11 @@ def parse_suite_list_document(raw: object, source: str = "the suite list") -> Su
         lookup_directories = _strings(item["lookup_directories"], f"{location} ({name}): lookup_directories") if "lookup_directories" in item else ()
         entry_lookup_directories = (_per_entry(item["entry_lookup_directories"], entries, f"{location} ({name}): entry_lookup_directories", recorded=True)
                                     if "entry_lookup_directories" in item else ())
+        suite_module_lookups = (_module_lookups(item["module_lookups"], f"{location} ({name}): module_lookups")
+                                if "module_lookups" in item else None)
+        entry_module_lookups = (_per_entry_file(item["entry_module_lookups"], entries, f"{location} ({name}): entry_module_lookups",
+                                                _module_lookups, recorded=True)
+                                if "entry_module_lookups" in item else ())
         operating_system = item.get("os", "linux")
         if operating_system not in OPERATING_SYSTEMS:
             raise SuiteListError(f"{location} ({name}): os must be one of {', '.join(OPERATING_SYSTEMS)}")
@@ -411,6 +446,8 @@ def parse_suite_list_document(raw: object, source: str = "the suite list") -> Su
             raise SuiteListError(f"{location} ({name}): entry_directory_memberships needs entry_selection")
         if entry_lookup_directories and not entry_selection:
             raise SuiteListError(f"{location} ({name}): entry_lookup_directories needs entry_selection")
+        if entry_module_lookups and not entry_selection:
+            raise SuiteListError(f"{location} ({name}): entry_module_lookups needs entry_selection")
         if entry_paths and not entry_selection:
             raise SuiteListError(f"{location} ({name}): entry_paths needs entry_selection")
         if entry_setups and not entry_selection:
@@ -423,7 +460,8 @@ def parse_suite_list_document(raw: object, source: str = "the suite list") -> Su
                       directory_memberships=memberships, entry_directory_memberships=entry_memberships, existence_reads=existence,
                       entry_existence_reads=entry_existence, extra_directory_memberships=extra_memberships,
                       extra_existence_reads=extra_existence, lookup_directories=lookup_directories,
-                      entry_lookup_directories=entry_lookup_directories, command=command, setups=setups,
+                      entry_lookup_directories=entry_lookup_directories, module_lookups=suite_module_lookups,
+                      entry_module_lookups=entry_module_lookups, command=command, setups=setups,
                       entry_setups=entry_setups, entry_durations=entry_durations, os=operating_system)
         if has_paths:
             suites.append(Suite(name, entries, paths=_strings(item["paths"], f"{location} ({name}): paths"), entry_paths=entry_paths, **common))

@@ -2350,7 +2350,7 @@ def additions_document(list_path: str, suite_list: suite_selection.SuiteList, re
     recorded_entries: dict[str, set[str]] = {}
     for suite, unit, reads in recorded:
         entry = unit.record["name"]
-        missing = outside(reads, stored_lists(suite, entry, suite_list.always, tracked, suite_list.lookups_by_directory))
+        missing = outside(reads, stored_lists(suite, entry, suite_list.always, tracked, suite_list.unit_lookups_map(suite, entry)))
         item = suites.setdefault(suite.name, {"suite": suite.name, "create": suite.paths is None, "recorded_entries": []})
         recorded_entries.setdefault(suite.name, set()).add(entry)
         if suite.entry_selection:
@@ -2661,8 +2661,17 @@ def add_unique(values: list, new: list) -> list:
     return result
 
 
-def add_reads(item: dict, reads: dict, entry: str | None) -> None:
+def _merge_unit_lookups(existing: dict[str, list[str]], incoming: dict[str, list[str]]) -> dict[str, list[str]]:
+    merged = {directory: list(names) for directory, names in existing.items() if names}
+    for directory, names in sorted(incoming.items()):
+        if names:
+            merged[directory] = add_unique(merged.get(directory, []), sorted(names))
+    return merged
+
+
+def add_reads(item: dict, reads: dict, entry: str | None, *, fallback_lookups: dict[str, list[str]] | None = None) -> None:
     """Add reads to a suite's JSON entry: to its own fields, or to the per-entry fields of one entry file."""
+    prior_dirs = tuple(item.get("lookup_directories", ()) if entry is None else item.get("entry_lookup_directories", {}).get(entry, ()))
     for read_field in READ_FIELDS:
         values = reads.get(read_field.key, [])
         if not values and not read_field.kept_empty:
@@ -2672,6 +2681,22 @@ def add_reads(item: dict, reads: dict, entry: str | None) -> None:
         else:
             per_entry = item.setdefault(read_field.entry_key, {})
             per_entry[entry] = add_unique(per_entry.get(entry, []), values)
+    incoming = reads.get("module_lookups", {})
+    if entry is None:
+        if "module_lookups" in item:
+            item["module_lookups"] = _merge_unit_lookups(item["module_lookups"], incoming)
+        elif incoming:
+            seed = {directory: list(fallback_lookups[directory]) for directory in prior_dirs
+                    if fallback_lookups and fallback_lookups.get(directory)}
+            item["module_lookups"] = _merge_unit_lookups(seed, incoming)
+    else:
+        per_entry_lookups = item.get("entry_module_lookups", {})
+        if entry in per_entry_lookups:
+            per_entry_lookups[entry] = _merge_unit_lookups(per_entry_lookups[entry], incoming)
+        elif incoming:
+            seed = {directory: list(fallback_lookups[directory]) for directory in prior_dirs
+                    if fallback_lookups and fallback_lookups.get(directory)}
+            item.setdefault("entry_module_lookups", {})[entry] = _merge_unit_lookups(seed, incoming)
 
 
 def replace_reads(item: dict, reads: dict, entry: str | None) -> None:
@@ -2685,6 +2710,21 @@ def replace_reads(item: dict, reads: dict, entry: str | None) -> None:
             target.pop(name, None)
         if entry is not None and not target:
             del item[read_field.entry_key]
+    unit_lookups = {directory: sorted(names) for directory, names in sorted(reads.get("module_lookups", {}).items()) if names}
+    has_dirs = bool(reads.get("lookup_directories")) or bool(unit_lookups)
+    if entry is None:
+        if has_dirs:
+            item["module_lookups"] = unit_lookups
+        else:
+            item.pop("module_lookups", None)
+    else:
+        per_entry = item.setdefault("entry_module_lookups", {})
+        if has_dirs:
+            per_entry[entry] = unit_lookups
+        else:
+            per_entry.pop(entry, None)
+        if not per_entry:
+            del item["entry_module_lookups"]
 
 
 def start_list(item: dict, suite: suite_selection.Suite, entries: tuple[str, ...], recorded: set[str]) -> None:
@@ -2717,6 +2757,18 @@ def join_entry_lists(item: dict) -> None:
             item.pop(read_field.key, None)
 
 
+    if "entry_module_lookups" in item:
+        joined_lookups: dict[str, list[str]] = {}
+        for entry_lookups in item["entry_module_lookups"].values():
+            joined_lookups = _merge_unit_lookups(joined_lookups, entry_lookups)
+        if joined_lookups or item.get("lookup_directories"):
+            item["module_lookups"] = joined_lookups
+        else:
+            item.pop("module_lookups", None)
+    else:
+        item.pop("module_lookups", None)
+
+
 def canonical_order(item: dict) -> None:
     """Sort the recorded lists of a suite's JSON entry, and order its per-entry fields by its entry files, so that the
     rendered suite list does not depend on the order of the results that apply was given."""
@@ -2728,11 +2780,19 @@ def canonical_order(item: dict) -> None:
     def sort(values: list) -> list:
         return sorted(values, key=lambda value: (value["path"], value["kind"]) if isinstance(value, dict) else (value, ""))
 
+    def sort_lookups(mapping: dict[str, list[str]]) -> dict[str, list[str]]:
+        return {directory: sorted(mapping[directory]) for directory in sorted(mapping) if mapping[directory]}
+
     for read_field in READ_FIELDS:
         if read_field.key in item:
             item[read_field.key] = sort(item[read_field.key])
         if read_field.entry_key in item:
             item[read_field.entry_key] = {entry: sort(item[read_field.entry_key][entry]) for entry in sorted(item[read_field.entry_key], key=by_entry)}
+    if "module_lookups" in item:
+        item["module_lookups"] = sort_lookups(item["module_lookups"])
+    if "entry_module_lookups" in item:
+        item["entry_module_lookups"] = {entry: sort_lookups(item["entry_module_lookups"][entry])
+                                        for entry in sorted(item["entry_module_lookups"], key=by_entry)}
     if "entry_durations" in item:
         item["entry_durations"] = {entry: item["entry_durations"][entry] for entry in sorted(item["entry_durations"], key=by_entry)}
 
@@ -2952,6 +3012,7 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
     report = []
     replaced: set[tuple[str, str]] = set()
     recorded_lookups: dict[str, set[str]] = {}
+    initial_lookups = {directory: list(names) for directory, names in lookups.items()}
     for name, change in sorted(merged.items()):
         suite = known_suite(resolved, name)
         item = items[name]
@@ -2977,7 +3038,7 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
                         recorded_lookups.setdefault(directory, set()).update(names)
             for entry, reads in sorted(change["entries"].items()):
                 if (name, entry) not in replaced:
-                    add_reads(item, reads.document(), entry)
+                    add_reads(item, reads.document(), entry, fallback_lookups=initial_lookups)
                     add_lookups(lookups, reads)
                     added_paths += len(reads.paths)
         elif suite_entries and suite_entries <= set(change["replace_entries"]):
@@ -2991,7 +3052,7 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
                 recorded_lookups.setdefault(directory, set()).update(names)
         else:
             if not change["reads"].empty() or change["create"]:
-                add_reads(item, change["reads"].document(), None)
+                add_reads(item, change["reads"].document(), None, fallback_lookups=initial_lookups)
             add_lookups(lookups, change["reads"])
             added_paths = len(change["reads"].paths)
         if replaced_here and added_paths:
@@ -3156,7 +3217,7 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
                     replace_reads(item, result["reads"], entry)
                     replaced.add((name, entry))
                 else:
-                    add_reads(item, result["reads"], entry)
+                    add_reads(item, result["reads"], entry, fallback_lookups=lookups)
                     report.append(f"{name}: kept the list of {entry}: {list_reasons[entry]}")
             continue
         union = Reads()
@@ -3167,7 +3228,7 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
             replace_reads(item, union.document(), None)
             replaced.update((name, entry) for entry in suite.entries)
         else:
-            add_reads(item, union.document(), None)
+            add_reads(item, union.document(), None, fallback_lookups=lookups)
             report += [f"{name}: kept the list of {entry}: {reason}" for entry, reason in list_reasons.items() if reason is not None]
     directories_of_kept_lists = {directory for suite in resolved.values() for entry in suite.entries if (suite.name, entry) not in replaced
                                  for directory in suite.lookup_directories_of(entry)}

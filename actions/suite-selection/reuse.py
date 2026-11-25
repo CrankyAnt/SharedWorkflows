@@ -663,6 +663,20 @@ def selection_outputs(needs: dict, selection_job: str) -> tuple[dict | None, dic
     return units, reused
 
 
+def reused_unit_outputs(needs: dict, selection_job: str) -> dict:
+    """The output ``reused-units`` of the job that ran ``select``: each reused unit by its key with what ``store``
+    needs to key it again under applied additions, or empty when absent or unreadable."""
+    selection = needs.get(selection_job)
+    if not isinstance(selection, dict) or selection.get("result") != "success":
+        return {}
+    outputs = selection.get("outputs") if isinstance(selection.get("outputs"), dict) else {}
+    try:
+        reused_units = json.loads(outputs.get("reused-units") or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return reused_units if isinstance(reused_units, dict) else {}
+
+
 def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job: str = "select", *,
           with_additions: set[tuple[str, str]] = frozenset(), applied: dict[str, str] | None = None) -> dict[str, int] | None:
     """The record of a run: the results ``select`` reused, and every unit that ran and passed with all its entry
@@ -670,20 +684,26 @@ def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job:
     succeed or any job was cancelled, so that nothing is stored.
 
     In a run whose checks reported additions, ``with_additions`` holds the passed entry files that the additions name,
-    and ``applied`` maps the key of each running unit to its key under the suite list with every addition of the run
-    applied. Every unit all of whose entry files passed, with or without additions, is then also stored under that key,
-    and a unit with additions only under it: the applied lists cover all that it read, and its own key does not."""
+    and ``applied`` maps the key of each running or reused unit to its key under the suite list with every addition of
+    the run applied. Every running unit all of whose entry files passed, with or without additions, is then also stored
+    under that key, and a unit with additions or without a stored list only under it: the applied lists cover all that
+    it read, and its own key does not. Every reused unit whose key is in ``applied`` is stored under its applied key as
+    well, keeping the run id it originally passed in."""
     if has_cancelled_job(needs):
         return None
     units, reused = selection_outputs(needs, selection_job)
     if units is None or reused is None:
         return None
     record = {key: run for key, run in reused.items() if isinstance(run, int) and not isinstance(run, bool)}
+    if applied is not None:
+        for key, run in list(record.items()):
+            if key in applied:
+                record[applied[key]] = run
     for key, unit in units.items():
         if not isinstance(unit, dict) or not unit.get("entries"):
             continue
         pairs = [(unit.get("suite"), entry) for entry in unit["entries"]]
-        if all(pair in passed for pair in pairs):
+        if not unit.get("unlisted") and HEX_DIGEST.fullmatch(key) and all(pair in passed for pair in pairs):
             record[key] = run_id
         if applied is not None and key in applied and all(pair in passed or pair in with_additions for pair in pairs):
             record[applied[key]] = run_id

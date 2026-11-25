@@ -109,7 +109,7 @@ class SelectionStepTests(unittest.TestCase):
         self.assertEqual("tested-state", upload_state["with"]["name"])
 
     def test_the_select_outputs_carry_the_units_the_reused_results_and_the_identical_tree_to_the_verdict(self) -> None:
-        for output in ("units", "reused", "identical"):
+        for output in ("units", "reused", "reused-units", "identical"):
             with self.subTest(output=output):
                 self.assertIn(f"      {output}: ${{{{ steps.select.outputs.{output} }}}}\n", self.text)
                 self.assertRegex(self.text, rf"(?m)^      {output}:\n        description: .*\n        value: \$\{{\{{ jobs\.select\.outputs\.{output} \}}\}}$")
