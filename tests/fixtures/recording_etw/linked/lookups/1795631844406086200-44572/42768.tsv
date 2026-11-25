@@ -1,0 +1,58 @@
+suffixes	.cp315-win_amd64.pyd	.pyd	.py	.pyw	.pyc
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	sitecustomize	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	sitecustomize	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64	sitecustomize	absent
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\python	sitecustomize	absent
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\python\\Lib\\site-packages	sitecustomize	absent
+list	44028	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	subprocess	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	subprocess	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	subprocess	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\subprocess.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	locale	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	locale	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	locale	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\locale.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	functools	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	functools	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	functools	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\functools.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	collections	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	collections	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	collections	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\collections\\__init__.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	keyword	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	keyword	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	keyword	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\keyword.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	operator	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	operator	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	operator	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\operator.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	reprlib	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	reprlib	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	reprlib	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\reprlib.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	types	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	types	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	types	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\types.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	signal	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	signal	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	signal	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\signal.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	enum	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	enum	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	enum	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\enum.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	threading	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	threading	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	threading	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\threading.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	_weakrefset	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	_weakrefset	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	_weakrefset	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\_weakrefset.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	warnings	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	warnings	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	warnings	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\warnings.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	_py_warnings	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	_py_warnings	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	_py_warnings	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\_py_warnings.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	contextlib	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	contextlib	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	contextlib	found	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib\\contextlib.py
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked\\tests	fcntl	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	fcntl	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	fcntl	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64	fcntl	absent
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\python	fcntl	absent
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\python\\Lib\\site-packages	fcntl	absent

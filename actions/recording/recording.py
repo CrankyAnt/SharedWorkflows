@@ -141,7 +141,7 @@ ENVIRONMENT = "environment.json"  # the job's environment before its setups, in 
 ETW_SUMMARY = re.compile(r"drained_ms=(\d+) events=(\d+) lines=(\d+) lost=(-?\d+)")
 WILDCARDS = frozenset('*?<>"')
 # The event kinds of the consumer's opens; an attribute-only open, such as CPython's stat, is a stat, as on Linux.
-ETW_KINDS = {"open": "read", "openattr": "stat", "opendir": "diropen", "absent": "absent"}
+ETW_KINDS = {"open": "read", "openattr": "stat", "opendir": "diropen", "write": "write", "absent": "absent"}
 TOOLCHAIN_PROBES = Path(__file__).resolve().parent / "toolchain_probes.json"
 LOOKUP_REPORT = Path(__file__).resolve().parent / "shared_lookup_report.py"
 LOOKUP_LINE = "shared-lookups.pth"  # the site directory's file whose import line loads the lookup report
@@ -923,7 +923,7 @@ def parse_trace(trace: Path, keep: tuple[str, ...], start: str) -> list[Event]:
 class EtwLine:
     pid: str
     ppid: str
-    operation: str  # start, open, openattr, opendir, absent, enum, enum-absent
+    operation: str  # start, stop, open, openattr, opendir, write, absent, enum, enum-absent
     path: str  # an NT device path
     command: str | None = None  # of a start: the command line, None when the consumer did not receive it
 
@@ -1067,16 +1067,32 @@ def windows_arguments(command: list[str], convert=dos_form) -> list[str]:
 
 def attribute(lines: list[EtwLine], records: list[dict]) -> dict[str, list[tuple[int, EtwLine]]]:
     """The lines of each unit, by its unit name. A process belongs to the unit whose root process it descends from,
-    by the latest start of each process id before the line; a root process without a start event is its own unit's."""
+    by the latest start of each process id before the line until its stop; a root process whose id no other unit
+    reuses forms its own group even without a start event."""
     roots = {(str(record["pid"]), str(record["launcher"])): record["unit"] for record in records}
-    unstarted = {str(record["pid"]): record["unit"] for record in records}
+    pid_counts: dict[str, int] = {}
+    for record in records:
+        pid = str(record["pid"])
+        pid_counts[pid] = pid_counts.get(pid, 0) + 1
+    unstarted = {str(record["pid"]): record["unit"] for record in records if pid_counts[str(record["pid"])] == 1}
     current: dict[str, str | None] = {}
+    parent_unit: dict[str, str | None] = {}
     grouped: dict[str, list[tuple[int, EtwLine]]] = {record["unit"]: [] for record in records}
     for index, line in enumerate(lines):
         if line.operation == "start":
-            parent = current[line.ppid] if line.ppid in current else unstarted.get(line.ppid)
-            current[line.pid] = roots.get((line.pid, line.ppid), parent)
-        unit = current[line.pid] if line.pid in current else unstarted.get(line.pid)
+            parent = parent_unit[line.ppid] if line.ppid in parent_unit else unstarted.get(line.ppid)
+            unit = roots.get((line.pid, line.ppid), parent)
+            current[line.pid] = parent_unit[line.pid] = unit
+        elif line.operation == "stop":
+            if line.pid in current:
+                current[line.pid] = None
+            elif (line.pid, line.ppid) in roots or (line.pid in unstarted and not line.ppid):
+                current[line.pid] = None
+            continue
+        elif (line.pid, line.ppid) in roots:
+            unit = current[line.pid] = parent_unit[line.pid] = roots[(line.pid, line.ppid)]
+        else:
+            unit = current[line.pid] if line.pid in current else unstarted.get(line.pid)
         if unit is not None:
             grouped[unit].append((index, line))
     return grouped
@@ -1103,6 +1119,8 @@ def windows_events(lines: list[tuple[int, EtwLine]], record: dict, paths: Window
     workdirs: dict[str, str | None] = {root_pid: cwd}
     events = []
     for _, line in lines:
+        if line.operation == "stop":
+            continue
         if line.operation != "start":
             file_path = file_of_main_stream(line.path)
             if file_path is None:
@@ -2056,7 +2074,8 @@ def classify_etw_units(output: Path, project: Checkout, records: list[dict], set
         unit_events = windows_events(grouped[record["unit"]], record, paths)
         recording = UnitRecording(unit_events, dos_form(record["temporary"]), project, root, unit_lookups(output, record, paths.convert, by_thread=False))
         units.append(Unit(record, unit_reads(recording, recorded_windows_start(record, paths), fold=True,
-                                             memberships=unreported_node_memberships(recording))))
+                                             memberships=unreported_node_memberships(recording)),
+                          tuple(sorted({event.path for event in unit_events if event.kind == "write"}))))
     settings["etw_note"] = (f"Stopped the ETW session in {seconds:.2f} s (the consumer drained it in {drained} ms: {events} events, "
                             f"{lines} lines, none lost); parsed and classified the event file in {time.perf_counter() - started:.2f} s.")
     print(settings["etw_note"])
@@ -2140,36 +2159,53 @@ def suite_list_path(root: Path, suites: Path) -> str:
     return resolved.relative_to(root).as_posix() if resolved.is_relative_to(root) else str(suites)
 
 
-def granted_write_directories(output: Path, provided: dict[str, dict], suite: suite_selection.Suite, record: dict) -> tuple[str, ...]:
+def granted_write_directories(output: Path, provided: dict[str, dict], suite: suite_selection.Suite, record: dict,
+                              *, etw: bool = False) -> tuple[str, ...]:
     """The directories into which an entry file may write: its own temporary, bytecode-cache and lookup directories,
     and the writable directories that its stated setups provide."""
     raw = [record["temporary"], record["cache"]]
     if record.get("lookups"):
         raw.append(str(output / "lookups" / record["lookups"]))
+        if etw:
+            temp = dos_form(record["temporary"])
+            if posixpath.basename(temp) == "tmp" and posixpath.basename(posixpath.dirname(posixpath.dirname(temp))) == "work":
+                raw.append(posixpath.dirname(posixpath.dirname(posixpath.dirname(temp))) + "/lookups/" + record["lookups"])
     for setup in suite.setups_of(record["name"]):
         raw.extend(provided.get(setup, {}).get("writes", ()))
     directories: list[str] = []
     for directory in raw:
-        for form in (normalize(directory), normalize(os.path.realpath(directory))):
+        forms = [dos_form(directory)] if etw else [normalize(directory), normalize(os.path.realpath(directory))]
+        if etw and os.path.exists(directory):
+            forms.append(dos_form(os.path.realpath(directory)))
+        for form in forms:
             if form not in directories:
                 directories.append(form)
     return tuple(directories)
 
 
-def write_departures(output: Path, recorded: list[tuple[suite_selection.Suite, Unit, Reads]], root: Path) -> list[tuple[str, str]]:
+def write_departures(output: Path, recorded: list[tuple[suite_selection.Suite, Unit, Reads]], root: Path,
+                     *, etw: bool = False) -> list[tuple[str, str]]:
     """(where, path) pairs for every entry file that wrote outside its setup's grants."""
     provided = provisions(output)
-    checkout_root = normalize(str(root))
+    checkout_root = (str(root) if os.sep == "/" else dos_form(str(root))) if etw else normalize(str(root))
+    folded_root = checkout_root.lower()
     departures: list[tuple[str, str]] = []
     for suite, unit, _ in recorded:
         if not unit.writes:
             continue
-        grants = granted_write_directories(output, provided, suite, unit.record)
+        grants = granted_write_directories(output, provided, suite, unit.record, etw=etw)
+        folded_grants = tuple(grant.lower() for grant in grants) if etw else grants
         where = f"`{suite.name}`: `{unit.record['name']}`"
         for path in unit.writes:
-            if any(path == grant or path.startswith(grant + "/") for grant in grants):
+            probe = path.lower() if etw else path
+            if any(probe == grant or probe.startswith(grant + "/") for grant in folded_grants):
                 continue
-            display = path[len(checkout_root) + 1:] if path.startswith(checkout_root + "/") else path
+            if (probe if etw else path).startswith((folded_root if etw else checkout_root) + "/"):
+                display = path[len(checkout_root) + 1:]
+            elif etw and re.match(r"^/[A-Za-z]:(/|$)", path):
+                display = path[1:]
+            else:
+                display = path
             departures.append((where, display))
     return departures
 
@@ -2199,7 +2235,7 @@ def run_check(options: argparse.Namespace) -> int:
     project = checkout(root)
     suite_list = suite_selection.resolve_entries(suite_selection.load_suite_list(options.suites), set(project.tracked), str(options.suites))
     recorded = entry_reads(suite_list, classify_units(output, project, load_units(output), settings))
-    departures = write_departures(output, recorded, root)
+    departures = write_departures(output, recorded, root, etw=settings["trace_set"] == "etw")
     report_departures(departures)
     list_path = suite_list_path(root, options.suites)
     if settings["mode"] == "full":

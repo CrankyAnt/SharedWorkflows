@@ -1,0 +1,24 @@
+{
+  "unit": "1795631830752580500-46832",
+  "kind": "entry",
+  "name": "tests/git_commit.py",
+  "suite": null,
+  "command": [
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\python\\Scripts\\python.EXE",
+    "tests/git_commit.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.198,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631830752580500-46832",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631830752580500-46832\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631830752580500-46832\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo",
+  "pid": 50160,
+  "launcher": 46832,
+  "recorder": [
+    "etw"
+  ]
+}

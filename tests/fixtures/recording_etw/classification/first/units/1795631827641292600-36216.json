@@ -1,0 +1,27 @@
+{
+  "unit": "1795631827641292600-36216",
+  "kind": "entry",
+  "name": "tests/search.ps1",
+  "suite": null,
+  "command": [
+    "C:\\Program Files\\PowerShell\\7\\pwsh.EXE",
+    "-NoProfile",
+    "-NonInteractive",
+    "-File",
+    "tests/search.ps1"
+  ],
+  "exit_code": 0,
+  "seconds": 0.226,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631827641292600-36216",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631827641292600-36216\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631827641292600-36216\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo",
+  "pid": 17572,
+  "launcher": 36216,
+  "recorder": [
+    "etw"
+  ]
+}

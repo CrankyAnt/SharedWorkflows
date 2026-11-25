@@ -1,0 +1,24 @@
+{
+  "unit": "1795631834705043200-46244",
+  "kind": "entry",
+  "name": "tests/imports.py",
+  "suite": null,
+  "command": [
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\python\\Scripts\\python.EXE",
+    "tests/imports.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.193,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631834705043200-46244",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\recording\\work\\1795631834705043200-46244\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\recording\\work\\1795631834705043200-46244\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\repo",
+  "pid": 39192,
+  "launcher": 46244,
+  "recorder": [
+    "etw"
+  ]
+}

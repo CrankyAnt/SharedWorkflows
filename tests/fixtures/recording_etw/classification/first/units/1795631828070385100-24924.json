@@ -1,0 +1,24 @@
+{
+  "unit": "1795631828070385100-24924",
+  "kind": "entry",
+  "name": "tests/worktree.py",
+  "suite": null,
+  "command": [
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\python\\Scripts\\python.EXE",
+    "tests/worktree.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.312,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631828070385100-24924",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631828070385100-24924\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631828070385100-24924\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo",
+  "pid": 10040,
+  "launcher": 24924,
+  "recorder": [
+    "etw"
+  ]
+}

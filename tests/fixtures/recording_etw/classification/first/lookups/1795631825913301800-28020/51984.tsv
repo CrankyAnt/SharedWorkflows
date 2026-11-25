@@ -1,0 +1,8 @@
+suffixes	.cp315-win_amd64.pyd	.pyd	.py	.pyw	.pyc
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\DLLs	sitecustomize	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64\\Lib	sitecustomize	absent
+lookup	C:\\Profiles\\fixture\\AppData\\Local\\Python\\pythoncore-3.15-64	sitecustomize	absent
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\python	sitecustomize	absent
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\python\\Lib\\site-packages	sitecustomize	absent
+list	41056	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo\\lib
+lookup	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo\\lib	helper	found	C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo\\lib\\helper.py

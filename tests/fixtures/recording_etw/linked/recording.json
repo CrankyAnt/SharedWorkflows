@@ -2,17 +2,22 @@
   "mode": "full",
   "trace_set": "etw",
   "roots": [
-    "D:\\a\\_temp\\recording-m6u8jbwr\\linked"
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked"
   ],
   "git_directories": [
-    "D:\\a\\_temp\\recording-m6u8jbwr\\repo\\.git\\worktrees\\linked",
-    "D:\\a\\_temp\\recording-m6u8jbwr\\repo\\.git"
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\repo\\.git\\worktrees\\linked",
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\repo\\.git"
   ],
   "devices": {
     "\\Device\\HarddiskVolume3": "C:",
-    "\\Device\\HarddiskVolume4": "D:"
+    "\\Device\\HarddiskVolume6": "D:",
+    "\\Device\\CdRom0": "E:",
+    "\\Device\\HarddiskVolume9": "F:",
+    "\\Device\\HarddiskVolume7": "G:",
+    "\\Device\\HarddiskVolume8": "H:",
+    "\\Device\\Volume{042dcf0d-1a8b-3c45-87b7-1a3469d2a54b}": "I:"
   },
   "events": "events.tsv",
-  "consumer": 4912,
-  "consumer_started": 134395862763472347
+  "consumer": 37876,
+  "consumer_started": 134401054434894313
 }

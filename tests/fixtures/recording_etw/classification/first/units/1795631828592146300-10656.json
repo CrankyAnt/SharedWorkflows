@@ -1,0 +1,24 @@
+{
+  "unit": "1795631828592146300-10656",
+  "kind": "entry",
+  "name": "tests/no_copies.py",
+  "suite": null,
+  "command": [
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\python\\Scripts\\python.EXE",
+    "tests/no_copies.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.398,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631828592146300-10656",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631828592146300-10656\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631828592146300-10656\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo",
+  "pid": 49036,
+  "launcher": 10656,
+  "recorder": [
+    "etw"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "unit": "1795631831846897000-49204",
+  "kind": "entry",
+  "name": "tests/git_mixed.py",
+  "suite": null,
+  "command": [
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\python\\Scripts\\python.EXE",
+    "tests/git_mixed.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.161,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631831846897000-49204",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631831846897000-49204\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\recording\\work\\1795631831846897000-49204\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo",
+  "pid": 45296,
+  "launcher": 49204,
+  "recorder": [
+    "etw"
+  ]
+}

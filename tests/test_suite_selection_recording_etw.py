@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 from tests.recording_fixtures import ETW_RECORDINGS, ROOT, RecordingFixture, copy_recording, load_recording, suite
@@ -327,6 +327,45 @@ class AttributionTests(unittest.TestCase):
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
         self.assertEqual({"tests/a.py": ["lib/a.txt"], "tests/b.py": ["lib/b.txt"]},
                          {item["entry"]: item["reads"]["paths"] for item in fixture.full_result()["entries"]})
+
+    def test_two_units_sharing_a_reused_root_process_id_do_not_merge_reads(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/a.py": "", "tests/b.py": "", "lib/a.txt": "", "lib/b.txt": ""},
+                                     [suite("a", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=[],
+                                            entry_paths={"tests/a.py": [], "tests/b.py": []})])
+        recording.unit("1-a", "tests/a.py", 100, 10, ["python.exe", "tests/a.py"])
+        recording.unit("2-b", "tests/b.py", 100, 20, ["python.exe", "tests/b.py"])
+        recording.events([("100", "10", "open", recording.prefix + "\\lib\\a.txt"),
+                          ("100", "10", "stop", ""),
+                          ("100", "20", "start", PYTHON),
+                          ("100", "20", "open", recording.prefix + "\\lib\\b.txt")])
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertEqual({"tests/a.py": ["lib/a.txt"], "tests/b.py": ["lib/b.txt"]},
+                         {item["entry"]: item["reads"]["paths"] for item in recording.fixture.full_result()["entries"]})
+
+    def test_a_stopped_process_whose_id_is_reused_does_not_merge_into_the_earlier_unit(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/a.py": "", "lib/a.txt": "", "lib/b.txt": ""},
+                                     [suite("a", ["tests/a.py"], entry_selection=True, paths=[], entry_paths={"tests/a.py": []})])
+        recording.unit("1-a", "tests/a.py", 100, 10, ["python.exe", "tests/a.py"])
+        recording.events([("100", "10", "start", PYTHON), ("300", "100", "start", PYTHON),
+                          ("300", "100", "open", recording.prefix + "\\lib\\a.txt"),
+                          ("300", "100", "stop", ""),
+                          ("300", "999", "open", recording.prefix + "\\lib\\b.txt")])
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertEqual({"tests/a.py": ["lib/a.txt"]},
+                         {item["entry"]: item["reads"]["paths"] for item in recording.fixture.full_result()["entries"]})
+
+    def test_a_child_start_after_its_parent_stops_still_belongs_to_the_parents_unit(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/a.py": "", "lib/a.txt": ""},
+                                     [suite("a", ["tests/a.py"], entry_selection=True, paths=[], entry_paths={"tests/a.py": []})])
+        recording.unit("1-a", "tests/a.py", 100, 10, ["python.exe", "tests/a.py"])
+        recording.events([("100", "10", "start", PYTHON), ("100", "10", "stop", ""),
+                          ("300", "100", "start", PYTHON), ("300", "100", "open", recording.prefix + "\\lib\\a.txt")])
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertEqual({"tests/a.py": ["lib/a.txt"]},
+                         {item["entry"]: item["reads"]["paths"] for item in recording.fixture.full_result()["entries"]})
 
 
 DOTNET = "C:\\Program Files\\dotnet\\dotnet.exe"
@@ -703,6 +742,69 @@ class AttributeOnlyOpenTests(unittest.TestCase):
         reads = self.reads_of(lambda tests: self.collect(tests, "100", "10", PYTHON, "test_a.py", ("test_b.py", "test_c.py"), stat="open"))
         self.assertEqual((["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"], [], ["tests"]),
                          self.summary(reads, "tests/test_a.py"))
+
+
+class WindowsWriteDepartureTests(unittest.TestCase):
+    """Windows write events are judged against the entry file's temporary, cache and lookup directories and its setups'
+    write grants, matching the Linux grant rule."""
+
+    def test_windows_writes_outside_setup_grants_are_reported_as_departures_and_granted_writes_are_allowed(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/write.py": "", "data/keep.txt": "keep\n"},
+                                     [suite("a", ["tests/write.py"], paths=["tests/write.py"], setups=["writer"])], mode="pull-request")
+        recording.unit("1-write", "tests/write.py", 100, 10, ["python.exe", "tests/write.py"])
+        settings_path = recording.fixture.output / "recording.json"
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        root_drive = recording.root[:2].upper()
+        other_drive = "Z:" if root_drive != "Z:" else "Y:"
+        other_device = "\\Device\\HarddiskVolume99"
+        settings["devices"][other_device] = other_drive
+        settings_path.write_text(json.dumps(settings), encoding="utf-8")
+        setups_dir = recording.fixture.output / "setups"
+        setups_dir.mkdir(exist_ok=True)
+        (setups_dir / "writer.json").write_text(json.dumps({"paths": [], "variables": {}, "writes": [f"{root_drive}\\granted\\dir"]}), encoding="utf-8")
+        device = next(dev for dev, drive in settings["devices"].items() if drive.upper() == root_drive)
+        temp_device = device + recording.record["temporary"][2:]
+        cache_device = device + recording.record["cache"][2:]
+        lookups_device = device + str(PureWindowsPath(recording.record["temporary"]).parents[2])[2:] + "\\lookups\\" + recording.record["lookups"]
+        recording.events([
+            ("100", "10", "start", PYTHON),
+            ("100", "10", "open", recording.prefix + "\\tests\\write.py"),
+            ("100", "10", "write", temp_device.upper() + "\\ok.txt"),
+            ("100", "10", "write", cache_device + "\\mod.pyc"),
+            ("100", "10", "write", lookups_device + "\\100.tsv"),
+            ("100", "10", "write", device + "\\GRANTED\\DIR\\ok.txt"),
+            ("100", "10", "write", recording.prefix + "\\leaked.txt"),
+            ("100", "10", "write", other_device + "\\Profiles\\outside\\leaked.txt"),
+        ])
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn("Departure:", checked.stdout)
+        self.assertIn("`leaked.txt`", checked.stdout)
+        self.assertIn(f"`{other_drive}/Profiles/outside/leaked.txt`", checked.stdout)
+        self.assertNotIn("ok.txt", checked.stdout)
+        self.assertNotIn("mod.pyc", checked.stdout)
+        self.assertNotIn("100.tsv", checked.stdout)
+        summary = recording.fixture.summary.read_text(encoding="utf-8")
+        self.assertIn("### Departures", summary)
+        self.assertIn("`leaked.txt`", summary)
+        self.assertIn(f"`{other_drive}/Profiles/outside/leaked.txt`", summary)
+        self.assertNotIn("ok.txt", summary)
+
+    def test_a_write_and_open_on_the_same_checkout_file_reports_both_the_departure_and_the_read(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/write.py": "", "data/keep.txt": "keep\n"},
+                                     [suite("a", ["tests/write.py"], paths=[])])
+        recording.unit("1-write", "tests/write.py", 100, 10, ["python.exe", "tests/write.py"])
+        recording.events([
+            ("100", "10", "start", PYTHON),
+            ("100", "10", "open", recording.prefix + "\\tests\\write.py"),
+            ("100", "10", "write", recording.prefix + "\\data\\keep.txt"),
+            ("100", "10", "open", recording.prefix + "\\data\\keep.txt"),
+        ])
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn("`data/keep.txt`", checked.stdout)
+        reads = recording.fixture.reads_of("tests/write.py")
+        self.assertEqual(["data/keep.txt", "tests/write.py"], reads["paths"])
 
 
 if __name__ == "__main__":

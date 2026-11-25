@@ -1,9 +1,0 @@
-suffixes	.cp313-win_amd64.pyd	.pyd	.py	.pyw	.pyc
-lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.17\\x64\\DLLs	sitecustomize	absent
-lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.17\\x64\\Lib	sitecustomize	absent
-lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.17\\x64	sitecustomize	absent
-lookup	D:\\a\\_temp\\recording-y1iv5ugd\\python	sitecustomize	absent
-list	4176	D:\\a\\_temp\\recording-y1iv5ugd\\python\\Lib\\site-packages
-lookup	D:\\a\\_temp\\recording-y1iv5ugd\\python\\Lib\\site-packages	sitecustomize	absent
-lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.17\\x64\\DLLs	linecache	absent
-lookup	C:\\hostedtoolcache\\windows\\Python\\3.13.17\\x64\\Lib	linecache	found	C:\\hostedtoolcache\\windows\\Python\\3.13.17\\x64\\Lib\\linecache.py

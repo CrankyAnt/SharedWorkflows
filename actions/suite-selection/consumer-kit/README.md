@@ -196,7 +196,7 @@ A setup that gives nothing writes no line. A setup step writes nothing to `$GITH
 
 `exec` gives each entry file a temporary directory of its own in `TMPDIR`, and on Windows in `TEMP` and `TMP` as well; no other value replaces them, neither a job default nor a `variable=` line.
 
-`exec --entry` fails when the job did not install a setup that the entry file states. What a test writes outside its own temporary, bytecode-cache and lookup directories and what its setups grant through `write=`, such as `$HOME` or the shared checkout, is no input of selection; a result that depends on such a write is a flaky result, and on Linux `check` reports such a write as a departure while the test still runs. A job that records restores no cache that holds build or test results and turns off build servers and node reuse.
+`exec --entry` fails when the job did not install a setup that the entry file states. What a test writes outside its own temporary, bytecode-cache and lookup directories and what its setups grant through `write=`, such as `$HOME` or the shared checkout, is no input of selection; a result that depends on such a write is a flaky result, and `check` reports such a write as a departure while the test still runs. A job that records restores no cache that holds build or test results and turns off build servers and node reuse.
 
 ### Pinned tools
 
