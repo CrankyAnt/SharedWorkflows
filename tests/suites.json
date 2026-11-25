@@ -21909,6 +21909,7 @@
         ],
         "tests/test_pipeline_custom.py": [
           "actions/pipeline/schema",
+          "actions/pipeline/schema/v1",
           "actions/pipeline/schema/v1/parts"
         ],
         "tests/test_pipeline_dependabot.py": [
