@@ -160,11 +160,10 @@ class PartJobTests(unittest.TestCase):
                 runner = f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}" if entry.runner_label else "ubuntu-26.04"
                 self.assertEqual(runner, self.jobs[part]["runs-on"], "a part that takes runner-label runs there, any other on ubuntu-26.04")
 
-    def test_the_jobs_of_two_projects_of_one_part_do_not_share_a_concurrency_group(self) -> None:
+    def test_project_part_jobs_rely_on_workflow_level_concurrency(self) -> None:
         for part in PARTS:
             with self.subTest(part=part):
-                self.assertEqual(f"${{{{ fromJSON(needs.plan.outputs.concurrency || '{{}}')['{part}'].group }}}}-${{{{ strategy.job-index }}}}",
-                                 self.jobs[part]["concurrency"]["group"])
+                self.assertNotIn("concurrency", self.jobs[part])
 
     def test_python_verify_installs_the_configured_python_and_dependencies_and_runs_the_language_step_from_the_working_directory(self) -> None:
         job = self.jobs[PYTHON_VERIFY]

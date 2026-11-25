@@ -12,7 +12,6 @@ jobs:
       contents: read
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
-      concurrency: ${{ steps.plan.outputs.concurrency }}
     steps:
       - name: Load the plan program from this workflow revision
         id: resources
@@ -55,9 +54,6 @@ jobs:
     runs-on: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config['runner-label'] || 'ubuntu-26.04' }}
     permissions:
       contents: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['custom'].group }}
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['custom']['cancel-in-progress'] == true }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -141,9 +137,6 @@ jobs:
     runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
     permissions:
       contents: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['dotnet-test'].group }}-${{ strategy.job-index }}
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['dotnet-test']['cancel-in-progress'] == true }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -170,9 +163,6 @@ jobs:
     runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
     permissions:
       contents: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['node-test'].group }}-${{ strategy.job-index }}
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['node-test']['cancel-in-progress'] == true }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -205,9 +195,6 @@ jobs:
     runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
     permissions:
       contents: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-test'].group }}-${{ strategy.job-index }}
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-test']['cancel-in-progress'] == true }}
     defaults:
       run:
         shell: bash
@@ -248,9 +235,6 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-verify'].group }}-${{ strategy.job-index }}
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['python-verify']['cancel-in-progress'] == true }}
     steps:
       - name: Load the installation script from this workflow revision
         id: resources
@@ -284,9 +268,6 @@ jobs:
       contents: read
       issues: read
       pull-requests: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['repository-hygiene'].group || format('repository-hygiene-run-{0}', github.run_id) }}
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['repository-hygiene']['cancel-in-progress'] == true }}
     steps:
       - name: Load resources from this workflow revision
         id: resources
@@ -536,9 +517,6 @@ jobs:
       actions: read
       contents: read
       pull-requests: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection'].group }}
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection']['cancel-in-progress'] == true }}
     outputs:
       suites: ${{ steps.select.outputs.suites }}
       entries: ${{ steps.select.outputs.entries }}
@@ -632,9 +610,6 @@ jobs:
     if: ${{ (needs.suite-selection.outputs.shards != '' && needs.suite-selection.outputs.shards != '[]') || needs.suite-selection.outputs.windows != '' }}
     permissions:
       contents: read
-    concurrency:
-      group: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection'].group }}-jobs
-      cancel-in-progress: ${{ fromJSON(needs.plan.outputs.concurrency || '{}')['suite-selection']['cancel-in-progress'] == true }}
     uses: $/.github/workflows/suite-jobs.yml
     with:
       suites: ${{ fromJSON(needs.plan.outputs.plan).parts['suite-selection'].config.suites }}
@@ -697,7 +672,7 @@ jobs:
 
   verdict:
     needs: [plan, custom, dotnet-test, node-test, python-test, python-verify, repository-hygiene, suite-selection, suite-selection-jobs, suite-selection-results]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     permissions:
       contents: read

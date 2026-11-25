@@ -113,16 +113,9 @@ def part_job_problems(name: str, job: dict) -> list[str]:
     condition = str(job.get("if", ""))
     if condition != f"${{{{ fromJSON(needs.plan.outputs.plan).parts['{name}'].run }}}}":
         problems.append(f"{name} does not run on the plan's decision for {name} alone")
-    problems += concurrency_problems(name, job)
+    if "concurrency" in job:
+        problems.append(f"{name} sets job-level concurrency instead of relying on the caller's workflow concurrency")
     return problems
-
-
-def concurrency_problems(name: str, job: dict) -> list[str]:
-    concurrency = job.get("concurrency")
-    text = " ".join(str(value) for value in concurrency.values()) if isinstance(concurrency, dict) else ""
-    if set(concurrency or {}) != {"group", "cancel-in-progress"} or text.count(f"needs.plan.outputs.concurrency || '{{}}')['{name}']") != 2:
-        return [f"{name} does not take its concurrency group and cancel flag from the plan"]
-    return []
 
 
 def refers_to(schema: object, reference: str) -> bool:
@@ -177,16 +170,17 @@ class PipelineTests(unittest.TestCase):
                     self.assertIn(part, needed(self.jobs[name]))
                     self.assertIn(f"needs.{part}.", self.jobs[name]["if"], "the job decides on what the part's job gave")
 
-    def test_the_verdict_always_runs_and_needs_the_plan_and_every_part(self) -> None:
+    def test_the_verdict_runs_unless_cancelled_and_needs_the_plan_and_every_part(self) -> None:
         verdict = self.jobs[VERDICT]
-        self.assertEqual("always()", verdict["if"])
+        self.assertEqual("${{ !cancelled() }}", verdict["if"])
+        self.assertTrue(condition_holds(verdict["if"], {}))
         self.assertEqual([name for name in self.jobs if name != VERDICT], needed(verdict))
         self.assertIn("NEEDS: ${{ toJSON(needs) }}", self.text)
         self.assertEqual({"contents": "read"}, verdict["permissions"])
 
-    def test_the_plan_gives_its_plan_and_the_concurrency_of_the_jobs_as_outputs(self) -> None:
+    def test_the_plan_gives_its_plan_as_its_output(self) -> None:
         plan = self.jobs[PLAN]
-        self.assertEqual({"plan": "${{ steps.plan.outputs.plan }}", "concurrency": "${{ steps.plan.outputs.concurrency }}"}, plan["outputs"])
+        self.assertEqual({"plan": "${{ steps.plan.outputs.plan }}"}, plan["outputs"])
         self.assertEqual({"contents": "read"}, plan["permissions"])
         self.assertNotIn("if", plan)
         self.assertNotIn("needs", plan)
@@ -201,25 +195,22 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("outputs.plan", section, "repository hygiene reads nothing of the plan, so it runs after a failed plan too")
         self.assertEqual(['.github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude', '.github/ci-config.yml#value:parts.repository-hygiene.link-exclude'],
                          re.findall(r'"(\.github/ci-config\.yml#[^"]*)"', section), "the job reads the configuration file only for the two exclusions")
-        self.assertEqual([], concurrency_problems(HYGIENE, hygiene))
-        self.assertIn("|| format('repository-hygiene-run-{0}', github.run_id)", hygiene["concurrency"]["group"],
-                      "after a plan without outputs, repository hygiene still has a concurrency group")
+        self.assertNotIn("concurrency", hygiene)
 
-    def test_every_other_part_runs_on_the_plan_s_decision_and_takes_its_concurrency_from_the_plan(self) -> None:
+    def test_every_other_part_runs_on_the_plan_s_decision_without_per_part_concurrency(self) -> None:
         for name in self.parts:
             if name != HYGIENE:
                 with self.subTest(part=name):
                     self.assertEqual([], part_job_problems(name, self.jobs[name]))
 
     def test_a_part_job_that_does_not_follow_the_plan_is_named(self) -> None:
-        good = {"needs": "plan", "if": "${{ fromJSON(needs.plan.outputs.plan).parts['invented-test'].run }}",
-                "concurrency": {"group": "${{ fromJSON(needs.plan.outputs.concurrency || '{}')['invented-test'].group }}",
-                                "cancel-in-progress": "${{ fromJSON(needs.plan.outputs.concurrency || '{}')['invented-test']['cancel-in-progress'] == true }}"}}
+        good = {"needs": "plan", "if": "${{ fromJSON(needs.plan.outputs.plan).parts['invented-test'].run }}"}
         self.assertEqual([], part_job_problems("invented-test", good))
         for change, problem in (({"needs": "repository-hygiene"}, "invented-test does not need plan"),
                                 ({"if": "always()"}, "invented-test does not run on the plan's decision for invented-test alone"),
                                 ({"if": "${{ fromJSON(needs.plan.outputs.plan).parts['other-test'].run }}"}, "invented-test does not run on the plan's decision for invented-test alone"),
-                                ({"concurrency": {"group": "fixed", "cancel-in-progress": "true"}}, "invented-test does not take its concurrency group and cancel flag from the plan")):
+                                ({"concurrency": {"group": "fixed", "cancel-in-progress": "true"}},
+                                 "invented-test sets job-level concurrency instead of relying on the caller's workflow concurrency")):
             with self.subTest(change=change):
                 self.assertEqual([problem], part_job_problems("invented-test", {**good, **change}))
 

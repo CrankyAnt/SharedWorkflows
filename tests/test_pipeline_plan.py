@@ -190,32 +190,6 @@ class PartDecisionTests(PipelineFixture):
                          {name: part["config"] for name, part in outcome.plan["parts"].items()})
 
 
-class ConcurrencyTests(PipelineFixture):
-    def concurrency(self, *arguments: str) -> dict:
-        return json.loads(self.plan("--workflow", "CI", *arguments).outputs["concurrency"])
-
-    def test_a_pull_request_run_shares_a_group_per_part_with_the_other_runs_of_its_pull_request_and_is_cancelled_by_a_newer_one(self) -> None:
-        self.commit({CONFIGURATION: "version: 1\n"})
-        groups = self.concurrency("--event", "pull_request", "--pull-request", "12", "--run-id", "700")
-        self.assertEqual({"fixture-build": {"group": "CI-fixture-build-pr-12", "cancel-in-progress": True},
-                          "fixture-floor": {"group": "CI-fixture-floor-pr-12", "cancel-in-progress": True},
-                          "fixture-test": {"group": "CI-fixture-test-pr-12", "cancel-in-progress": True}}, groups)
-        self.assertEqual(groups, self.concurrency("--event", "pull_request", "--pull-request", "12", "--run-id", "701"))
-
-    def test_a_push_run_has_groups_of_its_own_and_is_never_cancelled(self) -> None:
-        self.commit({CONFIGURATION: "version: 1\n"})
-        groups = self.concurrency("--event", "push", "--pull-request", "", "--run-id", "700")
-        self.assertEqual({"group": "CI-fixture-floor-run-700", "cancel-in-progress": False}, groups["fixture-floor"])
-        self.assertNotEqual(groups, self.concurrency("--event", "push", "--pull-request", "", "--run-id", "701"))
-
-    def test_a_plan_that_fails_on_the_configuration_file_still_gives_the_concurrency_of_every_part(self) -> None:
-        self.commit({CONFIGURATION: "version: 9\n"})
-        outcome = self.plan("--workflow", "CI", "--event", "pull_request", "--pull-request", "3", "--run-id", "5")
-        self.assertEqual(1, outcome.status)
-        self.assertNotIn("plan", outcome.outputs)
-        self.assertEqual({"group": "CI-fixture-floor-pr-3", "cancel-in-progress": True}, json.loads(outcome.outputs["concurrency"])["fixture-floor"])
-
-
 class SharedWorkflowPlanTests(PipelineFixture):
     """The plan of another shared workflow than the pipeline, asked for with ``--shared-workflow``: it decides on the
     parts whose fragment names that workflow, and on those alone."""
@@ -236,7 +210,6 @@ class SharedWorkflowPlanTests(PipelineFixture):
         outcome = self.plan("--workflow", "CI", "--event", "push", "--run-id", "7")
         self.assertEqual(0, outcome.status, outcome.summary)
         self.assertEqual(["fixture-build", "fixture-floor", "fixture-test"], list(outcome.plan["parts"]))
-        self.assertEqual(["fixture-build", "fixture-floor", "fixture-test"], sorted(json.loads(outcome.outputs["concurrency"])))
         self.assertNotIn("fixture-merge", outcome.summary)
 
     def test_the_plan_of_the_named_workflow_decides_on_its_parts_alone(self) -> None:
@@ -245,8 +218,6 @@ class SharedWorkflowPlanTests(PipelineFixture):
         self.assertEqual(0, outcome.status, outcome.summary)
         self.assertEqual({"fixture-label": {"run": False, "reason": "switched off", "config": {}},
                           "fixture-merge": {"run": True, "reason": "switched on", "config": {"list": "lists/suites.json"}}}, outcome.plan["parts"])
-        self.assertEqual({"fixture-label": {"group": "Automation-fixture-label-run-7", "cancel-in-progress": False},
-                          "fixture-merge": {"group": "Automation-fixture-merge-run-7", "cancel-in-progress": False}}, json.loads(outcome.outputs["concurrency"]))
         self.assertNotIn("fixture-floor", outcome.summary, "a part that always runs in the pipeline does not run in another workflow")
 
     def test_a_setting_that_a_part_of_another_workflow_does_not_have_fails_both_plans(self) -> None:
@@ -336,7 +307,6 @@ class OtherWorkflowTests(PipelineFixture):
         outcome = self.plan("--workflow", "CI", "--event", "push", "--run-id", "7")
         self.assertEqual(0, outcome.status, outcome.summary)
         self.assertEqual(["fixture-build"], list(outcome.plan["parts"]))
-        self.assertEqual(["fixture-build"], list(json.loads(outcome.outputs["concurrency"])))
         self.assertNotIn("fixture-publish", outcome.summary)
 
     def test_a_setting_that_such_a_part_does_not_have_fails_the_plan(self) -> None:

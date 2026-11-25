@@ -165,7 +165,6 @@ class PipelineStepShellTests(unittest.TestCase):
                               "event": {"before": before, "pull_request": pull_request or {}, "client_payload": {"sha": payload} if payload else {}}}}
         ran, produced = self.run_step("plan", "plan", context)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        self.assertIn("concurrency", produced)
         return json.loads(produced["plan"])
 
     def given_history(self) -> tuple[str, str, str]:

@@ -25,13 +25,10 @@ files are unknown. The plan is one JSON document, the output ``plan``: per part 
 for a stated part with the setting ``setups`` the tool and the version of each setup it names, in the listed order, the
 parts switched off and the local workflows registered compared with the base, and whether that comparison was made.
 
-Before it reads the configuration file, ``plan`` writes the output ``concurrency``: per part the ``group`` and
-``cancel-in-progress`` of its job, so that a failed plan still gives them. The group is the workflow's name, the part
-and the pull request's number, or the run's id on any other event; only a pull request's run is cancelled by a newer one.
-
 ``verdict`` reads the ``needs`` context of the job that needs ``plan`` and every part, as ``toJSON(needs)`` renders it.
-It fails when ``plan`` did not succeed or any other job ended failure or cancelled; a skipped job is a part that did not
-run. ``schema`` writes, or with ``--check`` compares, the assembled schema ``ci-config.schema.json`` of each version.
+It fails when ``plan`` did not succeed, its plan output is missing or invalid, or a planned check failed, ended skipped,
+timed out or never started; a check the plan did not select counts as not run. ``schema`` writes, or with ``--check``
+compares, the assembled schema ``ci-config.schema.json`` of each version.
 
 ``setting`` prints the items of one list setting of one part, one per line, as the checked configuration file states
 them; it prints nothing when the file does not state the setting. When the configuration file cannot be used, it prints
@@ -59,7 +56,10 @@ ASSEMBLED = "ci-config.schema.json"
 SETUPS = "setups.json"
 PIPELINE = "pipeline.yml"
 PLAN_JOB = "plan"
-FAILING_RESULTS = ("failure", "cancelled")
+SUITE_SELECTION_JOB = "suite-selection"
+SUITE_SELECTION_JOBS = "suite-selection-jobs"
+SUITE_SELECTION_RESULTS = "suite-selection-results"
+FAILING_RESULTS = ("failure", "cancelled", "timed_out")
 ALL_ZERO = re.compile(r"^0+$")
 VERSION_FOLDER = re.compile(r"^v([1-9][0-9]*)$")
 WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.yml$")
@@ -483,18 +483,9 @@ def append(path: str | None, text: str) -> None:
             stream.write(text)
 
 
-def concurrency(parts: list[str], workflow: str, event: str, pull_request: str, run_id: str) -> dict:
-    """The concurrency group and cancel flag of each part's job."""
-    on_pull_request = event == "pull_request" and bool(pull_request)
-    scope = f"pr-{pull_request}" if on_pull_request else f"run-{run_id}"
-    return {name: {"group": f"{workflow}-{name}-{scope}", "cancel-in-progress": on_pull_request} for name in parts}
-
-
 def run_plan(options: argparse.Namespace) -> int:
     try:
         versions = schema_versions(Path(options.schemas))
-        groups = concurrency(versions[max(versions)].parts_of(options.shared_workflow), options.workflow, options.event, options.pull_request, options.run_id)
-        append(options.github_output, f"concurrency={json.dumps(groups, separators=(',', ':'))}\n")
         plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare, options.shared_workflow)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
@@ -512,38 +503,163 @@ def run_plan(options: argparse.Namespace) -> int:
 # --- the verdict ----------------------------------------------------------------------------------------------------
 
 
-def job_plan(needs: dict) -> dict | None:
-    """The plan in the outputs of the ``plan`` job, when that job gave one."""
-    outputs = needs.get(PLAN_JOB, {}).get("outputs") if isinstance(needs.get(PLAN_JOB), dict) else None
+def parse_job_plan(needs: dict) -> tuple[dict | None, str | None]:
+    """The validated plan in the outputs of the ``plan`` job, or None with the reason when missing or invalid."""
+    plan_job = needs.get(PLAN_JOB)
+    outputs = plan_job.get("outputs") if isinstance(plan_job, dict) else None
     raw = outputs.get("plan") if isinstance(outputs, dict) else None
+    if not isinstance(raw, str) or not raw:
+        return None, f"the `{PLAN_JOB}` job gave no plan output"
     try:
-        plan = json.loads(raw) if isinstance(raw, str) and raw else None
+        plan = json.loads(raw)
     except ValueError:
-        return None
-    return plan if isinstance(plan, dict) and isinstance(plan.get("parts"), dict) else None
+        return None, f"the `{PLAN_JOB}` job gave an invalid plan output"
+    if not isinstance(plan, dict) or not isinstance(plan.get("parts"), dict):
+        return None, f"the `{PLAN_JOB}` job gave an invalid plan output"
+    for name, part in plan["parts"].items():
+        if (not isinstance(name, str) or not isinstance(part, dict) or not isinstance(part.get("run"), bool)
+                or ("reused" in part and not isinstance(part["reused"], bool))):
+            return None, f"the `{PLAN_JOB}` job gave an invalid plan output"
+    return plan, None
 
 
-def verdict_reasons(needs: dict) -> list[str]:
-    """Why the verdict fails: ``plan`` did not succeed, or another job ended failure or cancelled."""
-    reasons = []
+def job_plan(needs: dict) -> dict | None:
+    """The validated plan in the outputs of the ``plan`` job, when that job gave one."""
+    return parse_job_plan(needs)[0]
+
+
+@dataclass(frozen=True)
+class CheckOutcome:
+    name: str
+    outcome: str
+    result: str
+    reason: str
+
+
+def planned_check_outcome(name: str, reason: str, needs: dict) -> tuple[CheckOutcome, str | None]:
+    """The outcome row and optional failure reason of a check the plan selected to run."""
+    job = needs.get(name)
+    result = job.get("result") if isinstance(job, dict) else None
+    if not isinstance(result, str) or not result:
+        return CheckOutcome(name, "skipped", "never started", reason), f"`{name}` never started"
+    if result == "success":
+        return CheckOutcome(name, "ran", "success", reason), None
+    if result == "skipped":
+        return CheckOutcome(name, "skipped", "skipped", reason), f"`{name}` ended skipped"
+    return CheckOutcome(name, "ran", result, reason), f"`{name}` ended {result}"
+
+
+def decode_json_output(outputs: dict, key: str, expected_type: type) -> tuple[object | None, bool]:
+    """Decode one optional JSON string output of a job; returns (value, ok)."""
+    if key not in outputs or outputs[key] == "":
+        return None, True
+    raw = outputs[key]
+    if not isinstance(raw, str):
+        return None, False
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None, False
+    return (value, True) if isinstance(value, expected_type) else (None, False)
+
+
+def suite_selection_followups(needs: dict) -> tuple[list[CheckOutcome], list[str]]:
+    """Evaluate the follow-up jobs of a planned ``suite-selection`` job that succeeded."""
+    selection_job = needs.get(SUITE_SELECTION_JOB, {})
+    outputs = selection_job.get("outputs") if isinstance(selection_job, dict) else None
+    if not isinstance(outputs, dict):
+        outputs = {}
+    shards, shards_ok = decode_json_output(outputs, "shards", list)
+    units, units_ok = decode_json_output(outputs, "units", dict)
+    reused, reused_ok = decode_json_output(outputs, "reused", dict)
+    windows = outputs.get("windows", "")
+    if not (shards_ok and units_ok and reused_ok and isinstance(windows, str)):
+        return [], [f"`{SUITE_SELECTION_JOB}` gave invalid selection output"]
+    identical = outputs.get("identical") == "true"
+    jobs_planned = bool(shards) or bool(windows) or bool(units)
+    if not jobs_planned and "shards" not in outputs and "windows" not in outputs and not identical:
+        if SUITE_SELECTION_JOBS in needs:
+            return [], [f"`{SUITE_SELECTION_JOB}` gave no selection output"]
+        return [], []
+    reasons: list[str] = []
+    if jobs_planned:
+        parts = []
+        if shards:
+            parts.append(f"{len(shards)} Linux shard{'' if len(shards) == 1 else 's'}")  # type: ignore[arg-type]
+        if windows:
+            parts.append("Windows")
+        reason = " and ".join(parts) if parts else "selected units"
+        if reused:
+            count = len(reused)  # type: ignore[arg-type]
+            reason += f"; {count} passed unit{'' if count == 1 else 's'} taken over"
+        row, failure = planned_check_outcome(SUITE_SELECTION_JOBS, reason, needs)
+        rows = [row]
+        if failure:
+            reasons.append(failure)
+    elif identical:
+        rows = [CheckOutcome(SUITE_SELECTION_JOBS, "taken over", "not run", "the tree equals a passed tested tree")]
+    elif reused:
+        count = len(reused)  # type: ignore[arg-type]
+        rows = [CheckOutcome(SUITE_SELECTION_JOBS, "taken over", "not run", f"{count} passed unit{'' if count == 1 else 's'} taken over")]
+    else:
+        rows = [CheckOutcome(SUITE_SELECTION_JOBS, "skipped", "not run", "no suites selected")]
+    if SUITE_SELECTION_RESULTS in needs and isinstance(needs[SUITE_SELECTION_RESULTS], dict):
+        store_result = needs[SUITE_SELECTION_RESULTS].get("result")
+        if isinstance(store_result, str) and store_result and store_result not in ("success", "skipped"):
+            reasons.append(f"`{SUITE_SELECTION_RESULTS}` ended {store_result}")
+    return rows, reasons
+
+
+def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOutcome]]:
+    """Evaluate the needs context against the plan; returns (failure reasons, validated plan, check outcomes)."""
+    reasons: list[str] = []
     if PLAN_JOB not in needs:
         reasons.append(f"the needs context has no `{PLAN_JOB}` job")
     elif needs[PLAN_JOB].get("result") != "success":
-        reasons.append(f"`{PLAN_JOB}` ended {needs[PLAN_JOB].get('result')}")
-    reasons += [f"`{name}` ended {job.get('result')}" for name, job in needs.items() if name != PLAN_JOB and job.get("result") in FAILING_RESULTS]
-    return reasons
+        result = needs[PLAN_JOB].get("result")
+        reasons.append(f"`{PLAN_JOB}` never started" if not isinstance(result, str) or not result else f"`{PLAN_JOB}` ended {result}")
+    else:
+        plan, error = parse_job_plan(needs)
+        if plan is None:
+            reasons.append(error or f"the `{PLAN_JOB}` job gave no plan output")
+        else:
+            checks: list[CheckOutcome] = []
+            for name, part in plan["parts"].items():
+                reason = str(part.get("reason", ""))
+                if part["run"]:
+                    row, failure = planned_check_outcome(name, reason, needs)
+                    checks.append(row)
+                    if failure:
+                        reasons.append(failure)
+                    elif name == SUITE_SELECTION_JOB:
+                        followup_rows, followup_reasons = suite_selection_followups(needs)
+                        checks += followup_rows
+                        reasons += followup_reasons
+                else:
+                    outcome = "taken over" if part.get("reused") is True else "skipped"
+                    checks.append(CheckOutcome(name, outcome, "not run", reason))
+            return reasons, plan, checks
+    reasons += [f"`{name}` ended {job.get('result')}" for name, job in needs.items()
+                if name != PLAN_JOB and job.get("result") in FAILING_RESULTS]
+    return reasons, None, []
 
 
-def verdict_markdown(needs: dict, reasons: list[str]) -> str:
+def verdict_reasons(needs: dict) -> list[str]:
+    """Why the verdict fails: ``plan`` did not succeed, its plan output is missing or invalid, or a planned check did not succeed."""
+    return evaluate_verdict(needs)[0]
+
+
+def verdict_markdown(needs: dict, reasons: list[str], plan: dict | None = None, checks: list[CheckOutcome] | None = None) -> str:
+    if plan is None and checks is None:
+        _, plan, checks = evaluate_verdict(needs)
     lines = ["## Verdict", ""]
-    lines.append("**Failed.** " + "; ".join(reasons) + "." if reasons else "**Passed.** The plan succeeded and no started part ended failure or cancelled.")
-    plan = job_plan(needs)
+    lines.append("**Failed.** " + "; ".join(reasons) + "." if reasons else "**Passed.** The plan succeeded and every planned check passed or took over a pass.")
     if plan is None:
         lines += ["", f"The `{PLAN_JOB}` job gave no plan: the parts switched off and the local workflows registered by this change are unknown."]
     else:
         lines += ["", *comparison_lines(plan)]
-        lines += ["", "| Part | Planned | Reason |", "| --- | --- | --- |"]
-        lines += [f"| `{name}` | {'runs' if part.get('run') else 'does not run'} | {part.get('reason', '')} |" for name, part in plan["parts"].items()]
+        lines += ["", "| Check | Outcome | Result | Reason |", "| --- | --- | --- | --- |"]
+        lines += [f"| `{check.name}` | {check.outcome} | {check.result} | {check.reason} |" for check in (checks or [])]
     lines += ["", "| Job | Result |", "| --- | --- |"]
     lines += [f"| `{name}` | {job.get('result')} |" for name, job in needs.items()]
     return "\n".join(lines) + "\n"
@@ -558,11 +674,11 @@ def run_verdict(options: argparse.Namespace) -> int:
     if not isinstance(needs, dict) or not all(isinstance(job, dict) for job in needs.values()):
         print(f"The needs context {options.needs} is no object of jobs", file=sys.stderr)
         return 2
-    reasons = verdict_reasons(needs)
+    reasons, plan, checks = evaluate_verdict(needs)
     print("Verdict: " + ("failed: " + "; ".join(reasons) if reasons else "passed"))
     for name, job in needs.items():
         print(f"job {name}: {job.get('result')}")
-    append(options.summary, verdict_markdown(needs, reasons))
+    append(options.summary, verdict_markdown(needs, reasons, plan, checks))
     return 1 if reasons else 0
 
 
@@ -639,7 +755,7 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--event", default="", help="the name of the event of the run")
     planning.add_argument("--pull-request", default="", help="the number of the pull request of the run, empty on another event")
     planning.add_argument("--run-id", default="0", help="the id of the run")
-    planning.add_argument("--github-output", help="the file that receives the outputs concurrency and plan")
+    planning.add_argument("--github-output", help="the file that receives the output plan")
     planning.add_argument("--summary", help="the file that receives the Markdown summary")
     deciding = commands.add_parser("verdict", help="pass or fail on the results of the plan and the parts")
     deciding.add_argument("--needs", required=True, help="a file with toJSON(needs) of the verdict job")

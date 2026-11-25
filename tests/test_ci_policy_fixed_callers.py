@@ -5,9 +5,10 @@ pipeline, the previous version included, lets every job of the pipeline start.""
 from __future__ import annotations
 
 import json
+import re
 import unittest
 
-from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, read_workflow, tracked_files, workflow_triggers
+from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, expression_value, read_workflow, tracked_files, workflow_triggers
 
 KIT = "actions/pipeline/consumer-kit"
 RECORD = REPOSITORY_ROOT / KIT / "fixed-callers.json"
@@ -120,6 +121,42 @@ class TemplateTests(unittest.TestCase):
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "ci.yml")
         self.assertEqual({"pull_request": None, "push": {"branches": "[main]"}, "repository_dispatch": {"types": "[dependabot-merged]"}}, caller["on"])
         self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, caller["jobs"]["ci"]["permissions"])
+
+    def test_both_fixed_pipeline_callers_group_pull_requests_never_cancel_pushes_dispatches_or_edits(self) -> None:
+        def evaluate(template: str, context: dict) -> str:
+            return re.sub(r"\$\{\{\s*(.+?)\s*\}\}", lambda match: str(expression_value(match[1], context)), template)
+
+        for label, path in (("template", REPOSITORY_ROOT / KIT / "ci.yml"), ("own", REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml")):
+            with self.subTest(caller=label):
+                _, caller = read_workflow(path)
+                concurrency = caller.get("concurrency")
+                self.assertIsInstance(concurrency, dict, f"{label} ci.yml must define workflow-level concurrency")
+                group_expr, cancel_expr = str(concurrency["group"]), str(concurrency["cancel-in-progress"])
+                for action in ("opened", "synchronize", "reopened"):
+                    pr12_a = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "700",
+                                         "event": {"action": action, "pull_request": {"number": 12}}}}
+                    pr12_b = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "701",
+                                         "event": {"action": action, "pull_request": {"number": 12}}}}
+                    pr13 = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "702",
+                                       "event": {"action": action, "pull_request": {"number": 13}}}}
+                    self.assertEqual(evaluate(group_expr, pr12_a), evaluate(group_expr, pr12_b))
+                    self.assertNotEqual(evaluate(group_expr, pr12_a), evaluate(group_expr, pr13))
+                    self.assertTrue(expression_value(cancel_expr, pr12_a), f"a newer {action} cancels the older run")
+                edited_a = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "703",
+                                       "event": {"action": "edited", "pull_request": {"number": 12}}}}
+                edited_b = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "704",
+                                       "event": {"action": "edited", "pull_request": {"number": 12}}}}
+                self.assertNotEqual(evaluate(group_expr, pr12_a), evaluate(group_expr, edited_a),
+                                    "an edited run must not share a group with a code run of the same pull request")
+                self.assertNotEqual(evaluate(group_expr, edited_a), evaluate(group_expr, edited_b),
+                                    "each edited run gets a group of its own")
+                self.assertFalse(expression_value(cancel_expr, edited_a), "an edited title or description cancels no code run")
+                for event in ("push", "repository_dispatch"):
+                    run_a = {"github": {"workflow": "CI", "event_name": event, "run_id": "800", "event": {}}}
+                    run_b = {"github": {"workflow": "CI", "event_name": event, "run_id": "801", "event": {}}}
+                    self.assertNotEqual(evaluate(group_expr, run_a), evaluate(group_expr, run_b), f"{event} gets its own group")
+                    self.assertNotEqual(evaluate(group_expr, run_a), evaluate(group_expr, pr12_a))
+                    self.assertFalse(expression_value(cancel_expr, run_a), f"{event} is never cancelled")
 
     def test_the_write_caller_runs_on_the_automation_events_and_only_on_opened_issues(self) -> None:
         text, caller = read_workflow(REPOSITORY_ROOT / KIT / "automation.yml")

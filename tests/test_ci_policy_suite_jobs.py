@@ -415,10 +415,9 @@ class PipelinePartTests(unittest.TestCase):
         for name in ("shards", "windows", "jobs", "language-steps", "shared-digest"):
             self.assertEqual(f"${{{{ needs.{PART}.outputs.{name} }}}}", passed[name])
 
-    def test_a_newer_head_of_a_pull_request_cancels_the_suite_jobs_in_a_group_of_their_own(self) -> None:
-        selection, jobs = self.jobs[PART]["concurrency"], self.jobs[f"{PART}-jobs"]["concurrency"]
-        self.assertEqual(f"{selection['group']}-jobs", jobs["group"], "two jobs of one run never share a group")
-        self.assertEqual(selection["cancel-in-progress"], jobs["cancel-in-progress"])
+    def test_suite_selection_and_suite_jobs_rely_on_workflow_level_concurrency(self) -> None:
+        self.assertNotIn("concurrency", self.jobs[PART])
+        self.assertNotIn("concurrency", self.jobs[f"{PART}-jobs"])
 
     def test_the_results_job_stores_the_passed_results_of_a_pull_request_run_that_was_not_cancelled(self) -> None:
         job = self.jobs[f"{PART}-results"]
