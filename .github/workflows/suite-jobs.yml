@@ -36,6 +36,16 @@ on:
         type: boolean
         required: false
         default: false
+      linux-timeout-minutes:
+        description: Time limit in minutes for each Linux shard job.
+        type: number
+        required: false
+        default: 20
+      windows-timeout-minutes:
+        description: Time limit in minutes for the Windows job.
+        type: number
+        required: false
+        default: 30
 
 permissions: {}
 
@@ -44,6 +54,7 @@ jobs:
     if: inputs.shards != '' && inputs.shards != '[]'
     name: shard ${{ matrix.shard.shard }}
     runs-on: ${{ fromJSON(inputs.jobs).linux.runner }}
+    timeout-minutes: ${{ inputs.linux-timeout-minutes }}
     permissions:
       contents: read
     strategy:
@@ -94,6 +105,7 @@ jobs:
           HYGIENE: ${{ steps.hygiene.outputs.path }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$HYGIENE/install_tools.py" --pins "$HYGIENE/pins.json" --destination "$RUNNER_TEMP/setups/gitleaks" --tool gitleaks
       - name: Run the setups that start before the recording
+        if: matrix.shard.entries[0] != null
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           SETUPS: ${{ join(matrix.shard.setups, ' ') }}
@@ -116,9 +128,10 @@ jobs:
             printf '%s\n' --pinned "$pinned=$directory" >> "$options"
           done
           mapfile -t setups < "$options"
-          python3 "$RECORDING/recording.py" setups --suites "$SUITES" --phase before "${setups[@]}"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" setups --suites "$SUITES" --phase before "${setups[@]}"
       - name: Start the recording
         id: start
+        if: matrix.shard.entries[0] != null
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           FULL: ${{ inputs.full }}
@@ -126,15 +139,17 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$FULL" = true ]; then set -- --full --job "$JOB"; else set --; fi
-          python3 "$RECORDING/recording.py" start "$@"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" start "$@"
       - name: Run the setups under the recording and provide what every setup gives
+        if: matrix.shard.entries[0] != null
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: |
           set -euo pipefail
           mapfile -t setups < "$RUNNER_TEMP/setup-options.txt"
-          python3 "$RECORDING/recording.py" setups --suites "$SUITES" --phase recorded "${setups[@]}"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" setups --suites "$SUITES" --phase recorded "${setups[@]}"
       - name: Run the shard's entry files under the recording, two at a time
+        if: matrix.shard.entries[0] != null
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: |
@@ -145,12 +160,15 @@ jobs:
           # shard shares, also when two paths flatten alike or one entry file runs for two suites.
           # shellcheck disable=SC2329 # xargs invokes run_entry through bash -c
           run_entry() {
-            local index suite entry command
+            local index suite entry timeout command timeout_args
             index="$(jq -r .index <<<"$1")"
             suite="$(jq -r .suite <<<"$1")"
             entry="$(jq -r .entry <<<"$1")"
+            timeout="$(jq -r '.timeout // empty' <<<"$1")"
             mapfile -t command < <(jq -r '.command[]' <<<"$1")
-            python3 "$RECORDING/recording.py" exec --entry "$entry" --suites "$SUITES" --suite "$suite" -- "${command[@]}" "$entry" > "$LOGS/$index.log" 2>&1
+            timeout_args=()
+            if [ -n "$timeout" ]; then timeout_args=(--timeout "$timeout"); fi
+            PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" exec --entry "$entry" --suites "$SUITES" --suite "$suite" "${timeout_args[@]}" -- "${command[@]}" "$entry" > "$LOGS/$index.log" 2>&1
             echo "$?" > "$LOGS/$index.status"
             echo "$entry ($suite) exited with $(cat "$LOGS/$index.status")"
           }
@@ -162,7 +180,11 @@ jobs:
             echo "::group::$entry ($suite)"
             cat "$LOGS/$index.log"
             echo "::endgroup::"
-            if [[ "$(cat "$LOGS/$index.status" 2>/dev/null)" != 0 ]]; then
+            status="$(cat "$LOGS/$index.status" 2>/dev/null)"
+            if [[ "$status" == 124 ]]; then
+              echo "::error::$entry ($suite) timed out"
+              failed=1
+            elif [[ "$status" != 0 ]]; then
               echo "::error::$entry ($suite) failed"
               failed=1
             fi
@@ -195,7 +217,7 @@ jobs:
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           ADDITIONS: ${{ steps.check.outputs.additions }}
-        run: python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"
       - name: Upload the entry files that passed
         if: ${{ !cancelled() && !inputs.full && ((github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success')) || ((github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) && steps.check.outcome == 'success')) }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -208,6 +230,7 @@ jobs:
   windows:
     if: inputs.windows != ''
     runs-on: ${{ fromJSON(inputs.jobs).windows.runner }}
+    timeout-minutes: ${{ inputs.windows-timeout-minutes }}
     permissions:
       contents: read
     env:
@@ -263,6 +286,7 @@ jobs:
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}\repo-pycache
         run: |
           # One option per line, for this step and for the setups under the recording.
           $job = $env:WINDOWS | ConvertFrom-Json
@@ -286,6 +310,7 @@ jobs:
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           FULL: ${{ inputs.full }}
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}\repo-pycache
         run: |
           $mode = @()
           if ($env:FULL -eq 'true') { $mode = @('--full', '--job', 'windows') }
@@ -295,6 +320,7 @@ jobs:
         shell: pwsh
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}\repo-pycache
         run: |
           $options = @(Get-Content -Path "$env:RUNNER_TEMP\setup-options.txt" -Encoding utf8)
           python "$env:RECORDING\recording.py" setups --suites $env:SUITES --phase recorded @options
@@ -304,16 +330,21 @@ jobs:
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: |
+          $env:PYTHONPYCACHEPREFIX = "$env:RUNNER_TEMP\repo-pycache"
           $job = $env:WINDOWS | ConvertFrom-Json
           $failed = @()
           $passed = @()
           foreach ($item in $job.entries) {
             $command = @($item.command)
+            $timeoutArgs = if ($item.timeout) { @('--timeout', "$($item.timeout)") } else { @() }
             Write-Output "::group::$($item.entry)"
-            python "$env:RECORDING\recording.py" exec --entry $item.entry --suites $env:SUITES --suite $item.suite -- @command $item.entry
+            python "$env:RECORDING\recording.py" exec --entry $item.entry --suites $env:SUITES --suite $item.suite @timeoutArgs -- @command $item.entry
             $status = $LASTEXITCODE
             Write-Output "::endgroup::"
-            if ($status -ne 0) {
+            if ($status -eq 124) {
+              Write-Output "::error::$($item.entry) timed out"
+              $failed += $item.entry
+            } elseif ($status -ne 0) {
               Write-Output "::error::$($item.entry) exited with $status"
               $failed += $item.entry
             } else {
@@ -331,6 +362,14 @@ jobs:
           check: "true"
           suites: ${{ inputs.suites }}
           artifact-name: ${{ inputs.full && 'full-recording' || 'recording-additions' }}-windows
+      - name: List the entry files that passed
+        if: ${{ !cancelled() && !inputs.full && ((github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.check.outputs.additions != '')) || ((github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) && steps.check.outcome == 'success')) }}
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:RUNNER_TEMP\suite-results\passed.json")) {
+            New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\suite-results" | Out-Null
+            Set-Content -Path "$env:RUNNER_TEMP\suite-results\passed.json" -Value '[]' -Encoding utf8
+          }
       - name: Mark the entry files with additions in the passed list
         id: keep
         if: ${{ !cancelled() && !inputs.full && github.event_name == 'pull_request' && steps.check.outputs.additions != '' }}
@@ -338,6 +377,7 @@ jobs:
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           ADDITIONS: ${{ steps.check.outputs.additions }}
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}\repo-pycache
         run: |
           python "$env:RECORDING\recording.py" keep --additions "$env:ADDITIONS" "$env:RUNNER_TEMP\suite-results\passed.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -412,6 +412,10 @@ class ApplyTests(unittest.TestCase):
                 ("an entry's reads no object", additions({**valid, "entries": {"tests/a.py": "x.txt"}})),
                 ("replace_entries no object", additions({**valid, "replace_entries": [reads(["x.txt"])]})),
                 ("a replace_entries read no object", additions({**valid, "replace_entries": {"tests/a.py": "x.txt"}})),
+                ("durations no object", additions({**valid, "durations": [1.0]})),
+                ("a duration no number", additions({**valid, "durations": {"tests/a.py": "1.0"}})),
+                ("a negative duration", additions({**valid, "durations": {"tests/a.py": -1.0}})),
+                ("a boolean duration", additions({**valid, "durations": {"tests/a.py": True}})),
                 ("an unknown change field", additions({**valid, "command": "echo"}))):
             with self.subTest(shape=shape):
                 fixture = self.fixture()
@@ -472,6 +476,29 @@ class ApplyTests(unittest.TestCase):
         applied_both = fixture.apply(partial, second)
         self.assertEqual(0, applied_both.returncode, applied_both.stderr)
         self.assertEqual(["lib/new.py", "tests/c1.py", "tests/c2.py"], fixture.suite("whole")["paths"])
+
+    def test_apply_additions_records_measured_durations_from_normal_runs(self) -> None:
+        fixture = self.fixture([
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["tests/c1.py", "tests/c2.py"],
+                  entry_paths={"tests/c1.py": ["tests/c1.py"], "tests/c2.py": ["tests/c2.py"]},
+                  entry_durations={"tests/c2.py": 10.0}),
+        ])
+        change = additions({
+            "suite": "per-entry", "create": False, "recorded_entries": ["tests/c1.py", "tests/c2.py"],
+            "durations": {"tests/c1.py": 4.567, "tests/c2.py": 11.0},
+        })
+        applied = fixture.apply(self.write(fixture, "additions.json", change))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        # c1 had no stored duration -> recorded; c2 is within 25% of 10.0 -> kept at 10.0.
+        self.assertEqual({"tests/c1.py": 4.57, "tests/c2.py": 10.0}, fixture.suite("per-entry")["entry_durations"])
+        # When c2 changes by more than 25%, it updates too.
+        bigger = additions({
+            "suite": "per-entry", "create": False, "recorded_entries": ["tests/c2.py"],
+            "durations": {"tests/c2.py": 20.0},
+        })
+        applied_bigger = fixture.apply(self.write(fixture, "bigger.json", bigger))
+        self.assertEqual(0, applied_bigger.returncode, applied_bigger.stderr)
+        self.assertEqual({"tests/c1.py": 4.57, "tests/c2.py": 20.0}, fixture.suite("per-entry")["entry_durations"])
 
     def test_apply_with_expect_job_fails_visibly_when_a_shard_is_missing_or_empty(self) -> None:
         fixture = self.fixture()

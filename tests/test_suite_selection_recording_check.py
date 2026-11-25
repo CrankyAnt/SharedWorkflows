@@ -813,6 +813,19 @@ class KeepPassedTests(unittest.TestCase):
         self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
         self.assertEqual([], self.marked(passed))
 
+    def test_additions_document_records_durations_for_clean_entry_files_without_failing_check(self) -> None:
+        selection = self.recording.suite_selection
+        suite_list = selection.resolve_entries(selection.parse_suite_list(json.dumps(KEEP_SUITES)), set(KEEP_TRACKED))
+        clean = self.recording.Unit({"kind": "entry", "name": "tests/a.py", "exit_code": 0, "skipped": 0, "deselected": 0, "seconds": 3.456},
+                                    self.recording.Reads(paths={"tests/a.py"}))
+        skipped = self.recording.Unit({"kind": "entry", "name": "tests/b.py", "exit_code": 0, "skipped": 1, "deselected": 0, "seconds": 2.0},
+                                      self.recording.Reads(paths={"tests/b.py"}))
+        recorded = [(self.recording.suite_of(suite_list, u.record), u, u.reads) for u in (clean, skipped)]
+        document = self.recording.additions_document("suites.json", suite_list, recorded, KEEP_TRACKED)
+        self.assertEqual([], self.recording.additions_lines(document), "durations alone are not read additions")
+        by_suite = {item["suite"]: item for item in document["suites"]}
+        self.assertEqual({"tests/a.py": 3.456}, by_suite["per-entry"].get("durations"))
+
     def test_a_suite_without_a_stored_path_list_marks_every_recorded_entry_file_whatever_it_read(self) -> None:
         additions = self.additions({"tests/n1.py": {"tests/n1.py"}, "tests/n2.py": {"tests/n2.py"}, "tests/m.py": {"tests/m.py"},
                                     "tests/q.py": {"tests/q.py"}})
@@ -854,6 +867,69 @@ class KeepPassedTests(unittest.TestCase):
                 self.assertEqual(2, self.keep(additions, passed))
                 self.assertEqual(text, passed.read_text(encoding="utf-8"))
         self.assertEqual(2, self.keep(additions, self.directory / "absent.json"))
+
+
+class EntryTimeoutTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.recording = load_recording()
+        self.temp = temporary_support.Directory(prefix="recording-timeout-")
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        self.root = self.base / "repo"
+        self.output = self.base / "out"
+        (self.root / "tests").mkdir(parents=True)
+        (self.root / "tests" / "slow.py").write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
+        (self.root / "tests" / "fast.py").write_text("print('Ran 1 test in 0.001s\\n\\nOK')\n", encoding="utf-8")
+        (self.root / "suites.json").write_text(
+            json.dumps({"always": [], "suites": [suite("unit", ["tests/slow.py", "tests/fast.py"])]}),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.root), "init", "-q", "-b", "main"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base"], check=True)
+        for sub in ("units", "traces", "logs", "lookups", "setups"):
+            (self.output / sub).mkdir(parents=True, exist_ok=True)
+        (self.output / "environment.json").write_text(json.dumps(dict(os.environ)), encoding="utf-8")
+        if sys.platform == "win32":
+            settings = {"mode": "pull-request", "trace_set": "etw", "events": "events.tsv"}
+        else:
+            settings = {"mode": "pull-request", "trace_set": "mid", "strace": shutil.which("strace") or "strace"}
+        (self.output / "recording.json").write_text(json.dumps(settings), encoding="utf-8")
+
+    def run_exec(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(ROOT / "actions" / "recording" / "recording.py"), "exec", "--output", str(self.output),
+             "--root", str(self.root), "--suites", str(self.root / "suites.json"), *args],
+            cwd=self.root, capture_output=True, text=True, encoding="utf-8", check=False, timeout=15,
+        )
+
+    def test_an_entry_file_that_runs_past_its_timeout_fails_and_is_named(self) -> None:
+        ran = self.run_exec("--entry", "tests/slow.py", "--suite", "unit", "--timeout", "0.5", "--", sys.executable, "tests/slow.py")
+        self.assertEqual(124, ran.returncode, ran.stdout + ran.stderr)
+        combined = ran.stdout + ran.stderr
+        self.assertIn("tests/slow.py", combined)
+        self.assertIn("timed out", combined.lower())
+        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.output / "units").glob("*.json")]
+        self.assertEqual(1, len(records))
+        self.assertEqual(124, records[0]["exit_code"])
+        self.assertTrue(records[0].get("timed_out"))
+        self.assertGreaterEqual(records[0]["seconds"], 0.4)
+
+    def test_an_entry_file_within_its_timeout_passes_and_records_its_duration(self) -> None:
+        ran = self.run_exec("--entry", "tests/fast.py", "--suite", "unit", "--timeout", "30", "--", sys.executable, "tests/fast.py")
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.output / "units").glob("*.json")]
+        self.assertEqual(1, len(records))
+        self.assertEqual(0, records[0]["exit_code"])
+        self.assertFalse(records[0].get("timed_out", False))
+        self.assertIsInstance(records[0]["seconds"], (int, float))
+
+    def test_a_non_positive_timeout_is_rejected(self) -> None:
+        for bad in ("0", "-1"):
+            with self.subTest(timeout=bad):
+                ran = self.run_exec("--entry", "tests/fast.py", "--timeout", bad, "--", sys.executable, "tests/fast.py")
+                self.assertEqual(2, ran.returncode)
 
 
 if __name__ == "__main__":

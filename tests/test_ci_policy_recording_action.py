@@ -39,7 +39,7 @@ class RecordingActionTests(unittest.TestCase):
         check = self.steps[2]
         self.assertIn("id: check", check)
         self.assertIn("if: inputs.check == 'true'", check)
-        self.assertIn('"$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" '
+        self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" '
                       '--github-output "$GITHUB_OUTPUT" || status=$?', check)
         self.assertIn("PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}", check)
         self.assertIn("set -uo pipefail", check)

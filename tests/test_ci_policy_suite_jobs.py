@@ -54,9 +54,12 @@ class SuiteJobsWorkflowTests(unittest.TestCase):
         self.assertEqual(["workflow_call"], list(self.workflow["on"]))
         inputs = self.workflow["on"]["workflow_call"]["inputs"]
         self.assertEqual({"suites": ("string", "true"), "shards": ("string", "false"), "windows": ("string", "false"), "jobs": ("string", "true"),
-                          "language-steps": ("string", "false"), "shared-digests": ("string", "false"), "full": ("boolean", "false")},
+                          "language-steps": ("string", "false"), "shared-digests": ("string", "false"), "full": ("boolean", "false"),
+                          "linux-timeout-minutes": ("number", "false"), "windows-timeout-minutes": ("number", "false")},
                          {name: (value["type"], value["required"]) for name, value in inputs.items()})
         self.assertEqual("false", inputs["full"]["default"])
+        self.assertEqual("20", str(inputs["linux-timeout-minutes"]["default"]))
+        self.assertEqual("30", str(inputs["windows-timeout-minutes"]["default"]))
         self.assertNotIn("secrets", self.text)
         self.assertNotIn("pull_request_target", self.text)
 
@@ -70,6 +73,8 @@ class SuiteJobsWorkflowTests(unittest.TestCase):
         self.assertNotIn("strategy", windows, "the Windows job has no shards")
         self.assertNotIn("needs", linux)
         self.assertNotIn("needs", windows)
+        self.assertEqual("${{ inputs.linux-timeout-minutes }}", linux.get("timeout-minutes"))
+        self.assertEqual("${{ inputs.windows-timeout-minutes }}", windows.get("timeout-minutes"))
 
     def test_the_runner_label_and_the_fetch_depth_of_each_job_come_from_the_suite_list(self) -> None:
         for name, job in self.jobs.items():
@@ -191,7 +196,10 @@ class RecordedJobTests(unittest.TestCase):
                 self.assertEqual("Run the setups under the recording and provide what every setup gives", recorded["name"])
                 for step, phase in ((before, "before"), (recorded, "recorded")):
                     self.assertIn(f"{forms['command']} setups {forms['suites']} --phase {phase} ", step["run"])
-                    self.assertNotIn("if", step, "the command runs the setups that the job names, also when it names none")
+                    if job == "linux":
+                        self.assertEqual("matrix.shard.entries[0] != null", step.get("if"), "an empty shard skips setups and recording")
+                    else:
+                        self.assertNotIn("if", step, "the command runs the setups that the job names, also when it names none")
                     self.assertIn("setup-options.txt", step["run"], "both phases take the same setups and tools")
                 self.assertEqual("${{ steps.python.outputs.python-path }}", before["env"]["PYTHON_PATH"])
                 for tool in TOOLS:
@@ -248,13 +256,36 @@ class RecordedJobTests(unittest.TestCase):
     def test_a_shard_runs_its_entry_files_two_at_a_time_each_traced_and_the_windows_job_one_after_another(self) -> None:
         linux = self.jobs["linux"]["steps"][self.order("linux")["entries"]]["run"]
         self.assertIn("jq -c '.entries | to_entries[] | .value + {index: .key}' <<<\"$SHARD\" | xargs -d '\\n' -r -n 1 -P 2 bash -c 'run_entry \"$1\"' _", linux)
-        self.assertIn('exec --entry "$entry" --suites "$SUITES" --suite "$suite" -- "${command[@]}" "$entry"', linux)
+        self.assertIn('exec --entry "$entry" --suites "$SUITES" --suite "$suite" "${timeout_args[@]}" -- "${command[@]}" "$entry"', linux)
         windows = self.jobs["windows"]["steps"][self.order("windows")["entries"]]["run"]
         self.assertIn("foreach ($item in $job.entries)", windows)
-        self.assertIn("exec --entry $item.entry --suites $env:SUITES --suite $item.suite -- @command $item.entry", windows)
+        self.assertIn("exec --entry $item.entry --suites $env:SUITES --suite $item.suite @timeoutArgs -- @command $item.entry", windows)
         self.assertEqual({"SHARD": "${{ toJSON(matrix.shard) }}", "SUITES": "${{ inputs.suites }}"}, self.jobs["linux"]["env"])
         self.assertEqual({"WINDOWS": "${{ inputs.windows }}", "SUITES": "${{ inputs.suites }}",
                           "TOOLS": "${{ inputs.windows != '' && toJSON(fromJSON(inputs.windows).tools) || '{}' }}"}, self.jobs["windows"]["env"])
+
+    def test_an_empty_shard_records_nothing_and_every_python_command_uses_the_cache_prefix(self) -> None:
+        linux_steps = self.jobs["linux"]["steps"]
+        order = self.order("linux")
+        for key in ("before", "start", "recorded", "entries"):
+            self.assertEqual("matrix.shard.entries[0] != null", linux_steps[order[key]].get("if"), f"linux {key} must skip empty shard")
+        for job in JOBS:
+            for step in self.jobs[job]["steps"]:
+                text = str(step.get("run", ""))
+                if "recording.py" in text or "install_tools.py" in text:
+                    env = step.get("env") or {}
+                    self.assertTrue(
+                        "PYTHONPYCACHEPREFIX" in text or "PYTHONPYCACHEPREFIX" in env,
+                        f"{job} step {step.get('name')!r} must set PYTHONPYCACHEPREFIX",
+                    )
+
+    def test_the_windows_job_ensures_the_passed_list_exists_after_a_setup_failure(self) -> None:
+        steps = self.jobs["windows"]["steps"]
+        after = [step for step in steps[self.order("windows")["check"] + 1:] if "steps.check." in str(step.get("if", ""))]
+        self.assertEqual(["List the entry files that passed", "keep", "Upload the entry files that passed"],
+                         [step.get("id") or step["name"] for step in after])
+        self.assertIn("passed.json", after[0]["run"])
+        self.assertIn("Test-Path", after[0]["run"])
 
     def test_the_step_that_runs_the_entry_files_sets_no_variable_for_them(self) -> None:
         # The entry files get the job's environment before its setups; a variable of this step reaches only exec.
@@ -413,6 +444,8 @@ class PipelinePartTests(unittest.TestCase):
         self.assertEqual(f"${{{{ {PLANNED}.config.suites }}}}", passed["suites"])
         for name in ("shards", "windows", "jobs", "language-steps", "shared-digests"):
             self.assertEqual(f"${{{{ needs.plan.outputs.{name} }}}}", passed[name])
+        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-linux'] }}", passed["linux-timeout-minutes"])
+        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-windows'] }}", passed["windows-timeout-minutes"])
 
     def test_suite_jobs_rely_on_workflow_level_concurrency(self) -> None:
         self.assertNotIn("concurrency", self.jobs["plan"])

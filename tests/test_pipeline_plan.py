@@ -727,6 +727,37 @@ class EditedPullRequestTests(PipelineFixture):
         self.assertIn("no completed code run found", missing.plan["head-results"]["failures"][0])
 
 
+class TimeLimitTests(PipelineFixture):
+    def test_the_plan_sets_a_positive_timeout_minutes_for_every_job_of_the_pipeline(self) -> None:
+        self.schemas = SCHEMAS
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  suite-selection:\n    suites: tests/suites.json\n"})
+        outcome = self.plan()
+        self.assertEqual(0, outcome.status, outcome.summary)
+        timeouts = outcome.plan["timeouts"]
+        expected_jobs = {
+            "plan", "custom", "dotnet-test", "node-test", "python-test", "python-verify",
+            "repository-hygiene", "suite-selection-linux", "suite-selection-windows",
+            "suite-selection-results", "verdict",
+        }
+        self.assertEqual(expected_jobs, set(timeouts))
+        for job, minutes in timeouts.items():
+            with self.subTest(job=job):
+                self.assertIsInstance(minutes, int)
+                self.assertNotIsInstance(minutes, bool)
+                self.assertGreater(minutes, 0)
+
+    def test_the_plan_sets_timeouts_for_another_shared_workflow_s_jobs(self) -> None:
+        self.schemas = SCHEMAS
+        self.commit({CONFIGURATION: "version: 1\n"})
+        outcome = self.plan("--shared-workflow", "automation.yml")
+        self.assertEqual(0, outcome.status, outcome.summary)
+        timeouts = outcome.plan["timeouts"]
+        self.assertIn("plan", timeouts)
+        for part in outcome.plan["parts"]:
+            self.assertIn(part, timeouts)
+            self.assertGreater(timeouts[part], 0)
+
+
 class PartInputsAndDeparturesTests(PipelineFixture):
     """Declared part inputs, shared-code and pin inputs, unknown-input departures, and unmatched paths patterns (#182)."""
 

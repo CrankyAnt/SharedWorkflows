@@ -275,7 +275,7 @@ A tool whose exact version the pins file holds. The suite jobs give Node.js and 
 _Avoid_: Shared tool, built-in setup
 
 **Duration estimate**:
-The traced test time that one entry file is expected to take, stored in the suite list. Only the full recording renews it, from the corrected value of a clean entry file, and only when that value differs from the stored estimate by more than 25%.
+The traced test time that one entry file is expected to take, stored in the suite list. Every run records the duration of each clean entry file, and `apply` writes it when absent or differing from the stored estimate by more than 25% (with the full recording also correcting for the shard job's speed).
 _Avoid_: Duration, test timing
 
 **Shard**:

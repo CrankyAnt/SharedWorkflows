@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import re
 import subprocess
 import sys
@@ -99,8 +100,13 @@ if TYPE_CHECKING:
 
 SELECTION_JOB = "select"
 FAILING_RESULTS = ("failure", "cancelled")
-SHARD_BOUND = 120.0  # seconds of estimated traced test time per Linux shard on its workers
+GOAL_SECONDS = 180.0
+FIXED_COST_SECONDS = 90.0
+SHARD_BOUND = GOAL_SECONDS - FIXED_COST_SECONDS  # seconds of estimated traced test time per Linux shard on its workers
 FULL_SHARD_BOUND = 300.0  # seconds of estimated wide-traced test time per Linux shard of the full recording
+ENTRY_TIMEOUT_FLOOR = 180  # minimum per-entry timeout in seconds for normal runs
+FULL_ENTRY_TIMEOUT_FLOOR = 300  # minimum per-entry timeout in seconds for full recordings
+ENTRY_TIMEOUT_MULTIPLIER = 3
 FULL_REASON = "the full recording runs every entry file"
 SHARD_WORKERS = 2
 LANGUAGE_STEPS = {
@@ -667,25 +673,35 @@ def two_worker_time(estimates: list[float]) -> float:
     return max(workers)
 
 
-def assign_shards(units: list[tuple[Suite, str, float]], bound: float = SHARD_BOUND) -> list[list[tuple[Suite, str, float]]]:
-    """As few shards as keep each shard's two-worker time under the bound, filled greedily by estimate; an entry file
-    over the bound gets a shard of its own."""
-    ordered = sorted(units, key=lambda unit: -unit[2])
-    for count in range(1, len(ordered) + 1):
-        shards: list[list[tuple[Suite, str, float]]] = [[] for _ in range(count)]
-        for unit in ordered:
-            loads = [sum(item[2] for item in shard) for shard in shards]
-            shards[loads.index(min(loads))].append(unit)
-        if all(len(shard) == 1 or two_worker_time([item[2] for item in shard]) < bound for shard in shards):
-            return shards
-    return []
+def entry_timeout(estimate: float | None, full: bool = False) -> int:
+    """The per-entry time limit in seconds for one entry file."""
+    floor = FULL_ENTRY_TIMEOUT_FLOOR if full else ENTRY_TIMEOUT_FLOOR
+    return floor if estimate is None else max(floor, math.ceil(estimate * ENTRY_TIMEOUT_MULTIPLIER))
 
 
-def shard_document(units: list[tuple[Suite, str, float]], estimate: float, suite_list: SuiteList | None = None,
-                   tools: dict[str, str] | None = None) -> dict:
-    """The estimate, the setups and the entry files with their suite's command of one job; for a suite list that states
-    its setups as data, also the tools that the job's setups name, each with its version from ``tools``; and the pinned
-    tools among the job's setups, when it has any."""
+def assign_shards(units: list[tuple[Suite, str, float | None]], bound: float = SHARD_BOUND) -> list[list[tuple[Suite, str, float | None]]]:
+    """As few shards as keep each shard's two-worker time within the bound, filled longest first by estimate; an entry
+    file over the bound, or without a measured duration, gets a shard of its own."""
+    measured = sorted([unit for unit in units if unit[2] is not None], key=lambda unit: -unit[2])  # type: ignore[operator]
+    unmeasured = [unit for unit in units if unit[2] is None]
+    measured_shards: list[list[tuple[Suite, str, float | None]]] = []
+    if measured:
+        for count in range(1, len(measured) + 1):
+            shards: list[list[tuple[Suite, str, float | None]]] = [[] for _ in range(count)]
+            for unit in measured:
+                loads = [sum(item[2] for item in shard if item[2] is not None) for shard in shards]
+                shards[loads.index(min(loads))].append(unit)
+            if all(len(shard) == 1 or two_worker_time([item[2] for item in shard if item[2] is not None]) <= bound for shard in shards):
+                measured_shards = shards
+                break
+    return measured_shards + [[unit] for unit in unmeasured]
+
+
+def shard_document(units: list[tuple[Suite, str, float | None]], estimate: float, suite_list: SuiteList | None = None,
+                   tools: dict[str, str] | None = None, *, full: bool = False) -> dict:
+    """The estimate, the setups and the entry files with their suite's command and time limit of one job; for a suite
+    list that states its setups as data, also the tools that the job's setups name, each with its version from
+    ``tools``; and the pinned tools among the job's setups, when it has any."""
     setups: list[str] = []
     for suite, entry, _ in units:
         setups += [setup for setup in suite.setups_of(entry) if setup not in setups]
@@ -699,24 +715,23 @@ def shard_document(units: list[tuple[Suite, str, float]], estimate: float, suite
     if pinned:
         named["pinned"] = pinned
     return {"estimate": estimate, "setups": setups, **named,
-            "entries": [{"suite": suite.name, "entry": entry, "command": list(suite.command) if suite.command is not None else None}
-                        for suite, entry, _ in units]}
+            "entries": [{"suite": suite.name, "entry": entry, "command": list(suite.command) if suite.command is not None else None,
+                         "timeout": entry_timeout(duration, full)}
+                        for suite, entry, duration in units]}
 
 
-def selected_units(selection: Selection, suite_list: SuiteList, operating_system: str, scale: float = 1.0) -> list[tuple[Suite, str, float]]:
-    """The selected entry files of one operating system with their estimates times ``scale``; an entry file without a
-    stored estimate counts with the mean of the stored estimates of that operating system, or 0 s when the suite list
-    stores none for it."""
-    stored = [estimate for suite in suite_list.suites if suite.os == operating_system for _, estimate in suite.entry_durations]
-    mean = sum(stored) / len(stored) if stored else 0
+def selected_units(selection: Selection, suite_list: SuiteList, operating_system: str, scale: float = 1.0) -> list[tuple[Suite, str, float | None]]:
+    """The selected entry files of one operating system with their estimates times ``scale``, or None when an entry file
+    has no measured duration yet."""
     by_name = {suite.name: suite for suite in suite_list.suites}
-    units = []
+    units: list[tuple[Suite, str, float | None]] = []
     for decision in selection.decisions:
         suite = by_name[decision.suite]
         if decision.run and suite.os == operating_system:
             estimates = dict(suite.entry_durations)
-            units += [(suite, entry, estimates.get(entry, mean) * scale if scale != 1.0 else estimates.get(entry, mean))
-                      for entry in decision.entries]
+            for entry in decision.entries:
+                stored = estimates.get(entry)
+                units.append((suite, entry, None if stored is None else (stored * scale if scale != 1.0 else stored)))
     return units
 
 
@@ -725,18 +740,19 @@ def shards_json(selection: Selection, suite_list: SuiteList, steps: dict[str, st
     """The Linux shard matrix as a JSON list on one line; one shard without suites when only a language step runs. The
     full recording counts each estimate under the wide set and bounds each shard by ``FULL_SHARD_BOUND``."""
     units = selected_units(selection, suite_list, "linux", full_recording_scale("linux") if full else 1.0)
-    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard]), suite_list, tools)
+    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard if estimate is not None]), suite_list, tools, full=full)
               for shard in assign_shards(units, FULL_SHARD_BOUND if full else SHARD_BOUND)]
     if not shards and "run" in steps.values():
-        shards = [shard_document([], 0.0, suite_list, tools)]
+        shards = [shard_document([], 0.0, suite_list, tools, full=full)]
     return json.dumps([{"shard": number, **shard} for number, shard in enumerate(shards, start=1)], separators=(",", ":"))
 
 
 def windows_json(selection: Selection, suite_list: SuiteList, full: bool = False, tools: dict[str, str] | None = None) -> str:
     """The selected Windows entry files as one job's JSON object on one line, or empty when none is selected. The job
-    runs its entry files one after another, so its estimate is the sum of their estimates."""
+    runs its entry files one after another, so its estimate is the sum of their measured estimates."""
     units = selected_units(selection, suite_list, "windows", full_recording_scale("windows") if full else 1.0)
-    return json.dumps(shard_document(units, sum(estimate for _, _, estimate in units), suite_list, tools), separators=(",", ":")) if units else ""
+    return json.dumps(shard_document(units, sum(estimate for _, _, estimate in units if estimate is not None), suite_list, tools, full=full),
+                      separators=(",", ":")) if units else ""
 
 
 # --- the push lookup and the reuse of passed results ------------------------------------------------------

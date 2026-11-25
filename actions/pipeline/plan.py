@@ -67,7 +67,23 @@ HYGIENE_JOB = "repository-hygiene"
 VERDICT_JOB = "verdict"
 SUITE_SELECTION_JOB = "suite-selection"
 SUITE_SELECTION_JOBS = "suite-selection-jobs"
+SUITE_SELECTION_LINUX = "suite-selection-linux"
+SUITE_SELECTION_WINDOWS = "suite-selection-windows"
 SUITE_SELECTION_RESULTS = "suite-selection-results"
+DEFAULT_JOB_TIMEOUT_MINUTES = 10
+JOB_TIMEOUT_MINUTES = {
+    PLAN_JOB: 5,
+    HYGIENE_JOB: 10,
+    "custom": 10,
+    "dotnet-test": 10,
+    "node-test": 10,
+    "python-test": 10,
+    "python-verify": 10,
+    SUITE_SELECTION_LINUX: 10,
+    SUITE_SELECTION_WINDOWS: 15,
+    SUITE_SELECTION_RESULTS: 5,
+    VERDICT_JOB: 5,
+}
 PLAN_CHANGES_STEP = "Decide which checks the changed files can affect"
 TITLE_STEP = "Check the pull request title"
 REFERENCES_STEP = "Check the references to repositories of the owner"
@@ -748,6 +764,21 @@ def head_code_results(head: str | None, workflow_ref: str, run_id: str) -> dict:
     return {"run_id": None, "passed": False, "failures": [f"no completed code run found for `{head}`"]}
 
 
+def job_timeouts(version: SchemaVersion, workflow: str) -> dict[str, int]:
+    """The timeout-minutes limit for every job of ``workflow``."""
+    timeouts: dict[str, int] = {PLAN_JOB: JOB_TIMEOUT_MINUTES[PLAN_JOB]}
+    for name in version.parts_of(workflow):
+        if workflow == PIPELINE and name == SUITE_SELECTION_JOB:
+            timeouts[SUITE_SELECTION_LINUX] = JOB_TIMEOUT_MINUTES[SUITE_SELECTION_LINUX]
+            timeouts[SUITE_SELECTION_WINDOWS] = JOB_TIMEOUT_MINUTES[SUITE_SELECTION_WINDOWS]
+            timeouts[SUITE_SELECTION_RESULTS] = JOB_TIMEOUT_MINUTES[SUITE_SELECTION_RESULTS]
+        else:
+            timeouts[name] = JOB_TIMEOUT_MINUTES.get(name, DEFAULT_JOB_TIMEOUT_MINUTES)
+    if workflow == PIPELINE:
+        timeouts[VERDICT_JOB] = JOB_TIMEOUT_MINUTES[VERDICT_JOB]
+    return timeouts
+
+
 def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
               workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None,
               event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0",
@@ -814,6 +845,7 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     result: dict = {
         "version": version.version,
         "parts": decisions,
+        "timeouts": job_timeouts(version, workflow),
         "departures": departures,
         "unmatched-paths": unmatched,
         "compared": changed is not None,

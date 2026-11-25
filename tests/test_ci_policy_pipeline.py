@@ -201,6 +201,26 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("NEEDS: ${{ toJSON(needs) }}", self.text)
         self.assertEqual({"contents": "read"}, verdict["permissions"])
 
+    def test_every_job_of_the_pipeline_has_a_time_limit_from_the_plan(self) -> None:
+        plan_timeout = self.jobs[PLAN].get("timeout-minutes")
+        self.assertIsNotNone(plan_timeout, "plan must declare timeout-minutes")
+        self.assertGreater(int(str(plan_timeout)), 0)
+        for name, job in self.jobs.items():
+            if name == PLAN:
+                continue
+            with self.subTest(job=name):
+                if name in CALLED:
+                    passed = job.get("with", {})
+                    self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-linux'] }}",
+                                     passed.get("linux-timeout-minutes"))
+                    self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-windows'] }}",
+                                     passed.get("windows-timeout-minutes"))
+                else:
+                    timeout = str(job.get("timeout-minutes", ""))
+                    self.assertIn("needs.plan.outputs.plan", timeout, f"{name} must take timeout-minutes from the plan")
+                    self.assertIn("timeouts", timeout, f"{name} must read timeouts from the plan")
+                    self.assertIn(name, timeout, f"{name} must read its own timeout from the plan")
+
     def test_the_plan_gives_its_plan_as_its_output_and_runs_one_checkout_one_push_lookup_one_shared_lookup_and_light_hygiene(self) -> None:
         plan = self.jobs[PLAN]
         self.assertEqual("${{ steps.plan.outputs.plan }}", plan["outputs"]["plan"])

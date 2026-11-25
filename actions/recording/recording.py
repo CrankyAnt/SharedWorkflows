@@ -46,14 +46,17 @@ import concurrent.futures
 import functools
 import hashlib
 import json
+import math
 import os
 import posixpath
 import re
 import shutil
+import signal
 import stat
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
@@ -519,6 +522,26 @@ def stated_setups(suites: Path, root: Path, entry: str, suite: str | None) -> tu
     return suite_of(suite_list, {"name": entry, "suite": suite}).setups_of(entry)
 
 
+TIMEOUT_EXIT_CODE = 124
+
+
+def terminate_process_tree(process: subprocess.Popen) -> None:
+    """Kill ``process`` and every descendant it started."""
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, check=False, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if process.poll() is None:
+            process.kill()
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        if process.poll() is None:
+            process.kill()
+
+
 def run_exec(options: argparse.Namespace) -> int:
     output = output_directory(options.output)
     settings = read_settings(output)
@@ -553,15 +576,39 @@ def run_exec(options: argparse.Namespace) -> int:
         environment = dict(base, TMPDIR=str(temporary))
     started = time.perf_counter()
     log = bytearray()
+    timeout = getattr(options, "timeout", None)
+    timed_out = False
     with subprocess.Popen(recorder + command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=environment,
-                          cwd=getattr(options, "directory", None)) as process:
+                          cwd=getattr(options, "directory", None), start_new_session=(sys.platform != "win32")) as process:
         assert process.stdout is not None
-        for chunk in iter(lambda: process.stdout.read1(65536), b""):
-            sys.stdout.buffer.write(chunk)
-            sys.stdout.buffer.flush()
-            log += chunk
-        code = process.wait()
+
+        def drain() -> None:
+            assert process.stdout is not None
+            for chunk in iter(lambda: process.stdout.read1(65536), b""):
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+                log.extend(chunk)
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
+        try:
+            code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            terminate_process_tree(process)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            code = TIMEOUT_EXIT_CODE
+        finally:
+            reader.join(timeout=5)
     seconds = time.perf_counter() - started
+    if timed_out:
+        unit_name = options.setup or normalize_entry(options.entry)
+        label = f"{unit_name} ({options.suite})" if options.suite else unit_name
+        print(f"{label} timed out after {timeout:g} s", file=sys.stderr, flush=True)
     if not etw and trace.is_file():
         keep_pathspec_variables(trace)
     text = log.decode("utf-8", "replace")
@@ -572,6 +619,8 @@ def run_exec(options: argparse.Namespace) -> int:
               "deselected": deselected, "incomplete_report": incomplete,
               "trace": trace.name, "lookups": lookups.name, "temporary": str(temporary), "cache": str(cache),
               "cwd": str(getattr(options, "directory", None) or os.getcwd())}
+    if timed_out:
+        record["timed_out"] = True
     if "job" in settings:
         record["job"] = settings["job"]
     if etw:
@@ -2313,10 +2362,14 @@ def additions_document(list_path: str, suite_list: suite_selection.SuiteList, re
             item["reads"] = total.document()
         if kept_reason(unit.record) is None:
             item.setdefault("replace_entries", {})[entry] = reads.document()
+            seconds = unit.record.get("seconds")
+            if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and math.isfinite(seconds) and seconds >= 0:
+                item.setdefault("durations", {})[entry] = seconds
     for name, item in suites.items():
         item["recorded_entries"] = sorted(recorded_entries[name])
     changes = [item for item in suites.values()
-               if item["create"] or item.get("entries") or item.get("replace_entries") or not Reads.of(item.get("reads", {})).empty()]
+               if item["create"] or item.get("entries") or item.get("replace_entries") or item.get("durations")
+               or not Reads.of(item.get("reads", {})).empty()]
     for item in changes:
         if "reads" in item and Reads.of(item["reads"]).empty() and not item["create"]:
             del item["reads"]
@@ -2734,7 +2787,7 @@ def additions_problem(document: dict) -> str | None:
     for index, change in enumerate(document["suites"]):
         if not isinstance(change, dict):
             return f"suites[{index}] is no object"
-        unknown = sorted(set(change) - {"suite", "create", "recorded_entries", "reads", "entries", "replace_entries"})
+        unknown = sorted(set(change) - {"suite", "create", "recorded_entries", "reads", "entries", "replace_entries", "durations"})
         if unknown:
             return f"suites[{index}] holds the unknown field {unknown[0]}"
         if not isinstance(change.get("suite"), str):
@@ -2752,6 +2805,13 @@ def additions_problem(document: dict) -> str | None:
             for entry, reads in entries.items():
                 if problem := reads_problem(reads, f"suites[{index}].{field_name}[{entry}]"):
                     return problem
+        if "durations" in change:
+            durations = change["durations"]
+            if not isinstance(durations, dict):
+                return f"suites[{index}].durations is no object"
+            for entry, seconds in durations.items():
+                if not isinstance(entry, str) or isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds < 0:
+                    return f"suites[{index}].durations[{entry}] is no non-negative number"
     return None
 
 
@@ -2879,7 +2939,7 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
     merged: dict[str, dict] = {}
     for document in documents:
         for change in document["suites"]:
-            target = merged.setdefault(change["suite"], {"create": False, "recorded": set(), "reads": Reads(), "entries": {}, "replace_entries": {}})
+            target = merged.setdefault(change["suite"], {"create": False, "recorded": set(), "reads": Reads(), "entries": {}, "replace_entries": {}, "durations": {}})
             target["create"] |= change["create"]
             target["recorded"] |= set(change["recorded_entries"])
             target["reads"].update(Reads.of(change.get("reads", {})))
@@ -2887,6 +2947,8 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
                 target["entries"].setdefault(entry, Reads()).update(Reads.of(reads))
             for entry, reads in change.get("replace_entries", {}).items():
                 target["replace_entries"].setdefault(entry, Reads()).update(Reads.of(reads))
+            for entry, seconds in change.get("durations", {}).items():
+                target["durations"][entry] = seconds
     report = []
     replaced: set[tuple[str, str]] = set()
     recorded_lookups: dict[str, set[str]] = {}
@@ -2896,6 +2958,13 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
         suite_entries = set(suite.entries)
         if change["create"] and suite.paths is None:
             start_list(item, suite, suite.entries, change["recorded"])
+        if change["durations"]:
+            durations = dict(item.get("entry_durations", {}))
+            for entry, seconds in sorted(change["durations"].items()):
+                if entry in suite_entries:
+                    durations[entry] = new_estimate(seconds, durations.get(entry))
+            if durations:
+                item["entry_durations"] = durations
         replaced_here = 0
         added_paths = 0
         if suite.entry_selection:
@@ -3302,6 +3371,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     executing.add_argument("--suites", type=Path, help="the suite list, whose setups of the entry file decide its environment")
     executing.add_argument("--root", type=Path, default=Path("."), help="the repository root of the suite list's entry files "
                            "(default: the working directory)")
+    executing.add_argument("--timeout", type=float, help="time limit in seconds for the command")
     executing.add_argument("arguments", nargs=argparse.REMAINDER, help="-- and the command")
     providing = commands.add_parser("provide", help="record what a setup installed in this job provides to the entry files that state it")
     providing.add_argument("--output", type=Path)
@@ -3355,6 +3425,8 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
         parser.error("--suite and --suites go with --entry")
     if options.command == "exec" and options.entry is not None and options.suites is None:
         parser.error("--entry needs --suites")
+    if options.command == "exec" and options.timeout is not None and (not math.isfinite(options.timeout) or options.timeout <= 0):
+        parser.error("--timeout must be a positive number of seconds")
     return options
 
 

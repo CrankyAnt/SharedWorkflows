@@ -266,12 +266,15 @@ class SuiteJobTests(unittest.TestCase):
         self.workflow = outside_the_full_recording(workflow)
 
     def test_each_job_that_runs_units_uploads_its_passed_entry_files_after_its_check_without_those_with_additions(self) -> None:
-        for job, name, keep in (
+        for job, name, keep, expected_env in (
                 ("linux", "suite-results-shard-${{ matrix.shard.shard }}",
-                 'python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"'),
+                 'PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" keep --additions "$ADDITIONS" "$RUNNER_TEMP/suite-results/passed.json"',
+                 {"RECORDING": "${{ steps.recording.outputs.path }}", "ADDITIONS": "${{ steps.check.outputs.additions }}"}),
                 ("windows", "suite-results-windows",
                  'python "$env:RECORDING\\recording.py" keep --additions "$env:ADDITIONS" "$env:RUNNER_TEMP\\suite-results\\passed.json"\n'
-                 "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }")):
+                 "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+                 {"RECORDING": "${{ steps.recording.outputs.path }}", "ADDITIONS": "${{ steps.check.outputs.additions }}",
+                  "PYTHONPYCACHEPREFIX": "${{ runner.temp }}\\repo-pycache"})):
             with self.subTest(job=job):
                 steps = steps_of(self.workflow, job)
                 check = next(index for index, step in enumerate(steps) if step.get("id") == "check")
@@ -280,8 +283,7 @@ class SuiteJobTests(unittest.TestCase):
                 self.assertLess(check, kept)
                 self.assertEqual(kept + 1, upload)
                 self.assertEqual(KEPT, steps[kept]["if"])
-                self.assertEqual({"RECORDING": "${{ steps.recording.outputs.path }}", "ADDITIONS": "${{ steps.check.outputs.additions }}"},
-                                 steps[kept]["env"])
+                self.assertEqual(expected_env, steps[kept]["env"])
                 self.assertEqual(keep, steps[kept]["run"])
                 self.assertEqual(UPLOADED, steps[upload]["if"])
                 self.assertEqual(name, steps[upload]["with"]["name"])
@@ -293,7 +295,7 @@ class SuiteJobTests(unittest.TestCase):
         self.assertEqual(linux.index(listing) + 1, next(index for index, step in enumerate(linux) if step.get("id") == "keep"))
 
     def test_a_check_that_passed_uploads_every_pass_one_with_additions_the_kept_passes_and_a_recording_error_none(self) -> None:
-        listed = {"linux": ["List the entry files that passed"], "windows": []}
+        listed = {"linux": ["List the entry files that passed"], "windows": ["List the entry files that passed"]}
         for job in ("linux", "windows"):
             steps = steps_of(self.workflow, job)
             upload = "Upload the entry files that passed"

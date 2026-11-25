@@ -8,6 +8,7 @@ permissions: {}
 jobs:
   plan:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     permissions:
       actions: read
       contents: read
@@ -295,6 +296,7 @@ jobs:
     needs: plan
     if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].run }}
     runs-on: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config['runner-label'] || 'ubuntu-26.04' }}
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['custom'] }}
     permissions:
       contents: read
     steps:
@@ -378,6 +380,7 @@ jobs:
       matrix:
         project: ${{ fromJSON(needs.plan.outputs.plan).parts['dotnet-test'].config['projects'] }}
     runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['dotnet-test'] }}
     permissions:
       contents: read
     steps:
@@ -412,6 +415,7 @@ jobs:
       matrix:
         project: ${{ fromJSON(needs.plan.outputs.plan).parts['node-test'].config['projects'] }}
     runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['node-test'] }}
     permissions:
       contents: read
     steps:
@@ -452,6 +456,7 @@ jobs:
       matrix:
         project: ${{ fromJSON(needs.plan.outputs.plan).parts['python-test'].config['projects'] }}
     runs-on: ${{ matrix.project['runner-label'] || 'ubuntu-26.04' }}
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['python-test'] }}
     permissions:
       contents: read
     defaults:
@@ -517,6 +522,7 @@ jobs:
       matrix:
         project: ${{ fromJSON(needs.plan.outputs.plan).parts['python-verify'].config['projects'] }}
     runs-on: ubuntu-26.04
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['python-verify'] }}
     permissions:
       contents: read
     steps:
@@ -563,6 +569,7 @@ jobs:
     needs: plan
     if: ${{ fromJSON(needs.plan.outputs.plan).parts['repository-hygiene'].run }}
     runs-on: ubuntu-26.04
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['repository-hygiene'] }}
     permissions:
       contents: read
       pull-requests: read
@@ -778,11 +785,14 @@ jobs:
       jobs: ${{ needs.plan.outputs.jobs }}
       language-steps: ${{ needs.plan.outputs.language-steps }}
       shared-digests: ${{ needs.plan.outputs.shared-digests }}
+      linux-timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-linux'] }}
+      windows-timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-windows'] }}
 
   suite-selection-results:
     needs: [plan, suite-selection-jobs]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}
     runs-on: ubuntu-slim
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan || '{}').timeouts['suite-selection-results'] || 5 }}
     permissions:
       contents: read
     steps:
@@ -834,6 +844,7 @@ jobs:
     needs: [plan, custom, dotnet-test, node-test, python-test, python-verify, repository-hygiene, suite-selection-jobs, suite-selection-results]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan || '{}').timeouts['verdict'] || 5 }}
     permissions:
       contents: read
     steps:
