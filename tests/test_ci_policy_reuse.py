@@ -14,6 +14,17 @@ KEPT = "${{ !cancelled() && github.event_name == 'pull_request' && steps.check.o
 DISPATCH_CHECK = "Check that the dispatched commit is on the default branch"
 DISPATCH_IF = "github.event_name == 'repository_dispatch' && github.event.client_payload.sha"
 UPLOADED = "${{ !cancelled() && github.event_name == 'pull_request' && (steps.check.outcome == 'success' || steps.keep.outcome == 'success') }}"
+MARKER_SAVE_IF = (
+    "${{ !cancelled() && steps.install.outcome == 'success'"
+    " && steps.gitleaks.outputs.recorded-marker == 'true'"
+    " && (github.event_name == 'repository_dispatch'"
+    " || (github.event_name == 'push' && github.ref_type == 'branch'"
+    " && github.ref_name == github.event.repository.default_branch)) }}"
+)
+MARKER_SAVE_WITH = {
+    "path": "${{ runner.temp }}/gitleaks-marker/marker.json",
+    "key": "gitleaks-marker-${{ github.run_id }}-${{ github.run_attempt }}",
+}
 
 
 def steps_of(workflow: dict, job: str) -> list[dict]:
@@ -62,7 +73,7 @@ class SelectionStepTests(unittest.TestCase):
 
 
 class StoreStepTests(unittest.TestCase):
-    def test_only_the_verdict_the_pipeline_s_results_job_and_the_hygiene_job_store_and_only_a_pull_request_run_that_was_not_cancelled(self) -> None:
+    def test_only_the_verdict_the_pipeline_and_hygiene_store_results_on_pull_requests_and_the_gitleaks_marker_on_the_default_branch(self) -> None:
         for path in sorted(WORKFLOWS.glob("*.yml")):
             if path.name not in ("suite-verdict.yml", "repository-hygiene.yml", "pipeline.yml"):
                 with self.subTest(workflow=path.name):
@@ -88,12 +99,47 @@ class StoreStepTests(unittest.TestCase):
         self.assertNotIn("if", steps[-1], "the verdict itself reports on every run")
         pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
         self.assertEqual(2, pipeline_text.count("uses: actions/cache/save"))
+        pipeline_saves = {
+            job: [step for step in body.get("steps", ()) if str(step.get("uses", "")).startswith("actions/cache/save@")]
+            for job, body in pipeline["jobs"].items()
+            if any(str(step.get("uses", "")).startswith("actions/cache/save@") for step in body.get("steps", ()))
+        }
+        self.assertEqual({"repository-hygiene", "suite-selection-results"}, set(pipeline_saves))
+        self.assertEqual(1, len(pipeline_saves["suite-selection-results"]))
+        self.assertEqual(1, len(pipeline_saves["repository-hygiene"]))
         results = pipeline["jobs"]["suite-selection-results"]
         self.assertEqual(
             "${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}",
             results["if"],
         )
         self.assertEqual(save["with"], results["steps"][-1]["with"], "the pipeline stores under the key that the selection restores")
+        self.assertEqual(results["steps"][-1], pipeline_saves["suite-selection-results"][0])
+        hygiene_text, hygiene = read_workflow(WORKFLOWS / "repository-hygiene.yml")
+        self.assertEqual(2, hygiene_text.count("uses: actions/cache/save"))
+        hygiene_saves = {
+            job: [step for step in body.get("steps", ()) if str(step.get("uses", "")).startswith("actions/cache/save@")]
+            for job, body in hygiene["jobs"].items()
+            if any(str(step.get("uses", "")).startswith("actions/cache/save@") for step in body.get("steps", ()))
+        }
+        self.assertEqual({"hygiene"}, set(hygiene_saves))
+        self.assertEqual(2, len(hygiene_saves["hygiene"]))
+        for label, wf_steps, marker_save in (
+            ("pipeline", steps_of(pipeline, "repository-hygiene"), pipeline_saves["repository-hygiene"][0]),
+            ("repository-hygiene", steps_of(hygiene, "hygiene"), hygiene_saves["hygiene"][0]),
+        ):
+            with self.subTest(workflow=label):
+                gitleaks = next(step for step in wf_steps if step.get("id") == "gitleaks")
+                self.assertLess(wf_steps.index(gitleaks), wf_steps.index(marker_save))
+                self.assertEqual("Store the default-branch Gitleaks scan marker", marker_save["name"])
+                self.assertEqual(MARKER_SAVE_IF, marker_save["if"])
+                self.assertEqual(MARKER_SAVE_WITH, marker_save["with"])
+        hygiene_pr_save = hygiene_saves["hygiene"][1]
+        self.assertEqual("Store the passed checks in the pull request's cache", hygiene_pr_save["name"])
+        self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' }}", hygiene_pr_save["if"])
+        self.assertEqual({
+            "path": "${{ runner.temp }}/hygiene-results/record.json",
+            "key": "hygiene-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}",
+        }, hygiene_pr_save["with"])
 
     def test_store_keys_the_passed_units_under_the_run_s_additions_in_a_checkout_of_the_tested_tree(self) -> None:
         _, verdict = read_workflow(WORKFLOWS / "suite-verdict.yml")
