@@ -186,6 +186,7 @@ A setup with `tool` gets its tool installed by the pinned action before both pha
   - `path=<directory>`: a directory that goes first on the `PATH` of the entry files, in the order of the stated setups;
   - `variable=<name>=<value>`: a variable of the entry files;
   - `python=<interpreter>`: a Python interpreter into which the lookup report of the recording is installed, so the recording sees the module lookups of its imports;
+  - `write=<directory>`: an absolute writable directory that the setup grants to the entry files;
 - `SETUP_TOOL`, for a tool setup only: the interpreter for `python`, the directory of its programs for `node`, its root for `dotnet`.
 
 A setup that gives nothing writes no line. A setup step writes nothing to `$GITHUB_PATH` or `$GITHUB_ENV`. An entry file runs in the job's environment before its setups, with only what its stated setups provide and the job's default environment variables. The suite jobs have no `env` of the repository's own, so a value that an entry file needs and no setup provides reaches it in one of two ways:
@@ -195,7 +196,7 @@ A setup that gives nothing writes no line. A setup step writes nothing to `$GITH
 
 `exec` gives each entry file a temporary directory of its own in `TMPDIR`, and on Windows in `TEMP` and `TMP` as well; no other value replaces them, neither a job default nor a `variable=` line.
 
-`exec --entry` fails when the job did not install a setup that the entry file states. What a test writes outside what its setups provide, such as `$HOME` or the shared checkout, is no input of selection; a result that depends on such a write is a flaky result. A job that records restores no cache that holds build or test results and turns off build servers and node reuse.
+`exec --entry` fails when the job did not install a setup that the entry file states. What a test writes outside its own temporary, bytecode-cache and lookup directories and what its setups grant through `write=`, such as `$HOME` or the shared checkout, is no input of selection; a result that depends on such a write is a flaky result, and on Linux `check` reports such a write as a departure while the test still runs. A job that records restores no cache that holds build or test results and turns off build servers and node reuse.
 
 ### Pinned tools
 

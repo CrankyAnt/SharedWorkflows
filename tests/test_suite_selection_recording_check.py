@@ -141,7 +141,8 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertEqual(["strace", "-f", "--seccomp-bpf"], recorder[:3])
         traced = set(recorder[recorder.index("-e") + 1].removeprefix("trace=").replace("?", "").split(","))
         self.assertEqual({"open", "openat", "openat2", "execve", "execveat", "getdents", "getdents64", "access", "faccessat",
-                          "faccessat2", "newfstatat", "statx", "chdir", "fchdir", "clone", "clone3", "fork", "vfork"}, traced)
+                          "faccessat2", "stat", "lstat", "newfstatat", "statx", "readlink", "readlinkat",
+                          "chdir", "fchdir", "clone", "clone3", "fork", "vfork"}, traced)
         trace = str(fixture.output / "traces" / f"{unit['unit']}.strace")
         self.assertEqual([[*recorder[1:recorder.index("-e")], "-o", trace, *recorder[recorder.index("-e"):], "--", "python3", "tests/a.py"]],
                          fixture.stand_in_calls())
@@ -276,7 +277,7 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
         traces = "".join(path.read_text(encoding="utf-8") for path in (fixture.output / "traces").glob("*.strace"))
         self.assertIn('"app/App.csproj"', traces)
-        self.assertNotIn("app/global.json", traces)
+        self.assertIn('lstat("app/global.json"', traces)
         [change] = fixture.additions()["suites"]
         self.assertEqual([], change["reads"]["paths"])
         self.assertEqual(DOTNET_READS, change["reads"]["existence_reads"])
@@ -391,6 +392,42 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertEqual(2, started.returncode)
         self.assertIn("strace is not on PATH", started.stderr)
 
+    def test_a_test_write_outside_its_setups_grants_is_reported_as_a_departure_while_the_test_still_runs(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/write.py": "print('ran')\n"},
+                                   [suite("a", ["tests/write.py"], paths=["tests/write.py"], setups=["writer"])])
+        granted = fixture.base / "granted"
+        granted.mkdir()
+        outside = fixture.base / "outside"
+        outside.mkdir()
+        self.assertEqual(0, fixture.start().returncode)
+        provided = fixture.provide("writer", "--write", str(granted))
+        self.assertEqual(0, provided.returncode, provided.stderr)
+        ran = fixture.exec_entry("tests/write.py")
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        self.assertIn("ran", ran.stdout)
+        [unit_file] = list((fixture.output / "units").glob("*.json"))
+        unit = json.loads(unit_file.read_text(encoding="utf-8"))
+        # Write inside TMPDIR, inside the setup's grant, and outside both (into the checkout and into an ungranted directory).
+        (fixture.output / "traces" / unit["trace"]).write_text(
+            f'100 openat(AT_FDCWD<{fixture.root}>, "{unit["temporary"]}/ok.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<{unit["temporary"]}/ok.txt>\n'
+            f'100 openat(AT_FDCWD<{fixture.root}>, "{granted}/ok.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 4<{granted}/ok.txt>\n'
+            f'100 openat(AT_FDCWD<{fixture.root}>, "leaked.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 5<{fixture.root}/leaked.txt>\n'
+            f'100 openat(AT_FDCWD<{fixture.root}>, "{outside}/leaked.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 6<{outside}/leaked.txt>\n',
+            encoding="utf-8",
+        )
+        checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn("Departure:", checked.stdout)
+        self.assertIn("leaked.txt", checked.stdout)
+        self.assertIn(f"{outside}/leaked.txt", checked.stdout)
+        self.assertNotIn(f"{granted}/ok.txt", checked.stdout)
+        self.assertNotIn(f"{unit['temporary']}/ok.txt", checked.stdout)
+        summary = fixture.summary.read_text(encoding="utf-8")
+        self.assertIn("### Departures", summary)
+        self.assertIn("`leaked.txt`", summary)
+        self.assertIn(f"`{outside}/leaked.txt`", summary)
+        self.assertNotIn(f"{granted}/ok.txt", summary)
+
 
 @requires_linux
 class SiblingReadsTests(unittest.TestCase):
@@ -497,8 +534,11 @@ class VforkChildWorkingDirectoryTests(unittest.TestCase):
         for order in (excerpt, self.child_first(excerpt)):
             events = [(event.kind, event.path, event.cwd) for event in self.parsed(order) if event.pid == child]
             self.assertEqual([("read", f"{self.BASE}/repo/NuGet.Config", f"{self.BASE}/repo"),
-                              ("absent", f"{self.BASE}/repo/app/global.json", f"{self.BASE}/repo"),
-                              ("exec", f"{self.BASE}/tmp/tmpgurrdhzs/dotnet", f"{self.BASE}/repo")], events)
+                              ("absent", f"{self.BASE}/repo/app/global.json", f"{self.BASE}/repo")], events[:2])
+            self.assertEqual(3, len(events))
+            self.assertEqual("exec", events[2][0])
+            self.assertTrue(events[2][1].startswith(f"{self.BASE}/tmp/") and events[2][1].endswith("/dotnet"), events[2])
+            self.assertEqual(f"{self.BASE}/repo", events[2][2])
 
 
 class CheckSummaryRouteTests(unittest.TestCase):

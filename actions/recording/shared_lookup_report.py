@@ -34,6 +34,7 @@ class _Report:
         self.pid = None
         self.handle = None
         self.lock = _thread.allocate_lock()
+        self.owner = None
         self.real = {}
 
     def real_path(self, path):
@@ -43,10 +44,13 @@ class _Report:
         return found
 
     def write(self, *fields):
-        if not self.lock.acquire(False):
+        ident = _thread.get_ident()
+        if self.owner == ident:
             return  # a lookup that the report's own writing makes
+        self.lock.acquire()
+        self.owner = ident
         try:
-            if self.pid != os.getpid():  # the first line of this process, or of a child forked from it
+            if self.pid != os.getpid() or self.handle is None:  # the first line of this process, or of a child forked from it
                 self.pid = os.getpid()
                 self.handle = open(os.path.join(self.directory, f"{self.pid}.tsv"), "a", encoding="utf-8", buffering=1)
                 suffixes = [*_imp.extension_suffixes(), *external.SOURCE_SUFFIXES, *external.BYTECODE_SUFFIXES]
@@ -55,6 +59,7 @@ class _Report:
         except (OSError, ValueError):
             self.handle = None
         finally:
+            self.owner = None
             self.lock.release()
 
 

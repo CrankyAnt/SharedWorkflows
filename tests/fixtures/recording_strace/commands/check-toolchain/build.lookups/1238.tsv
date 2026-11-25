@@ -1,0 +1,12 @@
+suffixes	.cpython-313-x86_64-linux-gnu.so	.abi3.so	.so	.py	.pyc
+lookup	${BASE}/python/lib/python3.13/site-packages	sitecustomize	absent
+list	1238	${TMPDIR}/tmp36nzmfy6
+lookup	${TMPDIR}/tmp36nzmfy6	ctypes	absent
+lookup	${TMPDIR}/tmp36nzmfy6	sysconfig	absent
+lookup	${TMPDIR}/tmp36nzmfy6	threading	absent
+lookup	${TMPDIR}/tmp36nzmfy6	warnings	absent
+lookup	${TMPDIR}/tmp36nzmfy6	_weakrefset	absent
+lookup	${TMPDIR}/tmp36nzmfy6	types	absent
+lookup	${TMPDIR}/tmp36nzmfy6	_ctypes	absent
+lookup	${TMPDIR}/tmp36nzmfy6	struct	absent
+lookup	${TMPDIR}/tmp36nzmfy6	_struct	absent

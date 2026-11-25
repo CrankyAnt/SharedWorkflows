@@ -12,6 +12,7 @@ import sys
 import unittest
 from pathlib import Path, PureWindowsPath
 
+from tests import temporary_support
 from tests.recording_fixtures import (ETW_RECORDINGS, ROOT, STRACE_RECORDINGS, RecordingFixture, copy_recording, copy_strace_recording,
                                       load_recording, requires_posix_paths, suite)
 
@@ -935,6 +936,55 @@ class StatOnlyClassificationTests(unittest.TestCase):
         self.assertEqual([{"path": "absent.txt/pyvenv.cfg", "kind": "any"}, {"path": "data", "kind": "directory"},
                           {"path": "lib/missing.py", "kind": "any"}], reads["existence_reads"])
         self.assertEqual(["."], reads["directory_memberships"])
+
+    def test_a_worker_threads_import_listing_is_credited_to_that_thread_and_hides_no_main_thread_listing(self) -> None:
+        # Process 1000's worker thread 1002 imports from lib/; the main thread 1000 lists lib/ itself.
+        recording = self.recording
+        directory = Path(self.enterContext(temporary_support.Directory()))
+        (directory / "1000.tsv").write_text(f"suffixes\t.py\nlist\t1002\t{self.ROOT}/lib\n", encoding="utf-8")
+        lookups = recording.read_lookups(directory, recording.normalize)
+        events = [self.event("list", "lib", pid="1000"), self.event("list", "lib", pid="1002")]
+        unit = recording.UnitRecording(events, None, self.project, self.ROOT, lookups)
+        reads = recording.unit_reads(unit, recording.Start("python3", self.ROOT, ())).document()
+        self.assertEqual(["lib"], reads["directory_memberships"])
+        # When only the worker thread lists lib/ for its import, no directory membership is recorded.
+        worker_only = recording.UnitRecording([self.event("list", "lib", pid="1002")], None, self.project, self.ROOT, lookups)
+        self.assertEqual([], recording.unit_reads(worker_only, recording.Start("python3", self.ROOT, ())).document()["directory_memberships"])
+
+    def test_an_open_through_a_symlink_records_both_the_link_and_its_target(self) -> None:
+        recording = self.recording
+        trace = Path(self.enterContext(temporary_support.Directory())) / "link.strace"
+        trace.write_text(
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "link.txt", O_RDONLY|O_CLOEXEC) = 3<{self.ROOT}/data/keep.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "data/keep.txt", O_RDONLY|O_CLOEXEC) = 4<{self.ROOT}/data/keep.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "pipe_read", O_RDONLY) = 5<pipe:[12345]>\n',
+            encoding="utf-8",
+        )
+        events = recording.parse_trace(trace, (self.ROOT,), self.ROOT)
+        reads = [(event.kind, event.path) for event in events]
+        self.assertEqual([
+            ("read", f"{self.ROOT}/link.txt"),
+            ("read", f"{self.ROOT}/data/keep.txt"),
+            ("read", f"{self.ROOT}/data/keep.txt"),
+            ("read", f"{self.ROOT}/pipe_read"),
+        ], reads)
+
+    def test_write_opens_are_recorded_and_rdwr_without_trunc_also_records_a_read(self) -> None:
+        recording = self.recording
+        trace = Path(self.enterContext(temporary_support.Directory())) / "writes.strace"
+        trace.write_text(
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "out.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<{self.ROOT}/out.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "data/keep.txt", O_RDWR|O_CREAT, 0666) = 4<{self.ROOT}/data/keep.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "trunc.txt", O_RDWR|O_TRUNC) = 5<{self.ROOT}/trunc.txt>\n',
+            encoding="utf-8",
+        )
+        events = recording.parse_trace(trace, (self.ROOT,), self.ROOT)
+        self.assertEqual([
+            ("write", f"{self.ROOT}/out.txt"),
+            ("write", f"{self.ROOT}/data/keep.txt"),
+            ("read", f"{self.ROOT}/data/keep.txt"),
+            ("write", f"{self.ROOT}/trunc.txt"),
+        ], [(event.kind, event.path) for event in events])
 
 
 if __name__ == "__main__":

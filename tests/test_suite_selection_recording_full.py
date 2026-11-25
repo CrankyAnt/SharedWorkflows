@@ -36,6 +36,7 @@ SKIPPING = """\
 
 PLAIN = 'open("data/plain.txt").read()\n'
 READLINK = 'import os\nprint(os.readlink("link"))\n'
+OPEN_LINK = 'print(open("link").read())\n'
 ENTRIES = ["tests/ok.py", "tests/skip.py", "tests/plain.py"]
 STALE = "data/stale.txt"
 RUNNERS = StoredFixture("full-runners", {"tests/ok.py": PASSING, "tests/skip.py": SKIPPING, "tests/plain.py": PLAIN, "data/ok.txt": "",
@@ -60,7 +61,8 @@ TAP = {
     "stray-plan": printing("1..3") + textwrap.dedent(PASSING),
 }
 TAP_ENTRIES = [f"tests/tap_{name}.py" for name in TAP]
-LINKING = StoredFixture("full-link", {"tests/link.py": READLINK, "target.txt": ""}, {"link": ("python3", "tests/link.py")}, {"link": "target.txt"})
+LINKING = StoredFixture("full-link", {"tests/link.py": READLINK, "tests/open_link.py": OPEN_LINK, "target.txt": "target\n"},
+                        {"link": ("python3", "tests/link.py"), "open_link": ("python3", "tests/open_link.py")}, {"link": "target.txt"})
 # The fixtures whose commands python3 -m tests.record_strace_fixture records.
 STORED = (RUNNERS, LINKING)
 
@@ -76,10 +78,20 @@ class FullRecordingTests(unittest.TestCase):
         checked = fixture.record(["tests/link.py"], full=True)
         self.assertEqual(0, checked.returncode, checked.stderr)
         self.assertIn("link", fixture.reads_of("tests/link.py")["paths"])
-        # Under the mid set of a pull-request run, readlink is not traced.
-        self.assertEqual(0, fixture.record(["tests/link.py"]).returncode)
+        # Pull-request runs also trace readlink and readlinkat, so link is reported as an addition.
+        pr_checked = fixture.record(["tests/link.py"])
+        self.assertEqual(1, pr_checked.returncode, pr_checked.stdout + pr_checked.stderr)
+        self.assertIn("link", fixture.additions()["suites"][0]["reads"]["paths"])
         traced = [call[call.index("-e") + 1] for call in fixture.stand_in_calls()]
-        self.assertEqual([True, False], ["?readlink" in calls.split("=", 1)[1].split(",") for calls in traced])
+        self.assertEqual([True, True], ["?readlink" in calls.split("=", 1)[1].split(",") for calls in traced])
+
+    def test_a_pull_request_run_records_a_tests_reads_through_link_targets(self) -> None:
+        fixture = LINKING.fixture(self.addCleanup, [suite("a", ["tests/open_link.py"], paths=["tests/open_link.py"])])
+        checked = fixture.record(["tests/open_link.py"])
+        self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
+        added = fixture.additions()["suites"][0]["reads"]["paths"]
+        self.assertIn("link", added)
+        self.assertIn("target.txt", added)
 
     def test_it_removes_a_stored_read_only_for_an_entry_file_that_ran_with_no_test_skipped(self) -> None:
         fixture = self.fixture()

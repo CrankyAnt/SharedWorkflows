@@ -1,0 +1,32 @@
+{
+  "unit": "1795625518954212737-498",
+  "kind": "entry",
+  "name": "tests/imports_only.py",
+  "suite": null,
+  "command": [
+    "python3",
+    "tests/imports_only.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.029,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "1795625518954212737-498.strace",
+  "lookups": "1795625518954212737-498",
+  "temporary": "${BASE}/recording/work/1795625518954212737-498/tmp",
+  "cache": "${BASE}/recording/work/1795625518954212737-498/pycache",
+  "cwd": "${BASE}/repo",
+  "recorder": [
+    "strace",
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-y",
+    "-s",
+    "4096",
+    "-e",
+    "trace=?open,?openat,?openat2,?getdents,?getdents64,?access,?faccessat,?faccessat2,?stat,?lstat,?newfstatat,?statx,?readlink,?readlinkat,?execve,?execveat,?chdir,?fchdir,?clone,?clone3,?fork,?vfork",
+    "-e",
+    "abbrev=!execve,execveat"
+  ]
+}

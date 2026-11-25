@@ -28,7 +28,7 @@ lists. ``docs/maintaining.md`` documents the commands.
     python3 recording.py start [--output <directory>] [--root <repository>] [--environment <file>] [--full [--job <name>]]
     python3 recording.py exec [--output <directory>] --setup <name> -- <command> ...
     python3 recording.py exec [--output <directory>] --entry <file> --suites <suite list> [--root <repository>] [--suite <name>] -- <command> ...
-    python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ...
+    python3 recording.py provide [--output <directory>] --setup <name> [--path <directory>] ... [--variable <name>=<value>] ... [--python <interpreter>] ... [--write <directory>] ...
     python3 recording.py setups [--output <directory>] --suites <suite list> [--root <repository>] [--work <directory>] --phase before|recorded
                                 [--setup <name>] ... [--tool <tool>=<path>] ... [--pinned <tool>=<directory>] ...
     python3 recording.py check [--output <directory>] --suites <suite list> [--root <repository>] [--summary <file>]
@@ -66,8 +66,9 @@ import recording_modules  # noqa: E402
 import suite_selection  # noqa: E402
 
 PROCESS_CALLS = ("execve", "execveat", "chdir", "fchdir", "clone", "clone3", "fork", "vfork")
-MID_SET = ("open", "openat", "openat2", "getdents", "getdents64", "access", "faccessat", "faccessat2", "newfstatat", "statx") + PROCESS_CALLS
-WIDE_SET = MID_SET + ("stat", "lstat", "readlink", "readlinkat")
+MID_SET = ("open", "openat", "openat2", "getdents", "getdents64", "access", "faccessat", "faccessat2",
+           "stat", "lstat", "newfstatat", "statx", "readlink", "readlinkat") + PROCESS_CALLS
+WIDE_SET = MID_SET
 TRACE_SETS = {"mid": MID_SET, "wide": WIDE_SET}
 STRACE = ("strace", "-f", "--seccomp-bpf", "-qq", "-y", "-s", "4096")
 # An exec's environment is printed in full, so that check sees the pathspec variables of a git process; exec then keeps
@@ -83,7 +84,7 @@ FORKS = frozenset({"clone", "clone3", "fork", "vfork"})
 LISTINGS = frozenset({"getdents", "getdents64"})
 AT_CALLS = frozenset({"openat", "openat2", "newfstatat", "statx", "faccessat", "faccessat2", "readlinkat", "execveat"})
 ABSENT_ERRORS = ("ENOENT", "ENOTDIR")
-WRITE_FLAGS = ("O_WRONLY", "O_CREAT", "O_TRUNC")
+WRITE_FLAGS = ("O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC", "O_APPEND", "O_TMPFILE")
 STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 COMMAND_EXTENSIONS = (".ps1", ".exe", ".cmd", ".bat", ".com", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc", ".cpl")  # PATHEXT and PowerShell
 POWERSHELL = frozenset({"pwsh", "powershell"})
@@ -342,13 +343,13 @@ def write_provision(output: Path, setup: str, provision: dict) -> None:
 def run_provide(options: argparse.Namespace) -> int:
     output = output_directory(options.output)
     read_settings(output)
-    provide(output, options.setup, options.path, options.variable, options.python)
+    provide(output, options.setup, options.path, options.variable, options.python, options.write)
     return 0
 
 
-def provide(output: Path, setup: str, paths: list[str], variables: list[str], interpreters: list[str]) -> None:
-    """Record what a setup installed in this job provides: its tool directories, its variables and, for each Python
-    interpreter, the lookup report in its site directory."""
+def provide(output: Path, setup: str, paths: list[str], variables: list[str], interpreters: list[str], writes: Collection[str] = ()) -> None:
+    """Record what a setup installed in this job provides: its tool directories, its variables, its writable directory
+    grants and, for each Python interpreter, the lookup report in its site directory."""
     provision = provisions(output).get(setup) or no_provision()
     for path in paths:
         if not os.path.isabs(path) or not os.path.isdir(path):
@@ -361,6 +362,10 @@ def provide(output: Path, setup: str, paths: list[str], variables: list[str], in
         provision["variables"][name] = value
     for interpreter in interpreters:
         install_lookup_report(interpreter)
+    for path in writes:
+        if not os.path.isabs(path) or not os.path.isdir(path):
+            raise RecordingError(f"the writable directory {path} of the setup {setup} is missing or not absolute")
+        provision["writes"] = add_unique(provision.get("writes", []), [path])
     write_provision(output, setup, provision)
 
 
@@ -368,7 +373,7 @@ def provide(output: Path, setup: str, paths: list[str], variables: list[str], in
 
 
 SCRIPT_RUNNERS = {".sh": ("bash",), ".ps1": ("pwsh", "-NoProfile", "-NonInteractive", "-File")}
-PROVISIONS = {"path": "path=<directory>", "variable": "variable=<name>=<value>", "python": "python=<interpreter>"}
+PROVISIONS = {"path": "path=<directory>", "variable": "variable=<name>=<value>", "python": "python=<interpreter>", "write": "write=<directory>"}
 
 
 def script_command(script: str) -> list[str]:
@@ -376,8 +381,9 @@ def script_command(script: str) -> list[str]:
     return [*SCRIPT_RUNNERS.get(Path(script).suffix, (sys.executable,)), script]
 
 
-def stated_provisions(file: Path, setup: str) -> tuple[list[str], list[str], list[str]]:
-    """The tool directories, variables and Python interpreters that a setup script wrote to its provisions file."""
+def stated_provisions(file: Path, setup: str) -> tuple[list[str], list[str], list[str], list[str]]:
+    """The tool directories, variables, Python interpreters and writable directories that a setup script wrote to its
+    provisions file."""
     found: dict[str, list[str]] = {key: [] for key in PROVISIONS}
     for line in file.read_text(encoding="utf-8-sig").splitlines():
         key, separator, value = line.strip().partition("=")
@@ -387,7 +393,7 @@ def stated_provisions(file: Path, setup: str) -> tuple[list[str], list[str], lis
             forms = list(PROVISIONS.values())
             raise RecordingError(f"the setup {setup} states `{line.strip()}`; a line is {', '.join(forms[:-1])} or {forms[-1]}")
         found[key].append(value)
-    return found["path"], found["variable"], found["python"]
+    return found["path"], found["variable"], found["python"], found["write"]
 
 
 def default_work() -> Path:
@@ -882,11 +888,20 @@ def parse_trace(trace: Path, keep: tuple[str, ...], start: str) -> list[Event]:
                 continue
             program = executable.get(pid, "?")
             if call in OPENS:
-                if any(flag in flags for flag in WRITE_FLAGS):
-                    continue
+                is_write = any(flag in flags for flag in WRITE_FLAGS)
                 if ok:
-                    events.append(Event(pid, program, "diropen" if "O_DIRECTORY" in flags else "read", path, cwd=here))
-                elif error in ABSENT_ERRORS:
+                    target = descriptor_path(result.strip())
+                    resolved_target = normalize(target) if target is not None and target.startswith("/") and not target.endswith(" (deleted)") else None
+                    if is_write:
+                        events.append(Event(pid, program, "write", path, cwd=here))
+                        if resolved_target is not None and resolved_target != path:
+                            events.append(Event(pid, program, "write", resolved_target, cwd=here))
+                    if not is_write or ("O_RDWR" in flags and "O_TRUNC" not in flags):
+                        kind = "diropen" if "O_DIRECTORY" in flags else "read"
+                        events.append(Event(pid, program, kind, path, cwd=here))
+                        if resolved_target is not None and resolved_target != path:
+                            events.append(Event(pid, program, kind, resolved_target, cwd=here))
+                elif error in ABSENT_ERRORS and not is_write:
                     events.append(Event(pid, program, "absent", path, cwd=here))
             elif call in STATS:
                 if ok:
@@ -1186,9 +1201,10 @@ class Lookups:
     missing: tuple[MissingModule, ...] = ()
 
 
-def read_lookups(directory: Path, convert: Callable[[str], str]) -> Lookups:
+def read_lookups(directory: Path, convert: Callable[[str], str], *, by_thread: bool = True) -> Lookups:
     """The lookup reports in ``directory``, one file per process (``shared_lookup_report.py``), with each reported
-    path converted by ``convert``."""
+    path converted by ``convert``. When ``by_thread`` holds (Linux ``strace``), each listing is credited to the
+    reporting thread's id; otherwise (Windows ETW, whose events carry process ids only) to the process id."""
     processes: set[str] = set()
     listings: dict[tuple[str, str], int] = {}
     found: list[FoundModule] = []
@@ -1202,9 +1218,8 @@ def read_lookups(directory: Path, convert: Callable[[str], str]) -> Lookups:
                 suffixes = tuple(fields[1:])
             elif fields[0] == "list" and len(fields) == 3:
                 processes.add(fields[1])
-                for process in dict.fromkeys((report.stem, fields[1])):
-                    key = (process, convert(fields[2]))
-                    listings[key] = listings.get(key, 0) + 1
+                key = (fields[1] if by_thread else report.stem, convert(fields[2]))
+                listings[key] = listings.get(key, 0) + 1
             elif fields[0] == "lookup" and len(fields) == 5 and fields[3] == "found":
                 found.append(FoundModule(convert(fields[1]), fields[2], convert(fields[4]), suffixes))
             elif fields[0] == "lookup" and len(fields) == 4 and fields[3] in ("absent", "namespace"):
@@ -1906,6 +1921,7 @@ def outside(reads: Reads, stored: Stored | None) -> Reads:
 class Unit:
     record: dict
     reads: Reads
+    writes: tuple[str, ...] = ()
 
 
 def load_units(output: Path) -> list[dict]:
@@ -1929,12 +1945,13 @@ def classify_units(output: Path, project: Checkout, records: list[dict], setting
     else:
         parsed = [parse_unit(job) for job in jobs]
     return [Unit(record, unit_reads(UnitRecording(events, record["temporary"], project, lookups=unit_lookups(output, record, normalize)),
-                                    recorded_start(record))) for record, events in zip(records, parsed)]
+                                    recorded_start(record)),
+                 tuple(sorted({event.path for event in events if event.kind == "write"}))) for record, events in zip(records, parsed)]
 
 
-def unit_lookups(output: Path, record: dict, convert: Callable[[str], str]) -> Lookups:
+def unit_lookups(output: Path, record: dict, convert: Callable[[str], str], *, by_thread: bool = True) -> Lookups:
     """The lookup reports of one unit; none for a unit recorded without them."""
-    return read_lookups(output / "lookups" / record["lookups"], convert) if record.get("lookups") else Lookups()
+    return read_lookups(output / "lookups" / record["lookups"], convert, by_thread=by_thread) if record.get("lookups") else Lookups()
 
 
 def unreported_node_memberships(unit: UnitRecording) -> set[str]:
@@ -2037,7 +2054,7 @@ def classify_etw_units(output: Path, project: Checkout, records: list[dict], set
     units = []
     for record in records:
         unit_events = windows_events(grouped[record["unit"]], record, paths)
-        recording = UnitRecording(unit_events, dos_form(record["temporary"]), project, root, unit_lookups(output, record, paths.convert))
+        recording = UnitRecording(unit_events, dos_form(record["temporary"]), project, root, unit_lookups(output, record, paths.convert, by_thread=False))
         units.append(Unit(record, unit_reads(recording, recorded_windows_start(record, paths), fold=True,
                                              memberships=unreported_node_memberships(recording))))
     settings["etw_note"] = (f"Stopped the ETW session in {seconds:.2f} s (the consumer drained it in {drained} ms: {events} events, "
@@ -2123,6 +2140,58 @@ def suite_list_path(root: Path, suites: Path) -> str:
     return resolved.relative_to(root).as_posix() if resolved.is_relative_to(root) else str(suites)
 
 
+def granted_write_directories(output: Path, provided: dict[str, dict], suite: suite_selection.Suite, record: dict) -> tuple[str, ...]:
+    """The directories into which an entry file may write: its own temporary, bytecode-cache and lookup directories,
+    and the writable directories that its stated setups provide."""
+    raw = [record["temporary"], record["cache"]]
+    if record.get("lookups"):
+        raw.append(str(output / "lookups" / record["lookups"]))
+    for setup in suite.setups_of(record["name"]):
+        raw.extend(provided.get(setup, {}).get("writes", ()))
+    directories: list[str] = []
+    for directory in raw:
+        for form in (normalize(directory), normalize(os.path.realpath(directory))):
+            if form not in directories:
+                directories.append(form)
+    return tuple(directories)
+
+
+def write_departures(output: Path, recorded: list[tuple[suite_selection.Suite, Unit, Reads]], root: Path) -> list[tuple[str, str]]:
+    """(where, path) pairs for every entry file that wrote outside its setup's grants."""
+    provided = provisions(output)
+    checkout_root = normalize(str(root))
+    departures: list[tuple[str, str]] = []
+    for suite, unit, _ in recorded:
+        if not unit.writes:
+            continue
+        grants = granted_write_directories(output, provided, suite, unit.record)
+        where = f"`{suite.name}`: `{unit.record['name']}`"
+        for path in unit.writes:
+            if any(path == grant or path.startswith(grant + "/") for grant in grants):
+                continue
+            display = path[len(checkout_root) + 1:] if path.startswith(checkout_root + "/") else path
+            departures.append((where, display))
+    return departures
+
+
+def report_departures(departures: list[tuple[str, str]]) -> None:
+    """Print each write departure and emit a warning annotation on a runner."""
+    for where, path in departures:
+        message = f"Departure: {where} wrote outside its setup's grants: `{path}`"
+        print(message)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::warning::{escaped}", flush=True)
+
+
+def departures_summary(departures: list[tuple[str, str]]) -> str:
+    if not departures:
+        return ""
+    lines = ["", "### Departures", "", "| Entry file | Write outside setup grants |", "| --- | --- |"]
+    lines += [f"| {where} | `{path}` |" for where, path in departures]
+    return "\n".join(lines) + "\n"
+
+
 def run_check(options: argparse.Namespace) -> int:
     output = output_directory(options.output)
     settings = read_settings(output)
@@ -2130,9 +2199,11 @@ def run_check(options: argparse.Namespace) -> int:
     project = checkout(root)
     suite_list = suite_selection.resolve_entries(suite_selection.load_suite_list(options.suites), set(project.tracked), str(options.suites))
     recorded = entry_reads(suite_list, classify_units(output, project, load_units(output), settings))
+    departures = write_departures(output, recorded, root)
+    report_departures(departures)
     list_path = suite_list_path(root, options.suites)
     if settings["mode"] == "full":
-        return write_full_result(options, output, list_path, recorded, settings)
+        return write_full_result(options, output, list_path, recorded, settings, departures)
     document = additions_document(list_path, suite_list, recorded, project.tracked)
     target = options.additions or output / "additions.json"
     target.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
@@ -2148,7 +2219,7 @@ def run_check(options: argparse.Namespace) -> int:
         with options.summary.open("a", encoding="utf-8") as handle:
             route = additions_route(target.name, project.tracked, os.environ.get("GITHUB_RUN_ID"), os.environ.get("GITHUB_EVENT_NAME"),
                                     holds_automation_caller(root))
-            handle.write(check_summary(lines, len(recorded), route) + etw_summary(settings))
+            handle.write(check_summary(lines, len(recorded), route) + departures_summary(departures) + etw_summary(settings))
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"mode=pull-request\nfile={target if lines else ''}\n")
@@ -2219,7 +2290,8 @@ def etw_summary(settings: dict) -> str:
 
 
 def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
-                      recorded: list[tuple[suite_selection.Suite, Unit, Reads]], settings: dict) -> int:
+                      recorded: list[tuple[suite_selection.Suite, Unit, Reads]], settings: dict,
+                      departures: list[tuple[str, str]] = ()) -> int:
     document = {"kind": "full-recording", "suite_list": list_path,
                 "entries": [{"suite": suite.name, "entry": unit.record["name"], **({"job": unit.record["job"]} if "job" in unit.record else {}),
                              "exit_code": unit.record["exit_code"], "skipped": unit.record["skipped"], "incomplete_report": unit.record.get("incomplete_report"),
@@ -2232,7 +2304,7 @@ def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
         recorder = "a live Kernel-File ETW session" if "etw_note" in settings else "the wide trace set"
         with options.summary.open("a", encoding="utf-8") as handle:
             handle.write(f"## Full recording\n\nRecorded {len(recorded)} entry files under {recorder} into `{target.name}`.\n"
-                         + etw_summary(settings))
+                         + departures_summary(departures) + etw_summary(settings))
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"mode=full\nfile={target}\n")
@@ -2760,6 +2832,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     providing.add_argument("--variable", action="append", default=[], help="<name>=<value> of a variable that the setup sets (repeatable)")
     providing.add_argument("--python", action="append", default=[], help="a Python interpreter of the setup, into whose site directory "
                            "the lookup report is installed (repeatable)")
+    providing.add_argument("--write", action="append", default=[], help="an absolute writable directory that the setup grants (repeatable)")
     setting = commands.add_parser("setups", help="run the setups of this job that the suite list states as data")
     setting.add_argument("--output", type=Path)
     setting.add_argument("--suites", type=Path, required=True, help="the suite list, whose setups name their scripts")

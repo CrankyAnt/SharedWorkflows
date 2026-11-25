@@ -1,0 +1,4 @@
+suffixes	.cpython-313-x86_64-linux-gnu.so	.abi3.so	.so	.py	.pyc
+lookup	${BASE}/python/lib/python3.13/site-packages	sitecustomize	absent
+list	505	${BASE}/repo/lib
+lookup	${BASE}/repo/lib	helper	found	${BASE}/repo/lib/helper.py

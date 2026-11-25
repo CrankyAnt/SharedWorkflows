@@ -1,0 +1,32 @@
+{
+  "unit": "1795625518441509887-473",
+  "kind": "entry",
+  "name": "tests/stats.py",
+  "suite": null,
+  "command": [
+    "python3",
+    "tests/stats.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.029,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "1795625518441509887-473.strace",
+  "lookups": "1795625518441509887-473",
+  "temporary": "${BASE}/recording/work/1795625518441509887-473/tmp",
+  "cache": "${BASE}/recording/work/1795625518441509887-473/pycache",
+  "cwd": "${BASE}/repo",
+  "recorder": [
+    "strace",
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-y",
+    "-s",
+    "4096",
+    "-e",
+    "trace=?open,?openat,?openat2,?getdents,?getdents64,?access,?faccessat,?faccessat2,?stat,?lstat,?newfstatat,?statx,?readlink,?readlinkat,?execve,?execveat,?chdir,?fchdir,?clone,?clone3,?fork,?vfork",
+    "-e",
+    "abbrev=!execve,execveat"
+  ]
+}

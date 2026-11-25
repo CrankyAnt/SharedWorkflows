@@ -1,0 +1,94 @@
+799   execve("${BASE}/python/bin/python3", ["python3", "tests/stats.py"], []) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/python3", {st_mode=S_IFREG|0755, st_size=17856, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", O_RDONLY) = 3<${BASE}/python/pyvenv.cfg>
+799   readlink("${BASE}/python/bin/python3", "/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3", 4096) = 51
+799   readlink("/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3", "python3.13", 4096) = 10
+799   readlink("/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3.13", 0x7ffd318ce570, 4096) = -1 EINVAL (Invalid argument)
+799   readlink("/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3.13", 0x7ffd318ce570, 4096) = -1 EINVAL (Invalid argument)
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/python3._pth", O_RDONLY) = -1 ENOENT (No such file or directory)
+799   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13>, 0x5f246174d900 /* 195 entries */, 32768) = 6512
+799   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13>, 0x5f246174d900 /* 0 entries */, 32768) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/__init__.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt", 0x7ffd318d3060, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache", {st_mode=S_IFDIR|0755, st_size=40, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/__init__.cpython-313.pyc.140378629154864", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/__init__.cpython-313.pyc.140378629154864>
+799   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings>, 0x5f2461771670 /* 125 entries */, 32768) = 4224
+799   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings>, 0x5f2461771670 /* 0 entries */, 32768) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/aliases.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/aliases.cpython-313.pyc.140378629160240", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/aliases.cpython-313.pyc.140378629160240>
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8.cpython-313.pyc.140378629582608", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8.cpython-313.pyc.140378629582608>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/pyvenv.cfg", 0x7ffd318d2b10, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", {st_mode=S_IFREG|0644, st_size=332, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/pyvenv.cfg>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.13/site-packages>
+799   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x5f24617bcbe0 /* 4 entries */, 32768) = 136
+799   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x5f24617bcbe0 /* 0 entries */, 32768) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", {st_mode=S_IFREG|0644, st_size=28, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth>
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8_sig.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", {st_mode=S_IFDIR|0755, st_size=100, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8_sig.cpython-313.pyc.140378625215792", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625525687155143-792/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8_sig.cpython-313.pyc.140378625215792>
+799   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/lib-dynload>, 0x5f24617e1020 /* 80 entries */, 32768) = 5096
+799   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/lib-dynload>, 0x5f24617e1020 /* 0 entries */, 32768) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.13/site-packages>
+799   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x5f24617e1020 /* 4 entries */, 32768) = 136
+799   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x5f24617e1020 /* 0 entries */, 32768) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4171, ...}, 0) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4171, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4171, ...}, 0) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache${BASE}/python/lib/python3.13/site-packages", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache${BASE}/python/lib/python3.13", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache${BASE}/python/lib", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache${BASE}/python", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache${BASE}", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/tmp/repo-tests/SharedWorkflows/linux-462-48247", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/tmp/repo-tests/SharedWorkflows", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/tmp/repo-tests", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache/tmp", 0x7ffd318d2520, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625525687155143-792/pycache${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.cpython-313.pyc.140378629634352", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625525687155143-792/pycache${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.cpython-313.pyc.140378629634352>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.13/site-packages>
+799   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x5f24617d01e0 /* 4 entries */, 32768) = 136
+799   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x5f24617d01e0 /* 0 entries */, 32768) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", {st_mode=S_IFREG|0644, st_size=28, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "/opt", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/lookups/1795625525687155143-792/799.tsv", O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC, 0666) = 3<${BASE}/recording/lookups/1795625525687155143-792/799.tsv>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "/opt", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests/SharedWorkflows", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python", {st_mode=S_IFDIR|0755, st_size=160, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/stats.py", {st_mode=S_IFREG|0644, st_size=86, ...}, 0) = 0
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/stats.py", O_RDONLY|O_CLOEXEC) = 4<${BASE}/repo/tests/stats.py>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/stats.py", {st_mode=S_IFREG|0644, st_size=86, ...}, 0) = 0
+799   readlink("tests/stats.py", 0x7ffd318c2cf0, 4096) = -1 EINVAL (Invalid argument)
+799   readlink("${BASE}/repo/tests", 0x7ffd318c2890, 1023) = -1 EINVAL (Invalid argument)
+799   readlink("${BASE}/repo/tests/stats.py", 0x7ffd318c2890, 1023) = -1 EINVAL (Invalid argument)
+799   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/stats.py", O_RDONLY) = 4<${BASE}/repo/tests/stats.py>
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "data/stat.txt", {st_mode=S_IFREG|0644, st_size=13, ...}, 0) = 0
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "absent.txt", 0x7ffd318d3770, 0) = -1 ENOENT (No such file or directory)
+799   newfstatat(AT_FDCWD<${BASE}/repo>, "data", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0

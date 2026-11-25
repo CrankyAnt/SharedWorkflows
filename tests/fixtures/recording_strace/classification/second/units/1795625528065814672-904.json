@@ -1,0 +1,32 @@
+{
+  "unit": "1795625528065814672-904",
+  "kind": "entry",
+  "name": "tests/worktree.py",
+  "suite": null,
+  "command": [
+    "python3",
+    "tests/worktree.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.202,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "1795625528065814672-904.strace",
+  "lookups": "1795625528065814672-904",
+  "temporary": "${BASE}/recording/work/1795625528065814672-904/tmp",
+  "cache": "${BASE}/recording/work/1795625528065814672-904/pycache",
+  "cwd": "${BASE}/repo",
+  "recorder": [
+    "strace",
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-y",
+    "-s",
+    "4096",
+    "-e",
+    "trace=?open,?openat,?openat2,?getdents,?getdents64,?access,?faccessat,?faccessat2,?stat,?lstat,?newfstatat,?statx,?readlink,?readlinkat,?execve,?execveat,?chdir,?fchdir,?clone,?clone3,?fork,?vfork",
+    "-e",
+    "abbrev=!execve,execveat"
+  ]
+}
