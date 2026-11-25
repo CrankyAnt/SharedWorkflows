@@ -16,6 +16,7 @@ rules:
         CrankyAnt/SharedWorkflows/.github/workflows/automation.yml: ref-pin
         CrankyAnt/SharedWorkflows/.github/workflows/release.yml: ref-pin
         CrankyAnt/SharedWorkflows/.github/workflows/sync.yml: ref-pin
+        CrankyAnt/SharedWorkflows/.github/workflows/measurement.yml: ref-pin
         CrankyAnt/SharedWorkflows/actions/python-language-step: ref-pin
         CrankyAnt/SharedWorkflows/actions/recording: ref-pin
         CrankyAnt/SharedWorkflows/actions/repository-hygiene: ref-pin

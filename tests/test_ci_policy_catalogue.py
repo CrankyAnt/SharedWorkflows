@@ -243,7 +243,7 @@ class PageTests(CatalogueFixture):
     def test_an_entry_that_no_consumer_adopts_says_so(self) -> None:
         for name, entry in self.entries.items():
             with self.subTest(entry=name):
-                management = ".github/workflows/sync.yml" in entry["workflows"]
+                management = any(wf in entry["workflows"] for wf in (".github/workflows/sync.yml", ".github/workflows/measurement.yml"))
                 self.assertEqual("management repository" if management else "consumer", entry["audience"])
 
 

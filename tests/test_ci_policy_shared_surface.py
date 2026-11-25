@@ -12,7 +12,7 @@ from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, is_tracked, 
 
 SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
-PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "node-test", "issue-title", "sync")
+PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "node-test", "issue-title", "sync", "measurement")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
 # The consumer kits whose README leads to the ruleset template.
 LEADING_KITS = ("actions/repository-hygiene/consumer-kit", "actions/pipeline/consumer-kit")

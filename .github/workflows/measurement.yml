@@ -1,0 +1,47 @@
+name: Measurement
+
+on:
+  workflow_call:
+    secrets:
+      MEASUREMENT_APP_PRIVATE_KEY:
+        description: The private key of the measurement App. The job reads it from the environment measurement of the calling repository.
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: measurement
+  cancel-in-progress: false
+
+jobs:
+  measurement:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 30
+    environment: measurement
+    permissions:
+      issues: write
+    steps:
+      - name: Load the measurement program from this workflow revision
+        id: resources
+        uses: $/actions/measurement
+      - name: Get the installation token of the measurement App
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.MEASUREMENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MEASUREMENT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] the measurement reads every repository of the installation, so that no file names one
+          permission-actions: read
+      - name: Measure the CI goal for every repository of the installation
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/measurement.py" measure --own-repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Open an issue for a failed run
+        if: ${{ failure() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/measurement.py" failure --own-repository "$GITHUB_REPOSITORY" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --summary "$GITHUB_STEP_SUMMARY"

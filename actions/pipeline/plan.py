@@ -934,6 +934,10 @@ def run_plan(options: argparse.Namespace) -> int:
         for pattern in patterns:
             print(f"unmatched path pattern: {part_name}: {pattern}")
     append(options.github_output, f"plan={json.dumps(plan, separators=(',', ':'))}\n")
+    if options.output:
+        destination = Path(options.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(plan, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
     append(options.summary, plan_markdown(plan))
     return 0
 
@@ -1208,6 +1212,7 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--run-id", default="0", help="the id of the run")
     planning.add_argument("--iso-week", type=int, default=None, help="override the UTC ISO week number used for scheduled cadence checks")
     planning.add_argument("--github-output", help="the file that receives the output plan")
+    planning.add_argument("--output", help="the file that receives the JSON plan document")
     planning.add_argument("--summary", help="the file that receives the Markdown summary")
     deciding = commands.add_parser("verdict", help="pass or fail on the results of the plan and the parts")
     deciding.add_argument("--needs", required=True, help="a file with toJSON(needs) of the verdict job")

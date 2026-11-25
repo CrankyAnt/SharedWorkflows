@@ -271,6 +271,18 @@
       "applies": "The one management repository of the owner; a consumer does not call it, and the sync reaches a consumer through the App's installation.",
       "consumer_kit": null,
       "audience": "management repository"
+    },
+    {
+      "name": "Measurement",
+      "purpose": "Measures every consumer's pipeline runs over a rolling four weeks and reports the share within 3 minutes from trigger to verdict, the median of runs whose plan selects no tests, fallbacks by reason and parts that run with unknown inputs, opening an issue on a missed target.",
+      "configuration": null,
+      "workflows": [".github/workflows/measurement.yml"],
+      "steps": ["actions/measurement"],
+      "required_checks": [],
+      "needs": "A private repository that holds the measurement caller actions/measurement/caller.yml as .github/workflows/measurement.yml, with the environment measurement limited to main that holds the Client ID and the private key of the measurement App, which has Actions read only.",
+      "applies": "The one management repository of the owner; a consumer does not call it, and the measurement reaches a consumer through the App's installation.",
+      "consumer_kit": null,
+      "audience": "management repository"
     }
   ]
 }

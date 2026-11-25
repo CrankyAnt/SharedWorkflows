@@ -29478,6 +29478,21 @@
         ".",
         "tests"
       ]
+    },
+    {
+      "name": "measurement",
+      "entries": [
+        "tests/test_measurement.py"
+      ],
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "-v"
+      ],
+      "setups": [
+        "python"
+      ]
     }
   ],
   "module_lookups": {

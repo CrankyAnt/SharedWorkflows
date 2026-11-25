@@ -1011,6 +1011,14 @@ class PartInputsAndDeparturesTests(PipelineFixture):
         for part in ("custom", "dotnet-test", "node-test", "python-test"):
             self.assertIs(True, outcome.plan["parts"][part]["run"], part)
 
+    def test_output_writes_the_plan_json_document(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n", "ci/check.sh": "exit 0\n", "README.md": "1\n"})
+        head = self.commit({"README.md": "2\n"})
+        destination = self.directory / "ci-plan.json"
+        outcome = self.plan("--base", base, "--head", head, "--output", str(destination))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual(outcome.plan, json.loads(destination.read_text(encoding="utf-8")))
+
 
 if __name__ == "__main__":
     unittest.main()

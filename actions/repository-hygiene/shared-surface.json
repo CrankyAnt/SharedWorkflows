@@ -12,6 +12,7 @@
     ".github/workflows/automation.yml",
     ".github/workflows/release.yml",
     ".github/workflows/sync.yml",
+    ".github/workflows/measurement.yml",
     "catalogue.json",
     "actions/publication-checks",
     "actions/repository-hygiene",
@@ -25,6 +26,7 @@
     "actions/node-test",
     "actions/issue-title",
     "actions/sync",
+    "actions/measurement",
     "actions/repository-ruleset"
   ],
   "classes": {
@@ -38,6 +40,7 @@
     ".github/workflows/automation.yml": "write",
     ".github/workflows/release.yml": "write",
     ".github/workflows/sync.yml": "template",
+    ".github/workflows/measurement.yml": "write",
     "catalogue.json": "read",
     "actions/publication-checks": "read",
     "actions/repository-hygiene": "write",
@@ -58,6 +61,7 @@
     "actions/node-test": "read",
     "actions/issue-title": "write",
     "actions/sync": "template",
+    "actions/measurement": "write",
     "actions/repository-ruleset": "template"
   }
 }

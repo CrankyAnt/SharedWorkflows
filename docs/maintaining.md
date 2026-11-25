@@ -20,6 +20,7 @@ The shared parts, with one row per shared step:
 | Pipeline | `automation.yml`, the [automation workflow](#the-automation-workflow) | Issue-title normalisation, `issue-title/`; the workflow also loads `pipeline/`, `dependabot-auto-merge/`, `recording/`, `suite-selection/` and `repository-hygiene/` | `issue-title/issue_title.py` | `pipeline` |
 | GitHub release | `release.yml` | Pipeline, `pipeline/` | `pipeline/release.py` | `pipeline` |
 | Sync | `sync.yml` | Sync, `sync/`; it reads the templates, the schema and the consumer checks of `pipeline/` and the ruleset template of `repository-ruleset/` | `sync/sync.py` | `sync` |
+| Measurement | `measurement.yml` | Measurement, `measurement/` | `measurement/measurement.py` | `measurement` |
 
 The repository workflows run only for this repository, and no caller calls them. Each runs scripts from a part folder:
 
@@ -1019,6 +1020,19 @@ Each issue carries the marker `<!-- sync-finding: <key> -->` in its body, by whi
 - The derived file is checked against the schema before anything is written; a file that does not match stops the command.
 
 The command's output and the pull request's body list, under "Not derived", each workflow that stays or is replaced, each input and each Dependabot key that is not carried over. A repository that holds a configuration file already is refused.
+
+### Measurement
+
+`measurement.yml` is the shared workflow of the CI goal measurement, called weekly and on a start by hand by the private management repository through [caller.yml](../actions/measurement/caller.yml). No consumer calls it and this repository runs no caller of it; its program [measurement.py](../actions/measurement/measurement.py) is tested on fixture repositories behind a stand-in for the GitHub API.
+
+The workflow has one job, `measurement`, which runs only on `main`, in the environment `measurement` of the calling repository, with `issues: write`. It gets an installation token of the measurement App (`MEASUREMENT_APP_CLIENT_ID` and `MEASUREMENT_APP_PRIVATE_KEY`) limited to `Actions: read` across the installation, and runs `measurement.py measure --own-repository <the calling repository>`. For each installed non-archived consumer repository (skipping `--own-repository`), it reads completed pipeline runs (`.github/workflows/ci.yml`) over a rolling four weeks (28 days) that reached a verdict (`ci / verdict` completed with `success` or `failure`), excluding manual re-runs (`run_attempt > 1`) and `workflow_dispatch` runs, and downloads each run's `ci-plan` artifact uploaded by `pipeline.yml`. It reports per repository:
+
+- the share of verdict runs within 3 minutes from trigger to verdict (target: 99%),
+- the median duration of runs whose plan selected no tests (target: 1 minute),
+- fallbacks by reason,
+- parts that ran with unknown inputs.
+
+A missed target opens an issue in the management repository with the run's `GITHUB_TOKEN`, naming the repository and the target, deduplicated by an HTML marker while an issue for that repository and target is open. When the measurement job fails, `measurement.py failure` opens one failure issue while none is open. `measurement.py measure --local --repository <owner>/<name>` runs with the owner's own token on named repositories without opening issues.
 
 ### Repository prerequisites
 
