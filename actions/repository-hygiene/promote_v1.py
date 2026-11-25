@@ -94,9 +94,17 @@ SCAN_REFUSAL = "the Gitleaks scan of the tag push reports a finding or could not
 RECORDING_DIR = "actions/recording"
 WINDOWS_ONLY_PARTS = ("etw-consumer/", "etw_consumer_build.py")
 SUITE_JOBS_WORKFLOW = ".github/workflows/suite-jobs.yml"
+PIPELINE_WORKFLOW = ".github/workflows/pipeline.yml"
 TOOL_INSTALLER_FILES = ("actions/repository-hygiene/install_tools.py", "actions/repository-hygiene/pins.py")
 LANGUAGE_STEP_FOLDERS = {"python": "actions/python-language-step"}
 LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
+PART_DIGEST_FOLDERS: dict[str, tuple[str, ...]] = {
+    "custom": ("actions/pipeline",),
+    "dotnet-test": ("actions/dotnet-test", "actions/pipeline"),
+    "node-test": ("actions/node-test", "actions/pipeline"),
+    "python-test": ("actions/python-tests", "actions/pipeline"),
+    "python-verify": ("actions/python-tests", "actions/pipeline"),
+}
 RECORDING_MODULE_SEARCH = ("actions/suite-selection", "actions/recording")
 # GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
 GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
@@ -355,10 +363,12 @@ def _digest_entries(entries: Mapping[str, str]) -> str:
 
 
 def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, str]:
-    """Per-platform, per-tool and per-language-step digest fingerprints of ``commit``, keyed like ``shared-digests``."""
+    """Per-platform, per-tool, per-language-step and per-part digest fingerprints of ``commit``, keyed like ``shared-digests``."""
     if not commit or not has_commit(root, commit):
         return {}
-    scope = [RECORDING_DIR, SUITE_JOBS_WORKFLOW, *TOOL_INSTALLER_FILES, *LANGUAGE_STEP_FOLDERS.values(), *RECORDING_MODULE_SEARCH, pins_path]
+    part_folders = tuple(dict.fromkeys(folder for folders in PART_DIGEST_FOLDERS.values() for folder in folders))
+    scope = [RECORDING_DIR, SUITE_JOBS_WORKFLOW, PIPELINE_WORKFLOW, *TOOL_INSTALLER_FILES, *LANGUAGE_STEP_FOLDERS.values(),
+             *part_folders, *RECORDING_MODULE_SEARCH, pins_path]
     blobs = _tree_blobs(root, commit, scope)
     digests: dict[str, str] = {}
     recording_files = {path: blob for path, blob in blobs.items() if path.startswith(f"{RECORDING_DIR}/")}
@@ -397,6 +407,12 @@ def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository
             extra = {f"pins:python/{tool}": json.dumps(python_pins[tool], sort_keys=True, separators=(",", ":"))
                      for tool in LANGUAGE_STEP_PYTHON_TOOLS.get(name, ()) if tool in python_pins}
             digests[f"language:{name}"] = _digest_entries({**lang_files, **installer, **extra})
+    for name, folders in sorted(PART_DIGEST_FOLDERS.items()):
+        part_files = {path: blob for path, blob in blobs.items() if any(path.startswith(f"{folder}/") for folder in folders)}
+        if PIPELINE_WORKFLOW in blobs:
+            part_files[PIPELINE_WORKFLOW] = blobs[PIPELINE_WORKFLOW]
+        if part_files:
+            digests[f"part:{name}"] = _digest_entries(part_files)
     return dict(sorted(digests.items()))
 
 

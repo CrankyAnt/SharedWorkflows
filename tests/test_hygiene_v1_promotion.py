@@ -1127,25 +1127,30 @@ class PrepareTests(ManualMove):
             "actions/recording/recording.py": "# rec 1\n",
             "actions/recording/etw-consumer/Program.cs": "// etw 1\n",
             "actions/python-language-step/python_language_step.py": "# py 1\n",
+            "actions/dotnet-test/dotnet_test.py": "# dotnet 1\n",
+            "actions/node-test/node_test.py": "# node 1\n",
         })
         git(self.fixture.repo, "push", "-q", "--force", "origin", "main", f"{self.fixture.v1}:refs/tags/v1")
         pins_v2 = json.dumps({"node": {"version": "24.0.0"}, "tools": {"gitleaks": {"version": "8.2.0"}}, "python": {"ruff": {"version": "0.2.0"}}}) + "\n"
-        target = self.fixture.commit("feat: bump gitleaks, ruff and etw", {
+        target = self.fixture.commit("feat: bump gitleaks, ruff, etw and dotnet-test", {
             ".github/workflows/hygiene.yml": "name: hygiene 2\n",
             "ci/pins.json": pins_v2,
             "actions/recording/etw-consumer/Program.cs": "// etw 2\n",
+            "actions/dotnet-test/dotnet_test.py": "# dotnet 2\n",
         })
         git(self.fixture.repo, "push", "-q", "origin", "main")
         code, output = self.prepare()
         self.assertEqual(0, code, output)
-        self.assertIn("Changed shared digests: language:python, platform:windows, tool:gitleaks, tool:ruff", output)
+        expected = "language:python, part:dotnet-test, platform:windows, tool:gitleaks, tool:ruff"
+        self.assertIn(f"Changed shared digests: {expected}", output)
         question = self.question(output)
-        self.assertIn("It changes the shared digests language:python, platform:windows, tool:gitleaks, tool:ruff.", question)
+        self.assertIn(f"It changes the shared digests {expected}.", question)
         self.assertNotIn("platform:linux", question, "a Windows-only change does not move platform:linux")
+        self.assertNotIn("part:node-test", question, "an unchanged part does not move its part digest")
         self.assertNotIn("tool:node", question)
         decision = promote.decide(self.fixture.repo, target, self.fixture.v1, SURFACE)
         self.assertFalse(decision.follow)
-        self.assertIn("It changes the shared digests language:python, platform:windows, tool:gitleaks, tool:ruff.", decision.question)
+        self.assertIn(f"It changes the shared digests {expected}.", decision.question)
 
     def test_a_gitleaks_finding_is_refused(self) -> None:
         self.shared_change()

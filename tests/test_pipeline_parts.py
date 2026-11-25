@@ -141,7 +141,8 @@ class ProjectListTests(RealSchemaFixture):
             project = entry.smallest
             with self.subTest(part=part):
                 outcome = self.assert_accepted(configuration(part, project))
-                self.assertEqual({"run": True, "reason": "switched on", "config": {"projects": [project]}}, outcome.plan["parts"][part])
+                self.assertEqual({"run": True, "reason": "inputs unknown", "config": {"projects": [project]}}, outcome.plan["parts"][part])
+                self.assertEqual([{"part": part, "reason": "inputs unknown"}], outcome.plan["departures"])
                 for other in PARTS:
                     if other != part:
                         self.assertIs(False, outcome.plan["parts"][other]["run"])

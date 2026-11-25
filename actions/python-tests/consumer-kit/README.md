@@ -12,7 +12,7 @@ A repository whose own workflow already runs its tests adopts Python tests in pl
 
 The shared job `tests` runs on one runner label, in this order:
 
-1. It checks out the change and decides whether the tests run. They do not run when every changed file ends in `.md`, in any case, or when the run is a push or a `dependabot-merged` run whose tree already passed `tests / tests` on its pull request. In both cases the job succeeds without installing anything. Any other change runs them; no finer path selection applies.
+1. It checks out the change and decides whether the tests run. They do not run when the run is a push or a `dependabot-merged` run whose tree already passed `tests / tests` on its pull request; in that case the job succeeds without installing anything. Any other change runs them, including a Markdown-only change; no finer path selection applies.
 2. It installs `python-version` with `actions/setup-python` as the job's own Python, without a cache.
 3. It installs the dependencies with pip from `working-directory`: an `install` value that ends in `.txt` is a requirements file, installed with `pip install -r <file>`, and any other value is an extra of the project, installed with `pip install ".[<extra>]"`. Without `install`, nothing is installed.
 4. It runs the [Python language step](../../python-language-step/consumer-kit/README.md) from `working-directory`: `ruff check`, `mypy` where that directory configures it, and `ruff format --check` with `format-check: "true"`.

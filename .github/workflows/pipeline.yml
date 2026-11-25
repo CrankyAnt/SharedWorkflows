@@ -138,12 +138,12 @@ jobs:
           fi
       - name: Take the shared CI digests
         id: digest
-        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
+        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
       - name: Look up the shared CI digests from the default-branch record
-        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
+        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
         env:
           RESOURCE_PATH: ${{ steps.selection.outputs.path }}
           DIGESTS: ${{ steps.digest.outputs.shared-digests }}
@@ -205,6 +205,9 @@ jobs:
           fi
           if [ -f "$RUNNER_TEMP/unit-decisions.json" ]; then
             set -- "$@" --unit-decisions "$RUNNER_TEMP/unit-decisions.json"
+          fi
+          if [ -f "$RUNNER_TEMP/shared-lookup.json" ]; then
+            set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"
           fi
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --workflow-ref "$WORKFLOW_REF" --event "$EVENT" --event-action "$EVENT_ACTION" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Record the tested state of the pull request

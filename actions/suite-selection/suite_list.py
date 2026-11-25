@@ -227,11 +227,13 @@ class Setup:
 
 @dataclass(frozen=True)
 class PinnedTool:
-    """A pinned tool that the configuration file names: its version of the pins file and what its pin holds, as text."""
+    """A pinned tool that the configuration file names: its version of the pins file, what its pin holds as text, and
+    the repository-relative path of the pins file when it lives in the checkout."""
 
     name: str
     version: str
     pin: str
+    file: str | None = None
 
 
 @dataclass(frozen=True)
@@ -257,7 +259,10 @@ class SuiteList:
         states: their content decides what the entry file runs with, so the entry file reads them."""
         entries = suite.entries if entry is None or not suite.entry_selection else (entry,)
         names = dict.fromkeys(setup for item in entries for setup in suite.setups_of(item))
-        return tuple(dict.fromkeys(file for name in names if name in self.setups_by_name for file in self.setups_by_name[name].files))
+        pinned_files = {tool.name: tool.file for tool in self.pinned if tool.file is not None}
+        files = [file for name in names if name in self.setups_by_name for file in self.setups_by_name[name].files]
+        files += [pinned_files[name] for name in names if name in pinned_files]
+        return tuple(dict.fromkeys(files))
 
     @functools.cached_property
     def lookups_by_directory(self) -> dict[str, tuple[str, ...]]:

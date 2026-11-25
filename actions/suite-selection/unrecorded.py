@@ -56,7 +56,10 @@ RECORDING_SCRIPT = "recording.py"
 SELECTION_TOOL = Path(__file__).resolve().parent.name
 ETW_PARTS = ("etw-consumer/", "etw_consumer_build.py")
 ENTRY_STEP = re.compile(r"\bexec\b[^\n]*--entry\b")
-SETUP_TERM = re.compile(r"contains\(\s*(?:[A-Za-z_][\w.-]*\.setups|fromJSON\(\s*[\w.-]*setups[\w.-]*\s*\))\s*,\s*'([^']+)'\s*\)", re.IGNORECASE)
+SETUP_TERM = re.compile(
+    r"contains\(\s*(?:[A-Za-z_][\w.-]*\.(?:setups|pinned)|fromJSON\(\s*[\w.-]*(?:setups|pinned)[\w.-]*\s*\)|fromJSON\(\s*[\w.-]+\s*\)\.(?:setups|pinned))\s*,\s*'([^']+)'\s*\)",
+    re.IGNORECASE,
+)
 LANGUAGE_TERM = re.compile(r"fromJSON\(\s*(?:inputs|(?:needs|steps)\.[A-Za-z_][A-Za-z0-9_-]*\.outputs)\.language-steps\s*\)\s*\.\s*([a-z0-9-]+)")
 SHARDS_OUTPUT = re.compile(r"\.outputs\.shards\b")
 WINDOWS_OUTPUT = re.compile(r"\.outputs\.windows\b")
@@ -159,6 +162,10 @@ def suite_list_changes(previous, current, list_path: str) -> dict[EntryFile, str
     a module lookup of a directory in which it looks up modules included."""
     before = {suite.name: suite for suite in previous.suites}
     selected: dict[EntryFile, str] = {}
+    if set(previous.always) - set(current.always):
+        for suite in current.suites:
+            selected.update({EntryFile(suite.name, entry): f"`{list_path}` removes patterns from `always`" for entry in suite.entries})
+        return selected
     for suite in current.suites:
         old = before.get(suite.name)
         if old is None:
@@ -222,18 +229,36 @@ def condition_text(node: dict) -> str:
     return text
 
 
+def _safe_narrow_terms(condition: str, pattern: re.Pattern[str]) -> frozenset[str] | None:
+    """Extract narrowed names from ``condition`` only when the condition is not negated or disjoined with an
+    unevaluable branch; otherwise return None so the step falls back to selecting more."""
+    if not pattern.search(condition):
+        return None
+    # A negated match or an OR branch that does not match the pattern can run outside the named set.
+    if re.search(r"!\s*" + pattern.pattern, condition, re.IGNORECASE):
+        return None
+    if "||" in condition:
+        branches = [branch.strip() for branch in condition.split("||")]
+        if not all(pattern.search(branch) and not re.search(r"!\s*" + pattern.pattern, branch, re.IGNORECASE) for branch in branches):
+            return None
+    return frozenset(pattern.findall(condition))
+
+
 def step_role(step: dict, index: int, last_entry_step: int) -> tuple[str, frozenset[str] | ci_definition.Gate | None]:
     """What a step of a suite job belongs to: ``gate`` (its suite or entry-file gate), ``setups`` (the setups its
     condition names), ``language`` (the language steps its condition names), ``result`` (a step after the entry files
     that only stores or reports results) or ``job`` (every unit of the job)."""
     condition = condition_text(step)
-    gate = ci_definition.condition_gate(condition)
+    try:
+        gate = ci_definition.condition_gate(condition)
+    except ci_definition.WorkflowReadError:
+        return "job", None
     if gate.suites:
         return "gate", gate
-    if setups := SETUP_TERM.findall(condition):
-        return "setups", frozenset(setups)
-    if languages := LANGUAGE_TERM.findall(condition):
-        return "language", frozenset(languages)
+    if setups := _safe_narrow_terms(condition, SETUP_TERM):
+        return "setups", setups
+    if languages := _safe_narrow_terms(condition, LANGUAGE_TERM):
+        return "language", languages
     if index > last_entry_step and not uses_recording(step):
         return "result", None
     return "job", None
@@ -275,7 +300,10 @@ def job_units(job: dict, units: list[EntryUnit]) -> list[EntryUnit]:
         return [unit for unit in units if unit.os == "linux"]
     if WINDOWS_OUTPUT.search(driven):
         return [unit for unit in units if unit.os == "windows"]
-    gate = ci_definition.condition_gate(job.get("if"))
+    try:
+        gate = ci_definition.condition_gate(job.get("if"))
+    except ci_definition.WorkflowReadError:
+        return list(units)
     if not gate.suites:
         return list(units)
     return [unit for unit in units if in_gate(gate, unit)]
@@ -312,9 +340,34 @@ class CanonicalForms:
         self.side = side
 
     def of(self, node: object) -> tuple[object, frozenset[str]]:
-        """The canonical form of a node and the local action files it reads."""
+        """The canonical form of a node and the local action and referenced files it reads."""
         files: set[str] = set()
-        return self._canonical(node, frozenset(), files), frozenset(files)
+        canonical = self._canonical(node, frozenset(), files)
+        referenced = self._referenced_files(node, files)
+        if referenced and isinstance(canonical, dict):
+            canonical = {**canonical, "referenced-files": referenced}
+        return canonical, frozenset(files)
+
+    def _referenced_files(self, node: object, files: set[str]) -> dict[str, str]:
+        """Hash tracked files referenced in ``run``, ``with`` and ``working-directory`` of ``node`` (excluding recording files)."""
+        digests: dict[str, str] = {}
+        try:
+            refs = ci_definition._references(node)
+        except ci_definition.WorkflowReadError:
+            return digests
+        for kind, value, _gate, directory in refs:
+            if kind == "uses":
+                continue
+            for token in ci_definition._tokens(value, script=kind == "run"):
+                relative = ci_definition.repository_path(token, directory if kind == "run" else "")
+                if relative is None or relative not in self.side.tracked:
+                    continue
+                if relative.startswith(RECORDING_ACTION + "/"):
+                    continue
+                if relative not in digests:
+                    digests[relative] = hashlib.sha256(self.side.data(relative) or b"").hexdigest()
+                    files.add(relative)
+        return digests
 
     def _canonical(self, node: object, seen: frozenset[str], files: set[str]) -> object:
         if isinstance(node, list):
@@ -470,9 +523,10 @@ class WorkflowWalk:
             folder = next((uses_path(step.get("uses")) for step in job["steps"] if uses_recording(step) and is_local(step.get("uses"))), None)
             if folder is not None:
                 self.collection.recording_units.setdefault(folder, []).extend(units)
-        for key in ("permissions", "env", "defaults") if suite_units else ():
-            self.collection.add(suite_units, f"`{key}` of `{path}`", {path}, document.get(key))
-        return sorted({unit for units in units_by_job.values() for unit in units}, key=lambda unit: unit.file)
+        reached = sorted({unit for units in units_by_job.values() for unit in units}, key=lambda unit: unit.file)
+        for key in ("permissions", "env", "defaults") if reached else ():
+            self.collection.add(reached, f"`{key}` of `{path}`", {path}, document.get(key))
+        return reached
 
     def _steps(self, path: str, name: str, job: dict, units: list[EntryUnit]) -> None:
         for step, (role, value) in zip(job["steps"], suite_job_roles(job)):
@@ -507,7 +561,8 @@ def parts(side: Side, workflow: str, units: list[EntryUnit]) -> Parts:
     except ci_definition.WorkflowReadError:
         caller = None
     if isinstance(caller, dict):
-        collection.add(reached, f"`permissions` of `{workflow}`", {workflow}, caller.get("permissions"))
+        for key in ("permissions", "env", "defaults"):
+            collection.add(reached, f"`{key}` of `{workflow}`", {workflow}, caller.get(key))
     for folder, units_of_folder in collection.recording_units.items():
         windows = [unit for unit in units_of_folder if unit.os == "windows"]
         for file in recording_files(side, folder):

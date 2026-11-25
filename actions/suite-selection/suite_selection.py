@@ -159,7 +159,8 @@ class Selection:
 # --- the suite list ----------------------------------------------------------------------------------------
 
 
-def with_pinned_tools(suite_list: SuiteList, names: list[str], pins: Path | None, source: str = "the suite list") -> SuiteList:
+def with_pinned_tools(suite_list: SuiteList, names: list[str], pins: Path | None, source: str = "the suite list",
+                      root: Path | None = None) -> SuiteList:
     """The suite list with the pinned tools that the configuration file names, each with its version of the pins file.
     A pinned tool is a setup that the suite jobs give: the suite list defines none of its name, and none that installs
     Node.js beside the pinned Node.js. A suite that states a pinned tool which the configuration file does not name states
@@ -181,13 +182,19 @@ def with_pinned_tools(suite_list: SuiteList, names: list[str], pins: Path | None
         document = json.loads(pins.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise SuiteListError(f"the pins file {pins} cannot be read as JSON: {error}") from error
+    pins_relative: str | None = None
+    if root is not None:
+        resolved_pins = pins.resolve()
+        resolved_root = root.resolve()
+        if resolved_pins.is_relative_to(resolved_root):
+            pins_relative = resolved_pins.relative_to(resolved_root).as_posix()
     pinned = []
     for name in dict.fromkeys(names):
         pin = (document.get("node") if name == "node" else document.get("tools", {}).get(name)) if isinstance(document, dict) else None
         version = pin.get("version") if isinstance(pin, dict) else None
         if not isinstance(version, str) or not version:
             raise SuiteListError(f"the pins file {pins} holds no version of {name}")
-        pinned.append(PinnedTool(name, version, json.dumps(pin, sort_keys=True)))
+        pinned.append(PinnedTool(name, version, json.dumps(pin, sort_keys=True), pins_relative))
     return dataclasses.replace(suite_list, pinned=tuple(pinned))
 
 
@@ -1203,7 +1210,7 @@ def run_select(options: argparse.Namespace) -> int:
     root = options.root.resolve()
     tracked = tracked_files(root)
     suite_list = resolve_entries(load_suite_list(options.suites), tracked, str(options.suites))
-    suite_list = with_pinned_tools(suite_list, options.pinned_tool, options.pins, str(options.suites))
+    suite_list = with_pinned_tools(suite_list, options.pinned_tool, options.pins, str(options.suites), root=root)
     if options.full:
         return write_selection(options, suite_list, every_suite(suite_list, FULL_REASON), [], full=True)
     found = sides = None
@@ -1388,6 +1395,8 @@ def selected_on(options: argparse.Namespace, root: Path, tracked, suite_list: Su
         try:
             definition = ci_definition.ci_definition(root, workflow_path(options.workflow), list_path(options, root), tracked)
         except ci_definition.WorkflowReadError as error:
+            if "unsupported suite-selection condition" in str(error):
+                return every_suite(suite_list, f"every suite runs: {error}")
             raise SuiteListError(f"the CI definition could not be read: {error}") from error
         workflow = definition[0].pattern if definition else None
         if workflow is not None and workflow in changed and previous is not None:
@@ -1395,7 +1404,10 @@ def selected_on(options: argparse.Namespace, root: Path, tracked, suite_list: Su
             # suites run instead of every suite.
             before, after = revision_text(root, previous, workflow), revision_text(root, head, workflow)
             if before is not None and after is not None:
-                gate = ci_definition.changed_step_gate(before, after)
+                try:
+                    gate = ci_definition.changed_step_gate(before, after)
+                except ci_definition.WorkflowReadError as error:
+                    return every_suite(suite_list, f"every suite runs: {error}")
                 if gate is not None:
                     workflow_steps = (workflow, gate)
     previous_tracked = revision_files(root, previous) if previous is not None and changed is not None else None

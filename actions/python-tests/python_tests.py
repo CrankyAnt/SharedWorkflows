@@ -93,10 +93,7 @@ def decision(changed: list[str] | None) -> tuple[bool, str]:
         return True, "the changed files could not be determined"
     if not changed:
         return True, "no file changed"
-    other = next((path for path in changed if not path.lower().endswith(".md")), None)
-    if other is not None:
-        return True, f"`{other}` is no Markdown file"
-    return False, "every changed file ends in `.md`"
+    return True, f"{len(changed)} file{'' if len(changed) == 1 else 's'} changed; inputs are unknown"
 
 
 def decide(root: Path, base: str | None, head: str | None, compare: str, lookup: Path | None, output: Path | None, summary: Path | None) -> int:

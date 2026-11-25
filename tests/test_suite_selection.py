@@ -2386,7 +2386,7 @@ class UnrecordedInputTests(UnrecordedFixture):
             "estimate": lambda suites, _: suites["lib"]["entry_durations"].update({"checks/test_a.py": 9.0}),
             "addition to a path list": lambda suites, _: suites["lib"]["entry_paths"]["checks/test_a.py"].append("src/new.py"),
             "addition to the extra reads": lambda suites, _: suites["docs"].update(extra_paths=["guides/**"]),
-            "every-suite patterns": lambda suites, document: document.update(always=["config/other.txt"]),
+            "addition to the every-suite patterns": lambda suites, document: document["always"].append("config/other.txt"),
         }
         for label, change in changes.items():
             with self.subTest(change=label):
@@ -2430,7 +2430,7 @@ class UnrecordedInputTests(UnrecordedFixture):
 
         changes = {
             "an addition to a path list": (lambda suites, _: suites["lib"]["entry_paths"]["checks/test_b.py"].append("src/new.py"), readers),
-            "the every-suite patterns": (lambda suites, document: document.update(always=["config/other.txt"]), readers),
+            "addition to the every-suite patterns": (lambda suites, document: document["always"].append("config/other.txt"), readers),
             "a command": (lambda suites, _: suites["win"].update(command=["python", "-m", "pytest"]), readers | {"checks/test_win.py"}),
         }
         for label, (change, expected) in changes.items():

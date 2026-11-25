@@ -346,6 +346,8 @@ class UnrecordedInputRolesTests(unittest.TestCase):
                 with self.subTest(job=name, step=step.get("name") or step.get("uses")):
                     if "language-steps" in str(step.get("if") or ""):
                         self.assertEqual(("language", frozenset({"python"})), (role, value))
+                    elif ".pinned" in str(step.get("if") or ""):
+                        self.assertEqual(("setups", frozenset({"gitleaks"})), (role, value))
                     elif role == "result":
                         self.assertTrue("suite-results" in str(step.get("run", "")) or "upload-artifact" in str(step.get("uses", "")),
                                         "a step after the entry files that is no recording step only stores or reports results")

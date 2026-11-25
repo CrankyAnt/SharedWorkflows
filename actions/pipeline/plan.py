@@ -73,6 +73,37 @@ TITLE_STEP = "Check the pull request title"
 REFERENCES_STEP = "Check the references to repositories of the owner"
 API_TIMEOUT = 15
 FAILING_RESULTS = ("failure", "cancelled", "timed_out")
+INPUTS_UNKNOWN_REASON = "inputs unknown"
+# Each pipeline part's own shared code and pin files in SharedWorkflows.
+PART_SHARED_INPUTS: dict[str, tuple[str, ...]] = {
+    "custom": ("actions/pipeline/", ".github/workflows/pipeline.yml"),
+    "python-verify": (
+        "actions/python-language-step/",
+        "actions/python-tests/",
+        "actions/repository-hygiene/pins.json",
+        "actions/repository-hygiene/install_tools.py",
+        "actions/pipeline/",
+        ".github/workflows/pipeline.yml",
+    ),
+    "python-test": (
+        "actions/python-tests/",
+        "actions/python-language-step/",
+        "actions/repository-hygiene/pins.json",
+        "actions/repository-hygiene/install_tools.py",
+        "actions/pipeline/",
+        ".github/workflows/pipeline.yml",
+    ),
+    "dotnet-test": ("actions/dotnet-test/", "actions/pipeline/", ".github/workflows/pipeline.yml"),
+    "node-test": ("actions/node-test/", "actions/pipeline/", ".github/workflows/pipeline.yml"),
+}
+# Shared CI digests (from shared-lookup.json) that select a pipeline part when moved.
+PART_DIGESTS: dict[str, tuple[str, ...]] = {
+    "custom": ("part:custom",),
+    "dotnet-test": ("part:dotnet-test",),
+    "node-test": ("part:node-test",),
+    "python-verify": ("part:python-verify", "language:python"),
+    "python-test": ("part:python-test", "language:python"),
+}
 ALL_ZERO = re.compile(r"^0+$")
 VERSION_FOLDER = re.compile(r"^v([1-9][0-9]*)$")
 WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.yml$")
@@ -478,23 +509,110 @@ def resolve_change(root: Path, base: str | None, head: str | None, compare: str,
 # --- the plan -------------------------------------------------------------------------------------------------------
 
 
+def supports_paths(name: str, version: SchemaVersion) -> bool:
+    """Whether the schema of part ``name`` declares a ``paths`` property."""
+    part_schema = version.schema["properties"]["parts"]["properties"].get(name)
+    return isinstance(part_schema, dict) and "paths" in part_schema.get("properties", {})
+
+
+def declared_input_patterns(name: str, config: dict) -> list[str]:
+    """Input path patterns implied by a part's declared project, working directory, install file, or script."""
+    patterns: list[str] = []
+    script = config.get("script")
+    if isinstance(script, str) and script:
+        patterns.append(script)
+    projects = config.get("projects")
+    if isinstance(projects, list):
+        for project in projects:
+            if not isinstance(project, dict):
+                continue
+            proj = project.get("project")
+            if isinstance(proj, str) and proj:
+                normalized = proj.rstrip("/")
+                if normalized:
+                    patterns.extend((normalized, normalized + "/"))
+            wd = project.get("working-directory")
+            cleaned_wd = wd.strip("/") if isinstance(wd, str) else ""
+            if cleaned_wd and cleaned_wd != ".":
+                patterns.append(cleaned_wd + "/")
+            elif name == "node-test":
+                patterns.extend(("package.json", "package-lock.json", ".nvmrc"))
+            install = project.get("install")
+            if isinstance(install, str) and install:
+                prefix = "" if not cleaned_wd or cleaned_wd == "." else cleaned_wd + "/"
+                if install.endswith(".txt"):
+                    patterns.append(prefix + install.lstrip("./"))
+                else:
+                    patterns.extend(prefix + manifest for manifest in ("pyproject.toml", "setup.py", "setup.cfg"))
+    return list(dict.fromkeys(patterns))
+
+
+def tracked_files(root: Path) -> set[str] | None:
+    """The tracked files of the checkout at ``root``, or None when Git cannot list them."""
+    listing = git(root, "ls-files", "-z")
+    if listing.returncode != 0:
+        return None
+    return {path for path in listing.stdout.split("\0") if path}
+
+
+def unmatched_paths(parts: dict, workflow_parts: list[str], tracked: set[str] | None) -> dict[str, list[str]]:
+    """Per switched-on part, each pattern in its ``paths`` that matches no tracked file."""
+    if tracked is None:
+        return {}
+    unmatched: dict[str, list[str]] = {}
+    for name in workflow_parts:
+        patterns = parts.get(name, {}).get("paths")
+        if not isinstance(patterns, list):
+            continue
+        missing = [pattern for pattern in patterns if not any(pattern_expression(pattern).fullmatch(path) for path in tracked)]
+        if missing:
+            unmatched[name] = missing
+    return unmatched
+
+
+def moved_part_digests(path: str | None) -> set[str] | None:
+    """The digest names that moved in ``shared-lookup.json``, or None when all count as moved (unreadable or no previous).
+    Returns an empty set when ``path`` is None."""
+    if not path:
+        return set()
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("digests"), dict):
+        return None
+    previous = raw.get("previous")
+    if not isinstance(previous, dict):
+        return None
+    return {name for name, value in raw["digests"].items() if previous.get(name) != value}
+
+
 def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, changed: list[str] | None,
-           identical_reason: str | None = None, tested_base_parts: dict | None = None) -> tuple[bool, str, bool]:
+           identical_reason: str | None = None, tested_base_parts: dict | None = None,
+           moved_digests: set[str] | None = None) -> tuple[bool, str, bool]:
     """Whether a part runs, with the reason and whether a passed result was taken over."""
     if name in version.always:
         return True, "always runs", False
     if name not in parts:
         return False, "switched off", False
+    part_digests = PART_DIGESTS.get(name, ())
+    if part_digests:
+        if moved_digests is None:
+            return True, f"`{part_digests[0]}` digest could not be compared", False
+        moved = next((digest for digest in part_digests if digest in moved_digests), None)
+        if moved is not None:
+            return True, f"`{moved}` digest moved", False
     if identical_reason is not None:
         return False, identical_reason, True
     patterns = parts[name].get("paths")
     if patterns is None:
-        return True, "switched on", False
+        return (True, INPUTS_UNKNOWN_REASON, False) if supports_paths(name, version) else (True, "switched on", False)
     if changed is None:
         return True, "the changed files are unknown", False
     if base_parts.get(name) != parts[name] or (tested_base_parts is not None and tested_base_parts.get(name) != parts[name]):
         return True, "its configuration changed", False
-    matched = first_match(patterns, changed)
+    all_patterns = [*patterns, *declared_input_patterns(name, parts[name]), *PART_SHARED_INPUTS.get(name, ())]
+    matched = first_match(all_patterns, changed)
     return (True, f"{matched} changed", False) if matched else (False, "no changed path matches its paths", False)
 
 
@@ -633,7 +751,7 @@ def head_code_results(head: str | None, workflow_ref: str, run_id: str) -> dict:
 def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
               workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None,
               event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0",
-              iso_week: int | None = None) -> dict:
+              iso_week: int | None = None, shared_lookup: str | None = None) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
@@ -643,11 +761,19 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     tested_before = base_configuration(root, tested_base) if changed is not None and tested_base is not None else None
     parts, base_parts = stated_parts(configuration), stated_parts(before)
     tested_base_parts = stated_parts(tested_before) if tested_base is not None else None
+    workflow_parts = version.parts_of(workflow)
+    moved_digests = moved_part_digests(shared_lookup)
+    departures: list[dict] = [
+        {"part": name, "reason": INPUTS_UNKNOWN_REASON}
+        for name in workflow_parts
+        if name in parts and supports_paths(name, version) and parts[name].get("paths") is None
+    ]
+    unmatched = unmatched_paths(parts, workflow_parts, tracked_files(root))
     decisions = {}
     head_results: dict | None = None
     if event == "pull_request" and event_action == "edited" and workflow == PIPELINE:
         head_results = head_code_results(head, workflow_ref, run_id)
-        for name in version.parts_of(workflow):
+        for name in workflow_parts:
             if name == HYGIENE_JOB:
                 entry: dict = {"run": True, "reason": "title and description checks", "config": parts.get(name, {})}
             elif name not in parts:
@@ -660,8 +786,8 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
                 entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
             decisions[name] = entry
     else:
-        for name in version.parts_of(workflow):
-            run, reason, reused = decide(name, version, parts, base_parts, changed, identical_reason, tested_base_parts)
+        for name in workflow_parts:
+            run, reason, reused = decide(name, version, parts, base_parts, changed, identical_reason, tested_base_parts, moved_digests)
             entry = {"run": run, "reason": reason, "config": parts.get(name, {})}
             if reused:
                 entry["reused"] = True
@@ -688,6 +814,8 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     result: dict = {
         "version": version.version,
         "parts": decisions,
+        "departures": departures,
+        "unmatched-paths": unmatched,
         "compared": changed is not None,
         "switched-off": sorted(name for name in base_parts if name not in parts and name not in version.always),
         "local-workflows-added": [workflow for workflow in registered_workflows(configuration) if workflow not in known],
@@ -724,6 +852,16 @@ def plan_markdown(plan: dict) -> str:
         for unit_name, unit in units.items():
             status = "yes" if unit.get("run") else ("no (taken over)" if unit.get("reused") is True else "no")
             lines.append(f"| `{unit_name}` | {status} | {unit.get('reason', '')} |")
+    departures = plan.get("departures")
+    if isinstance(departures, list) and departures:
+        lines += ["", "### Departures", ""]
+        lines += [f"- `{item['part']}`: {item['reason']}" for item in departures if isinstance(item, dict)]
+    unmatched = plan.get("unmatched-paths")
+    if isinstance(unmatched, dict) and unmatched:
+        lines += ["", "### Unmatched paths", ""]
+        for part_name, patterns in unmatched.items():
+            for pattern in patterns:
+                lines.append(f"- `{part_name}`: `{pattern}` matches no tracked file")
     head_results = plan.get("head-results")
     if isinstance(head_results, dict):
         if head_results.get("passed"):
@@ -748,7 +886,8 @@ def run_plan(options: argparse.Namespace) -> int:
         versions = schema_versions(Path(options.schemas))
         plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare,
                          options.shared_workflow, options.lookup, options.unit_decisions,
-                         options.event, options.event_action, options.workflow_ref, options.run_id, options.iso_week)
+                         options.event, options.event_action, options.workflow_ref, options.run_id, options.iso_week,
+                         options.shared_lookup)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
         print(f"The plan failed: {CONFIGURATION} cannot be used.")
@@ -757,6 +896,11 @@ def run_plan(options: argparse.Namespace) -> int:
         return 1
     for name, part in plan["parts"].items():
         print(f"{name}: {'runs' if part['run'] else 'does not run'} ({part['reason']})")
+    for departure in plan.get("departures", []):
+        print(f"departure: {departure['part']} ({departure['reason']})")
+    for part_name, patterns in plan.get("unmatched-paths", {}).items():
+        for pattern in patterns:
+            print(f"unmatched path pattern: {part_name}: {pattern}")
     append(options.github_output, f"plan={json.dumps(plan, separators=(',', ':'))}\n")
     append(options.summary, plan_markdown(plan))
     return 0
@@ -1022,6 +1166,7 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--head", help="the commit under test")
     planning.add_argument("--compare", choices=("merge-base", "direct"), default="direct", help="compare the head with its merge base with the base, or with the base itself")
     planning.add_argument("--lookup", help="the push lookup JSON file written by suite_selection.py lookup")
+    planning.add_argument("--shared-lookup", help="the shared lookup JSON file written by suite_selection.py shared-lookup")
     planning.add_argument("--unit-decisions", help="the per-unit decisions JSON file written by suite_selection.py select")
     planning.add_argument("--workflow", default="pipeline", help="the name of the running workflow, for the concurrency groups")
     planning.add_argument("--workflow-ref", default="", help="the workflow_ref of the running workflow, for looking up head runs")

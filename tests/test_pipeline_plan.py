@@ -727,5 +727,259 @@ class EditedPullRequestTests(PipelineFixture):
         self.assertIn("no completed code run found", missing.plan["head-results"]["failures"][0])
 
 
+class PartInputsAndDeparturesTests(PipelineFixture):
+    """Declared part inputs, shared-code and pin inputs, unknown-input departures, and unmatched paths patterns (#182)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.schemas = SCHEMAS
+
+    def test_a_part_without_paths_runs_and_is_reported_as_a_departure_with_inputs_unknown(self) -> None:
+        base = self.commit({
+            CONFIGURATION: """\
+                version: 1
+                parts:
+                  custom:
+                    script: ci/check.sh
+                  python-test:
+                    projects:
+                      - python-version: "3.14"
+                        working-directory: backend
+                    paths: [backend/]
+                """,
+            "ci/check.sh": "exit 0\n",
+            "backend/test_app.py": "pass\n",
+            "README.md": "hi\n",
+        })
+        head = self.commit({"README.md": "changed\n"})
+        outcome = self.plan("--base", base, "--head", head)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["custom"]["run"])
+        self.assertEqual("inputs unknown", outcome.plan["parts"]["custom"]["reason"])
+        self.assertEqual([{"part": "custom", "reason": "inputs unknown"}], outcome.plan["departures"])
+        self.assertIn("Departures", outcome.summary)
+        self.assertIn("`custom`: inputs unknown", outcome.summary)
+        self.assertIs(False, outcome.plan["parts"]["python-test"]["run"])
+
+    def test_a_change_to_declared_project_working_directory_install_file_or_script_selects_the_part(self) -> None:
+        config = """\
+            version: 1
+            parts:
+              custom:
+                script: ci/check.sh
+                paths: [docs/]
+              dotnet-test:
+                projects:
+                  - sdk-version: "10.0.x"
+                    project: tests/Shop.Tests/Shop.Tests.csproj
+                paths: [src/]
+              node-test:
+                projects:
+                  - working-directory: web
+                paths: [shared/]
+              python-test:
+                projects:
+                  - python-version: "3.14"
+                    working-directory: backend
+                    install: requirements-dev.txt
+                paths: [shared/]
+              python-verify:
+                projects:
+                  - python-version: "3.14"
+                    install: dev
+                paths: [shared/]
+            """
+        base = self.commit({
+            CONFIGURATION: config,
+            "docs/a.md": "1\n",
+            "src/a.cs": "1\n",
+            "shared/a.txt": "1\n",
+            "ci/check.sh": "exit 0\n",
+            "tests/Shop.Tests/Shop.Tests.csproj": "<Project />\n",
+            "web/package.json": "{}\n",
+            "backend/app.py": "1\n",
+            "backend/requirements-dev.txt": "pytest\n",
+            "pyproject.toml": "[project]\nname = 'app'\n",
+            "README.md": "1\n",
+        })
+        for changed_file, expected_part in (
+            ("ci/check.sh", "custom"),
+            ("tests/Shop.Tests/Shop.Tests.csproj", "dotnet-test"),
+            ("web/package.json", "node-test"),
+            ("backend/app.py", "python-test"),
+            ("backend/requirements-dev.txt", "python-test"),
+            ("pyproject.toml", "python-verify"),
+        ):
+            with self.subTest(changed_file=changed_file, part=expected_part):
+                git(self.repository, "reset", "--quiet", "--hard", base)
+                head = self.commit({changed_file: "updated\n"})
+                outcome = self.plan("--base", base, "--head", head)
+                self.assertEqual(0, outcome.status, outcome.summary)
+                self.assertIs(True, outcome.plan["parts"][expected_part]["run"], outcome.summary)
+                self.assertEqual(f"{changed_file} changed", outcome.plan["parts"][expected_part]["reason"])
+        # An unrelated file selects none of these parts.
+        git(self.repository, "reset", "--quiet", "--hard", base)
+        head = self.commit({"README.md": "updated\n"})
+        outcome = self.plan("--base", base, "--head", head)
+        for part in ("custom", "dotnet-test", "node-test", "python-test", "python-verify"):
+            self.assertIs(False, outcome.plan["parts"][part]["run"], part)
+
+    def test_a_paths_pattern_that_matches_no_tracked_file_is_reported_by_the_plan(self) -> None:
+        base = self.commit({
+            CONFIGURATION: """\
+                version: 1
+                parts:
+                  python-test:
+                    projects:
+                      - python-version: "3.14"
+                    paths: ["src/", "typo/missing.py"]
+                """,
+            "src/app.py": "1\n",
+        })
+        head = self.commit({"README.md": "1\n"})
+        outcome = self.plan("--base", base, "--head", head)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual({"python-test": ["typo/missing.py"]}, outcome.plan["unmatched-paths"])
+        self.assertIn("typo/missing.py", outcome.summary)
+        self.assertIn("matches no tracked file", outcome.summary)
+        self.assertIn("typo/missing.py", outcome.stdout)
+
+    def test_a_part_s_own_shared_code_and_pins_select_the_part(self) -> None:
+        config = """\
+            version: 1
+            parts:
+              dotnet-test:
+                projects:
+                  - sdk-version: "10.0.x"
+                    project: tests/App.Tests.csproj
+                paths: [tests/]
+              node-test:
+                projects:
+                  - working-directory: web
+                paths: [web/]
+              python-verify:
+                projects:
+                  - python-version: "3.14"
+                paths: [src/]
+              python-test:
+                projects:
+                  - python-version: "3.14"
+                paths: [src/]
+            """
+        base = self.commit({
+            CONFIGURATION: config,
+            "tests/App.Tests.csproj": "<Project />\n",
+            "web/package.json": "{}\n",
+            "src/app.py": "1\n",
+            "actions/dotnet-test/dotnet_test.py": "1\n",
+            "actions/node-test/node_test.py": "1\n",
+            "actions/python-language-step/python_language_step.py": "1\n",
+            "actions/repository-hygiene/pins.json": "{}\n",
+        })
+        for changed_file, expected_running in (
+            ("actions/dotnet-test/dotnet_test.py", {"dotnet-test"}),
+            ("actions/node-test/node_test.py", {"node-test"}),
+            ("actions/python-language-step/python_language_step.py", {"python-test"}),  # python-verify combines into python-test
+            ("actions/repository-hygiene/pins.json", {"python-test"}),
+        ):
+            with self.subTest(changed_file=changed_file):
+                git(self.repository, "reset", "--quiet", "--hard", base)
+                head = self.commit({changed_file: "2\n"})
+                outcome = self.plan("--base", base, "--head", head)
+                self.assertEqual(0, outcome.status, outcome.summary)
+                for part in expected_running:
+                    self.assertIs(True, outcome.plan["parts"][part]["run"], f"{part} should run for {changed_file}")
+                # Unrelated parts do not run.
+                for part in {"dotnet-test", "node-test"} - expected_running:
+                    self.assertIs(False, outcome.plan["parts"][part]["run"], f"{part} should not run for {changed_file}")
+
+    def test_a_moved_language_digest_in_shared_lookup_selects_the_python_parts(self) -> None:
+        config = """\
+            version: 1
+            parts:
+              python-verify:
+                projects:
+                  - python-version: "3.14"
+                paths: [src/]
+              python-test:
+                projects:
+                  - python-version: "3.14"
+                paths: [src/]
+              dotnet-test:
+                projects:
+                  - sdk-version: "10.0.x"
+                    project: tests/App.Tests.csproj
+                paths: [tests/]
+            """
+        base = self.commit({CONFIGURATION: config, "src/app.py": "1\n", "tests/App.Tests.csproj": "<Project />\n", "README.md": "1\n"})
+        head = self.commit({"README.md": "2\n"})
+        shared = self.directory / "shared-lookup.json"
+        shared.write_text(json.dumps({
+            "digests": {"platform:linux": "a" * 64, "language:python": "b" * 64},
+            "previous": {"platform:linux": "a" * 64, "language:python": "c" * 64},
+        }), encoding="utf-8")
+        outcome = self.plan("--base", base, "--head", head, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["python-test"]["run"])
+        self.assertIn("language:python", outcome.plan["parts"]["python-test"]["reason"])
+        self.assertIs(False, outcome.plan["parts"]["dotnet-test"]["run"])
+
+    def test_a_consumer_runs_a_part_whose_part_digest_moved_without_changing_its_paths(self) -> None:
+        config = """\
+            version: 1
+            parts:
+              custom:
+                script: ci/check.sh
+                paths: [ci/]
+              dotnet-test:
+                projects:
+                  - sdk-version: "10.0.x"
+                    project: tests/App.Tests.csproj
+                paths: [tests/]
+              node-test:
+                projects:
+                  - working-directory: web
+                paths: [web/]
+              python-test:
+                projects:
+                  - python-version: "3.14"
+                paths: [src/]
+            """
+        # Consumer checkout: no actions/ or .github/workflows/pipeline.yml present.
+        base = self.commit({
+            CONFIGURATION: config,
+            "ci/check.sh": "exit 0\n",
+            "tests/App.Tests.csproj": "<Project />\n",
+            "web/package.json": "{}\n",
+            "src/app.py": "1\n",
+            "README.md": "1\n",
+        })
+        head = self.commit({"README.md": "2\n"})
+        shared = self.directory / "shared-lookup.json"
+        same = {
+            "platform:linux": "a" * 64,
+            "language:python": "b" * 64,
+            "part:custom": "c" * 64,
+            "part:dotnet-test": "d" * 64,
+            "part:node-test": "e" * 64,
+            "part:python-test": "f" * 64,
+        }
+        # Only part:dotnet-test moved -> dotnet-test runs, the others do not.
+        shared.write_text(json.dumps({"digests": {**same, "part:dotnet-test": "1" * 64}, "previous": same}), encoding="utf-8")
+        outcome = self.plan("--base", base, "--head", head, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["dotnet-test"]["run"])
+        self.assertIn("part:dotnet-test", outcome.plan["parts"]["dotnet-test"]["reason"])
+        for unchanged in ("custom", "node-test", "python-test"):
+            self.assertIs(False, outcome.plan["parts"][unchanged]["run"], unchanged)
+
+        # Missing previous digests -> every part with a digest counts as changed and runs.
+        shared.write_text(json.dumps({"digests": same, "previous": None}), encoding="utf-8")
+        outcome = self.plan("--base", base, "--head", head, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        for part in ("custom", "dotnet-test", "node-test", "python-test"):
+            self.assertIs(True, outcome.plan["parts"][part]["run"], part)
+
+
 if __name__ == "__main__":
     unittest.main()

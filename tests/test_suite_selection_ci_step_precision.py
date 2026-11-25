@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import subprocess
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -460,6 +461,185 @@ class ExtraExistenceSelectionTests(unittest.TestCase):
             document["suites"][0]["extra_existence_reads"] = value
             with self.subTest(value=value), self.assertRaisesRegex(suite_selection.SuiteListError, error):
                 suite_selection.parse_suite_list(json.dumps(document))
+
+
+class SelectionBlindSpotsTests(unittest.TestCase):
+    """Selection blind spots closed (#188): unevaluable conditions, always removal, ungated step files,
+    .pinned files/steps, top-level env, estimate-only changes, and language-step digest moves."""
+
+    def setUp(self) -> None:
+        self.temp = temporary_support.Directory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "repo"
+        self.root.mkdir()
+        self._git("init", "-q", "-b", "main")
+
+    def _git(self, *args: str) -> str:
+        res = subprocess.run(
+            ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "-c", "commit.gpgsign=false", *args],
+            cwd=self.root, capture_output=True, text=True, check=True,
+        )
+        return res.stdout.strip()
+
+    def _commit(self, files: dict[str, str]) -> str:
+        for rel, content in files.items():
+            target = self.root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8", newline="\n")
+        self._git("add", "-A")
+        self._git("commit", "-q", "--allow-empty", "-m", "commit")
+        return self._git("rev-parse", "HEAD")
+
+    def _select(self, *extra: str) -> tuple[int, dict[str, str], str]:
+        out = self.root.parent / "json-out.txt"
+        out.unlink(missing_ok=True)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = suite_selection.main([
+                "select", "--root", str(self.root), "--suites", str(self.root / "suites.json"),
+                "--json-output", str(out), *extra,
+            ])
+        outputs = dict(line.split("=", 1) for line in out.read_text(encoding="utf-8").splitlines() if line) if out.exists() else {}
+        return code, outputs, buf.getvalue()
+
+    def _base_repo(self, workflow_text: str, suite_doc: dict | None = None, extra_files: dict[str, str] | None = None) -> str:
+        doc = suite_doc or {
+            "always": ["always-dir/**"],
+            "suites": [
+                {"name": "alpha", "entries": ["tests/test_alpha.py"], "paths": ["tests/test_alpha.py"],
+                 "entry_durations": {"tests/test_alpha.py": 1.0}, "setups": ["gitleaks"]},
+                {"name": "beta", "entries": ["tests/test_beta.py"], "paths": ["tests/test_beta.py"],
+                 "entry_durations": {"tests/test_beta.py": 1.0}},
+            ],
+        }
+        files = {
+            ".github/workflows/ci.yml": workflow_text,
+            "suites.json": json.dumps(doc, indent=2) + "\n",
+            "tests/test_alpha.py": "pass\n",
+            "tests/test_beta.py": "pass\n",
+            "always-dir/a.txt": "1\n",
+            "scripts/helper.py": "print(1)\n",
+            "pins.json": json.dumps({"tools": {"gitleaks": {"version": "8.1.0"}}}) + "\n",
+            "README.md": "hi\n",
+        }
+        if extra_files:
+            files.update(extra_files)
+        return self._commit(files)
+
+    def test_a_condition_selection_cannot_evaluate_selects_more(self) -> None:
+        wf = (
+            "name: CI\n"
+            "jobs:\n"
+            "  suite:\n"
+            "    runs-on: ubuntu-26.04\n"
+            "    steps:\n"
+            "      - uses: $/actions/recording\n"
+            "      - if: steps.select.outputs.alpha == 'run' && github.ref == 'refs/heads/main'\n"
+            "        run: echo complex\n"
+            "      - run: python3 recording.py exec --entry tests/test_alpha.py\n"
+        )
+        base = self._base_repo(wf)
+        head = self._commit({".github/workflows/ci.yml": wf.replace("echo complex", "echo changed")})
+        code, outputs, stdout = self._select("--base", base, "--head", head, "--workflow", ".github/workflows/ci.yml")
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"alpha": "run", "beta": "run"}, json.loads(outputs["suites"]))
+
+    def test_removing_always_from_suite_list_selects_every_suite(self) -> None:
+        wf = "name: CI\njobs:\n  suite:\n    runs-on: ubuntu-26.04\n    steps:\n      - uses: $/actions/recording\n"
+        base = self._base_repo(wf)
+        doc = json.loads((self.root / "suites.json").read_text(encoding="utf-8"))
+        doc["always"] = []
+        head = self._commit({"suites.json": json.dumps(doc, indent=2) + "\n"})
+        code, outputs, stdout = self._select("--base", base, "--head", head, "--workflow", ".github/workflows/ci.yml")
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"alpha": "run", "beta": "run"}, json.loads(outputs["suites"]))
+
+    def test_ungated_step_file_pinned_file_and_top_level_env_select_the_checks_that_use_them(self) -> None:
+        wf = (
+            "name: CI\n"
+            "env:\n"
+            "  SHARED_FLAG: '1'\n"
+            "jobs:\n"
+            "  suite:\n"
+            "    runs-on: ubuntu-26.04\n"
+            "    steps:\n"
+            "      - uses: $/actions/recording\n"
+            "      - if: contains(matrix.shard.pinned, 'gitleaks')\n"
+            "        run: echo install gitleaks\n"
+            "      - run: python3 scripts/helper.py\n"
+            "      - run: python3 recording.py exec --entry tests/test_alpha.py\n"
+        )
+        base = self._base_repo(wf)
+
+        # 1. Ungated step file change selects every suite of the job.
+        head = self._commit({"scripts/helper.py": "print(2)\n"})
+        code, outputs, stdout = self._select("--base", base, "--head", head, "--workflow", ".github/workflows/ci.yml",
+                                             "--pinned-tool", "gitleaks", "--pins", str(self.root / "pins.json"))
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"alpha": "run", "beta": "run"}, json.loads(outputs["suites"]))
+
+        # 2. Changing the .pinned step or pins.json selects only alpha (which uses gitleaks), not beta.
+        self._git("reset", "--hard", "-q", base)
+        head = self._commit({".github/workflows/ci.yml": wf.replace("echo install gitleaks", "echo install gitleaks v2")})
+        code, outputs, stdout = self._select("--base", base, "--head", head, "--workflow", ".github/workflows/ci.yml",
+                                             "--pinned-tool", "gitleaks", "--pins", str(self.root / "pins.json"))
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"alpha": "run", "beta": "skip"}, json.loads(outputs["suites"]))
+
+        self._git("reset", "--hard", "-q", base)
+        head = self._commit({"pins.json": json.dumps({"tools": {"gitleaks": {"version": "8.2.0"}}}) + "\n"})
+        code, outputs, stdout = self._select("--base", base, "--head", head, "--workflow", ".github/workflows/ci.yml",
+                                             "--pinned-tool", "gitleaks", "--pins", str(self.root / "pins.json"))
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"alpha": "run", "beta": "skip"}, json.loads(outputs["suites"]))
+
+        # 3. Changing top-level env selects every suite of the workflow.
+        self._git("reset", "--hard", "-q", base)
+        head = self._commit({".github/workflows/ci.yml": wf.replace("SHARED_FLAG: '1'", "SHARED_FLAG: '2'")})
+        code, outputs, stdout = self._select("--base", base, "--head", head, "--workflow", ".github/workflows/ci.yml",
+                                             "--pinned-tool", "gitleaks", "--pins", str(self.root / "pins.json"))
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"alpha": "run", "beta": "run"}, json.loads(outputs["suites"]))
+
+    def test_an_estimate_only_change_selects_nothing(self) -> None:
+        wf = "name: CI\njobs:\n  suite:\n    runs-on: ubuntu-26.04\n    steps:\n      - uses: $/actions/recording\n"
+        doc = {
+            "always": ["suites.json"],
+            "suites": [
+                {"name": "alpha", "entries": ["tests/test_alpha.py"], "paths": ["tests/test_alpha.py", "suites.json"],
+                 "entry_durations": {"tests/test_alpha.py": 1.0}},
+            ],
+        }
+        base = self._base_repo(wf, suite_doc=doc)
+        doc["suites"][0]["entry_durations"]["tests/test_alpha.py"] = 9.5
+        head = self._commit({"suites.json": json.dumps(doc, indent=2) + "\n"})
+        code, outputs, stdout = self._select("--base", base, "--head", head, "--workflow", ".github/workflows/ci.yml")
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"alpha": "skip"}, json.loads(outputs["suites"]))
+
+    def test_the_language_step_runs_when_its_digest_moved_including_on_a_behind_push(self) -> None:
+        wf = "name: CI\njobs:\n  suite:\n    runs-on: ubuntu-26.04\n    steps:\n      - uses: $/actions/recording\n"
+        tested_base = self._base_repo(wf)
+        landing = self._commit({"README.md": "landing\n"})
+        head = self._commit({"README.md": "head\n"})
+        lookup = self.root.parent / "lookup.json"
+        lookup.write_text(json.dumps({
+            "case": "behind", "head": head, "landing_base": landing, "tested_base": tested_base, "reason": "behind",
+            "landing_base_passed": True,
+            "tested_digests": {"platform:linux": "a" * 64, "language:python": "c" * 64},
+        }), encoding="utf-8")
+        shared = self.root.parent / "shared-lookup.json"
+        shared.write_text(json.dumps({
+            "digests": {"platform:linux": "a" * 64, "language:python": "b" * 64},
+            "previous": {"platform:linux": "a" * 64, "language:python": "c" * 64},
+            "reason": "language:python moved",
+        }), encoding="utf-8")
+        code, outputs, stdout = self._select(
+            "--lookup", str(lookup), "--shared-lookup", str(shared), "--language-step", "python",
+        )
+        self.assertEqual(0, code, stdout)
+        self.assertEqual({"python": "run"}, json.loads(outputs["language-steps"]))
+        self.assertEqual({"alpha": "skip", "beta": "skip"}, json.loads(outputs["suites"]))
 
 
 if __name__ == "__main__":

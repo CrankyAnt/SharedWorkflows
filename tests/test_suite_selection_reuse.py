@@ -1096,9 +1096,34 @@ class SharedDigestTests(unittest.TestCase):
         after = self.taken()
         self.assertNotEqual(first["platform:linux"], after["platform:linux"])
         self.assertNotEqual(first["platform:windows"], after["platform:windows"])
-        write(workflow.parent, "pipeline.yml", "name: Pipeline\n")
+        write(workflow.parent, "other.yml", "name: Other\n")
         write(workflow.parent, workflow.name, "name: Suite jobs\n")
         self.assertEqual(first, self.taken(), "another workflow is not part of it")
+
+    def test_part_digests_track_each_pipeline_part_s_shared_code_independently(self) -> None:
+        for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
+            shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
+        workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
+        write(workflow.parent, workflow.name, "name: Pipeline\n")
+        first = self.taken()
+        for key in ("part:custom", "part:dotnet-test", "part:node-test", "part:python-test", "part:python-verify"):
+            self.assertIn(key, first)
+        # Changing dotnet-test changes only part:dotnet-test.
+        dotnet_script = self.shared_folder / "dotnet-test" / "dotnet_test.py"
+        original = dotnet_script.read_bytes()
+        dotnet_script.write_bytes(original + b"\n")
+        after_dotnet = self.taken()
+        dotnet_script.write_bytes(original)
+        self.assertNotEqual(first["part:dotnet-test"], after_dotnet["part:dotnet-test"])
+        self.assertEqual({k: v for k, v in first.items() if k != "part:dotnet-test"},
+                         {k: v for k, v in after_dotnet.items() if k != "part:dotnet-test"})
+        # Changing pipeline.yml changes all part:* digests and no platform/tool/language digest.
+        write(workflow.parent, workflow.name, "name: Pipeline v2\n")
+        after_workflow = self.taken()
+        for key in ("part:custom", "part:dotnet-test", "part:node-test", "part:python-test", "part:python-verify"):
+            self.assertNotEqual(first[key], after_workflow[key], key)
+        self.assertEqual({k: v for k, v in first.items() if not k.startswith("part:")},
+                         {k: v for k, v in after_workflow.items() if not k.startswith("part:")})
 
     def test_the_digest_is_the_same_whichever_order_a_platform_sorts_the_shared_files_in(self) -> None:
         # Windows orders paths case-insensitively and Linux by code point, so the same revision lists its shared

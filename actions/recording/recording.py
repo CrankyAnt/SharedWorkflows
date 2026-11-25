@@ -3125,11 +3125,19 @@ def loaded_modules(script: Path) -> list[Path]:
 
 
 SUITE_JOBS = SHARED_FOLDER.parent / ".github" / "workflows" / "suite-jobs.yml"  # the shared workflow that runs the entry files
+PIPELINE_WORKFLOW = SHARED_FOLDER.parent / ".github" / "workflows" / "pipeline.yml"
 WINDOWS_ONLY_PARTS = ("etw-consumer/", "etw_consumer_build.py")
 PINS_FILE = SHARED_FOLDER / "repository-hygiene" / "pins.json"
 TOOL_INSTALLER_FILES = (SHARED_FOLDER / "repository-hygiene" / "install_tools.py", SHARED_FOLDER / "repository-hygiene" / "pins.py")
 LANGUAGE_STEP_FOLDERS = {"python": SHARED_FOLDER / "python-language-step"}
 LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
+PART_DIGEST_FOLDERS: dict[str, tuple[Path, ...]] = {
+    "custom": (SHARED_FOLDER / "pipeline",),
+    "dotnet-test": (SHARED_FOLDER / "dotnet-test", SHARED_FOLDER / "pipeline"),
+    "node-test": (SHARED_FOLDER / "node-test", SHARED_FOLDER / "pipeline"),
+    "python-test": (SHARED_FOLDER / "python-tests", SHARED_FOLDER / "pipeline"),
+    "python-verify": (SHARED_FOLDER / "python-tests", SHARED_FOLDER / "pipeline"),
+}
 
 
 def _canonical_json(value: object) -> bytes:
@@ -3217,13 +3225,30 @@ def language_step_digests(pins: dict | None = None) -> dict[str, str]:
     return digests
 
 
+def part_digests() -> dict[str, str]:
+    """One digest per pipeline part's shared code, keyed as ``part:<name>``."""
+    digests: dict[str, str] = {}
+    for name, folders in sorted(PART_DIGEST_FOLDERS.items()):
+        files: list[Path] = []
+        for folder in folders:
+            if folder.is_dir():
+                files.extend(_folder_files(folder))
+        if PIPELINE_WORKFLOW.is_file():
+            files.append(PIPELINE_WORKFLOW)
+        if files:
+            digests[f"part:{name}"] = files_digest(files)
+    return digests
+
+
 def shared_digests() -> dict[str, str]:
     """All shared CI digests: one per platform (``platform:linux``, ``platform:windows``), one per pinned tool
-    (``tool:<name>``) and one per language step (``language:<name>``), sorted by key."""
+    (``tool:<name>``), one per language step (``language:<name>``), and one per pipeline part (``part:<name>``),
+    sorted by key."""
     pins = _load_pins_document()
     digests = {f"platform:{platform}": files_digest(platform_files(platform)) for platform in suite_selection.OPERATING_SYSTEMS}
     digests.update(tool_digests(pins))
     digests.update(language_step_digests(pins))
+    digests.update(part_digests())
     return dict(sorted(digests.items()))
 
 
