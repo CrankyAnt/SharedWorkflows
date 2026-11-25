@@ -106,8 +106,11 @@ EVENTS = (
     ("a cancelled run of a person's pull request", workflow_run(conclusion="cancelled"), []),
     ("a failed push run", workflow_run(event="push"), []),
     ("a passed run of a Dependabot pull request", workflow_run(conclusion="success", actor="dependabot[bot]", head_branch="dependabot/pip/x"), ["dependabot-auto-merge"]),
-    ("a failed run of a Dependabot pull request", workflow_run(actor="dependabot[bot]", head_branch="dependabot/pip/x"), ["additions", "dependabot-auto-merge"]),
+    ("a failed run of a Dependabot pull request", workflow_run(actor="dependabot[bot]", head_branch="dependabot/pip/x"), ["additions"]),
+    ("a cancelled run of a Dependabot pull request", workflow_run(conclusion="cancelled", actor="dependabot[bot]", head_branch="dependabot/pip/x"), []),
     ("a passed run on the App's commit to a Dependabot branch", workflow_run(conclusion="success", actor=APP, head_branch="dependabot/pip/x"), ["dependabot-auto-merge"]),
+    ("a failed run on the App's commit to a Dependabot branch", workflow_run(actor=APP, head_branch="dependabot/pip/x"), ["additions"]),
+    ("a cancelled run on the App's commit to a Dependabot branch", workflow_run(conclusion="cancelled", actor=APP, head_branch="dependabot/pip/x"), []),
     ("a passed run on the App's commit to another branch", workflow_run(conclusion="success", actor=APP), []),
     ("a passed push run of Dependabot", workflow_run(event="push", conclusion="success", actor="dependabot[bot]", head_branch="dependabot/pip/x"), []),
     ("a fork's run under a Dependabot branch name", workflow_run(conclusion="success", head_branch="dependabot/pip/x"), []),
@@ -242,12 +245,13 @@ class AutomationWorkflowTests(unittest.TestCase):
 
     def test_the_issue_title_job_runs_the_program_of_its_own_revision_on_the_event_with_the_configured_category_file(self) -> None:
         steps = self.jobs["issue-title"]["steps"]
-        self.assertEqual("$/actions/issue-title", steps[0]["uses"])
+        self.assertEqual(["$/actions/issue-title"], [step["uses"] for step in steps if "uses" in step], "the job checks out nothing and reads only the file it needs")
         run = steps[-1]
-        self.assertEqual('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/issue_title.py" --event "$GITHUB_EVENT_PATH" --root . '
+        self.assertEqual('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/issue_title.py" --event "$GITHUB_EVENT_PATH" --ref "$REF" '
                          '--categories "$CATEGORIES" --apply', run["run"])
         self.assertEqual({"GITHUB_TOKEN": "${{ github.token }}", "RESOURCE_PATH": "${{ steps.resources.outputs.path }}",
-                          "CATEGORIES": "${{ fromJSON(needs.plan.outputs.plan).parts['issue-title'].config.categories }}"}, run["env"])
+                          "CATEGORIES": "${{ fromJSON(needs.plan.outputs.plan).parts['issue-title'].config.categories }}",
+                          "REF": "${{ github.sha }}"}, run["env"])
         self.assertNotIn("github.event.issue", json.dumps(self.jobs["issue-title"]), "the title and the body reach the program only through the event file")
 
     def test_the_auto_merge_job_decides_for_the_head_branch_of_the_completed_run_and_checks_out_nothing(self) -> None:
@@ -410,14 +414,12 @@ class CallerTests(unittest.TestCase):
         for part in named:
             self.assertIn(f"github.event.inputs.part == '{part}'", events_of(part, jobs[part]))
 
-    def test_this_repository_s_caller_equals_the_fixed_caller_apart_from_the_local_path_and_its_own_check_workflows(self) -> None:
+    def test_this_repository_s_caller_equals_the_fixed_caller_apart_from_the_local_path(self) -> None:
         expected = self.template.replace("uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1", "uses: $/.github/workflows/automation.yml")
-        expected = expected.replace("    workflows: [CI]\n", "    workflows: [CI, Repository hygiene, Python tests]\n")
         self.assertEqual(expected, self.own)
         self.assertNotIn("@v1", self.own)
         self.assertEqual([], reach_problems(self.own, self.automation, str(OWN_CALLER)))
-        names = {read_workflow(path)[1]["name"] for path in (WORKFLOWS / "ci.yml", WORKFLOWS / "repository-hygiene-caller.yml", WORKFLOWS / "python-tests-caller.yml")}
-        self.assertEqual({"CI", "Repository hygiene", "Python tests"}, names, "the workflows whose runs report a check of a pull request or its additions")
+        self.assertEqual("CI", read_workflow(WORKFLOWS / "ci.yml")[1]["name"], "the workflow whose runs report the verdict and recorded additions")
 
     def test_this_repository_switches_every_part_of_the_workflow_on(self) -> None:
         configuration = ci_definition().read_yaml((REPOSITORY_ROOT / ".github" / "ci-config.yml").read_text(encoding="utf-8"), "ci-config.yml")

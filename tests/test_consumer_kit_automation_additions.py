@@ -346,9 +346,10 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
 
     def test_a_pull_request_run_with_additions_names_its_head_branch_and_pull_request(self) -> None:
         self.given_run(artifacts=["recording-additions-shard-1", "suite-results-linux", "recording-additions-windows"])
+        self.given_open_pull_requests(self.head_sha)
         ran, outputs = self.run_find_step()
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        self.assertEqual({"apply": "true", "ref": HEAD_BRANCH, "head-branch": HEAD_BRANCH, "head-sha": self.head_sha, "pull-request": "7"}, outputs)
+        self.assertEqual({"apply": "true", "ref": self.head_sha, "head-branch": HEAD_BRANCH, "head-sha": self.head_sha, "pull-request": "7"}, outputs)
 
     def test_a_run_without_an_additions_artifact_fails_and_names_the_reason(self) -> None:
         for artifacts, expired in (([], False), (["suite-results-linux"], False), (["recording-additions-shard-1"], True)):
@@ -368,12 +369,15 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
                 self.assertIn(f"::error::Run {RUN_ID} ran on the event {event} and belongs to no pull request", ran.stdout)
                 self.assertEqual({}, outputs)
 
-    def test_an_older_run_of_a_pull_request_whose_head_moved_on_still_proposes_onto_its_branch(self) -> None:
-        # GitHub lists a run's pull requests only while their head matches the run; the branch is the run's own.
-        self.given_run(pull_requests=[])
-        ran, outputs = self.run_find_step()
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        self.assertEqual({"apply": "true", "ref": HEAD_BRANCH, "head-branch": HEAD_BRANCH, "head-sha": self.head_sha, "pull-request": ""}, outputs)
+    def test_a_start_by_hand_refuses_a_moved_head_or_closed_pull_request(self) -> None:
+        for name, heads in (("moved", ("1" * 40,)), ("closed", ())):
+            with self.subTest(case=name):
+                self.given_run(pull_requests=[])
+                self.given_open_pull_requests(*heads)
+                ran, outputs = self.run_find_step()
+                self.assertEqual(1, ran.returncode)
+                self.assertIn(f"::error::No open pull request has the head {self.head_sha} of {HEAD_BRANCH}", ran.stdout)
+                self.assertEqual({}, outputs)
 
     def test_a_run_of_a_pull_request_from_a_fork_fails_and_names_the_reason(self) -> None:
         for head_repository, shown in (("someone/consumer", "someone/consumer"), (None, "a deleted repository")):
@@ -452,7 +456,7 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
 
     def test_the_comment_names_each_reason_and_refuses_an_unknown_one(self) -> None:
         for reason, text in (("unchanged", "applying them leaves the suite list unchanged."),
-                             ("failed", "a step after applying them failed; [the workflow run](https://github.example/owner/consumer/actions/runs/9) names it.")):
+                             ("failed", "applying or committing them failed; [the workflow run](https://github.example/owner/consumer/actions/runs/9) names the step.")):
             with self.subTest(reason=reason):
                 ran = self.comment(reason)
                 self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
@@ -467,7 +471,7 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
         self.assertEqual("unchanged", self.reason(APPLIED="success", CHANGED="false"))
         self.assertEqual("failed", self.reason(APPLIED="success", CHANGED="true", JOB_STATUS="failure"))
         self.assertEqual("", self.reason(APPLIED="success", CHANGED="true"), "a committed change gets no comment")
-        self.assertEqual("", self.reason(APPLIED="failure", JOB_STATUS="failure"), "a failed apply gets no comment")
+        self.assertEqual("failed", self.reason(APPLIED="failure", JOB_STATUS="failure"), "a failed apply gets a comment")
         self.assertEqual("", self.reason(APPLIED="success", CHANGED="true", JOB_STATUS="cancelled"))
         self.assertEqual("", self.reason())
 
@@ -518,6 +522,7 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
 
     def test_the_additions_of_every_job_are_applied_and_proposed_onto_the_head_branch_changing_only_the_suite_list(self) -> None:
         remote, work = self.consumer(suite_list())
+        self.given_open_pull_requests(self.head_sha)
         self.downloaded({"recording-additions-shard-1": additions("unit", "checks/test_a.py", ["lib/data.txt"]),
                          "recording-additions-shard-2": additions("lint", "checks/lint.py", ["lib/rules.toml"]),
                          "recording-additions-windows": additions("unit", "checks/test_a.py", ["lib/rules.toml"])})
@@ -545,6 +550,7 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
 
     def test_the_additions_of_a_run_with_one_artifact_are_applied_and_proposed_onto_the_head_branch(self) -> None:
         remote, work = self.consumer(suite_list())
+        self.given_open_pull_requests(self.head_sha)
         self.downloaded({"recording-additions-shard-1": additions("unit", "checks/test_a.py", ["lib/data.txt"])})
         self.assertEqual([self.runner_temp / "additions" / "additions.json"], list((self.runner_temp / "additions").iterdir()))
         self.assertEqual({"changed": "true"}, self.apply(work))
@@ -556,6 +562,30 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
         proposed = json.loads(git(remote, "show", f"{PROPOSAL}:.github/suites.json"))
         self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt"], "lint": ["checks/lint.py"]},
                          {item["name"]: item["paths"] for item in proposed["suites"]})
+
+    def test_the_dispatch_push_refuses_a_branch_that_moved_or_a_closed_pull_request(self) -> None:
+        for case in ("moved", "closed"):
+            with self.subTest(case=case):
+                temporary_support.remove_tree(self.base / "remote.git")
+                for folder in ("seed", "work"):
+                    temporary_support.remove_tree(self.base / folder)
+                remote, work = self.consumer(suite_list())
+                self.given_open_pull_requests(self.head_sha)
+                self.downloaded({"recording-additions-shard-1": additions("unit", "checks/test_a.py", ["lib/data.txt"])})
+                self.apply(work)
+                ran, _ = self.run_step("Commit the applied additions", work, outputs=self.run_outputs())
+                self.assertEqual(0, ran.returncode, ran.stderr)
+                if case == "moved":
+                    seed = self.base / "seed"
+                    write(seed / "lib" / "data.txt", "moved\n")
+                    subprocess.run(["git", *GIT_IDENTITY, "-C", str(seed), "commit", "-q", "-am", "feat: move on"], check=True)
+                    subprocess.run(["git", "-C", str(seed), "push", "-q", str(remote), HEAD_BRANCH], check=True)
+                else:
+                    self.given_open_pull_requests()
+                ran, _ = self.run_step("Push the proposal branch", work, outputs=self.run_outputs())
+                self.assertNotEqual(0, ran.returncode)
+                self.assertEqual(f"{HEAD_BRANCH}\n", git(remote, "branch", "--format=%(refname:short)"), "no proposal branch is pushed")
+                shutil.rmtree(self.runner_temp / "additions")
 
     def test_the_automatic_route_commits_the_applied_suite_list_as_the_app_onto_the_branch_and_opens_no_pull_request(self) -> None:
         remote, work = self.consumer(suite_list())
@@ -653,7 +683,7 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
         self.assertNotEqual(0, ran.returncode)
         self.assertIn("is no valid additions document: suites[0].reads: paths is no list of strings", ran.stderr)
         self.assertEqual("", git(work, "status", "--porcelain"))
-        self.assertEqual("", self.reason(APPLIED="failure", JOB_STATUS="failure"), "a failed apply gets no comment")
+        self.assertEqual("failed", self.reason(APPLIED="failure", JOB_STATUS="failure"), "a failed apply gets a comment")
 
     def test_an_open_proposal_is_updated_instead_of_opening_a_second(self) -> None:
         _, work = self.consumer(suite_list())
@@ -823,41 +853,28 @@ class AutomaticRoutesSteps(ApplyAdditionsSteps):
 
 @requires_bash_and_jq
 class ApplyAdditionsBoundRunTest(AutomaticRoutesSteps):
-    """Which run this repository's additions workflow acts on, beside the rebuild workflow, at its bound and at the
-    rebuild's: its find step and the plan step of the rebuild workflow on the same fixtures, and its start by hand."""
+    """The additions workflow carries no ETW rebuild logic; it applies on any non-bound run while the rebuild workflow
+    independently decides on Dependabot pull requests that change the ETW consumer's source."""
 
-    def test_on_a_run_that_the_rebuild_acts_on_it_commits_nothing_does_not_comment_and_names_the_reason(self) -> None:
+    def test_on_a_run_that_the_rebuild_acts_on_both_workflows_decide_independently(self) -> None:
         self.given_failed_run()
         self.given_pull_request()
         self.assertEqual({"rebuild": "true"}, self.plan())
-        self.assertEqual({"pull-request": "9", "apply": "false"}, self.find())
-        self.assertEqual("", self.reason(), "no comment")
-        summary = self.summary.read_text(encoding="utf-8")
-        self.assertIn(f"The rebuild workflow acts on run {RUN_ID}, since the pull request #9 by dependabot[bot] changes the source of the ETW consumer: "
-                      f"{', '.join(SOURCE_CHANGE)}; its rebuild commit carries the run's additions, so this workflow commits nothing and does not comment on #9.",
-                      summary)
-        self.assertEqual([], [call for call in self.calls() if call.startswith("pr ")])
+        self.assertEqual({"apply": "true", "ref": self.head_sha, "head-branch": self.branch, "head-sha": self.head_sha, "pull-request": "9"}, self.find())
 
-    def test_on_such_a_run_at_the_additions_subject_it_commits_nothing_and_does_not_comment(self) -> None:
+    def test_on_the_additions_commit_additions_hits_its_bound_while_rebuild_still_acts(self) -> None:
         self.given_failed_run(f"{ADDITIONS_SUBJECT}\n\n[dependabot skip]")
         self.given_pull_request()
         self.assertEqual("true", self.plan()["rebuild"])
-        self.assertEqual({"pull-request": "9", "apply": "false"}, self.find(), "no bound, so no comment")
-        self.assertEqual("", self.reason())
-        self.assertNotIn("of applied additions", self.summary.read_text(encoding="utf-8"))
+        self.assertEqual({"pull-request": "9", "apply": "false", "bound": "true"}, self.find())
+        self.assertEqual("bound", self.reason(BOUND="true"))
 
-    def test_at_the_rebuild_commit_it_comments_with_the_manual_route_and_the_rebuild_commits_nothing(self) -> None:
+    def test_at_the_rebuild_commit_the_rebuild_commits_nothing_and_additions_has_no_rebuild_bound(self) -> None:
         self.given_failed_run(f"{REBUILD_SUBJECT}\n\nRebuilt from the source of {'1' * 40}, with the recording additions of x.")
         self.given_pull_request()
         self.assertEqual({"rebuild": "false"}, self.plan(), "the build and the push job do not run")
         self.assertIn(f'carries the subject "{REBUILD_SUBJECT}" of the rebuild workflow\'s own commit', self.summary.read_text(encoding="utf-8"))
-        self.assertEqual({"pull-request": "9", "apply": "false", "bound": "true"}, self.find())
-        self.assertEqual("bound", self.reason(BOUND="true"))
-        ran = self.comment("bound")
-        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        (body,) = self.comments()
-        self.assertIn(MANUAL_ROUTE, body)
-        self.assertIn(f"[run {RUN_ID}](https://github.example/{REPOSITORY}/actions/runs/{RUN_ID})", body)
+        self.assertEqual("true", self.find().get("apply"))
 
     def test_on_a_dependabot_run_that_changes_no_source_it_applies_as_usual(self) -> None:
         for files in ((), ("actions/recording/etw-consumer/build/EtwConsumer.dll", "tests/suites.json"), (".github/workflows/validate.yml",)):
@@ -901,7 +918,7 @@ class ApplyAdditionsBoundRunTest(AutomaticRoutesSteps):
         self.given_pull_request()
         self.assertEqual("true", self.plan()["rebuild"])
         outputs = self.find(event="workflow_dispatch")
-        self.assertEqual({"apply": "true", "ref": self.branch, "head-branch": self.branch, "head-sha": self.head_sha, "pull-request": "9"}, outputs)
+        self.assertEqual({"apply": "true", "ref": self.head_sha, "head-branch": self.branch, "head-sha": self.head_sha, "pull-request": "9"}, outputs)
         work = self.additions_commit(outputs, event="workflow_dispatch")
         for key in ("Push the proposal branch", "Create or update the proposal pull request"):
             ran, _ = self.run_step(key, work, outputs={"run": outputs})

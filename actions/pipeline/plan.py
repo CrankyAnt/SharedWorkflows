@@ -48,6 +48,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 PART_FOLDER = Path(__file__).resolve().parent
@@ -59,6 +60,8 @@ SCHEMAS = PART_FOLDER / "schema"
 ASSEMBLED = "ci-config.schema.json"
 SETUPS = "setups.json"
 PIPELINE = "pipeline.yml"
+AUTOMATION = "automation.yml"
+FULL_RECORDING_JOB = "full-recording"
 PLAN_JOB = "plan"
 HYGIENE_JOB = "repository-hygiene"
 VERDICT_JOB = "verdict"
@@ -629,7 +632,8 @@ def head_code_results(head: str | None, workflow_ref: str, run_id: str) -> dict:
 
 def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
               workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None,
-              event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0") -> dict:
+              event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0",
+              iso_week: int | None = None) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
@@ -665,6 +669,11 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
                 entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
             decisions[name] = entry
         combine_python_projects(decisions)
+        if workflow == AUTOMATION and event == "schedule" and FULL_RECORDING_JOB in decisions and decisions[FULL_RECORDING_JOB]["run"]:
+            week = datetime.now(timezone.utc).isocalendar().week if iso_week is None else iso_week
+            if week % 2 != 0:
+                decisions[FULL_RECORDING_JOB]["run"] = False
+                decisions[FULL_RECORDING_JOB]["reason"] = "odd ISO week"
         selected_units = read_unit_decisions(unit_decisions)
         if selected_units is not None and SUITE_SELECTION_JOB in decisions and SUITE_SELECTION_JOB in parts:
             suite_entry = decisions[SUITE_SELECTION_JOB]
@@ -733,7 +742,7 @@ def run_plan(options: argparse.Namespace) -> int:
         versions = schema_versions(Path(options.schemas))
         plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare,
                          options.shared_workflow, options.lookup, options.unit_decisions,
-                         options.event, options.event_action, options.workflow_ref, options.run_id)
+                         options.event, options.event_action, options.workflow_ref, options.run_id, options.iso_week)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
         print(f"The plan failed: {CONFIGURATION} cannot be used.")
@@ -1014,6 +1023,7 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--event-action", default="", help="the action of the event, such as edited on pull_request")
     planning.add_argument("--pull-request", default="", help="the number of the pull request of the run, empty on another event")
     planning.add_argument("--run-id", default="0", help="the id of the run")
+    planning.add_argument("--iso-week", type=int, default=None, help="override the UTC ISO week number used for scheduled cadence checks")
     planning.add_argument("--github-output", help="the file that receives the output plan")
     planning.add_argument("--summary", help="the file that receives the Markdown summary")
     deciding = commands.add_parser("verdict", help="pass or fail on the results of the plan and the parts")

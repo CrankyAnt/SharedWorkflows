@@ -31,7 +31,7 @@ jobs:
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" pull-request --number "$PR_NUMBER"
 
   merge:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.actor.login == 'dependabot[bot]' || (github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && startsWith(github.event.workflow_run.head_branch, 'dependabot/')))
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.actor.login == 'dependabot[bot]' || (github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && startsWith(github.event.workflow_run.head_branch, 'dependabot/')))
     runs-on: ubuntu-slim
     permissions:
       contents: write

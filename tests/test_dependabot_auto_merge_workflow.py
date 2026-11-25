@@ -38,9 +38,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("PR_NUMBER: ${{ github.event.pull_request.number }}", workflow)
         self.assertIn('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" pull-request --number "$PR_NUMBER"', workflow)
 
-    def test_the_merge_job_runs_only_after_a_pull_request_run_by_dependabot_or_by_the_updater_app_on_a_dependabot_branch(self) -> None:
+    def test_the_merge_job_runs_only_after_a_passed_pull_request_run_by_dependabot_or_by_the_updater_app_on_a_dependabot_branch(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertRegex(workflow, r"(?m)^  merge:\n    if: github\.event_name == 'workflow_run' && github\.event\.workflow_run\.event == 'pull_request' && "
+                                   r"github\.event\.workflow_run\.conclusion == 'success' && "
                                    r"\(github\.event\.workflow_run\.actor\.login == 'dependabot\[bot\]' \|\| \(github\.event\.workflow_run\.actor\.login == "
                                    r"'crankyant-publication-checks\[bot\]' && startsWith\(github\.event\.workflow_run\.head_branch, 'dependabot/'\)\)\)\n"
                                    r"    runs-on: ubuntu-slim\n    permissions:\n      contents: write\n      pull-requests: read\n    steps:\n")

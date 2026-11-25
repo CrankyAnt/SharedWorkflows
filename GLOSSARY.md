@@ -347,7 +347,7 @@ A read in a recording that the stored lists do not hold; the recording step repo
 _Avoid_: New read, missing path
 
 **Additions workflow**:
-The shared part of the automation workflow, switched on in a consumer's configuration file and in Shared Workflows itself, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the Updater App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch. In Shared Workflows it leaves a run that the rebuild workflow of the ETW consumer acts on to that workflow, whose commit carries the run's additions.
+The shared part of the automation workflow, switched on in a consumer's configuration file and in Shared Workflows itself, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the Updater App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch.
 _Avoid_: Apply workflow, apply-additions.yml
 
 **Rebuild workflow**:

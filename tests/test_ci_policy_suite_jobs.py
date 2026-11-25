@@ -453,7 +453,7 @@ class FullRecordingCallTests(unittest.TestCase):
         job = self.jobs["full-recording-jobs"]
         self.assertEqual(LOCAL_CALL, job["uses"])
         self.assertEqual("full-recording", job["needs"])
-        self.assertEqual("needs.full-recording.outputs.run == 'true'", job["if"])
+        self.assertNotIn("if", job, "full-recording itself starts only when the plan selects it")
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertNotIn("secrets", job, "the jobs that run the repository's code get no key")
         self.assertEqual({"suites": "${{ needs.full-recording.outputs.suites }}", "shards": "${{ needs.full-recording.outputs.shards }}",

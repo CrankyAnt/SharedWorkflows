@@ -1,8 +1,5 @@
-"""The additions job of the automation workflow beside the rebuild workflow of this repository's ETW consumer. The job
-holds the condition under which the rebuild workflow acts, equal to the rebuild workflow's, and leaves such a run to the
-rebuild; the rebuild workflow's comment job, which evaluates the condition again, holds it equal too. Its bound also
-recognises the rebuild workflow's commit, so that the two automatic routes make at most one round per push. The run
-tests of both routes are in `tests/test_consumer_kit_automation_additions.py`."""
+"""The additions job of the shared automation workflow contains no ETW rebuild logic, and this repository rebuilds the
+ETW consumer from one route (`rebuild-etw-consumer.yml`) whose plan and comment jobs share the rebuild condition."""
 
 from __future__ import annotations
 
@@ -20,21 +17,8 @@ MAINTAINING = REPOSITORY_ROOT / "docs" / "maintaining.md"
 JOB, COMMENT_JOB = "additions", "additions-comment"
 ADDITIONS_SUBJECT = "chore: apply the recorded additions of run 4100"
 REBUILD_SUBJECT = "chore: rebuild the ETW consumer"
-BOUND = "bound='^(chore: apply the recorded additions of run [0-9]+|chore: rebuild the ETW consumer)$'"
-# The rebuild workflow's condition, as its plan step holds it, and the additions job's early end on a run it acts on.
+BOUND = "bound='^chore: apply the recorded additions of run [0-9]+$'"
 CONDITION = re.compile(r"(?ms)^[ ]*# Begin: the condition under which the rebuild workflow acts on the run\b.*?^[ ]*# End: the condition[^\n]*\n")
-REBUILD_ACTS = """\
-if [ "$rebuild" = true ]; then
-  echo "The rebuild workflow acts on run $RUN_ID, since $rebuild_reason; its rebuild commit carries the run's additions, so this workflow commits nothing and does not comment on #$pull_request." >> "$GITHUB_STEP_SUMMARY"
-  echo "apply=false" >> "$GITHUB_OUTPUT"
-  exit 0
-fi
-"""
-# The clause that ends the plan job's `if`, a check that the condition makes again.
-DEPENDABOT_CLAUSE = " && startsWith(github.event.workflow_run.head_branch, 'dependabot/')"
-# The start by hand and the plan's decision around the automatic route in the additions job's `if`.
-BY_HAND = "(github.event_name == 'workflow_dispatch' && github.event.inputs.part == 'additions')"
-DECISION = "fromJSON(needs.plan.outputs.plan).parts['additions'].run"
 
 
 def step(steps: list[dict], key: str) -> dict:
@@ -61,81 +45,36 @@ def comment_condition(rebuild_text: str) -> str:
     return condition(comment["run"])
 
 
-def additions_run(text: str) -> str:
-    """The script of the additions job's step that reads the run."""
-    return step(ci_definition().read_yaml(text, str(AUTOMATION))["jobs"][JOB]["steps"], "run")["run"]
-
-
-def automatic_filter(text: str) -> str:
-    """The job filter of the additions job's automatic route: its `if` without the start by hand, the event's name, which
-    the rebuild workflow's only trigger settles, and the plan's decision."""
-    expression = ci_definition().read_yaml(text, str(AUTOMATION))["jobs"][JOB]["if"]
-    found = re.fullmatch(r"\$\{\{ \(" + re.escape(BY_HAND) + r" \|\| \(github\.event_name == 'workflow_run' && (.+)\)\) && " + re.escape(DECISION) + r" \}\}", expression)
-    assert found, expression
-    return found[1]
-
-
-def plan_filter(rebuild_text: str) -> str:
-    """The `if` of the rebuild workflow's plan job, without its Dependabot clause, which the condition checks again."""
-    expression = ci_definition().read_yaml(rebuild_text, str(REBUILD))["jobs"]["plan"]["if"]
-    return expression.removesuffix(DEPENDABOT_CLAUSE)
-
-
-class AdditionsBesideTheRebuildTest(unittest.TestCase):
+class AdditionsAndRebuildBoundaryTest(unittest.TestCase):
     def setUp(self) -> None:
         self.text, self.workflow = read_workflow(AUTOMATION)
         self.rebuild_text = REBUILD.read_text(encoding="utf-8")
         self.steps = self.workflow["jobs"][JOB]["steps"]
 
-    def test_the_bound_recognises_both_app_subjects_and_nothing_else(self) -> None:
+    def test_the_shared_automation_workflow_contains_no_etw_rebuild_logic(self) -> None:
+        lowered = self.text.lower()
+        for forbidden in ("etw-consumer", "rebuild the etw consumer", "rebuild_reason", "rebuild_pull_request"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, lowered)
+
+    def test_the_bound_recognises_only_the_additions_commit_subject(self) -> None:
         run = step(self.steps, "run")["run"]
         self.assertIn(BOUND, run)
         bound = re.search(r"bound='(.+)'", run)[1]
-        _, rebuild = read_workflow(REBUILD)
-        rebuild_commit = step(rebuild["jobs"]["push"]["steps"], "Commit the rebuild as the GitHub App")["run"]
-        self.assertIn(f'commit -m "{REBUILD_SUBJECT}"', rebuild_commit)
-        for subject in (ADDITIONS_SUBJECT, REBUILD_SUBJECT):
-            self.assertRegex(subject, bound)
-        for subject in (f"{REBUILD_SUBJECT} (#12)", "fix: rebuild the ETW consumer", f"{ADDITIONS_SUBJECT} (#12)"):
+        self.assertRegex(ADDITIONS_SUBJECT, bound)
+        for subject in (REBUILD_SUBJECT, f"{ADDITIONS_SUBJECT} (#12)", "fix: apply the recorded additions of run 4100"):
             self.assertNotRegex(subject, bound)
 
-    def test_it_holds_the_rebuild_workflow_s_condition_and_ends_on_a_run_the_rebuild_acts_on_before_the_bound(self) -> None:
-        run = step(self.steps, "run")["run"]
-        self.assertEqual(rebuild_condition(self.rebuild_text), condition(run))
-        automatic = run[run.index('if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then'):]
-        self.assertLess(automatic.index('echo "pull-request=$pull_request"'), automatic.index("# Begin: the condition"))
-        self.assertLess(automatic.index(textwrap.indent(REBUILD_ACTS, "  ")), automatic.index("bound='"))
-
-    def test_the_rebuild_plan_job_filters_runs_as_the_additions_job_s_automatic_route_does(self) -> None:
-        # The plan job's `if` adds only the Dependabot prefix, which the condition checks again, so the additions job
-        # leaves no run to the rebuild that the plan job skips.
-        self.assertEqual(plan_filter(self.rebuild_text), automatic_filter(self.text))
-        self.assertIn('if [[ "$head_branch" != dependabot/* ]]; then', condition(step(self.steps, "run")["run"]))
-        for name, changed in (("an actor check", self.rebuild_text.replace(" && startsWith(", " && github.event.workflow_run.actor.login == 'dependabot[bot]' && startsWith(", 1)),
-                              ("another prefix", self.rebuild_text.replace("startsWith(github.event.workflow_run.head_branch, 'dependabot/')",
-                                                                           "startsWith(github.event.workflow_run.head_branch, 'dependabot/nuget/')", 1))):
-            with self.subTest(change=name):
-                self.assertNotEqual(self.rebuild_text, changed, "the mutation applies")
-                self.assertNotEqual(plan_filter(changed), automatic_filter(self.text))
-
-    def test_the_rebuild_workflow_s_comment_job_holds_the_same_condition(self) -> None:
+    def test_this_repository_rebuilds_the_etw_consumer_from_one_route_whose_plan_and_comment_share_the_condition(self) -> None:
+        for workflow in sorted(WORKFLOWS.glob("*.yml")):
+            if workflow != REBUILD:
+                with self.subTest(workflow=workflow.name):
+                    self.assertNotIn("etw-consumer", workflow.read_text(encoding="utf-8"))
         self.assertEqual(rebuild_condition(self.rebuild_text), comment_condition(self.rebuild_text))
-        # Another branch prefix in the plan job only.
         plan_part, comment_part = self.rebuild_text.split("  comment:\n")
         mutated = plan_part.replace('[[ "$head_branch" != dependabot/* ]]', '[[ "$head_branch" != dependabot/nuget/* ]]') + "  comment:\n" + comment_part
         self.assertNotEqual(self.rebuild_text, mutated, "the mutation applies")
         self.assertNotEqual(rebuild_condition(mutated), comment_condition(mutated), "a plan job that differs from the comment job fails")
-
-    def test_a_condition_that_differs_from_the_rebuild_workflow_s_fails(self) -> None:
-        for name, ours, theirs in (
-                ("another branch prefix", self.text.replace("!= dependabot/* ]]", "!= dependabot/github_actions/* ]]", 1), self.rebuild_text),
-                ("another author", self.text.replace('.user.login == \\"dependabot[bot]\\"', '.user.login == \\"renovate[bot]\\"', 1), self.rebuild_text),
-                ("the build folder counted as source", self.text, self.rebuild_text.replace(r" && !/^actions\/recording\/etw-consumer\/build\//", "", 1)),
-                ("another rebuild subject", self.text, self.rebuild_text.replace('[ "$subject" = "chore: rebuild the ETW consumer" ]',
-                                                                                '[ "$subject" = "chore: rebuild the consumer" ]', 1))):
-            with self.subTest(change=name):
-                self.assertNotEqual((self.text, self.rebuild_text), (ours, theirs), "the mutation applies")
-                self.assertNotEqual(rebuild_condition(theirs), condition(additions_run(ours)))
 
     def test_the_comment_names_the_start_by_hand_of_the_caller_that_called_the_workflow(self) -> None:
         (comment,) = self.workflow["jobs"][COMMENT_JOB]["steps"]
@@ -149,6 +88,7 @@ class AdditionsBesideTheRebuildTest(unittest.TestCase):
         section = re.search(r"(?ms)^#### Apply recorded additions\n(.*?)(?=^#{2,4} )", MAINTAINING.read_text(encoding="utf-8"))[1]
         self.assertIn(f"{route}<run-id>", section)
         self.assertIn(f"{route}%s", self.rebuild_text)
+        self.assertNotIn("leaves the recorded additions", self.rebuild_text)
 
 
 if __name__ == "__main__":
