@@ -545,8 +545,9 @@ class ReuseSelectionTests(unittest.TestCase):
                 base = head
 
     def test_a_change_to_a_nested_reuse_toml_or_a_dot_license_file_selects_reuse(self) -> None:
-        base = self.repository("nested", {"sub/REUSE.toml": "version = 1\n", "src/data.bin": "x\n", "src/data.bin.license": "SPDX-License-Identifier: MIT\n"})
-        for relative, content in (("sub/REUSE.toml", "version = 1\n# updated\n"), ("src/data.bin.license", "SPDX-License-Identifier: Apache-2.0\n")):
+        spdx = "SPDX"
+        base = self.repository("nested", {"sub/REUSE.toml": "version = 1\n", "src/data.bin": "x\n", "src/data.bin.license": f"{spdx}-License-Identifier: MIT\n"})
+        for relative, content in (("sub/REUSE.toml", "version = 1\n# updated\n"), ("src/data.bin.license", f"{spdx}-License-Identifier: Apache-2.0\n")):
             with self.subTest(changed=relative):
                 head = self.commit({relative: content})
                 decision, stdout, _ = self.reuse(base, head)
@@ -554,15 +555,16 @@ class ReuseSelectionTests(unittest.TestCase):
                 base = head
 
     def test_a_change_to_an_spdx_or_reuse_tag_in_an_existing_file_selects_reuse(self) -> None:
-        initial = "# SPDX-FileCopyrightText: 2025 Fixture\n# SPDX-License-Identifier: MIT\nprint(1)\n"
+        spdx, reuse = "SPDX", "REUSE"
+        initial = f"# {spdx}-FileCopyrightText: 2025 Fixture\n# {spdx}-License-Identifier: MIT\nprint(1)\n"
         base = self.repository("tags", {"REUSE.toml": "version = 1\n", "src/app.py": initial})
         code_only = self.commit({"src/app.py": initial.replace("print(1)", "print(2)")})
         self.assertEqual("false", self.reuse(base, code_only)[0], "untouched SPDX header with code-only edit does not select REUSE")
         for label, updated in (
             ("copyright", initial.replace("2025", "2026")),
             ("license", initial.replace("MIT", "Apache-2.0")),
-            ("ignore", initial + "# REUSE-IgnoreStart\n# ignored\n# REUSE-IgnoreEnd\n"),
-            ("snippet", initial + "# SPDX-SnippetBegin\n# SPDX-SnippetEnd\n"),
+            ("ignore", initial + f"# {reuse}-IgnoreStart\n# ignored\n# {reuse}-IgnoreEnd\n"),
+            ("snippet", initial + f"# {spdx}-SnippetBegin\n# {spdx}-SnippetEnd\n"),
         ):
             with self.subTest(tag=label):
                 head = self.commit({"src/app.py": updated})
