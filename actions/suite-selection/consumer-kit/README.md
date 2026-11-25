@@ -210,7 +210,7 @@ The rules:
 - A suite that states `node` or `gitleaks` while `pinned-tools` does not name it makes `select` fail with the undefined setup, as it does for any other setup. A suite list that defines a setup of a name that `pinned-tools` names fails `select` as well, and so does a `tool: node` setup beside a pinned `node`.
 - A name outside `node` and `gitleaks` in `pinned-tools`, or the same name twice, fails the check of the configuration file.
 - The commands that only read the suite list accept the two names without a definition. `select` decides on them.
-- A passed result is reused only with the same pin: the version, and for Gitleaks its assets with their sha256. A version change in the shared pins file selects no unit by itself, which is an accepted miss of the selection; the next change that selects a unit, or the full recording, runs it with the new version.
+- A passed result is reused only with the same pin: the version, and for Gitleaks its assets with their sha256. A version change in the shared pins file moves that tool's digest and reruns only the units that state that tool.
 - A setup whose definition the suite list removes, so that its name becomes a pinned tool, runs the entry files that state it, as a changed setup definition does.
 
 ## The suite jobs
@@ -252,11 +252,11 @@ A change to what runs a suite selects it as well:
 - a changed `command`, `setups`, `os` or `entry_selection` of a suite runs every entry file of the suite, and a changed `entries` or `entry_setups` the entry files it adds or changes; a tracked file that a pattern of `entries` starts to match runs as an added entry file does, in a suite selected as a whole with every entry file of the suite; a removal from the stored lists or the extra reads runs what it was removed from;
 - a changed setup definition in `setups`, such as its `script`, `tool` or `version`, runs the entry files that state the setup; so does a changed script file or version file of a setup, and so does a definition that the suite list removes to make its name a [pinned tool](#pinned-tools);
 - a changed `jobs` entry runs the entry files of its system;
-- a change of the shared suite jobs or of the shared recording step reaches the repository through the shared digest: `select` takes it, and every suite runs once, as [When `v1` moves](#when-v1-moves) states.
+- a change of the shared suite jobs, the shared recording step, a pinned tool or a language step reaches the repository through its platform digest, tool digest or language-step digest: `select` takes them and reruns only the checks whose digest moved, as [When `v1` moves](#when-v1-moves) states.
 
 A changed `on` or `concurrency`, a name or comment, the job that runs `select`, and a step after the entry files that only stores or reports results select nothing.
 
-The `select` job's summary lists every suite with its decision and reason. On a pull request, a later head reuses a passed result whose reads, command, setup versions, pins of its pinned tools, runner label, shared digest and tracked ignore rules did not change; for a suite selected as a whole, its entry files are unchanged as well; a re-run reuses nothing.
+The `select` job's summary lists every suite with its decision and reason. On a pull request, a later head reuses a passed result whose reads, command, setup versions, pins of its pinned tools, runner label, platform, tool and language-step digests and tracked ignore rules did not change; for a suite selected as a whole, its entry files are unchanged as well; a re-run reuses nothing.
 
 ## The recording and its check
 
@@ -325,11 +325,11 @@ The user configures these settings; the workflows change none of them:
 
 ## When `v1` moves
 
-The recording step and the suite jobs come from `CrankyAnt/SharedWorkflows` at `v1`, not from the repository. `select` takes a digest of the shared recording step and of the shared suite jobs workflow `suite-jobs.yml`, and compares it with the digest of the last passed run of the `CI` caller on the base branch; for a pull request whose base is not the default branch, that run is the passed pull-request run that produced the base's tip, or else the last passed run on the default branch where the base meets it. When the two differ, or that run cannot be found, every suite runs. The first run after `v1` moves therefore runs every suite once.
+The recording step, the suite jobs, the pinned tools and the language steps come from `CrankyAnt/SharedWorkflows` at `v1`, not from the repository. `select` takes one platform digest per operating system (`platform:linux`, `platform:windows`), one tool digest per pinned tool (`tool:<name>`) and one language-step digest per shared language step (`language:<name>`), without the selection code, and compares them with the digests of the last passed run of the `CI` caller on the base branch; for a pull request whose base is not the default branch, that run is the passed pull-request run that produced the base's tip, or else the last passed run on the default branch where the base meets it. When a digest differs, only the checks that use it run (or every suite when that run or its digests cannot be read).
 
-No move of `v1` sends the repository an event, and Shared Workflows asks GitHub nothing about the repositories that call it. After a move that changes the shared digest, each pull-request run runs every suite until a run on the default branch, a push or a Dependabot merge, has passed under the new digest. Every pull-request run that starts after that run takes it as the last passed run on the base branch and runs its normal selection. The merge of the first pull request after the move is such a push: its tree equals the tree that passed on the pull request under the new digest, so it runs no suite again and passes. The automatic move of a pins-only commit leaves the shared digest unchanged.
+No move of `v1` sends the repository an event, and Shared Workflows asks GitHub nothing about the repositories that call it. After a move that changes a digest, each pull-request run reruns the checks affected by that digest until a run on the default branch, a push or a Dependabot merge, has passed under the new digests. Every pull-request run that starts after that run takes it as the last passed run on the base branch and runs its normal selection. The merge of the first pull request after the move is such a push: its tree equals the tree that passed on the pull request under the new digests, so it runs no suite again and passes.
 
-When `v1` moves during a run, a suite job fails on its digest; start the whole run again, since a re-run of the failed jobs keeps the earlier `select`.
+When `v1` moves during a run, a suite job fails on its digests; start the whole run again, since a re-run of the failed jobs keeps the earlier `select`.
 
 ## A skipped suite
 

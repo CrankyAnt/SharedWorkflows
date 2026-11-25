@@ -26,8 +26,8 @@ on:
         type: string
         required: false
         default: ''
-      shared-digest:
-        description: The digest of the shared recording step that select took; each job fails when its own differs. Empty for no check.
+      shared-digests:
+        description: The shared CI digests JSON that select took; each job fails when its own differ. Empty for no check.
         type: string
         required: false
         default: ''
@@ -62,7 +62,7 @@ jobs:
       - id: recording
         uses: $/actions/recording
         with:
-          digest: ${{ inputs.shared-digest }}
+          digests: ${{ inputs.shared-digests }}
       # The tools that the shard's setups name, each installed by its pinned action outside the recording.
       - id: python
         if: matrix.shard.tools.python
@@ -223,7 +223,7 @@ jobs:
       - id: recording
         uses: $/actions/recording
         with:
-          digest: ${{ inputs.shared-digest }}
+          digests: ${{ inputs.shared-digests }}
       # The tools that the job's setups name, each installed by its pinned action outside the recording.
       - id: python
         if: fromJSON(env.TOOLS).python

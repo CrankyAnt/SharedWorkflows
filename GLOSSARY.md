@@ -154,9 +154,17 @@ _Avoid_: Lock file, versions file, pins.json
 The GitHub App whose installation token the workflows that propose or push changes use, so that their pull request or push starts CI: the pins updater, the specification updater, the full recording, the additions workflow and the rebuild workflow of the ETW consumer. Only its pins pull request lets `promote-v1.yml` move `v1`.
 _Avoid_: Bot account, publication-checks App
 
-**Shared digest**:
-The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. For a pull request whose base is not the default branch, that run is the passed pull-request run that produced the base's tip, or else the last passed run on the default branch from the newest commit of its first-parent line that the base contains. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
-_Avoid_: Shared CI digest, recording hash
+**Platform digest**:
+The SHA-256 (`platform:linux` or `platform:windows`) over the files of the recording step for one operating system (leaving the Windows-only ETW consumer files out of `platform:linux`), the modules the recording step loads without the selection code, and `.github/workflows/suite-jobs.yml`. A change to a platform digest reruns only the units of that operating system and changes only their reuse keys.
+_Avoid_: Shared digest, recording hash
+
+**Tool digest**:
+The SHA-256 (`tool:<name>`) over one pinned tool's entry in the pins file and, for tools installed by `install_tools.py`, the installer scripts. A change to a tool digest reruns only the units that state that tool and changes only their reuse keys.
+_Avoid_: Shared digest, pin hash
+
+**Language-step digest**:
+The SHA-256 (`language:<name>`) over one shared language step's folder, the installer scripts it imports, and its pinned tool entries in the pins file (such as `ruff` and `mypy` for `language:python`). A change to a language-step digest reruns only that language step and changes no test unit's digest.
+_Avoid_: Shared digest, linter hash
 
 ### Sync
 

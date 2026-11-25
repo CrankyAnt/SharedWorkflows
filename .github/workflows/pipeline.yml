@@ -28,7 +28,7 @@ jobs:
       language-steps: ${{ steps.select.outputs.language-steps }}
       units: ${{ steps.select.outputs.units }}
       reused: ${{ steps.select.outputs.reused }}
-      shared-digest: ${{ steps.digest.outputs.shared-digest }}
+      shared-digests: ${{ steps.digest.outputs.shared-digests }}
       identical: ${{ steps.select.outputs.identical }}
     steps:
       - name: Load the plan program from this workflow revision
@@ -121,23 +121,23 @@ jobs:
             cat "$RUNNER_TEMP/initial-plan-summary.md" >> "$GITHUB_STEP_SUMMARY"
             exit "$status"
           fi
-      - name: Take the digest of the shared recording step
+      - name: Take the shared CI digests
         id: digest
         if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
-      - name: Look up the digest of the last passed run on the base branch
+      - name: Look up the shared CI digests of the last passed run on the base branch
         if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
         env:
           RESOURCE_PATH: ${{ steps.selection.outputs.path }}
           GITHUB_TOKEN: ${{ github.token }}
           WORKFLOW: ${{ github.workflow_ref }}
-          DIGEST: ${{ steps.digest.outputs.shared-digest }}
+          DIGESTS: ${{ steps.digest.outputs.shared-digests }}
           BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' && github.event.repository.default_branch || github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PUSHED: ${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') && (github.event.client_payload.sha || github.sha) || '' }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --pushed "$PUSHED" --workflow "$WORKFLOW" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Restore the passed results of the pull request
         if: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' && github.run_attempt == 1 && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -747,7 +747,7 @@ jobs:
       windows: ${{ needs.plan.outputs.windows }}
       jobs: ${{ needs.plan.outputs.jobs }}
       language-steps: ${{ needs.plan.outputs.language-steps }}
-      shared-digest: ${{ needs.plan.outputs.shared-digest }}
+      shared-digests: ${{ needs.plan.outputs.shared-digests }}
 
   suite-selection-results:
     needs: [plan, suite-selection-jobs]

@@ -9,7 +9,7 @@ import re
 import sys
 import unittest
 
-from tests.ci_policy_support import (REPOSITORY_ROOT, action_pin_pattern, condition_holds, entry_pathspecs, expression_value, flow_items,
+from tests.ci_policy_support import (REPOSITORY_ROOT, action_pin_pattern, entry_pathspecs, expression_value, flow_items,
                                      passed_list_steps, read_workflow, tracked_files)
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
@@ -54,7 +54,7 @@ class SuiteJobsWorkflowTests(unittest.TestCase):
         self.assertEqual(["workflow_call"], list(self.workflow["on"]))
         inputs = self.workflow["on"]["workflow_call"]["inputs"]
         self.assertEqual({"suites": ("string", "true"), "shards": ("string", "false"), "windows": ("string", "false"), "jobs": ("string", "true"),
-                          "language-steps": ("string", "false"), "shared-digest": ("string", "false"), "full": ("boolean", "false")},
+                          "language-steps": ("string", "false"), "shared-digests": ("string", "false"), "full": ("boolean", "false")},
                          {name: (value["type"], value["required"]) for name, value in inputs.items()})
         self.assertEqual("false", inputs["full"]["default"])
         self.assertNotIn("secrets", self.text)
@@ -163,7 +163,7 @@ class RecordedJobTests(unittest.TestCase):
     def test_the_recording_step_checks_the_digest_that_select_took(self) -> None:
         for job in JOBS:
             step = self.jobs[job]["steps"][self.order(job)["recording"]]
-            self.assertEqual({"id": "recording", "uses": "$/actions/recording", "with": {"digest": "${{ inputs.shared-digest }}"}}, step, job)
+            self.assertEqual({"id": "recording", "uses": "$/actions/recording", "with": {"digests": "${{ inputs.shared-digests }}"}}, step, job)
 
     def test_each_tool_is_installed_only_for_a_job_whose_setups_name_it_with_the_version_of_the_suite_list_outside_the_recording(self) -> None:
         for job, forms in JOBS.items():
@@ -404,7 +404,7 @@ class PipelinePartTests(unittest.TestCase):
         passed = self.jobs[f"{PART}-jobs"]["with"]
         self.assertEqual(set(self.inputs) - {"full"}, set(passed), "the mode stays the default: no full recording")
         self.assertEqual(f"${{{{ {PLANNED}.config.suites }}}}", passed["suites"])
-        for name in ("shards", "windows", "jobs", "language-steps", "shared-digest"):
+        for name in ("shards", "windows", "jobs", "language-steps", "shared-digests"):
             self.assertEqual(f"${{{{ needs.plan.outputs.{name} }}}}", passed[name])
 
     def test_suite_jobs_rely_on_workflow_level_concurrency(self) -> None:

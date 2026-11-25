@@ -122,7 +122,7 @@ class SharedWorkflowTests(unittest.TestCase):
         lookup = named["Look up the tested tree of the pushed commit's pull request"]
         self.assertTrue(expression_value(lookup["if"], BARE_DISPATCH_CONTEXT))
         self.assertEqual((BARE_DISPATCH_TIP, ""), (expression_value(lookup["env"]["SHA"], BARE_DISPATCH_CONTEXT), expression_value(lookup["env"]["BEFORE"], BARE_DISPATCH_CONTEXT)))
-        shared = named["Look up the digest of the last passed run on the base branch"]
+        shared = named["Look up the shared CI digests of the last passed run on the base branch"]
         self.assertEqual(("main", BARE_DISPATCH_TIP), (expression_value(shared["env"]["BRANCH"], BARE_DISPATCH_CONTEXT), expression_value(shared["env"]["PUSHED"], BARE_DISPATCH_CONTEXT)))
         select = named["Select the suites the changed files touch"]
         self.assertEqual("repository_dispatch", expression_value(select["env"]["EVENT"], BARE_DISPATCH_CONTEXT))
@@ -148,14 +148,14 @@ class SharedWorkflowTests(unittest.TestCase):
         self.assertIn('python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"', digest["run"])
         (lookup,) = [step for step in steps if '" shared-lookup ' in str(step.get("run", ""))]
         self.assertNotIn("if", lookup)
-        self.assertEqual({"DIGEST": "${{ steps.digest.outputs.shared-digest }}", "GITHUB_TOKEN": "${{ github.token }}",
+        self.assertEqual({"DIGESTS": "${{ steps.digest.outputs.shared-digests }}", "GITHUB_TOKEN": "${{ github.token }}",
                           "WORKFLOW": "${{ github.workflow_ref }}", "RESOURCE_PATH": "${{ steps.resources.outputs.path }}",
                           "BRANCH": "${{ github.event_name == 'pull_request' && github.base_ref || github.event_name == 'repository_dispatch' "
                                     "&& github.event.repository.default_branch || github.ref_name }}",
                           "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
                           "PUSHED": "${{ (github.event_name == 'push' || github.event_name == 'repository_dispatch') "
                                     "&& (github.event.client_payload.sha || github.sha) || '' }}"}, lookup["env"])
-        self.assertIn('suite_selection.py" shared-lookup --root . --digest "$DIGEST" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" '
+        self.assertIn('suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" '
                       '--pushed "$PUSHED" --workflow "$WORKFLOW" '
                       '--output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"', lookup["run"])
         names = [step.get("id") for step in steps]
@@ -163,8 +163,8 @@ class SharedWorkflowTests(unittest.TestCase):
         self.assertLess(steps.index(lookup), names.index("select"))
         select = steps[names.index("select")]["run"]
         self.assertIn('set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"', [line.strip() for line in select.splitlines()])
-        self.assertEqual("${{ steps.digest.outputs.shared-digest }}", workflow["jobs"]["select"]["outputs"]["shared-digest"])
-        self.assertEqual("${{ jobs.select.outputs.shared-digest }}", workflow["on"]["workflow_call"]["outputs"]["shared-digest"]["value"])
+        self.assertEqual("${{ steps.digest.outputs.shared-digests }}", workflow["jobs"]["select"]["outputs"]["shared-digests"])
+        self.assertEqual("${{ jobs.select.outputs.shared-digests }}", workflow["on"]["workflow_call"]["outputs"]["shared-digests"]["value"])
 
 
 

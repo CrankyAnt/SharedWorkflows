@@ -170,8 +170,8 @@ class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
 
     def test_a_change_to_the_shared_suite_jobs_runs_every_suite_through_the_shared_digest(self) -> None:
         selection = readme_section(self.readme, "## What selects a suite")
-        self.assertIn("a change of the shared suite jobs or of the shared recording step", selection)
-        self.assertIn("every suite runs once", selection)
+        self.assertIn("a change of the shared suite jobs, the shared recording step, a pinned tool or a language step", selection)
+        self.assertIn("reruns only the checks whose digest moved", selection)
         self.assertIn("a changed setup definition", selection)
         self.assertIn("a changed `jobs` entry runs the entry files of its system", selection)
 

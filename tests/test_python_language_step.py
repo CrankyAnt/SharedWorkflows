@@ -197,6 +197,21 @@ class InstallTests(FixtureProject):
         self.assertTrue(key_a.stdout.strip().startswith("tools-"))
         self.assertNotEqual(key_a.stdout.strip(), key_b.stdout.strip())
 
+    def test_print_digest_matches_recording_digest_for_python_language_step(self) -> None:
+        import json
+
+        digest_run = subprocess.run([sys.executable, str(STEP), "--print-digest"], capture_output=True, text=True, check=False)
+        self.assertEqual(0, digest_run.returncode, digest_run.stderr)
+        step_digest = digest_run.stdout.strip()
+        self.assertRegex(step_digest, r"^[0-9a-f]{64}$")
+        recording_run = subprocess.run(
+            [sys.executable, str(REPOSITORY_ROOT / "actions" / "recording" / "recording.py"), "digest"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, recording_run.returncode, recording_run.stderr)
+        (raw,) = re.findall(r"^shared CI digests (\{[^\r\n]+\})$", recording_run.stdout, re.MULTILINE)
+        self.assertEqual(json.loads(raw)["language:python"], step_digest)
+
 
 class MissingToolTests(FixtureProject):
     def test_a_missing_tool_is_a_failure(self) -> None:

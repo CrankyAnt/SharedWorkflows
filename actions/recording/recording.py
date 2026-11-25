@@ -63,7 +63,7 @@ MODULE_PATH = (SHARED_FOLDER / "suite-selection", Path(__file__).resolve().paren
 sys.path.insert(0, str(MODULE_PATH[0]))
 
 import recording_modules  # noqa: E402
-import suite_selection  # noqa: E402
+import suite_list as suite_selection  # noqa: E402
 
 PROCESS_CALLS = ("execve", "execveat", "chdir", "fchdir", "clone", "clone3", "fork", "vfork")
 MID_SET = ("open", "openat", "openat2", "getdents", "getdents64", "access", "faccessat", "faccessat2",
@@ -2781,7 +2781,7 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
     return report
 
 
-# --- the shared digest -----------------------------------------------------------------------------------------
+# --- the shared digests ----------------------------------------------------------------------------------------
 
 
 def loaded_modules(script: Path) -> list[Path]:
@@ -2794,14 +2794,34 @@ def loaded_modules(script: Path) -> list[Path]:
 
 
 SUITE_JOBS = SHARED_FOLDER.parent / ".github" / "workflows" / "suite-jobs.yml"  # the shared workflow that runs the entry files
+WINDOWS_ONLY_PARTS = ("etw-consumer/", "etw_consumer_build.py")
+PINS_FILE = SHARED_FOLDER / "repository-hygiene" / "pins.json"
+TOOL_INSTALLER_FILES = (SHARED_FOLDER / "repository-hygiene" / "install_tools.py", SHARED_FOLDER / "repository-hygiene" / "pins.py")
+LANGUAGE_STEP_FOLDERS = {"python": SHARED_FOLDER / "python-language-step"}
+LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
 
 
-def shared_files() -> list[Path]:
-    """The files of the shared digest: every file of the recording step's folder, its action and the committed ETW
-    consumer with its build included, every module outside it that the recording step loads, and the shared workflow of
-    the suite jobs, whose steps run a consumer's setups and entry files."""
+def _canonical_json(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _folder_files(folder: Path) -> list[Path]:
+    return [path for path in folder.rglob("*") if path.is_file() and "__pycache__" not in path.relative_to(folder).parts]
+
+
+def platform_files(platform: str) -> list[Path]:
+    """The files of one platform's recording digest: the recording step's folder (without the Windows-only ETW
+    consumer files on Linux), every module outside it that the recording step loads, and the shared workflow of the
+    suite jobs."""
+    if platform not in suite_selection.OPERATING_SYSTEMS:
+        raise RecordingError(f"unknown platform {platform!r}")
     folder = Path(__file__).resolve().parent
-    files = {path for path in folder.rglob("*") if path.is_file() and "__pycache__" not in path.relative_to(folder).parts}
+    files: set[Path] = set()
+    for path in _folder_files(folder):
+        relative = path.relative_to(folder).as_posix()
+        if platform == "linux" and relative.startswith(WINDOWS_ONLY_PARTS):
+            continue
+        files.add(path)
     files.update(loaded_modules(Path(__file__).resolve()))
     if SUITE_JOBS.is_file():
         files.add(SUITE_JOBS)
@@ -2809,28 +2829,94 @@ def shared_files() -> list[Path]:
 
 
 def shared_name(path: Path) -> str:
-    """The name of a shared file in the digest: its path from the folder of the shared parts, with ``/`` separators."""
+    """The name of a shared file in a digest: its path from the folder of the shared parts, with ``/`` separators."""
     return Path(os.path.relpath(path, SHARED_FOLDER)).as_posix()
 
 
-def shared_digest() -> str:
-    """The SHA-256 over the path and the SHA-256 of the content of every shared file, in the code-point order of the
-    paths: a Windows path sorts case-insensitively, so ``Path`` order differs between the platforms."""
-    names = {shared_name(path): path for path in shared_files()}
-    lines = "".join(f"{hashlib.sha256(names[name].read_bytes()).hexdigest()}  {name}\n" for name in sorted(names))
+def files_digest(files: Collection[Path], extra_entries: dict[str, bytes] | None = None) -> str:
+    """The SHA-256 over the name and the SHA-256 of the content of every file and extra entry, in code-point order of
+    their names: a Windows path sorts case-insensitively, so ``Path`` order differs between the platforms."""
+    entries = {shared_name(path): path.read_bytes() for path in files}
+    if extra_entries:
+        entries.update(extra_entries)
+    lines = "".join(f"{hashlib.sha256(entries[name]).hexdigest()}  {name}\n" for name in sorted(entries))
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
+def _load_pins_document() -> dict:
+    if not PINS_FILE.is_file():
+        return {}
+    try:
+        document = json.loads(PINS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def tool_digests(pins: dict | None = None) -> dict[str, str]:
+    """One digest per pinned tool in ``pins.json``, keyed as ``tool:<name>``."""
+    document = _load_pins_document() if pins is None else pins
+    if not document:
+        return {}
+    installer = [path for path in TOOL_INSTALLER_FILES if path.is_file()]
+    digests: dict[str, str] = {}
+    if isinstance(document.get("node"), dict):
+        digests["tool:node"] = files_digest((), {"pins:node": _canonical_json(document["node"])})
+    for section in ("tools", "python"):
+        entries = document.get(section)
+        if isinstance(entries, dict):
+            for name, entry in sorted(entries.items()):
+                digests[f"tool:{name}"] = files_digest(installer, {f"pins:{section}/{name}": _canonical_json(entry)})
+    return digests
+
+
+def language_step_digests(pins: dict | None = None) -> dict[str, str]:
+    """One digest per shared language step, keyed as ``language:<name>``."""
+    document = _load_pins_document() if pins is None else pins
+    installer = [path for path in TOOL_INSTALLER_FILES if path.is_file()]
+    python_pins = document.get("python") if isinstance(document.get("python"), dict) else {}
+    digests: dict[str, str] = {}
+    for name, folder in sorted(LANGUAGE_STEP_FOLDERS.items()):
+        if not folder.is_dir():
+            continue
+        files = _folder_files(folder) + installer
+        extra = {f"pins:python/{tool}": _canonical_json(python_pins[tool])
+                 for tool in LANGUAGE_STEP_PYTHON_TOOLS.get(name, ()) if tool in python_pins}
+        digests[f"language:{name}"] = files_digest(files, extra)
+    return digests
+
+
+def shared_digests() -> dict[str, str]:
+    """All shared CI digests: one per platform (``platform:linux``, ``platform:windows``), one per pinned tool
+    (``tool:<name>``) and one per language step (``language:<name>``), sorted by key."""
+    pins = _load_pins_document()
+    digests = {f"platform:{platform}": files_digest(platform_files(platform)) for platform in suite_selection.OPERATING_SYSTEMS}
+    digests.update(tool_digests(pins))
+    digests.update(language_step_digests(pins))
+    return dict(sorted(digests.items()))
+
+
 def run_digest(options: argparse.Namespace) -> int:
-    digest = shared_digest()
-    print(f"shared CI digest {digest}")
+    digests = shared_digests()
+    rendered = json.dumps(digests, sort_keys=True, separators=(",", ":"))
+    print(f"shared CI digests {rendered}")
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"shared-digest={digest}\n")
-    if options.expect is not None and options.expect != digest:
-        print(f"The shared recording step in {SHARED_FOLDER} has the digest {digest}, but select took {options.expect}: "
-              "v1 moved during the run. Start the whole run again.", file=sys.stderr)
-        return 1
+            handle.write(f"shared-digests={rendered}\n")
+    if options.expect is not None:
+        try:
+            expected = json.loads(options.expect)
+        except json.JSONDecodeError as error:
+            print(f"The expected shared CI digests could not be read as JSON: {error}", file=sys.stderr)
+            return 1
+        if not isinstance(expected, dict) or not expected or not all(isinstance(k, str) and isinstance(v, str) for k, v in expected.items()):
+            print("The expected shared CI digests must be a non-empty JSON object from digest name to hex digest.", file=sys.stderr)
+            return 1
+        mismatched = [name for name, value in sorted(expected.items()) if digests.get(name) != value]
+        if mismatched:
+            details = ", ".join(f"{name} (got {digests.get(name)}, select took {expected[name]})" for name in mismatched)
+            print(f"The shared CI in {SHARED_FOLDER} differs for {details}: v1 moved during the run. Start the whole run again.", file=sys.stderr)
+            return 1
     return 0
 
 
@@ -2902,9 +2988,9 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     kept.add_argument("--keep-all-lists", action="store_true", help="add the recorded reads of every entry file to its stored lists: "
                       "the change since the recorded commit could not be selected")
     applying.add_argument("files", type=Path, nargs="+", help="additions or full-recording results")
-    digesting = commands.add_parser("digest", help="print the digest of the shared recording step")
-    digesting.add_argument("--expect", help="the digest that select took; a different one fails")
-    digesting.add_argument("--github-output", type=Path, help="append a shared-digest= line to this file")
+    digesting = commands.add_parser("digest", help="print the shared CI digests per platform, tool and language step")
+    digesting.add_argument("--expect", help="the shared CI digests JSON that select took; any difference fails")
+    digesting.add_argument("--github-output", type=Path, help="append a shared-digests= line to this file")
     options = parser.parse_args(argv)
     if options.command == "start" and options.job is not None and not options.full:
         parser.error("--job goes with --full")

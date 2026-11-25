@@ -257,29 +257,30 @@ class PushLookupTests(FixtureRepository):
         self.pushed = self.squash_onto(self.base)
         self.record()
         found = self.lookup(self.pushed, self.base)
-        self.assertEqual((found["case"], found["tested_run"], found["tested_digest"]), ("identical", self.RUN, None),
-                         "a run whose jobs take no digest names none")
-        digest = "c" * 64
+        self.assertEqual((found["case"], found["tested_run"], found["tested_digests"]), ("identical", self.RUN, None),
+                         "a run whose jobs take no digests names none")
+        digests = {"language:python": "e" * 64, "platform:linux": "c" * 64, "platform:windows": "d" * 64}
+        rendered = json.dumps(digests, sort_keys=True, separators=(",", ":"))
         jobs = {"total_count": 2, "jobs": [
             {"id": self.JOB - 1, "name": "validation / validation", "steps": [{"name": "Set up job"}]},
             {"id": self.JOB, "name": "select / select", "steps": [{"name": "Set up job"}, {"name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"},
-                                                                  {"name": "Take the digest of the shared recording step"}]}]}
+                                                                  {"name": "Take the shared CI digests"}]}]}
         self.api.json(f"actions/runs/{self.RUN}/jobs?per_page=100", jobs)
         log = CHECKOUT_LOG.format(merge=self.merge, number=self.NUMBER, short=self.merge[:7], head=self.pr_head, base=self.base)
-        self.api.log(self.JOB, log + f"2026-10-28T13:02:03.0000000Z shared CI digest {digest}\n")
+        self.api.log(self.JOB, log + f"2026-10-28T13:02:03.0000000Z shared CI digests {rendered}\n")
         self.api.requests.clear()
         found = self.lookup(self.pushed, self.base)
-        self.assertEqual((found["case"], found["tested_run"], found["tested_digest"]), ("identical", self.RUN, digest), found)
+        self.assertEqual((found["case"], found["tested_run"], found["tested_digests"]), ("identical", self.RUN, digests), found)
         self.assertEqual(sum(path.endswith(f"/jobs/{self.JOB}/logs") for path, _ in self.api.requests), 1, "the checkout job's log is read once")
         jobs["jobs"][1]["steps"].pop()
-        jobs["jobs"][0]["steps"].append({"name": "Take the digest of the shared recording step"})
+        jobs["jobs"][0]["steps"].append({"name": "Take the shared CI digests"})
         self.api.json(f"actions/runs/{self.RUN}/jobs?per_page=100", jobs)
-        self.api.log(self.JOB - 1, f"2026-10-28T13:02:03.0000000Z shared CI digest {digest}\n")
+        self.api.log(self.JOB - 1, f"2026-10-28T13:02:03.0000000Z shared CI digests {rendered}\n")
         self.api.log(self.JOB, log)
-        self.assertEqual(self.lookup(self.pushed, self.base)["tested_digest"], digest, "the digest comes from the job that took it")
+        self.assertEqual(self.lookup(self.pushed, self.base)["tested_digests"], digests, "the digests come from the job that took them")
         self.api.responses.pop(f"/storage/{self.JOB - 1}")
         found = self.lookup(self.pushed, self.base)
-        self.assertEqual((found["case"], found["tested_digest"]), ("identical", None), "a log that cannot be read names no digest")
+        self.assertEqual((found["case"], found["tested_digests"]), ("identical", None), "a log that cannot be read names no digests")
 
     def test_a_push_whose_pull_request_was_behind_runs_only_the_units_that_both_sides_affect(self) -> None:
         moved = self.commit("main moves", {"src/moved.py": "moved v2\n"})
@@ -748,48 +749,128 @@ class SharedDigestTests(unittest.TestCase):
         self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.shared_folder = Path(self.temporary.name) / "shared-ci"
-        for part in ("recording", "suite-selection"):
+        for part in ("recording", "suite-selection", "python-language-step", "repository-hygiene"):
             shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
-        write(self.shared_folder, "repository-hygiene/hygiene.py", "print('a part the recording step does not load')\n")
 
     def digest(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run([sys.executable, str(self.shared_folder / "recording" / "recording.py"), "digest", *arguments],
                               capture_output=True, text=True)
 
-    def taken(self) -> str:
+    def taken(self) -> dict[str, str]:
         completed = self.digest()
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        (digest,) = re.findall(r"^shared CI digest ([0-9a-f]{64})$", completed.stdout, re.MULTILINE)
-        return digest
+        (raw,) = re.findall(r"^shared CI digests (\{[^\r\n]+\})$", completed.stdout, re.MULTILINE)
+        digests = json.loads(raw)
+        self.assertIsInstance(digests, dict)
+        for name, value in digests.items():
+            self.assertRegex(value, r"^[0-9a-f]{64}$", f"{name} must be a SHA-256 hex digest")
+        return digests
 
-    def test_the_digest_follows_the_recording_step_the_modules_it_loads_and_the_etw_consumer(self) -> None:
+    def test_the_digests_separate_platforms_tools_language_steps_and_exclude_selection_code(self) -> None:
         first = self.taken()
-        self.assertEqual(first, self.taken(), "the same files give the same digest")
-        for changed in ("recording/action.yml", "recording/recording.py", "suite-selection/suite_selection.py",
-                        "suite-selection/recording_modules.py", "suite-selection/revisions.py", "recording/etw-consumer/build/EtwConsumer.dll"):
-            with self.subTest(changed=changed):
+        self.assertEqual(first, self.taken(), "the same files give the same digests")
+        self.assertLessEqual({"platform:linux", "platform:windows", "tool:node", "tool:gitleaks", "language:python"}, set(first))
+
+        # Windows-only recording files change only platform:windows.
+        for changed in ("recording/etw-consumer/Program.cs", "recording/etw-consumer/EtwConsumer.csproj",
+                        "recording/etw-consumer/global.json", "recording/etw-consumer/packages.lock.json",
+                        "recording/etw-consumer/build/EtwConsumer.dll", "recording/etw_consumer_build.py"):
+            with self.subTest(windows_only=changed):
                 path = self.shared_folder / changed
                 original = path.read_bytes()
                 path.write_bytes(original + b"\n")
-                self.assertNotEqual(first, self.taken())
+                after = self.taken()
                 path.write_bytes(original)
+                self.assertNotEqual(first["platform:windows"], after["platform:windows"])
+                self.assertEqual({k: v for k, v in first.items() if k != "platform:windows"},
+                                 {k: v for k, v in after.items() if k != "platform:windows"})
+
+        # Common recording files change both platform:linux and platform:windows, and no tool or language-step digest.
+        for changed in ("recording/action.yml", "recording/recording.py", "suite-selection/suite_list.py",
+                        "suite-selection/recording_modules.py"):
+            with self.subTest(common_recording=changed):
+                path = self.shared_folder / changed
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                after = self.taken()
+                path.write_bytes(original)
+                self.assertNotEqual(first["platform:linux"], after["platform:linux"])
+                self.assertNotEqual(first["platform:windows"], after["platform:windows"])
+                self.assertEqual({k: v for k, v in first.items() if not k.startswith("platform:")},
+                                 {k: v for k, v in after.items() if not k.startswith("platform:")})
+
+        # Selection code changes no digest at all.
+        for changed in ("suite-selection/suite_selection.py", "suite-selection/ci_definition.py",
+                        "suite-selection/revisions.py", "suite-selection/reuse.py", "suite-selection/unrecorded.py",
+                        "suite-selection/action.yml", "repository-hygiene/hygiene.py"):
+            with self.subTest(selection_or_unrelated=changed):
+                path = self.shared_folder / changed
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                after = self.taken()
+                path.write_bytes(original)
+                self.assertEqual(first, after)
+
+        # A change to the Python language step changes only language:python.
+        for changed in ("python-language-step/python_language_step.py", "python-language-step/action.yml"):
+            with self.subTest(language_step=changed):
+                path = self.shared_folder / changed
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                after = self.taken()
+                path.write_bytes(original)
+                self.assertNotEqual(first["language:python"], after["language:python"])
+                self.assertEqual({k: v for k, v in first.items() if k != "language:python"},
+                                 {k: v for k, v in after.items() if k != "language:python"})
+
+        # Changing one pinned tool in pins.json changes only that tool's digest (and language:python for ruff/mypy).
+        pins_path = self.shared_folder / "repository-hygiene" / "pins.json"
+        original_pins = pins_path.read_text(encoding="utf-8")
+        pins = json.loads(original_pins)
+        pins["tools"]["gitleaks"]["version"] = "9.9.9"
+        pins_path.write_text(json.dumps(pins), encoding="utf-8")
+        after_gitleaks = self.taken()
+        self.assertNotEqual(first["tool:gitleaks"], after_gitleaks["tool:gitleaks"])
+        self.assertEqual({k: v for k, v in first.items() if k != "tool:gitleaks"},
+                         {k: v for k, v in after_gitleaks.items() if k != "tool:gitleaks"})
+
+        pins = json.loads(original_pins)
+        pins["node"]["version"] = "99.0.0"
+        pins_path.write_text(json.dumps(pins), encoding="utf-8")
+        after_node = self.taken()
+        self.assertNotEqual(first["tool:node"], after_node["tool:node"])
+        self.assertEqual({k: v for k, v in first.items() if k != "tool:node"},
+                         {k: v for k, v in after_node.items() if k != "tool:node"})
+
+        pins = json.loads(original_pins)
+        pins["python"]["ruff"]["version"] = "9.9.9"
+        pins_path.write_text(json.dumps(pins), encoding="utf-8")
+        after_ruff = self.taken()
+        self.assertNotEqual(first["tool:ruff"], after_ruff["tool:ruff"])
+        self.assertNotEqual(first["language:python"], after_ruff["language:python"])
+        self.assertEqual({k: v for k, v in first.items() if k not in ("tool:ruff", "language:python")},
+                         {k: v for k, v in after_ruff.items() if k not in ("tool:ruff", "language:python")})
+        pins_path.write_text(original_pins, encoding="utf-8")
+
+        # New file in recording/ enters both platform digests; __pycache__ is ignored.
         write(self.shared_folder, "recording/toolchain-rules.json", "{}\n")
         added = self.taken()
-        self.assertNotEqual(first, added, "a new file of the recording step's folder is part of it")
-        write(self.shared_folder, "repository-hygiene/hygiene.py", "print('changed')\n")
-        write(self.shared_folder, "suite-selection/action.yml", "name: changed\n")
-        write(self.shared_folder, "suite-selection/reuse.py", "print('imported only inside the functions of select, the lookup and the store')\n")
+        self.assertNotEqual(first["platform:linux"], added["platform:linux"])
+        self.assertNotEqual(first["platform:windows"], added["platform:windows"])
         write(self.shared_folder, "recording/__pycache__/recording.cpython-313.pyc", "cache\n")
-        self.assertEqual(added, self.taken(), "a part or module it does not load and a bytecode cache are not part of it")
+        self.assertEqual(added, self.taken(), "a bytecode cache is not part of any digest")
 
     def test_the_digest_follows_the_shared_workflow_of_the_suite_jobs(self) -> None:
         without = self.taken()
         workflow = self.shared_folder.parent / ".github" / "workflows" / "suite-jobs.yml"
         write(workflow.parent, workflow.name, "name: Suite jobs\n")
         first = self.taken()
-        self.assertNotEqual(without, first, "the workflow that runs a consumer's entry files is part of the digest")
+        self.assertNotEqual(without["platform:linux"], first["platform:linux"], "the workflow that runs a consumer's entry files is part of the platform digests")
+        self.assertNotEqual(without["platform:windows"], first["platform:windows"])
         write(workflow.parent, workflow.name, "name: Suite jobs\njobs: {}\n")
-        self.assertNotEqual(first, self.taken())
+        after = self.taken()
+        self.assertNotEqual(first["platform:linux"], after["platform:linux"])
+        self.assertNotEqual(first["platform:windows"], after["platform:windows"])
         write(workflow.parent, "pipeline.yml", "name: Pipeline\n")
         write(workflow.parent, workflow.name, "name: Suite jobs\n")
         self.assertEqual(first, self.taken(), "another workflow is not part of it")
@@ -798,38 +879,42 @@ class SharedDigestTests(unittest.TestCase):
         # Windows orders paths case-insensitively and Linux by code point, so the same revision lists its shared
         # files in two orders: recording/etw-consumer/EtwConsumer.csproj comes after build/ on Windows, before it on Linux.
         script = (
-            "import sys; from pathlib import PurePosixPath, PureWindowsPath\n"
+            "import json, sys; from pathlib import PurePosixPath, PureWindowsPath\n"
             f"sys.path.insert(0, {str(self.shared_folder / 'recording')!r})\n"
             "import recording\n"
-            "files = recording.shared_files()\n"
+            "files = recording.platform_files('windows')\n"
             "for flavour in (PurePosixPath, PureWindowsPath):\n"
             "    order = sorted(files, key=lambda path: flavour(recording.shared_name(path)))\n"
             "    print(' '.join(recording.shared_name(path) for path in order))\n"
-            "    recording.shared_files = lambda order=order: order\n"
-            "    print(recording.shared_digest())\n"
+            "    print(recording.files_digest(order))\n"
         )
         completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         linux_order, linux_digest, windows_order, windows_digest = completed.stdout.splitlines()
         self.assertNotEqual(linux_order, windows_order, "the shared files sort differently on the two platforms")
         self.assertEqual(linux_digest, windows_digest)
-        self.assertEqual(self.taken(), linux_digest)
+        self.assertEqual(self.taken()["platform:windows"], linux_digest)
 
     def test_expect_fails_on_a_digest_that_differs_from_the_one_select_took(self) -> None:
-        digest = self.taken()
+        digests = self.taken()
+        expected = json.dumps(digests, sort_keys=True, separators=(",", ":"))
         output = Path(self.temporary.name) / "output.txt"
-        self.assertEqual(self.digest("--expect", digest, "--github-output", str(output)).returncode, 0)
-        self.assertEqual(f"shared-digest={digest}\n", output.read_text(encoding="utf-8"))
-        moved = self.digest("--expect", "0" * 64)
+        self.assertEqual(self.digest("--expect", expected, "--github-output", str(output)).returncode, 0)
+        self.assertEqual(f"shared-digests={expected}\n", output.read_text(encoding="utf-8"))
+        moved_map = dict(digests, **{"platform:linux": "0" * 64})
+        moved = self.digest("--expect", json.dumps(moved_map, sort_keys=True, separators=(",", ":")))
         self.assertEqual(moved.returncode, 1)
-        self.assertIn(f"has the digest {digest}, but select took {'0' * 64}: v1 moved during the run", moved.stderr)
+        self.assertIn("platform:linux", moved.stderr)
+        self.assertIn("v1 moved during the run", moved.stderr)
+        bad = self.digest("--expect", "not-json")
+        self.assertEqual(bad.returncode, 1)
 
 
 class SharedLookupFixture(FixtureRepository):
     """A fixture repository with a recorded API for the shared lookup, and the commands that run it and select over it."""
 
-    DIGEST = "a" * 64
-    MOVED = "b" * 64
+    DIGESTS = {"language:python": "3" * 64, "platform:linux": "a" * 64, "platform:windows": "1" * 64, "tool:gitleaks": "2" * 64}
+    MOVED = {"language:python": "3" * 64, "platform:linux": "b" * 64, "platform:windows": "9" * 64, "tool:gitleaks": "2" * 64}
     RUN = 5100
     BRANCH_QUERY = "actions/workflows/validation.yml/runs?branch=main&status=success&per_page=20"
     ALL = ["both", "main-only", "per-entry", "pr-only", "windows"]
@@ -852,21 +937,27 @@ class SharedLookupFixture(FixtureRepository):
     def record_commit(self, commit: str, runs: list, request_id: str = "") -> None:
         self.api.json(self.runs_of(commit), {"total_count": len(runs), "workflow_runs": runs}, request_id or f"REQ-{commit[:7]}")
 
-    def record_run(self, run: int, digest: str | None = DIGEST) -> None:
+    def record_run(self, run: int, digests: dict[str, str] | None = DIGESTS, *, raw_line: str | None = None) -> None:
         job = run + 100
-        steps = [{"name": "Set up job"}, {"name": "Take the digest of the shared recording step"}] if digest is not None else [{"name": "Set up job"}]
+        steps = [{"name": "Set up job"}, {"name": "Take the shared CI digests"}] if digests is not None or raw_line is not None else [{"name": "Set up job"}]
         self.api.json(f"actions/runs/{run}/jobs?per_page=100", {"total_count": 2, "jobs": [
             {"id": job - 1, "name": "tests / job", "steps": [{"name": "Set up job"}]}, {"id": job, "name": "select / select", "steps": steps}]},
                       f"REQ-jobs-{run}")
-        self.api.log(job, f"2026-10-29T10:00:00.0000000Z shared CI digest {digest}\n" if digest is not None else "")
+        if raw_line is not None:
+            self.api.log(job, f"2026-10-29T10:00:00.0000000Z {raw_line}\n")
+        elif digests is not None:
+            rendered = json.dumps(digests, sort_keys=True, separators=(",", ":"))
+            self.api.log(job, f"2026-10-29T10:00:00.0000000Z shared CI digests {rendered}\n")
+        else:
+            self.api.log(job, "")
 
     @staticmethod
     def passed(run: int, commit: str, *, event: str = "push", branch: str = "main", created: str = "2026-10-29T10:00:00Z") -> dict:
         return {"id": run, "head_sha": commit, "head_branch": branch, "event": event, "created_at": created, "conclusion": "success"}
 
-    def record_branch(self, *, digest: str | None = DIGEST, runs: list | None = None) -> None:
+    def record_branch(self, *, digests: dict[str, str] | None = DIGESTS, runs: list | None = None, raw_line: str | None = None) -> None:
         self.record_commit(self.base, runs if runs is not None else [self.passed(self.RUN, self.base)])
-        self.record_run(self.RUN, digest)
+        self.record_run(self.RUN, digests, raw_line=raw_line)
 
     def history(self, count: int) -> list[str]:
         """``count`` commits on main after the base, newest first; the second is the merge of a side branch, so that the
@@ -885,19 +976,20 @@ class SharedLookupFixture(FixtureRepository):
         self.fetched(commits[0])
         return commits
 
-    def shared_lookup(self, digest: str, pushed: str = "", branch: str = "main", default: str | None = "main") -> Path:
+    def shared_lookup(self, digests: dict[str, str] | None = None, pushed: str = "", branch: str = "main", default: str | None = "main") -> Path:
         self.printed = io.StringIO()
         output = self.root.parent / "shared.json"
+        rendered = json.dumps(self.DIGESTS if digests is None else digests, sort_keys=True, separators=(",", ":"))
         environment = {"GITHUB_API_URL": self.api.url, "GITHUB_REPOSITORY": "owner/repository", "GITHUB_TOKEN": "token-for-the-test"}
         with mock.patch.dict(os.environ, environment), redirect_stdout(self.printed):
-            code = suite_selection.main(["shared-lookup", "--root", str(self.root), "--digest", digest, "--branch", branch,
+            code = suite_selection.main(["shared-lookup", "--root", str(self.root), "--digests", rendered, "--branch", branch,
                                          *(["--default-branch", default] if default is not None else []), "--pushed", pushed, "--workflow", "owner/repository/.github/workflows/validation.yml@refs/pull/7/merge",
                                          "--output", str(output)])
         self.assertEqual(code, 0)
         return output
 
-    def looked_up(self, digest: str = DIGEST, pushed: str = "", branch: str = "main", default: str | None = "main") -> dict:
-        return json.loads(self.shared_lookup(digest, pushed, branch, default).read_text(encoding="utf-8"))
+    def looked_up(self, digests: dict[str, str] | None = None, pushed: str = "", branch: str = "main", default: str | None = "main") -> dict:
+        return json.loads(self.shared_lookup(digests, pushed, branch, default).read_text(encoding="utf-8"))
 
     def requested(self) -> list[str]:
         return [path.removeprefix("/repos/owner/repository/") for path, _ in self.api.requests]
@@ -920,29 +1012,93 @@ class SharedLookupTests(SharedLookupFixture):
     def test_the_digest_of_the_last_passed_run_on_the_base_branch_decides_whether_every_suite_runs(self) -> None:
         self.record_branch()
         head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        outputs, _, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.shared_lookup(self.DIGEST)))
+        outputs, _, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
         self.assertEqual(self.runs(outputs), [])
-        self.assertIn("The selection runs as usual: the shared recording step equals that of run 5100", summary)
+        self.assertIn("The selection runs as usual: the shared CI digests equal those of run 5100", summary)
         outputs, printed, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
                                                 "--shared-lookup", str(self.shared_lookup(self.MOVED)))
         self.assertEqual(self.runs(outputs), self.ALL)
         self.assertEqual(sorted(entry["entry"] for shard in json.loads(outputs["shards"]) for entry in shard["entries"]),
                          ["tests/test_both.py", "tests/test_main.py", "tests/test_one.py", "tests/test_pr.py", "tests/test_two.py"])
-        self.assertIn("pr-only: run (every suite runs: the shared recording step differs from that of run 5100, the last passed run on `main`", printed)
-        self.assertIn("## Shared recording step\n\nEvery suite runs: ", summary)
-        self.assertIn(f"This run's digest: `{self.MOVED}`.", summary)
+        self.assertIn("pr-only: run (`platform:linux` digest moved:", printed)
+        self.assertIn("## Shared CI digests\n\nMoved digests (`platform:linux`, `platform:windows`): ", summary)
         self.assertEqual(self.requested()[:4], [self.runs_of(self.base), f"actions/runs/{self.RUN}/jobs?per_page=100",
                                                 f"actions/jobs/{self.RUN + 100}/logs", f"/storage/{self.RUN + 100}"])
+
+    def test_a_windows_only_digest_move_runs_only_windows_suites_and_reuses_linux_units(self) -> None:
+        self.record_branch()
+        head = self.commit("head", {"README.md": "a change no suite reads\n"})
+        windows_moved = dict(self.DIGESTS, **{"platform:windows": "9" * 64})
+        outputs, printed, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
+                                          "--shared-lookup", str(self.shared_lookup(windows_moved)))
+        self.assertEqual(self.runs(outputs), ["windows"], "only Windows suites run when only platform:windows moves")
+        self.assertIn("windows: run (`platform:windows` digest moved:", printed)
+
+        # Reuse keys: Linux units keep their keys when only platform:windows moves; Windows units get new keys.
+        first = self.commit("first", {"src/feature.py": "feature v2\n"})
+        arguments = ("--base", self.base, "--compare", "merge-base", "--results", str(self.record), "--runner-label", "linux=ubuntu-26.04")
+        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
+        units = json.loads(outputs["units"])
+        self.record.write_text(json.dumps({"passed": {key: 9101 for key in units}}), encoding="utf-8")
+        self.record_branch(digests=windows_moved)
+        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(windows_moved)))
+        self.assertEqual(self.runs(outputs), ["windows"], "Linux units are reused when only platform:windows changes")
+        self.assertTrue(json.loads(outputs["reused"]), "Linux passes are reused")
+
+    def test_a_pinned_tool_digest_move_runs_and_rekeys_only_units_that_use_that_tool(self) -> None:
+        suites_doc = json.loads((self.root / "suites.json").read_text(encoding="utf-8"))
+        for item in suites_doc["suites"]:
+            if item["name"] == "pr-only":
+                item["setups"] = ["gitleaks"]
+        self.commit("add gitleaks setup", {"suites.json": json.dumps(suites_doc, indent=2) + "\n"})
+        tip = git(self.root, "rev-parse", "HEAD")
+        self.fetched(tip)
+        self.record_commit(tip, [self.passed(self.RUN, tip)])
+        self.record_run(self.RUN, self.DIGESTS)
+        head = self.commit("head", {"README.md": "a change no suite reads\n"})
+        gitleaks_moved = dict(self.DIGESTS, **{"tool:gitleaks": "f" * 64})
+        outputs, printed, _ = self.select("--base", tip, "--head", head, "--compare", "merge-base",
+                                          "--shared-lookup", str(self.shared_lookup(gitleaks_moved)))
+        self.assertEqual(self.runs(outputs), ["pr-only"], "only the suite using gitleaks runs")
+        self.assertIn("pr-only: run (`tool:gitleaks` digest moved:", printed)
+
+        # Reuse keys: only the unit using gitleaks loses its cached pass when tool:gitleaks changes.
+        first = self.commit("first", {"src/feature.py": "feature v2\n"})
+        arguments = ("--base", tip, "--compare", "merge-base", "--results", str(self.record), "--runner-label", "linux=ubuntu-26.04")
+        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
+        units = json.loads(outputs["units"])
+        self.record.write_text(json.dumps({"passed": {key: 9101 for key in units}}), encoding="utf-8")
+        self.record_run(self.RUN, gitleaks_moved)
+        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(gitleaks_moved)))
+        self.assertEqual(self.runs(outputs), ["pr-only"], "units not using gitleaks are reused")
+
+    def test_a_language_step_digest_move_runs_only_that_language_step_and_not_suites(self) -> None:
+        self.record_branch()
+        head = self.commit("head", {"README.md": "a change no suite reads\n"})
+        lang_moved = dict(self.DIGESTS, **{"language:python": "e" * 64})
+        outputs, _, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
+                                    "--language-step", "python", "--shared-lookup", str(self.shared_lookup(lang_moved)))
+        self.assertEqual(self.runs(outputs), [], "no test suite runs when only language:python moves")
+        self.assertEqual(json.loads(outputs["language-steps"]), {"python": "run"})
+        self.assertEqual(len(json.loads(outputs["shards"])), 1, "shard 1 runs to execute the language step")
+
+        # On an identical push, a moved language step still runs and clears identical.
+        lookup = self.root.parent / "lookup.json"
+        lookup.write_text(json.dumps({"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested", "pull_request": 7}), encoding="utf-8")
+        outputs, _, _ = self.select("--lookup", str(lookup), "--language-step", "python", "--shared-lookup", str(self.shared_lookup(lang_moved)))
+        self.assertEqual(self.runs(outputs), [])
+        self.assertEqual(json.loads(outputs["language-steps"]), {"python": "run"})
+        self.assertNotIn("identical", outputs)
 
     def test_a_passed_v1_moved_run_on_the_tip_makes_a_later_pull_request_run_see_the_digest_as_unchanged(self) -> None:
         self.record_commit(self.base, [self.passed(self.RUN - 1, self.base, created="2026-10-29T09:00:00Z"),
                                        self.passed(self.RUN, self.base, created="2026-10-29T11:00:00Z", event="repository_dispatch")])
         self.record_run(self.RUN - 1, self.MOVED)
-        self.record_run(self.RUN, self.DIGEST)
+        self.record_run(self.RUN, self.DIGESTS)
         head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        outputs, _, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.shared_lookup(self.DIGEST)))
+        outputs, _, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
         self.assertEqual(self.runs(outputs), [])
-        self.assertIn("The selection runs as usual: the shared recording step equals that of run 5100", summary)
+        self.assertIn("The selection runs as usual: the shared CI digests equal those of run 5100", summary)
         self.assertIn(f"  run {self.RUN}: head_sha {self.base}, head_branch main, event repository_dispatch: accepted\n", self.printed.getvalue())
 
     def test_the_lookup_takes_the_run_of_the_newest_first_parent_commit_while_the_branch_query_answers_an_older_one(self) -> None:
@@ -952,7 +1108,7 @@ class SharedLookupTests(SharedLookupFixture):
         self.record_commit(commits[0], [self.passed(self.RUN, commits[0])])
         self.record_run(self.RUN)
         found = self.looked_up()
-        self.assertEqual((found["run"], found["previous"]), (self.RUN, self.DIGEST), found)
+        self.assertEqual((found["run"], found["previous"]), (self.RUN, self.DIGESTS), found)
         self.assertNotIn(self.BRANCH_QUERY, self.requested())
         self.assertEqual(self.requested()[0], self.runs_of(commits[0]), "the walk starts at the fetched tip of the base branch")
 
@@ -1046,7 +1202,7 @@ class SharedLookupTests(SharedLookupFixture):
                       f"2 commits into the walk.\n", printed)
         self.assertIn(f"GET actions/runs/{self.RUN}/jobs?per_page=100: x-github-request-id REQ-jobs-{self.RUN}, total_count 2\n", printed)
         self.assertIn(f"GET actions/jobs/{self.RUN + 100}/logs: x-github-request-id ", printed)
-        self.assertTrue(printed.rstrip("\n").endswith("unchanged: the shared recording step equals that of run 5100, the last passed run on `main`"), printed)
+        self.assertTrue(printed.rstrip("\n").endswith("unchanged: the shared CI digests equal those of run 5100, the last passed run on `main`"), printed)
 
     def test_a_push_walks_from_the_first_parent_of_the_pushed_commit(self) -> None:
         commits = self.history(3)
@@ -1080,41 +1236,42 @@ class SharedLookupTests(SharedLookupFixture):
         outputs, _, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.MOVED)))
         self.assertEqual(self.runs(outputs), self.ALL)
         self.assertNotIn("identical", outputs, "the verdict runs on a push that runs suites")
-        outputs, _, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.DIGEST)))
+        outputs, _, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
         self.assertEqual(self.runs(outputs), [])
         self.assertEqual("true", outputs["identical"], "the verdict skips a push that runs nothing but select and hygiene")
 
     def test_a_push_whose_tree_passed_under_the_same_digest_runs_no_suite_after_a_move(self) -> None:
-        # The pull request's first run after the move took the new digest and passed; its merge push takes the same
-        # digest on the same tree, while the last passed run on the base branch still took the earlier one.
+        # The pull request's first run after the move took the new digests and passed; its merge push takes the same
+        # digests on the same tree, while the last passed run on the base branch still took the earlier ones.
         self.record_branch()
         lookup = self.root.parent / "lookup.json"
         tested = {"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested", "pull_request": 7, "tested_run": 4100}
-        lookup.write_text(json.dumps({**tested, "tested_digest": self.MOVED}), encoding="utf-8")
+        lookup.write_text(json.dumps({**tested, "tested_digests": self.MOVED}), encoding="utf-8")
         outputs, printed, summary = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.MOVED)))
         self.assertEqual(self.runs(outputs), [], printed)
         self.assertEqual("true", outputs["identical"], "the verdict skips a push that runs nothing but select and hygiene")
-        self.assertIn("the tested tree took the same shared recording step in run 4100 of pull request #7", summary)
-        lookup.write_text(json.dumps({**tested, "tested_digest": self.DIGEST}), encoding="utf-8")
-        for digest in (self.MOVED, self.DIGEST):
-            with self.subTest(digest=digest):
-                self.record_branch(digest=digest)
+        self.assertIn("the tested tree took the same shared CI digests in run 4100 of pull request #7", summary)
+        lookup.write_text(json.dumps({**tested, "tested_digests": self.DIGESTS}), encoding="utf-8")
+        for digests in (self.MOVED, self.DIGESTS):
+            with self.subTest(digests=digests):
+                self.record_branch(digests=digests)
                 outputs, printed, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.MOVED)))
-                self.assertEqual(self.runs(outputs), self.ALL, "a tree that passed under another shared recording step runs every suite")
+                self.assertEqual(self.runs(outputs), self.ALL, "a tree that passed under other platform digests runs every suite")
                 self.assertNotIn("identical", outputs)
-                self.assertIn("pr-only: run (every suite runs: the shared recording step differs from that of run 4100 of pull request #7, "
-                              "whose tested tree the push equals)", printed)
+                self.assertIn("pr-only: run (`platform:linux` digest moved:", printed)
 
     def test_a_run_without_a_readable_digest_on_the_base_branch_runs_every_suite(self) -> None:
         head = self.commit("head", {"README.md": "a change no suite reads\n"})
         for case, reason in ((dict(runs=[self.passed(1, self.base, event="pull_request")]), "the walk reached the first commit of `main`"),
-                             (dict(digest=None), "took no digest of the shared recording step"), ({}, "answered 404")):
+                             (dict(digests=None), "took no shared CI digests"),
+                             (dict(digests=None, raw_line="shared CI digests {not-json"), "names no readable shared CI digests"),
+                             ({}, "answered 404")):
             with self.subTest(reason=reason):
                 self.api.responses.clear()
                 if case:
                     self.record_branch(**case)
-                found = json.loads(self.shared_lookup(self.DIGEST).read_text(encoding="utf-8"))
-                self.assertEqual((found["digest"], found["previous"]), (self.DIGEST, None))
+                found = json.loads(self.shared_lookup(self.DIGESTS).read_text(encoding="utf-8"))
+                self.assertEqual((found["digests"], found["previous"]), (self.DIGESTS, None))
                 self.assertIn(reason, found["reason"])
                 outputs, _, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--shared-lookup", str(self.root.parent / "shared.json"))
                 self.assertEqual(self.runs(outputs), self.ALL)
@@ -1123,15 +1280,15 @@ class SharedLookupTests(SharedLookupFixture):
         self.record_branch()
         first = self.commit("first", {"src/feature.py": "feature v2\n"})
         arguments = ("--base", self.base, "--compare", "merge-base", "--results", str(self.record), "--runner-label", "linux=ubuntu-26.04")
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGEST)))
+        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
         units = json.loads(outputs["units"])
         self.record.write_text(json.dumps({"passed": {key: 9101 for key in units}}), encoding="utf-8")
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGEST)))
+        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
         self.assertEqual((self.runs(outputs), sorted(set(json.loads(outputs["reused"]).values()))), ([], [9101]))
-        self.record_branch(digest=self.MOVED)
+        self.record_branch(digests=self.MOVED)
         outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.MOVED)))
         self.assertEqual((json.loads(outputs["reused"]), self.runs(outputs)), ({}, ["both", "per-entry", "pr-only", "windows"]),
-                         "the same reads under another shared recording step reuse no pass")
+                         "the same reads under other platform digests reuse no pass")
 
 
 class OffDefaultBaseLookupTests(SharedLookupFixture):
@@ -1160,20 +1317,21 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
     def pull_request_runs(self) -> str:
         return f"actions/workflows/validation.yml/runs?head_sha={self.pr_head}&event=pull_request&status=success&per_page=1"
 
-    def record_pull_request(self, digest: str | None = SharedLookupFixture.DIGEST) -> None:
-        """The pull request of the base's tip and its passed run, whose select job took ``digest``."""
+    def record_pull_request(self, digests: dict[str, str] | None = SharedLookupFixture.DIGESTS) -> None:
+        """The pull request of the base's tip and its passed run, whose select job took ``digests``."""
         self.api.json(f"commits/{self.tip}/pulls", [{"number": self.NUMBER, "state": "closed", "merge_commit_sha": self.tip,
                                                     "head": {"sha": self.pr_head, "ref": "topic"}}], "REQ-pulls")
         self.api.json(self.pull_request_runs(), {"total_count": 1, "workflow_runs": [
             {"id": self.TESTED, "head_sha": self.pr_head, "head_branch": "topic", "event": "pull_request", "conclusion": "success"}]}, "REQ-tested")
         steps = [{"name": "Set up job"}, {"name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"}]
-        if digest is not None:
-            steps.append({"name": "Take the digest of the shared recording step"})
+        if digests is not None:
+            steps.append({"name": "Take the shared CI digests"})
         job = self.TESTED + 100
         self.api.json(f"actions/runs/{self.TESTED}/jobs?per_page=100", {"total_count": 1, "jobs": [{"id": job, "name": "select / select", "steps": steps}]},
                       f"REQ-jobs-{self.TESTED}")
         log = CHECKOUT_LOG.format(merge=self.merge, number=self.NUMBER, short=self.merge[:7], head=self.pr_head, base=self.start)
-        self.api.log(job, log + (f"2026-10-29T10:00:00.0000000Z shared CI digest {digest}\n" if digest is not None else ""))
+        rendered = json.dumps(digests, sort_keys=True, separators=(",", ":")) if digests is not None else ""
+        self.api.log(job, log + (f"2026-10-29T10:00:00.0000000Z shared CI digests {rendered}\n" if digests is not None else ""))
         tree = git(self.root, "rev-parse", f"{self.merge}^{{tree}}")
         self.api.json(f"git/commits/{self.merge}", {"sha": self.merge, "tree": {"sha": tree}, "parents": [{"sha": self.start}, {"sha": self.pr_head}]},
                       "REQ-merge")
@@ -1188,11 +1346,11 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
     def test_the_passed_pull_request_run_of_the_base_s_tip_under_the_same_digest_leaves_the_selection_as_usual(self) -> None:
         self.record_pull_request()
         found = self.looked_up(branch="integration")
-        self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.TESTED), found)
-        self.assertIn(f"step 1 decided: the shared recording step equals that of run {self.TESTED} of pull request #{self.NUMBER}", found["reason"])
+        self.assertEqual((found["previous"], found["run"]), (self.DIGESTS, self.TESTED), found)
+        self.assertIn(f"step 1 decided: the shared CI digests equal those of run {self.TESTED} of pull request #{self.NUMBER}", found["reason"])
         outputs, _, summary = self.select_onto_integration(self.head_onto_integration())
         self.assertEqual(self.runs(outputs), [])
-        self.assertIn(f"## Shared recording step\n\nThe selection runs as usual: step 1 decided: the shared recording step equals that of run {self.TESTED} "
+        self.assertIn(f"## Shared CI digests\n\nThe selection runs as usual: step 1 decided: the shared CI digests equal those of run {self.TESTED} "
                       f"of pull request #{self.NUMBER}, which produced {self.tip}, the tip of `integration`", summary)
         self.assertNotIn(self.runs_of(self.tip), self.requested(), "the branch's own commits are not walked")
 
@@ -1202,9 +1360,9 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
         self.assertEqual((found["previous"], found["run"]), (self.MOVED, self.TESTED), found)
         outputs, printed, summary = self.select_onto_integration(self.head_onto_integration())
         self.assertEqual(self.runs(outputs), self.ALL)
-        self.assertIn(f"pr-only: run (every suite runs: step 1 decided: the shared recording step differs from that of run {self.TESTED} "
+        self.assertIn(f"pr-only: run (`platform:linux` digest moved: step 1 decided: the shared CI digests differ from those of run {self.TESTED} "
                       f"of pull request #{self.NUMBER}, which produced {self.tip}, the tip of `integration`)", printed)
-        self.assertIn("## Shared recording step\n\nEvery suite runs: step 1 decided: ", summary)
+        self.assertIn("## Shared CI digests\n\nMoved digests (`platform:linux`, `platform:windows`): step 1 decided: ", summary)
 
     def default_branch_moves_on(self) -> list[str]:
         """Main moves on after `integration` branched off: an earlier change of `integration` lands as a squash, then a
@@ -1228,13 +1386,13 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
                     self.api.json(f"commits/{self.tip}/pulls", [])
                     why = f"{self.tip} belongs to no pull request"
                 else:
-                    self.record_pull_request(digest=None)
-                    why = f"no digest of the shared recording step can be read from run {self.TESTED} of pull request #{self.NUMBER}"
+                    self.record_pull_request(digests=None)
+                    why = f"no shared CI digests can be read from run {self.TESTED} of pull request #{self.NUMBER}"
                 found = self.looked_up(branch="integration")
-                self.assertIn(f"since step 1 found no digest ({why})", found["reason"])
-                self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.RUN), found)
-                self.assertIn("step 2 decided, since step 1 found no digest (", found["reason"])
-                self.assertIn(f"the shared recording step equals that of run {self.RUN}, the last passed run on `main` from {self.base}, "
+                self.assertIn(f"since step 1 found no digests ({why})", found["reason"])
+                self.assertEqual((found["previous"], found["run"]), (self.DIGESTS, self.RUN), found)
+                self.assertIn("step 2 decided, since step 1 found no digests (", found["reason"])
+                self.assertIn(f"the shared CI digests equal those of run {self.RUN}, the last passed run on `main` from {self.base}, "
                               "where `integration` meets its first-parent line", found["reason"])
                 walked = [path for path in self.requested() if path.startswith("actions/workflows/validation.yml/runs?head_sha=") and "event=" not in path]
                 self.assertEqual(walked, [self.runs_of(self.base)], "the walk starts where `integration` meets main's first-parent line")
@@ -1262,7 +1420,7 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
         self.record_run(self.RUN + 9, self.MOVED)
         self.record_branch()
         found = self.looked_up(branch="integration")
-        self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.RUN), found)
+        self.assertEqual((found["previous"], found["run"]), (self.DIGESTS, self.RUN), found)
         walked = [path for path in self.requested() if path.startswith("actions/workflows/validation.yml/runs?head_sha=") and "event=" not in path]
         self.assertEqual(walked, [self.runs_of(self.base)])
         self.assertIn(f"The walk starts at {self.base}, the newest commit of the first-parent line of `origin/main`", self.printed.getvalue())
@@ -1273,7 +1431,7 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
         self.api.json(f"commits/{own[-1]}/pulls", [])
         self.record_branch()
         found = self.looked_up(branch="integration")
-        self.assertEqual((found["previous"], found["run"]), (self.DIGEST, self.RUN), found)
+        self.assertEqual((found["previous"], found["run"]), (self.DIGESTS, self.RUN), found)
         self.assertNotIn(self.runs_of(own[-1]), self.requested())
 
     def test_a_run_of_step_2_on_another_branch_is_not_taken_and_the_log_says_why(self) -> None:
@@ -1295,17 +1453,17 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
         self.record_commit(self.base, [])
         found = self.looked_up(branch="integration")
         self.assertEqual((found["previous"], found["run"]), (None, None), found)
-        self.assertEqual(f"step 1 found no digest: {self.tip} belongs to no pull request; step 2 found no digest: the walk reached the first commit "
+        self.assertEqual(f"step 1 found no digests: {self.tip} belongs to no pull request; step 2 found no digests: the walk reached the first commit "
                          f"of `main` after 1 first-parent commit from {self.base} without a passed push or dispatch run of `validation.yml` on `main`",
                          found["reason"])
         printed = self.every_suite_runs(self.tip)
         self.assertIn(f"pr-only: run (every suite runs: {found['reason']})", printed)
         git(self.root, "update-ref", "-d", "refs/remotes/origin/main")
         found = self.looked_up(branch="integration")
-        self.assertIn("step 2 found no digest: `origin/main` is not in this job's checkout", found["reason"])
+        self.assertIn("step 2 found no digests: `origin/main` is not in this job's checkout", found["reason"])
         git(self.root, "update-ref", "-d", "refs/remotes/origin/integration")
         found = self.looked_up(branch="integration")
-        self.assertEqual("step 1 found no digest: `origin/integration` is not in this job's checkout; step 2 found no digest: "
+        self.assertEqual("step 1 found no digests: `origin/integration` is not in this job's checkout; step 2 found no digests: "
                          "`origin/main` is not in this job's checkout, so its first-parent line cannot be read", found["reason"])
 
     def test_the_log_names_every_request_every_returned_run_with_its_verdict_and_the_step_that_decided(self) -> None:
@@ -1318,25 +1476,25 @@ class OffDefaultBaseLookupTests(SharedLookupFixture):
                                      f"Step 1 starts at {self.tip}, the tip of `origin/integration` fetched in this job."])
         self.assertIn(f"GET commits/{self.tip}/pulls: x-github-request-id REQ-pulls", lines)
         self.assertEqual(lines[lines.index(runs) + 1], f"  run {self.TESTED}: head_sha {self.pr_head}, head_branch topic, event pull_request: accepted, "
-                                                     f"its tested tree equals the tree of {self.tip} and it took a digest of the shared recording step")
+                                                     f"its tested tree equals the tree of {self.tip} and it took shared CI digests")
         self.assertIn(f"GET actions/runs/{self.TESTED}/jobs?per_page=100: x-github-request-id REQ-jobs-{self.TESTED}, total_count 1", lines)
         self.assertIn(f"GET actions/jobs/{self.TESTED + 100}/logs: x-github-request-id none", lines)
         self.assertIn(f"GET git/commits/{self.merge}: x-github-request-id REQ-merge", lines)
-        self.assertIn(f"Step 1 decided: it took the digest of run {self.TESTED} of pull request #{self.NUMBER}, which produced {self.tip}, the tip of `integration`.", lines)
-        self.assertEqual(lines[-1], f"unchanged: step 1 decided: the shared recording step equals that of run {self.TESTED} of pull request #{self.NUMBER}, "
+        self.assertIn(f"Step 1 decided: it took the digests of run {self.TESTED} of pull request #{self.NUMBER}, which produced {self.tip}, the tip of `integration`.", lines)
+        self.assertEqual(lines[-1], f"unchanged: step 1 decided: the shared CI digests equal those of run {self.TESTED} of pull request #{self.NUMBER}, "
                                     f"which produced {self.tip}, the tip of `integration`")
 
         self.api.responses.clear()
-        self.record_pull_request(digest=None)
+        self.record_pull_request(digests=None)
         self.record_branch()
         self.looked_up(branch="integration")
         lines = self.printed.getvalue().splitlines()
         self.assertEqual(lines[lines.index(runs) + 1], f"  run {self.TESTED}: head_sha {self.pr_head}, head_branch topic, event pull_request: not taken, "
-                                                     f"no digest of the shared recording step can be read from run {self.TESTED} of pull request #{self.NUMBER}")
-        self.assertIn(f"Step 1 found no digest: no digest of the shared recording step can be read from run {self.TESTED} of pull request #{self.NUMBER}.", lines)
+                                                     f"no shared CI digests can be read from run {self.TESTED} of pull request #{self.NUMBER}")
+        self.assertIn(f"Step 1 found no digests: no shared CI digests can be read from run {self.TESTED} of pull request #{self.NUMBER}.", lines)
         self.assertIn(f"GET {self.runs_of(self.base)}: x-github-request-id REQ-{self.base[:7]}, total_count 1", lines)
         self.assertIn(f"  run {self.RUN}: head_sha {self.base}, head_branch main, event push: accepted", lines)
-        self.assertIn(f"Step 2 decided: it took the digest of run {self.RUN} on `main`.", lines)
+        self.assertIn(f"Step 2 decided: it took the digests of run {self.RUN} on `main`.", lines)
 
     def test_a_push_and_a_pull_request_onto_the_default_branch_look_up_as_without_the_default_branch(self) -> None:
         git(self.root, "checkout", "-q", "main")

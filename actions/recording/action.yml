@@ -13,8 +13,8 @@ inputs:
     description: The name of the artifact that holds the additions or the full-recording result, unique in the run.
     required: false
     default: recording-additions
-  digest:
-    description: In a consumer, the digest of the shared recording step that select took; the job fails when this step's own digest differs.
+  digests:
+    description: In a consumer, the shared CI digests JSON that select took; the job fails when this step's own digests differ.
     required: false
     default: ""
 outputs:
@@ -38,13 +38,13 @@ runs:
         set -euo pipefail
         printf 'path=%s\n' "$RESOURCE_PATH" >> "$GITHUB_OUTPUT"
     - id: digest
-      if: inputs.digest != ''
+      if: inputs.digests != ''
       shell: bash
       env:
         RESOURCE_PATH: ${{ github.action_path }}
-        DIGEST: ${{ inputs.digest }}
+        DIGESTS: ${{ inputs.digests }}
         PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
-      run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" digest --expect "$DIGEST"
+      run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" digest --expect "$DIGESTS"
     - id: check
       if: inputs.check == 'true'
       shell: bash

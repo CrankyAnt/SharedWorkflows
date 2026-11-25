@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -84,12 +86,38 @@ def run(command: list[str], root: Path) -> int:
     return subprocess.run(command, cwd=root, check=False).returncode
 
 
+def language_step_digest() -> str:
+    """The SHA-256 digest of the Python language step: its folder files, the tool installer scripts it imports, and the
+    pinned ruff and mypy entries in ``pins.json``."""
+    folder = Path(__file__).resolve().parent
+    shared = folder.parent
+    hygiene = shared / "repository-hygiene"
+    files = [path for path in folder.rglob("*") if path.is_file() and "__pycache__" not in path.relative_to(folder).parts]
+    for helper in (hygiene / "install_tools.py", hygiene / "pins.py"):
+        if helper.is_file():
+            files.append(helper)
+    entries = {Path(os.path.relpath(path, shared)).as_posix(): path.read_bytes() for path in files}
+    pins_path = hygiene / "pins.json"
+    if pins_path.is_file():
+        try:
+            document = json.loads(pins_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            document = {}
+        python_pins = document.get("python") if isinstance(document, dict) and isinstance(document.get("python"), dict) else {}
+        for tool in ("ruff", "mypy"):
+            if tool in python_pins:
+                entries[f"pins:python/{tool}"] = json.dumps(python_pins[tool], sort_keys=True, separators=(",", ":")).encode("utf-8")
+    lines = "".join(f"{hashlib.sha256(entries[name]).hexdigest()}  {name}\n" for name in sorted(entries))
+    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the shared Python language step.")
     parser.add_argument("--root", type=Path, default=Path("."), help="the directory the checks run from: the repository root, or a project's directory below it")
     parser.add_argument("--tools", type=Path, help="the directory with the pinned tools; PATH without it")
     parser.add_argument("--install", type=Path, metavar="PINS", help="install the pinned tools the step needs into --tools from this pins file first")
     parser.add_argument("--print-cache-key", type=Path, metavar="PINS", help="print the cache key for the pinned tools this root needs and exit")
+    parser.add_argument("--print-digest", action="store_true", help="print the digest of this language step and exit")
     parser.add_argument("--format-check", action="store_true", help="also run ruff format --check")
     return parser
 
@@ -97,6 +125,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     options = parser.parse_args(argv)
+    if options.print_digest:
+        print(language_step_digest())
+        return 0
     if options.install is not None and options.tools is None:
         parser.error("--install needs --tools")
     root = options.root.resolve()

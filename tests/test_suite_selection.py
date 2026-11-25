@@ -2697,13 +2697,14 @@ class RecordingModulesTests(unittest.TestCase):
     def assertLoadsOnlyTheSet(self, ran) -> None:
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         loaded = self.fixture.loaded()
-        self.assertIn(next(path for path in self.allowed if path.endswith("/suite_selection.py")), loaded)
+        self.assertIn(next(path for path in self.allowed if path.endswith("/suite_list.py")), loaded)
         self.assertLessEqual(loaded, self.allowed, "a module outside the set that recording_modules.py names")
 
     def test_the_set_holds_the_modules_that_recording_py_loads_and_not_those_that_only_select_imports(self) -> None:
         names = {path.rsplit("/", 1)[-1] for path in self.allowed}
-        self.assertLessEqual({"recording.py", "suite_selection.py", "ci_definition.py", "revisions.py", "recording_modules.py"}, names)
-        self.assertFalse({"reuse.py", "unrecorded.py"} & names, "select, the lookup and the store import them inside their functions")
+        self.assertLessEqual({"recording.py", "suite_list.py", "recording_modules.py"}, names)
+        self.assertFalse({"suite_selection.py", "ci_definition.py", "revisions.py", "reuse.py", "unrecorded.py"} & names,
+                         "selection code is not loaded by the recording step")
 
     def test_digest_loads_only_the_set(self) -> None:
         self.assertLoadsOnlyTheSet(self.fixture.run("digest"))

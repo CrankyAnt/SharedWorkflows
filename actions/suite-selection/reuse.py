@@ -40,8 +40,9 @@ if TYPE_CHECKING:
 
 LOG_LINE = re.compile(r"HEAD is now at ([0-9a-f]{7,40}) Merge ([0-9a-f]{40}) into ([0-9a-f]{40})")
 FETCH_LINE = re.compile(r"\+([0-9a-f]{40}):refs/remotes/pull/([0-9]+)/merge\b")  # git/commits answers only a full id
-DIGEST_LINE = re.compile(r"shared CI digest ([0-9a-f]{64})\b")  # printed by ``recording.py digest``
-DIGEST_STEP = "Take the digest of the shared recording step"  # the step of suite-selection.yml that prints it
+DIGESTS_LINE = re.compile(r"shared CI digests (\{[^\r\n]+\})")  # printed by ``recording.py digest``
+DIGEST_STEP = "Take the shared CI digests"  # the step of plan / suite-selection.yml that prints them
+HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
 WALK_COMMITS = 20  # the first-parent commits of the base branch whose passed runs the shared lookup asks for
 BRANCH_EVENTS = ("push", "repository_dispatch")
 CASES = ("identical", "behind", "pull-request", "own")
@@ -56,6 +57,20 @@ class RecordError(Exception):
     """A lookup, a record or a passed-entry file cannot be read."""
 
 
+def parse_digests(value: object) -> dict[str, str] | None:
+    """Validate a shared CI digests mapping (JSON string or dict of non-empty name to 64-hex SHA-256).
+    An unreadable or malformed value returns None."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    if (not isinstance(value, dict) or not value
+            or not all(isinstance(k, str) and k and isinstance(v, str) and HEX_DIGEST.fullmatch(v) for k, v in value.items())):
+        return None
+    return {k: value[k] for k in sorted(value)}
+
+
 @dataclass(frozen=True)
 class Lookup:
     case: str  # one of CASES
@@ -66,12 +81,12 @@ class Lookup:
     tested_merge: str | None = None
     tested_base: str | None = None
     tested_run: int | None = None  # the passed pull-request run of an identical tree
-    tested_digest: str | None = None  # the digest of the shared recording step that run took, when its log names one
+    tested_digests: dict[str, str] | None = None  # the shared CI digests that run took, when its log names them
 
     def document(self) -> dict:
         return {"case": self.case, "head": self.head, "landing_base": self.landing_base, "reason": self.reason,
                 "pull_request": self.pull_request, "tested_merge": self.tested_merge, "tested_base": self.tested_base,
-                "tested_run": self.tested_run, "tested_digest": self.tested_digest}
+                "tested_run": self.tested_run, "tested_digests": self.tested_digests}
 
 
 def read_lookup(path: Path) -> Lookup:
@@ -83,10 +98,9 @@ def read_lookup(path: Path) -> Lookup:
         raise RecordError(f"the push lookup {path} must name a case and the pushed commit")
     if raw["case"] == "behind" and not (isinstance(raw.get("tested_base"), str) and isinstance(raw.get("landing_base"), str)):
         raise RecordError(f"the push lookup {path} of a behind pull request must name the tested base and the landing base")
-    digest = raw.get("tested_digest")
     return Lookup(raw["case"], raw["head"], raw.get("landing_base") or None, str(raw.get("reason", "")), raw.get("pull_request"),
                   raw.get("tested_merge"), raw.get("tested_base"), raw.get("tested_run") if isinstance(raw.get("tested_run"), int) else None,
-                  digest if isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) else None)
+                  parse_digests(raw.get("tested_digests")))
 
 
 # --- the GitHub API -------------------------------------------------------------------------------------------
@@ -212,15 +226,15 @@ def lookup(root: Path, api: Api | LoggedApi, workflow: str, sha: str, before: st
     pushed_tree = git(root, "rev-parse", f"{sha}^{{tree}}")
     if pushed_tree.returncode == 0 and pushed_tree.stdout.strip() == tree:
         return Lookup("identical", sha, landing, f"the tree of {sha} equals the tested tree of {full}, which passed in run {run['id']} of pull request #{number}",
-                      number, **found, tested_run=run["id"], tested_digest=run_digest(api, jobs, job["id"], log))
+                      number, **found, tested_run=run["id"], tested_digests=run_digests(api, jobs, job["id"], log))
     if landing is not None and base != landing and git(root, "merge-base", "--is-ancestor", base, landing).returncode == 0:
         return Lookup("behind", sha, landing, f"pull request #{number} was tested on {base} and landed on {landing}", number, **found)
     return fallback(f"the tree of {sha} differs from the tested tree of {full}, and its tested base {base} is no earlier commit of the landing base", **found)
 
 
-def run_digest(api: Api | LoggedApi, jobs, read_job: int, read_log: str) -> str | None:
-    """The digest of the shared recording step that a run took, from the log of its job with the digest step; the log
-    of ``read_job`` is ``read_log``. A run without that step, or a log that cannot be read or names none, gives None."""
+def run_digests(api: Api | LoggedApi, jobs, read_job: int, read_log: str) -> dict[str, str] | None:
+    """The shared CI digests that a run took, from the log of its job with the digest step; the log of ``read_job`` is
+    ``read_log``. A run without that step, or a log that cannot be read or names no readable digests, gives None."""
     job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
                 and any(step.get("name") == DIGEST_STEP for step in item.get("steps") or [] if isinstance(step, dict))), None)
     if job is None:
@@ -229,27 +243,36 @@ def run_digest(api: Api | LoggedApi, jobs, read_job: int, read_log: str) -> str 
         log = read_log if job.get("id") == read_job else api.text(f"actions/jobs/{job['id']}/logs")
     except ApiError:
         return None
-    match = DIGEST_LINE.search(log)
-    return match.group(1) if match else None
+    match = DIGESTS_LINE.search(log)
+    return parse_digests(match.group(1)) if match else None
 
 
 @dataclass(frozen=True)
 class SharedLookup:
-    """The digest of the shared recording step that a run took, and the one the last passed run on its base branch
-    took; ``previous`` is None when that run or its digest cannot be found."""
+    """The shared CI digests that a run took, and those the last passed run on its base branch took; ``previous`` is
+    None when that run or its digests cannot be found."""
 
-    digest: str
-    previous: str | None
+    digests: dict[str, str]
+    previous: dict[str, str] | None
     reason: str
     run: int | None = None
     log: tuple[str, ...] = field(default=(), compare=False)  # the lines the lookup logs; not in the document
 
+    def moved_digests(self, previous: dict[str, str] | None = None, *, use_given: bool = False) -> frozenset[str] | None:
+        """The digest names that differ from ``previous`` (or ``self.previous``), or None when no readable previous
+        digests exist (meaning every digest counts as moved)."""
+        compared = previous if use_given else self.previous
+        if compared is None:
+            return None
+        return frozenset(name for name, value in self.digests.items() if compared.get(name) != value)
+
     @property
     def moved(self) -> bool:
-        return self.previous != self.digest
+        moved = self.moved_digests()
+        return moved is None or bool(moved)
 
     def document(self) -> dict:
-        return {"digest": self.digest, "previous": self.previous, "reason": self.reason, "run": self.run}
+        return {"digests": self.digests, "previous": self.previous, "reason": self.reason, "run": self.run}
 
 
 def read_shared_lookup(path: Path) -> SharedLookup:
@@ -257,12 +280,12 @@ def read_shared_lookup(path: Path) -> SharedLookup:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise RecordError(f"the shared lookup {path} cannot be read: {error}") from error
-    digest = raw.get("digest") if isinstance(raw, dict) else None
-    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise RecordError(f"the shared lookup {path} must name the digest of the shared recording step")
-    previous = raw.get("previous")
-    return SharedLookup(digest, previous if isinstance(previous, str) else None, str(raw.get("reason", "")),
-                         raw.get("run") if isinstance(raw.get("run"), int) else None)
+    digests = parse_digests(raw.get("digests")) if isinstance(raw, dict) else None
+    if digests is None:
+        raise RecordError(f"the shared lookup {path} must name the shared CI digests")
+    previous = parse_digests(raw.get("previous"))
+    return SharedLookup(digests, previous, str(raw.get("reason", "")),
+                        raw.get("run") if isinstance(raw.get("run"), int) else None)
 
 
 class LoggedApi:
@@ -320,28 +343,28 @@ def run_mismatch(run: dict, commit: str, branch: str) -> str | None:
     return None
 
 
-def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digest: str, pushed: str | None,
+def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digests: dict[str, str], pushed: str | None,
                   default_branch: str | None = None) -> SharedLookup:
-    """The digest of the shared recording step that the run to compare with took.
+    """The shared CI digests that the run to compare with took.
 
     On a push, a dispatch run, and a pull request onto the default branch, that run is the last passed push or dispatch
     run of the calling workflow on the base branch, found by ``walk`` from the fetched tip ``origin/<branch>`` or, on a
     push, from the first parent of the pushed commit. On a pull request whose base is not ``default_branch``, step 1
     takes the passed pull-request run that produced the base's tip, found as ``lookup`` finds the tested tree of an
-    identical push; when that run or its digest cannot be found, step 2 walks from the newest commit of the default
+    identical push; when that run or its digests cannot be found, step 2 walks from the newest commit of the default
     branch's first-parent line that the base's tip contains and takes only runs of the default branch. A lookup that
-    finds no digest leaves ``previous`` empty, so that every suite runs. ``log`` names every request, every returned run
-    with its verdict, each start, the step that decided and why."""
+    finds no readable digests leaves ``previous`` empty, so that every suite runs. ``log`` names every request, every
+    returned run with its verdict, each start, the step that decided and why."""
     log: list[str] = []
     logged = LoggedApi(api, log)
 
-    def result(previous: str | None, reason: str, run: int | None = None) -> SharedLookup:
+    def result(previous: dict[str, str] | None, reason: str, run: int | None = None) -> SharedLookup:
         if previous is None:
-            log.append(f"No digest to compare with: {reason}.")
-        return SharedLookup(digest, previous, reason, run, tuple(log))
+            log.append(f"No digests to compare with: {reason}.")
+        return SharedLookup(digests, previous, reason, run, tuple(log))
 
-    def compared(previous: str) -> str:
-        return "equals" if previous == digest else "differs from"
+    def compared(previous: dict[str, str]) -> str:
+        return "equal" if all(previous.get(name) == value for name, value in digests.items()) else "differ from"
 
     if pushed or not default_branch or default_branch == branch:
         if pushed:
@@ -355,33 +378,33 @@ def shared_lookup(root: Path, api: Api, workflow: str, branch: str, digest: str,
         previous, why, run = walk(root, logged, workflow, branch, start, origin)
         if previous is None:
             return result(None, why, run)
-        return result(previous, f"the shared recording step {compared(previous)} that of run {run}, the last passed run on `{branch}`", run)
+        return result(previous, f"the shared CI digests {compared(previous)} those of run {run}, the last passed run on `{branch}`", run)
 
     log.append(f"`{branch}` is not the default branch `{default_branch}`: step 1 looks for the passed pull-request run that produced the tip of "
                f"`{branch}`, step 2 for the last passed push or dispatch run on `{default_branch}` from where `{branch}` meets its first-parent line.")
     previous, step_1, run = tip_run(root, logged, workflow, branch)
     if previous is not None:
-        log.append(f"Step 1 decided: it took the digest of {step_1}.")
-        return result(previous, f"step 1 decided: the shared recording step {compared(previous)} that of {step_1}", run)
-    log.append(f"Step 1 found no digest: {step_1}.")
+        log.append(f"Step 1 decided: it took the digests of {step_1}.")
+        return result(previous, f"step 1 decided: the shared CI digests {compared(previous)} those of {step_1}", run)
+    log.append(f"Step 1 found no digests: {step_1}.")
     anchor, step_2 = meeting_point(root, branch, default_branch)
     run = None
     if anchor is not None:
         origin = f"the newest commit of the first-parent line of `origin/{default_branch}` that `origin/{branch}` contains"
         previous, step_2, run = walk(root, logged, workflow, default_branch, anchor, origin)
     if previous is None:
-        return result(None, f"step 1 found no digest: {step_1}; step 2 found no digest: {step_2}", run)
-    log.append(f"Step 2 decided: it took the digest of run {run} on `{default_branch}`.")
-    return result(previous, f"step 2 decided, since step 1 found no digest ({step_1}): the shared recording step {compared(previous)} that of run {run}, "
+        return result(None, f"step 1 found no digests: {step_1}; step 2 found no digests: {step_2}", run)
+    log.append(f"Step 2 decided: it took the digests of run {run} on `{default_branch}`.")
+    return result(previous, f"step 2 decided, since step 1 found no digests ({step_1}): the shared CI digests {compared(previous)} those of run {run}, "
                             f"the last passed run on `{default_branch}` from {anchor}, where `{branch}` meets its first-parent line", run)
 
 
-def walk(root: Path, api: LoggedApi, workflow: str, branch: str, start: str, origin: str) -> tuple[str | None, str, int | None]:
-    """The digest of the last passed push or dispatch run of the calling workflow on ``branch``, with why none was found
-    and the run it took. The walk reads the first-parent history from ``start``, newest first, for at most
-    ``WALK_COMMITS`` commits, and asks for each commit's successful runs; the newest accepted run of the first commit
-    that has one decides, and its digest is read from the log of its job with the digest step. A walk that reaches its
-    bound, a failed request, or a step or a log line that cannot be found gives no digest."""
+def walk(root: Path, api: LoggedApi, workflow: str, branch: str, start: str, origin: str) -> tuple[dict[str, str] | None, str, int | None]:
+    """The shared CI digests of the last passed push or dispatch run of the calling workflow on ``branch``, with why
+    none was found and the run it took. The walk reads the first-parent history from ``start``, newest first, for at
+    most ``WALK_COMMITS`` commits, and asks for each commit's successful runs; the newest accepted run of the first
+    commit that has one decides, and its digests are read from the log of its job with the digest step. A walk that
+    reaches its bound, a failed request, or a step or a log line that cannot be found or parsed gives no digests."""
     log = api.log
     listing = git(root, "rev-list", "--first-parent", f"--max-count={WALK_COMMITS + 1}", start)
     if listing.returncode != 0:
@@ -411,42 +434,43 @@ def walk(root: Path, api: LoggedApi, workflow: str, branch: str, start: str, ori
         job = next((item for item in (jobs.get("jobs") or [] if isinstance(jobs, dict) else []) if isinstance(item, dict)
                     and any(step.get("name") == DIGEST_STEP for step in item.get("steps") or [] if isinstance(step, dict))), None)
         if job is None:
-            return None, f"run {run['id']} on `{branch}` took no digest of the shared recording step", run["id"]
-        match = DIGEST_LINE.search(api.text(f"actions/jobs/{job['id']}/logs"))
+            return None, f"run {run['id']} on `{branch}` took no shared CI digests", run["id"]
+        match = DIGESTS_LINE.search(api.text(f"actions/jobs/{job['id']}/logs"))
     except ApiError as error:
         if run is None:
             return None, f"a request of the walk over `{branch}` failed: {error}", None
         return None, f"run {run['id']} on `{branch}` could not be read: {error}", run["id"]
-    if match is None:
-        return None, f"the log of run {run['id']} on `{branch}` names no digest of the shared recording step", run["id"]
-    return match.group(1), "", run["id"]
+    parsed = parse_digests(match.group(1)) if match is not None else None
+    if parsed is None:
+        return None, f"the log of run {run['id']} on `{branch}` names no readable shared CI digests", run["id"]
+    return parsed, "", run["id"]
 
 
-def tip_run(root: Path, api: LoggedApi, workflow: str, branch: str) -> tuple[str | None, str, int | None]:
-    """Step 1 of a base that is not the default branch: the digest of the passed pull-request run that produced the
-    base's tip ``origin/<branch>``, with the run it names, or why it gives none. The run is the last successful
-    pull-request run of the tip's pull request whose tested tree equals the tip's tree, as ``lookup`` finds it for an
-    identical push. Under that runs request the log names the returned run with its verdict."""
+def tip_run(root: Path, api: LoggedApi, workflow: str, branch: str) -> tuple[dict[str, str] | None, str, int | None]:
+    """Step 1 of a base that is not the default branch: the shared CI digests of the passed pull-request run that
+    produced the base's tip ``origin/<branch>``, with the run it names, or why it gives none. The run is the last
+    successful pull-request run of the tip's pull request whose tested tree equals the tip's tree, as ``lookup`` finds
+    it for an identical push. Under that runs request the log names the returned run with its verdict."""
     tip = commit_id(root, f"refs/remotes/origin/{branch}")
     if tip is None:
         return None, f"`origin/{branch}` is not in this job's checkout", None
     api.log.append(f"Step 1 starts at {tip}, the tip of `origin/{branch}` fetched in this job.")
     answered = len(api.runs)
     found = lookup(root, api, workflow, tip)
-    taken = found.case == "identical" and found.tested_digest is not None
+    taken = found.case == "identical" and found.tested_digests is not None
     if found.case == "identical":
-        why = f"no digest of the shared recording step can be read from run {found.tested_run} of pull request #{found.pull_request}"
+        why = f"no shared CI digests can be read from run {found.tested_run} of pull request #{found.pull_request}"
     elif found.case == "behind":
         why = f"the tree of {tip} differs from the tested tree {found.tested_merge} of pull request #{found.pull_request}"
     else:
         why = found.reason
     for position, runs in reversed(api.runs[answered:]):  # the runs request of ``lookup``; the last insertion first keeps the positions
-        accepted = f"accepted, its tested tree equals the tree of {tip} and it took a digest of the shared recording step"
+        accepted = f"accepted, its tested tree equals the tree of {tip} and it took shared CI digests"
         api.log[position:position] = [run_line(item, "not taken, only the last successful run counts" if index else accepted if taken else f"not taken, {why}")
                                       for index, item in enumerate(runs)]
     if not taken:
         return None, why, None
-    return found.tested_digest, f"run {found.tested_run} of pull request #{found.pull_request}, which produced {tip}, the tip of `{branch}`", found.tested_run
+    return found.tested_digests, f"run {found.tested_run} of pull request #{found.pull_request}, which produced {tip}, the tip of `{branch}`", found.tested_run
 
 
 def meeting_point(root: Path, branch: str, default_branch: str) -> tuple[str | None, str]:
@@ -470,25 +494,34 @@ def meeting_point(root: Path, branch: str, default_branch: str) -> tuple[str | N
     return anchor, ""
 
 
-def tested_digest(found: Lookup | None) -> str | None:
-    """The digest of the shared recording step that the passed pull-request run of an identical tree took. When it is
-    known, that run decides in place of the last passed run on the base branch, since its result is the one relied on."""
-    return found.tested_digest if found is not None and found.case == "identical" else None
+def tested_digests(found: Lookup | None) -> dict[str, str] | None:
+    """The shared CI digests that the passed pull-request run of an identical tree took. When they are known, that run
+    decides in place of the last passed run on the base branch, since its result is the one relied on."""
+    return found.tested_digests if found is not None and found.case == "identical" else None
 
 
-def tested_reason(found: Lookup, digest: str) -> str:
-    if found.tested_digest == digest:
-        return f"the tested tree took the same shared recording step in run {found.tested_run} of pull request #{found.pull_request}"
-    return f"the shared recording step differs from that of run {found.tested_run} of pull request #{found.pull_request}, whose tested tree the push equals"
+def tested_reason(found: Lookup, digests: dict[str, str]) -> str:
+    if found.tested_digests is not None and all(found.tested_digests.get(name) == value for name, value in digests.items()):
+        return f"the tested tree took the same shared CI digests in run {found.tested_run} of pull request #{found.pull_request}"
+    return f"the shared CI digests differ from those of run {found.tested_run} of pull request #{found.pull_request}, whose tested tree the push equals"
 
 
 def shared_markdown(found: SharedLookup, push: Lookup | None = None) -> str:
-    if push is not None and tested_digest(push) is not None:
-        text = ("No suite runs: " if push.tested_digest == found.digest else "Every suite runs: ") + tested_reason(push, found.digest)
+    if push is not None and tested_digests(push) is not None:
+        moved = found.moved_digests(push.tested_digests, use_given=True)
+        prefix = "No suite runs: " if not moved else f"Moved digests ({', '.join(f'`{name}`' for name in sorted(moved))}): "
+        text = prefix + tested_reason(push, found.digests)
         text += f", which decides in place of the base branch, where {found.reason}"
     else:
-        text = ("Every suite runs: " if found.moved else "The selection runs as usual: ") + found.reason
-    return f"## Shared recording step\n\n{text}. This run's digest: `{found.digest}`.\n"
+        moved = found.moved_digests()
+        if moved is None:
+            prefix = "Every suite runs: "
+        elif moved:
+            prefix = f"Moved digests ({', '.join(f'`{name}`' for name in sorted(moved))}): "
+        else:
+            prefix = "The selection runs as usual: "
+        text = prefix + found.reason
+    return f"## Shared CI digests\n\n{text}.\n"
 
 
 def lookup_markdown(found: Lookup) -> str:
@@ -573,13 +606,15 @@ def content_digest(document: object) -> str:
     return hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def unit_context(command, setups, versions: dict[str, str], label: str, shared_digest: str = "", *,
+def unit_context(command, setups, versions: dict[str, str], label: str, shared_digests: dict[str, str] | None = None, *,
                  ignore_content: dict, unrecorded: dict | None = None) -> str:
     """The part of the reuse key that the stored lists do not decide: the digest of the command, the versions the setups
-    pin, the runner label, the digest of the shared recording step, the content of the ignore rules and the content of
-    the unit's unrecorded inputs. ``store`` takes it from ``select`` to key a unit under the lists with applied additions."""
+    pin, the runner label, the shared CI digests of the platform, tools and language steps the unit uses, the content
+    of the ignore rules and the content of the unit's unrecorded inputs. ``store`` takes it from ``select`` to key a
+    unit under the lists with applied additions."""
     return content_digest({"command": list(command or ()), "setups": {setup: versions.get(setup, "") for setup in setups},
-                           "image": label, "shared_digest": shared_digest, "ignore_content": ignore_content, "unrecorded": unrecorded or {}})
+                           "image": label, "digests": dict(sorted((shared_digests or {}).items())),
+                           "ignore_content": ignore_content, "unrecorded": unrecorded or {}})
 
 
 def unit_key(reads: dict, context: str) -> str:
