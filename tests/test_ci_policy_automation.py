@@ -223,7 +223,7 @@ class AutomationWorkflowTests(unittest.TestCase):
         self.assertNotIn("actions/cache", self.text)
 
     def test_the_rights_of_each_part(self) -> None:
-        self.assertEqual({"contents": "write", "pull-requests": "write"}, self.jobs["dependabot-auto-merge"]["permissions"])
+        self.assertEqual({"actions": "read", "contents": "write", "pull-requests": "write"}, self.jobs["dependabot-auto-merge"]["permissions"])
         self.assertEqual({"contents": "read", "issues": "write"}, self.jobs["issue-title"]["permissions"])
         self.assertEqual({"actions": "read", "contents": "read", "pull-requests": "read"}, self.jobs["additions"]["permissions"])
         self.assertEqual({"pull-requests": "write"}, self.jobs["additions-comment"]["permissions"])
@@ -254,7 +254,7 @@ class AutomationWorkflowTests(unittest.TestCase):
         job = self.jobs["dependabot-auto-merge"]
         self.assertEqual(["$/actions/dependabot-auto-merge"], [step["uses"] for step in job["steps"] if "uses" in step])
         run = job["steps"][-1]
-        self.assertTrue(run["run"].endswith('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" '
+        self.assertTrue(run["run"].endswith('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --updater-paths "$UPDATER_PATHS" --summary "$GITHUB_STEP_SUMMARY" '
                                             'workflow-run --head-branch "$HEAD_BRANCH" --disable-auto-merge'), run["run"])
         self.assertEqual("${{ github.event.workflow_run.head_branch }}", run["env"]["HEAD_BRANCH"])
         shared = read_workflow(WORKFLOWS / "dependabot-auto-merge.yml")[1]["jobs"]["merge"]
@@ -385,18 +385,19 @@ class CallerTests(unittest.TestCase):
         self.assertEqual([], reach_problems(self.template, self.automation, str(TEMPLATE)))
 
     def test_a_caller_that_withholds_an_event_a_right_a_secret_or_an_input_is_named(self) -> None:
-        for old, new, problem in (
-                ("  issues:\n    types: [opened]\n", "", "the caller does not start on issues"),
-                ("    types: [opened]\n", "    types: [opened, edited]\n", "the caller starts on other issue events than opened"),
-                ("      issues: write\n", "      issues: read\n", "the job issue-title needs issues: write, which the caller does not grant"),
-                ("      actions: read\n", "", "the job additions needs actions: read, which the caller does not grant"),
+        for old, new, expected in (
+                ("  issues:\n    types: [opened]\n", "", ["the caller does not start on issues"]),
+                ("    types: [opened]\n", "    types: [opened, edited]\n", ["the caller starts on other issue events than opened"]),
+                ("      issues: write\n", "      issues: read\n", ["the job issue-title needs issues: write, which the caller does not grant"]),
+                ("      actions: read\n", "", ["the job dependabot-auto-merge needs actions: read, which the caller does not grant",
+                                               "the job additions needs actions: read, which the caller does not grant"]),
                 ("    secrets:\n      PUBLICATION_CHECKS_APP_PRIVATE_KEY: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}\n", "",
-                 "the caller does not pass the secret PUBLICATION_CHECKS_APP_PRIVATE_KEY"),
+                 ["the caller does not pass the secret PUBLICATION_CHECKS_APP_PRIVATE_KEY"]),
                 ("      run-id:\n        description: For additions, the id of the run whose recording check reported additions\n        required: false\n        type: string\n", "",
-                 "the caller's start by hand has no input run-id")):
-            with self.subTest(problem=problem):
+                 ["the caller's start by hand has no input run-id"])):
+            with self.subTest(problem=expected):
                 self.assertEqual(1, self.template.count(old), old)
-                self.assertEqual([problem], reach_problems(self.template.replace(old, new), self.automation, "a changed template"))
+                self.assertEqual(expected, reach_problems(self.template.replace(old, new), self.automation, "a changed template"))
 
     def test_the_start_by_hand_names_the_parts_that_have_work_on_it(self) -> None:
         _, template = read_workflow(TEMPLATE)

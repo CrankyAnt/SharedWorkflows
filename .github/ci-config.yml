@@ -64,6 +64,8 @@ parts:
     pinned-tools: [gitleaks]
   dependabot-auto-merge:
     suites: tests/suites.json
+    updater-paths:
+      - actions/recording/etw-consumer/build/
   issue-title:
     categories: tests/fixtures/issue_title/categories.json
   additions:

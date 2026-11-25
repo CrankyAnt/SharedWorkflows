@@ -43,6 +43,7 @@ jobs:
     if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.actor.login == 'dependabot[bot]' || (github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && startsWith(github.event.workflow_run.head_branch, 'dependabot/')))) && fromJSON(needs.plan.outputs.plan).parts['dependabot-auto-merge'].run }}
     runs-on: ubuntu-slim
     permissions:
+      actions: read
       contents: write
       pull-requests: write
     steps:
@@ -56,7 +57,8 @@ jobs:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           SUITES: ${{ fromJSON(needs.plan.outputs.plan).parts['dependabot-auto-merge'].config.suites }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH" --disable-auto-merge
+          UPDATER_PATHS: ${{ join(fromJSON(needs.plan.outputs.plan).parts['dependabot-auto-merge'].config['updater-paths'] || fromJSON('[]'), ',') }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --updater-paths "$UPDATER_PATHS" --summary "$GITHUB_STEP_SUMMARY" workflow-run --head-branch "$HEAD_BRANCH" --disable-auto-merge
 
   issue-title:
     needs: plan

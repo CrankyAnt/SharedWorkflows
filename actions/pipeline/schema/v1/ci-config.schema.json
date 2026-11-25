@@ -68,6 +68,15 @@
           "properties": {
             "suites": {
               "$ref": "#/$defs/file"
+            },
+            "updater-paths": {
+              "description": "Additional path prefixes or files that a commit of the updater App may change while the pull request stays automatic.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative-path"
+              }
             }
           }
         },

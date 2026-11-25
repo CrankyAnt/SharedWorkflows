@@ -312,7 +312,7 @@ class AutoMergeConsumerKitTests(unittest.TestCase):
 
     def test_the_readme_states_the_rights_of_the_part_s_job_and_the_ignore_entry_that_the_template_holds(self) -> None:
         automation = ci_definition().read_yaml((REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml").read_text(encoding="utf-8"), "automation.yml")
-        self.assertEqual({"contents": "write", "pull-requests": "write"}, automation["jobs"]["dependabot-auto-merge"]["permissions"])
+        self.assertEqual({"actions": "read", "contents": "write", "pull-requests": "write"}, automation["jobs"]["dependabot-auto-merge"]["permissions"])
         self.assertIn("the part's job takes both", self.readme)
         self.assertIn("an auto-merge that it still has is disabled", self.readme)
         self.assertIn("dependency-name: CrankyAnt/SharedWorkflows", (self.kit / "dependabot.yml").read_text(encoding="utf-8"))
