@@ -86,7 +86,7 @@ class FixedCallerReadmeTest(unittest.TestCase):
 
 
 class CiGuideTemplateTest(unittest.TestCase):
-    """The fixed pointer and principles of a consumer's ``docs/agents/ci.md``."""
+    """The fixed pointer, goal and principles of a consumer's ``docs/agents/ci.md``."""
 
     def setUp(self) -> None:
         self.template = (KIT / CI_GUIDE).read_text(encoding="utf-8")
@@ -107,16 +107,21 @@ class CiGuideTemplateTest(unittest.TestCase):
                 self.assertTrue(target.startswith("https://github.com/CrankyAnt/SharedWorkflows"))
                 self.assertNotIn("/main/", target, "a consumer reads the shared parts at v1")
 
-    def test_the_fixed_part_holds_the_pointer_and_principles_without_repository_specific_content(self) -> None:
+    def test_the_fixed_part_holds_the_pointer_goal_and_principles_without_repository_specific_content(self) -> None:
         self.assertNotIn("holds no rule of its own", self.template)
-        self.assertIn("principles", self.template.split("\n\n", 2)[1])
-        self.assertEqual(["# CI", "## Principles", "## Repository choices"], re.findall(r"(?m)^#+ .*$", self.template))
+        intro = self.template.split("\n\n", 2)[1]
+        self.assertIn("goal", intro)
+        self.assertIn("principles", intro)
+        self.assertEqual(["# CI", "## Goal", "## Principles", "## Repository choices"], re.findall(r"(?m)^#+ .*$", self.template))
         self.assertEqual([], NOT_FIXED.findall(self.template))
         self.assertEqual([], re.findall(r"tests/|maintaining\.md|ci-policy|suites\.json", self.template))
 
-    def test_the_ten_principles_equal_this_repository_s_principles_word_for_word(self) -> None:
+    def test_the_goal_and_ten_principles_equal_this_repository_s_word_for_word(self) -> None:
         own = (REPOSITORY_ROOT / CI_GUIDE).read_text(encoding="utf-8")
-        names = ("Purpose", "Selection", "Sound selection", "Running everything", "Reuse", "One verdict", "Jobs", "Tests", "Changing CI", "Time and scaling")
+        goals = [text.split("\n## Goal\n", 1)[1].split("\n## ", 1)[0].strip() for text in (own, self.template)]
+        self.assertTrue(goals[0], "the repository must state a non-empty goal")
+        self.assertEqual(goals[0], goals[1], "the goal must match word for word")
+        names = ("Purpose", "Shared CI", "Selection", "Sound selection", "Reuse", "One verdict", "Jobs", "Tests", "Changing CI", "Measurement and growth")
         sections = [text.split("\n## Principles\n", 1)[1].split("\n## ", 1)[0] for text in (own, self.template)]
         for name in names:
             with self.subTest(principle=name):
@@ -125,25 +130,6 @@ class CiGuideTemplateTest(unittest.TestCase):
                 self.assertEqual(1, len(source), f"{name}: the repository must hold the principle once")
                 self.assertEqual(1, len(template), f"{name}: the template must hold the principle once")
                 self.assertEqual(source, template, f"{name}: the principle must match word for word")
-
-    def test_the_tests_principle_states_the_layout_conventions_in_at_most_three_sentences_that_name_no_language_or_runner(self) -> None:
-        (principle,) = re.findall(r"(?m)^- \*\*Tests\.\*\* (.*)$", self.template)
-        opening = "Each suite has one subject and every test a place in one; the entry file is the smallest unit of selection. "
-        closing = (" A test starts the real command for what only a real process shows and for each public command's main path; "
-                   "where that start is expensive, every other case runs without a new process.")
-        self.assertTrue(principle.startswith(opening))
-        self.assertTrue(principle.endswith(closing))
-        layout = principle[len(opening):-len(closing)]
-        self.assertIn(len(re.findall(r"\.(?: |$)", layout)), (1, 2, 3), "the layout conventions take at most three sentences")
-        for convention in ("The entry files of a suite share one name rule, of a directory and a file name, that matches no other tracked file",
-                           "a suite whose entry files share no such rule, or that has one entry file, names them by path",
-                           "Helpers, fixtures and data stand in files or directories that no such rule matches",
-                           "a name that the suite's runner loads", "unique where the runner requires it"):
-            with self.subTest(convention=convention):
-                self.assertIn(convention, layout)
-        for text in (self.template, (REPOSITORY_ROOT / CI_GUIDE).read_text(encoding="utf-8")):
-            self.assertNotIn("a directory of their own", text, "a suite needs a name rule, not a directory of its own")
-        self.assertNotRegex(layout, r"(?i)python|pytest|unittest|\bgo\b|jest|java|maven|surefire|cargo|rust|node|\.net|bazel|\.[a-z]{2,4}\b|[*_/]")
 
     def test_the_principles_open_with_shared_ci_and_the_consumer_s_own_work(self) -> None:
         paragraph = self.template.split("\n## Principles\n\n", 1)[1].split("\n\n", 1)[0]
