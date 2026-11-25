@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select the suites of a CI job by the changed files, build its shards, and give the verdict.
+"""Select the suites of a CI job by the changed files and build its shards.
 
 A repository states its suites in a suite list: one entry per suite with its name, entry files, command, setups and the
 duration estimate per entry file, and its stored path list; plus the always-run patterns. The selection compares the
@@ -7,15 +7,13 @@ changed files of a pull request or a push with the stored lists alone and answer
 with its reason; a suite without a stored path list runs on every change. It assigns
 the selected Linux entry files to as few shards as keep each shard's estimated time on two workers under the bound,
 lists the selected Windows entry files, and writes GitHub step outputs and Markdown for the job summary. With the calling
-workflow named, files read only by gated steps run those suites. ``verdict`` reads the ``needs`` context of the calling
-workflow's closing job and passes or fails on the results of the selection and the called jobs. ``docs/maintaining.md`` documents
+workflow named, files read only by gated steps run those suites. ``docs/maintaining.md`` documents
 the file format, the rules and the commands.
 
     python suite_selection.py select --root <repository> --suites <suite list> --base <sha> --head <sha> \\
         --compare merge-base --workflow "$GITHUB_WORKFLOW_REF" --language-step python --json-output "$GITHUB_OUTPUT" \\
         --summary "$GITHUB_STEP_SUMMARY"
     python suite_selection.py select --root <repository> --suites <suite list> --changed-file <path>
-    python suite_selection.py verdict --needs <needs context as JSON> --summary "$GITHUB_STEP_SUMMARY"
     python suite_selection.py lookup --root <repository> --sha <commit> --before <commit> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
     python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> \\
         [--default-branch <default branch>] [--pushed <commit>] --workflow "$GITHUB_WORKFLOW_REF" --output <file>
@@ -99,7 +97,6 @@ if TYPE_CHECKING:
     from unrecorded import Cause, EntryFile, Parts
 
 SELECTION_JOB = "select"
-FAILING_RESULTS = ("failure", "cancelled")
 GOAL_SECONDS = 180.0
 FIXED_COST_SECONDS = 90.0
 SHARD_BOUND = GOAL_SECONDS - FIXED_COST_SECONDS  # seconds of estimated traced test time per Linux shard on its workers
@@ -1058,16 +1055,7 @@ def entries_note(decision: Decision) -> str:
     return "; entries: " + ", ".join(f"`{entry}`" for entry in decision.entries)
 
 
-# --- the verdict ----------------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Verdict:
-    passed: bool
-    reasons: tuple[str, ...]  # why the verdict fails; empty when it passes
-    jobs: tuple[tuple[str, str], ...]  # every job of the needs context with its result
-    suites: tuple[tuple[str, str], ...] | None  # the selection's decisions, or None when the output is missing
-    note: str | None = None  # a remark for the summary, such as a missing selection output
+# --- needs context parsing ------------------------------------------------------------------------------------
 
 
 def parse_needs(text: str) -> dict:
@@ -1081,60 +1069,6 @@ def parse_needs(text: str) -> dict:
         if not isinstance(job, dict) or not isinstance(job.get("result"), str):
             raise VerdictError(f"the needs context entry {name} must be an object with a string result")
     return raw
-
-
-def verdict(needs: dict) -> Verdict:
-    """Fail when ``select`` is not a success or any other job ended failure or cancelled; otherwise pass."""
-    jobs = tuple((name, job["result"]) for name, job in needs.items())
-    reasons: list[str] = []
-    suites: tuple[tuple[str, str], ...] | None = None
-    note: str | None = None
-    selection_job = needs.get(SELECTION_JOB)
-    if selection_job is None:
-        reasons.append(f"the needs context has no `{SELECTION_JOB}` job")
-    elif selection_job["result"] != "success":
-        reasons.append(f"`{SELECTION_JOB}` ended {selection_job['result']}")
-    if selection_job is not None:
-        outputs = selection_job.get("outputs")
-        raw = outputs.get("suites") if isinstance(outputs, dict) else None
-        try:
-            decoded = json.loads(raw) if isinstance(raw, str) and raw else None
-        except json.JSONDecodeError:
-            decoded = None
-        if isinstance(decoded, dict) and all(isinstance(value, str) for value in decoded.values()):
-            suites = tuple(decoded.items())
-        else:
-            note = f"the `{SELECTION_JOB}` job has no `suites` output to list"
-    for name, result in jobs:
-        if name != SELECTION_JOB and result in FAILING_RESULTS:
-            reasons.append(f"`{name}` ended {result}")
-    return Verdict(not reasons, tuple(reasons), jobs, suites, note)
-
-
-def verdict_markdown(outcome: Verdict) -> str:
-    lines = ["## Validation verdict", ""]
-    if outcome.passed:
-        lines.append("**Passed.** The selection succeeded and no called job ended failure or cancelled.")
-    else:
-        lines.append("**Failed.** " + "; ".join(outcome.reasons) + ".")
-    if outcome.suites is not None:
-        lines += ["", "| Suite | Decision |", "| --- | --- |"]
-        lines += [f"| `{name}` | {decision} |" for name, decision in outcome.suites]
-    elif outcome.note:
-        lines += ["", outcome.note + "."]
-    lines += ["", "| Job | Result |", "| --- | --- |"]
-    lines += [f"| `{name}` | {result} |" for name, result in outcome.jobs]
-    return "\n".join(lines) + "\n"
-
-
-def verdict_text(outcome: Verdict) -> str:
-    lines = ["Verdict: " + ("passed" if outcome.passed else "failed: " + "; ".join(outcome.reasons))]
-    if outcome.suites is not None:
-        lines += [f"{name}: {decision}" for name, decision in outcome.suites]
-    elif outcome.note:
-        lines.append(outcome.note)
-    lines += [f"job {name}: {result}" for name, result in outcome.jobs]
-    return "\n".join(lines) + "\n"
 
 
 # --- the commands --------------------------------------------------------------------------------------------
@@ -1214,9 +1148,6 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     checking.add_argument("--root", type=Path, required=True, help="the checkout, with the default branch fetched as origin/<branch>")
     checking.add_argument("--sha", required=True, help="client_payload.sha of the dependabot-merged run")
     checking.add_argument("--branch", required=True, help="the default branch")
-    deciding = commands.add_parser("verdict", help="pass or fail on the results of the selection and the called jobs")
-    deciding.add_argument("--needs", type=Path, required=True, help="a file with the caller's needs context as JSON")
-    deciding.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     options = parser.parse_args(argv)
     if options.command == "select":
         from_list = bool(options.changed_file or options.changed_list)
@@ -1797,22 +1728,11 @@ def run_check_dispatch(options: argparse.Namespace) -> int:
     return 0
 
 
-def run_verdict(options: argparse.Namespace) -> int:
-    outcome = verdict(parse_needs(options.needs.read_text(encoding="utf-8")))
-    sys.stdout.write(verdict_text(outcome))
-    if options.summary is not None:
-        with options.summary.open("a", encoding="utf-8") as handle:
-            handle.write(verdict_markdown(outcome))
-    return 0 if outcome.passed else 1
-
-
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
     try:
         if options.command == "select":
             return run_select(options)
-        if options.command == "verdict":
-            return run_verdict(options)
         if options.command == "lookup":
             return run_lookup(options)
         if options.command == "tested-state":

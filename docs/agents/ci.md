@@ -25,27 +25,24 @@ This repository calls its own shared workflows and shared steps by local path, `
 
 | Shared part | Caller | Check | Inputs |
 | --- | --- | --- | --- |
-| Repository hygiene | `repository-hygiene-caller.yml` | `hygiene / hygiene` | `gitleaks-config: .gitleaks.toml`, `gitleaks-baseline: .gitleaks-baseline.json` |
-| Dependabot auto-merge | `dependabot-auto-merge-caller.yml` | `auto-merge / auto-merge`, `auto-merge / merge` | none |
-| Suite selection | `pipeline.yml`, job `suite-selection`, through the part `suite-selection` | the suite jobs: `ci / suite-selection-jobs / shard <n>` and `ci / suite-selection-jobs / windows`; the pipeline's verdict is `ci / verdict` | the configuration file `.github/ci-config.yml` states `suites: tests/suites.json`, `language-steps: [python]` and `pinned-tools: [gitleaks]` |
-| Suite jobs | `pipeline.yml`, job `suite-selection-jobs`, and `automation.yml`, job `full-recording-jobs` | the checks of the suite selection above; the full recording's checks `automation / full-recording-jobs / <shared job>` are checks that no ruleset requires | none; the suite list `tests/suites.json` states the runners, the fetch depth and the setups, and the configuration file names the pinned tool `gitleaks` |
-| Python language step | `pipeline.yml`, job `suite-selection-jobs`, shard 1 through `suite-jobs.yml`; `python-tests.yml` in `python-tests-caller.yml` | none | none |
-| Python tests | `python-tests-caller.yml` | `tests / tests` | `python-version: "3.14"`, `working-directory: tests/fixtures/python_tests`, `install: dev` |
-| Pipeline | `ci.yml` | `ci / verdict` | none; the configuration file `.github/ci-config.yml` switches on the free job and the parts `python-verify`, `python-test`, `dotnet-test`, `node-test` and `suite-selection` |
+| Pipeline | `ci.yml` | `ci / verdict` | none; the configuration file `.github/ci-config.yml` switches on the free job and the parts `python-verify`, `python-test`, `dotnet-test`, `node-test` and `suite-selection` (with `suites: tests/suites.json`, `language-steps: [python]` and `pinned-tools: [gitleaks]`), alongside repository hygiene |
+| Suite jobs | `pipeline.yml`, job `suite-selection-jobs`, and `automation.yml`, job `full-recording-jobs` | `ci / suite-selection-jobs / shard <n>` and `ci / suite-selection-jobs / windows`; `automation / full-recording-jobs / <shared job>` (none required on its own) | none; the suite list `tests/suites.json` states the runners, the fetch depth and the setups, and the configuration file names the pinned tool `gitleaks` |
+| Python language step | `pipeline.yml`, job `suite-selection-jobs`, shard 1 through `suite-jobs.yml`, and `python-verify` / `python-test` on `tests/fixtures/python_tests` | none | none |
 | Pipeline, the automation workflow | `automation-caller.yml` | none that a ruleset requires | the secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY`; the configuration file switches on `dependabot-auto-merge`, `additions` and `full-recording` with `tests/suites.json`, and `issue-title` with a fixture category file |
+| Release | `release-caller.yml` | none that a ruleset requires | none; the configuration file states no release part |
 
 `docs/maintaining.md` describes what each part runs:
 
-- Repository hygiene: [Repository hygiene](../maintaining.md#repository-hygiene), with the floor and the [publication checks](../maintaining.md#publication-checks).
-- Dependabot auto-merge: [Dependabot auto-merge](../maintaining.md#dependabot-auto-merge).
+- Repository hygiene: [Repository hygiene](../maintaining.md#repository-hygiene), with the floor and the [publication checks](../maintaining.md#publication-checks), run inside the pipeline.
+- Dependabot auto-merge: [Dependabot auto-merge](../maintaining.md#dependabot-auto-merge), run inside the automation workflow.
 - Suite selection: [Job layout](../maintaining.md#job-layout) and [Suite selection](../maintaining.md#suite-selection).
 - Python language step: [Python language step](../maintaining.md#python-language-step).
-- Python tests: [Python tests](../maintaining.md#python-tests), on the fixture project that tests the shared workflow.
-- Pipeline: [Pipeline](../maintaining.md#pipeline), which runs repository hygiene a second time beside the hygiene caller while both shared workflows are at `v1`, and runs the suite selection and the suite jobs of [Job layout](../maintaining.md#job-layout); [The automation workflow](../maintaining.md#the-automation-workflow), which runs Dependabot auto-merge a second time beside the auto-merge caller for the same reason, and the full recording's suite jobs.
+- Python tests: [Python tests](../maintaining.md#python-tests), tested through `python-verify` and `python-test` in the pipeline on the fixture project.
+- Pipeline: [Pipeline](../maintaining.md#pipeline), which runs repository hygiene, the fixture parts, the suite selection and the suite jobs of [Job layout](../maintaining.md#job-layout); [The automation workflow](../maintaining.md#the-automation-workflow), which runs Dependabot auto-merge, issue-title normalisation, additions and the full recording's suite jobs.
 
-The hygiene caller, the Python tests caller and the pipeline caller `ci.yml` also run on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event).
+The pipeline caller `ci.yml` also runs on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event) and on `edited` pull requests (running only the title and reference checks).
 
-The verdict of the pipeline, `ci / verdict`, carries the result of the suites, the hygiene check and the other parts. The checks to require in a ruleset on the default branch are `hygiene / hygiene`, `tests / tests` and `ci / verdict`; [Change a check name](../maintaining.md#change-a-check-name) changes them, and a change to the ruleset is a question to the user.
+The verdict of the pipeline, `ci / verdict`, carries the result of the suites, the hygiene check and the other parts. The one check to require in a ruleset on the default branch is `ci / verdict`; [Change a check name](../maintaining.md#change-a-check-name) changes it, and a change to the ruleset is a question to the user.
 
 ## Inputs
 

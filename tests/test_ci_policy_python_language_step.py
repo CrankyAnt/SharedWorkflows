@@ -100,7 +100,7 @@ class NoInterpreterInstallTests(unittest.TestCase):
         files = [path for path in (REPOSITORY_ROOT / "actions").rglob("*")
                  if path.suffix in (".yml", ".py", ".sh", ".ps1") and "consumer-kit" not in path.parts]
         files += [path for path in (REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml") if f".github/workflows/{path.name}" in surface]
-        self.assertTrue(any(path.name == "suite-selection.yml" for path in files))
+        self.assertTrue(any(path.name == "pipeline.yml" for path in files))
         install = re.compile(r"actions/setup-python|python-version:|\bpyenv\b|\buv python\b|deadsnakes|apt(?:-get)? install[^\n]*\bpython3?(?:\.\d+)?\b")
         installing = [path.relative_to(REPOSITORY_ROOT).as_posix() for path in files if install.search(path.read_text(encoding="utf-8"))]
         self.assertEqual(INSTALLING, sorted(installing))

@@ -19,10 +19,7 @@ It needs:
 
 ## When a repository adopted it earlier
 
-A repository that adopted the suite selection with an earlier kit has an installed validation caller `.github/workflows/validation.yml` and a validation workflow of its own. The kit holds no template for them any more, and they keep working as they are: they call the shared workflows `suite-selection.yml` and `suite-verdict.yml`, and the shared steps they use stay at `v1`. The repository chooses one of these two routes, in one pull request each:
-
-- It registers both files under `local-workflows` of its configuration file, as the [pipeline kit](../../pipeline/consumer-kit/README.md#the-configuration-file) states. The required check stays `validation / validation`, so the ruleset stays as it is.
-- It switches to the current form:
+A repository that adopted the suite selection with an earlier kit had an installed validation caller `.github/workflows/validation.yml` and a validation workflow of its own. The earlier shared workflows `suite-selection.yml` and `suite-verdict.yml` are retired; switch to the current form in one pull request:
   1. it moves each setup step of its validation workflow into a script, and states the script under `setups` of its suite list, with `tool` and its `version` or `version-file` for a setup that installs Python, Node.js or .NET, and with the `SETUP_PROVIDES` lines of the script for what the setup gives the entry files; a setup that installs Node.js or Gitleaks at the versions of the shared pins file becomes a [pinned tool](#pinned-tools) instead: its definition leaves the suite list, and the configuration file names it under `pinned-tools`;
   2. it states `jobs` in its suite list where the runner labels or the checkout depth differ from the defaults;
   3. it switches `suite-selection` on in its configuration file, as [Switching it on](#switching-it-on) shows;

@@ -207,7 +207,7 @@ The name `<caller job> / <shared job>` that the check of a job in a shared workf
 _Avoid_: Status check name, job name
 
 **Verdict**:
-The one check that a repository requires, given by the pipeline as `ci / verdict` or by a validation run: it passes only when the plan succeeded with a valid plan output and every planned check passed or took over a pass. A planned check that fails, ends skipped, times out or never starts makes it red, an unplanned check counts as not run, and a cancelled run gives no verdict.
+The one check that a repository requires, given by the pipeline as `ci / verdict`: it passes only when the plan succeeded with a valid plan output and every planned check passed or took over a pass. A planned check that fails, ends skipped, times out or never starts makes it red, an unplanned check counts as not run, and a cancelled run gives no verdict.
 _Avoid_: Status check, gate job
 
 **Gating check**:

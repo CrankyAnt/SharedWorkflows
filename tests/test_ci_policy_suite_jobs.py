@@ -16,8 +16,6 @@ WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 SUITE_JOBS = WORKFLOWS / "suite-jobs.yml"
 PIPELINE = WORKFLOWS / "pipeline.yml"
 AUTOMATION = WORKFLOWS / "automation.yml"
-SELECTION = WORKFLOWS / "suite-selection.yml"
-VERDICT = WORKFLOWS / "suite-verdict.yml"
 SUITES = REPOSITORY_ROOT / "tests" / "suites.json"
 LOCAL_CALL = "$/.github/workflows/suite-jobs.yml"
 DISPATCHED_REF = "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}"
@@ -408,11 +406,22 @@ class PipelinePartTests(unittest.TestCase):
         self.inputs = read_workflow(SUITE_JOBS)[1]["on"]["workflow_call"]["inputs"]
 
     def test_the_plan_job_runs_the_selection_steps_on_the_configured_suite_list(self) -> None:
-        shared = read_workflow(SELECTION)[1]["jobs"]["select"]
         plan_steps = {step_key(step): step for step in self.jobs["plan"]["steps"]}
         self.assertNotIn(PART, self.jobs, "suite-selection runs in plan, not in a separate job")
-        for step in shared["steps"]:
-            self.assertIn(step_key(step), plan_steps, f"selection step {step_key(step)!r} runs in plan")
+        for expected_step in (
+            "Load the scripts of the suite selection from this workflow revision",
+            "Load the shared recording step from this workflow revision",
+            "Check that the dispatched commit is on the default branch",
+            "Restore the default-branch record",
+            "Look up the tested tree of the pushed commit's pull request",
+            "Take the shared CI digests",
+            "Look up the shared CI digests from the default-branch record",
+            "Restore the passed results of the pull request",
+            SELECT_STEP,
+            "Record the tested state of the pull request",
+            "Upload the tested state of the pull request",
+        ):
+            self.assertIn(expected_step, plan_steps, f"selection step {expected_step!r} runs in plan")
         select = plan_steps[SELECT_STEP]
         initial = "fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection']"
         self.assertEqual(f"${{{{ {initial}.config.suites }}}}", select["env"]["SUITES"])
@@ -423,8 +432,18 @@ class PipelinePartTests(unittest.TestCase):
         self.assertIn('--unit-decisions "$RUNNER_TEMP/unit-decisions.json"', select["run"])
 
     def test_the_plan_job_gives_the_outputs_of_select_and_the_jobs_of_the_suite_list(self) -> None:
-        shared = read_workflow(SELECTION)[1]["jobs"]["select"]["outputs"]
-        for key, value in {**shared, "jobs": "${{ steps.select.outputs.jobs }}"}.items():
+        expected_outputs = {
+            "suites": "${{ steps.select.outputs.suites }}",
+            "shards": "${{ steps.select.outputs.shards }}",
+            "windows": "${{ steps.select.outputs.windows }}",
+            "language-steps": "${{ steps.select.outputs.language-steps }}",
+            "units": "${{ steps.select.outputs.units }}",
+            "reused": "${{ steps.select.outputs.reused }}",
+            "shared-digests": "${{ steps.digest.outputs.shared-digests }}",
+            "identical": "${{ steps.select.outputs.identical }}",
+            "jobs": "${{ steps.select.outputs.jobs }}",
+        }
+        for key, value in expected_outputs.items():
             self.assertEqual(value, self.jobs["plan"]["outputs"].get(key), key)
 
     def test_the_suite_jobs_run_when_the_selection_selects_an_entry_file_or_a_language_step(self) -> None:
@@ -469,13 +488,23 @@ class PipelinePartTests(unittest.TestCase):
                 context = {"github": {"event_name": event}, "needs": {"plan": {"result": result, "outputs": {"units": units, "reused": reused}}}}
                 self.assertEqual(runs, bool(expression_value(job["if"].replace("!cancelled() && ", ""), context)))
         self.assertIn("!cancelled()", job["if"], "the passes of a run with a failed suite job are stored; those of a cancelled run are not")
-        shared = {step_key(step): step for step in read_workflow(VERDICT)[1]["jobs"]["validation"]["steps"]}
         names = [step_key(step) for step in job["steps"]]
-        self.assertEqual([name for name in shared if name != "Decide the verdict from the selection and the results of the called jobs"], names)
+        self.assertEqual([
+            "Load the scripts of the suite selection from this workflow revision",
+            "Download the entry files that passed in the run",
+            "Download the additions of the run",
+            "Find the additions of the run",
+            "actions/checkout",
+            "Write the record of the passed results",
+            "Store the passed results in the pull request's cache",
+        ], names)
         store = job["steps"][names.index("Write the record of the passed results")]
         self.assertEqual("${{ toJSON(needs) }}", store["env"]["NEEDS"])
         self.assertIn("--selection-job plan ", store["run"])
-        self.assertEqual(shared["Store the passed results in the pull request's cache"]["with"], job["steps"][-1]["with"])
+        self.assertEqual({
+            "path": "${{ runner.temp }}/suite-results/record.json",
+            "key": "suite-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}",
+        }, job["steps"][-1]["with"])
         self.assertEqual("steps.store.outputs.stored == 'true'", job["steps"][-1]["if"])
 
     def test_the_verdict_fails_on_a_failed_plan_suite_job_or_store(self) -> None:
@@ -521,11 +550,31 @@ class FormerLayoutTests(unittest.TestCase):
     def test_this_repository_holds_no_validation_workflow_of_its_own(self) -> None:
         callers = {path.name: path.read_text(encoding="utf-8") for path in sorted(WORKFLOWS.glob("*.yml"))}
         self.assertNotIn("validate.yml", callers)
+        self.assertNotIn("suite-selection.yml", callers, "the legacy suite-selection workflow is retired")
+        self.assertNotIn("suite-verdict.yml", callers, "the legacy suite-verdict workflow is retired")
         using = sorted(name for name, text in callers.items() if "exec --entry" in text or "suite-selection.yml" in text.replace("name: Suite selection", ""))
         self.assertEqual(["suite-jobs.yml"], [name for name in using if "exec --entry" in callers[name]], "only the shared suite jobs run entry files")
         self.assertEqual([], [name for name in using if "/suite-selection.yml" in callers[name]], "no workflow of this repository calls the selection workflow")
         self.assertEqual([".github/workflows/pipeline.yml", ".github/workflows/automation.yml"],
                          [f".github/workflows/{name}" for name in ("pipeline.yml", "automation.yml") if LOCAL_CALL in callers[name]])
+
+    def test_the_suite_list_names_no_deleted_workflow(self) -> None:
+        suite_list = json.loads(SUITES.read_text(encoding="utf-8"))
+        existing = {f".github/workflows/{path.name}" for path in WORKFLOWS.glob("*.yml")}
+        stale: set[str] = set()
+        for suite in suite_list["suites"]:
+            for key in ("paths", "extra_paths", "directory_memberships"):
+                for item in suite.get(key, ()):
+                    base = item.removesuffix("/**")
+                    if base.startswith(".github/workflows/") and base.endswith((".yml", ".yaml")) and base not in existing:
+                        stale.add(base)
+            for key in ("entry_paths", "entry_extra_paths", "entry_directory_memberships"):
+                for items in suite.get(key, {}).values():
+                    for item in items:
+                        base = item.removesuffix("/**")
+                        if base.startswith(".github/workflows/") and base.endswith((".yml", ".yaml")) and base not in existing:
+                            stale.add(base)
+        self.assertEqual([], sorted(stale), "the suite list names deleted workflows")
 
 
 if __name__ == "__main__":

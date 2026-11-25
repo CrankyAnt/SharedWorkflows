@@ -600,7 +600,7 @@ class DispatchTests(unittest.TestCase):
 
 
 # The shared workflows whose run blocks reach this repository's files only through a part folder that a `$/` step loaded.
-CONSUMER_PATH_WORKFLOWS = ("pipeline.yml", "repository-hygiene.yml", "suite-selection.yml", "suite-verdict.yml", "python-tests.yml")
+CONSUMER_PATH_WORKFLOWS = ("pipeline.yml", "repository-hygiene.yml", "python-tests.yml")
 # The one stated exception: the definition options of `hygiene.py changes` name a definition by its path and selector,
 # which the program looks up in the checkout's history; they name no file of this repository to read.
 DEFINITION_OPTIONS = ("--definition", "--packages-definition", "--markdown-definition")

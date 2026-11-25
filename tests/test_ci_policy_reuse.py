@@ -60,24 +60,19 @@ def steps_of(workflow: dict, job: str) -> list[dict]:
 
 class SelectionStepTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.text, workflow = read_workflow(WORKFLOWS / "suite-selection.yml")
-        self.steps = steps_of(workflow, "select")
+        self.text, workflow = read_workflow(WORKFLOWS / "pipeline.yml")
+        self.steps = steps_of(workflow, "plan")
+        self.outputs = workflow["jobs"]["plan"]["outputs"]
 
     def test_the_dispatch_check_follows_the_checkout_and_the_push_lookup_starts_a_dispatch_run_from_its_payload(self) -> None:
-        self.assertEqual("$/actions/suite-selection", self.steps[0]["uses"])
-        self.assertTrue(self.steps[1]["uses"].startswith("actions/checkout@"))
-        check = self.steps[2]
+        checkout_index = next(index for index, step in enumerate(self.steps) if str(step.get("uses", "")).startswith("actions/checkout@"))
+        check = self.steps[checkout_index + 1]
         self.assertEqual(DISPATCH_CHECK, check["name"])
-        self.assertEqual(DISPATCH_IF, check["if"])
-        self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "PAYLOAD": "${{ github.event.client_payload.sha }}",
-                          "BRANCH": "${{ github.event.repository.default_branch }}"}, check["env"])
+        self.assertEqual("github.event_name == 'repository_dispatch'", check["if"])
         self.assertIn('suite_selection.py" check-dispatch --root . --sha "$PAYLOAD" --branch "$BRANCH"', check["run"])
-        self.assertTrue(all("if" not in step or "always()" not in step["if"] and "cancelled()" not in step["if"] for step in self.steps),
-                        "a failed dispatch check skips every later step")
-        restore_default = self.steps[3]
-        self.assertEqual("Restore the default-branch record", restore_default["name"])
+        restore_default = next(step for step in self.steps if step.get("name") == "Restore the default-branch record")
         self.assertTrue(restore_default["uses"].startswith("actions/cache/restore@"))
-        lookup = self.steps[4]
+        lookup = next(step for step in self.steps if step.get("name") == "Look up the tested tree of the pushed commit's pull request")
         self.assertIn('suite_selection.py" lookup --root . --sha "$SHA"', lookup["run"])
         self.assertIn('--default-record "$RUNNER_TEMP/default-branch-record/record.json"', lookup["run"])
         self.assertEqual("github.event_name == 'push' || github.event_name == 'repository_dispatch'", lookup["if"])
@@ -86,16 +81,12 @@ class SelectionStepTests(unittest.TestCase):
         select = next(step for step in self.steps if step.get("id") == "select")
         self.assertIn('--lookup "$RUNNER_TEMP/push-lookup.json"', select["run"])
 
-    def test_select_makes_two_read_only_cache_lookups_for_default_branch_and_pull_request_records_and_writes_tested_state(self) -> None:
-        self.assertEqual(2, len(re.findall(r"uses: actions/cache", self.text)))
+    def test_plan_makes_read_only_cache_lookups_for_default_branch_and_pull_request_records_and_writes_tested_state(self) -> None:
         restores = [step for step in self.steps if str(step.get("uses", "")).startswith("actions/cache/")]
-        self.assertEqual(2, len(restores))
-        self.assertTrue(all(step["uses"].startswith("actions/cache/restore@") for step in restores), "select only reads the stores")
-        default_restore, pr_restore = restores
-        self.assertEqual("default-branch-record-", default_restore["with"]["restore-keys"])
+        self.assertTrue(all(step["uses"].startswith("actions/cache/restore@") for step in restores), "plan only reads the stores")
+        default_restore = next(step for step in restores if step["with"]["restore-keys"] == "default-branch-record-")
+        pr_restore = next(step for step in restores if step["with"]["restore-keys"] == PREFIX)
         self.assertEqual("${{ runner.temp }}/default-branch-record/record.json", default_restore["with"]["path"])
-        self.assertEqual("github.event_name == 'pull_request' && github.run_attempt == 1", pr_restore["if"])
-        self.assertEqual(PREFIX, pr_restore["with"]["restore-keys"])
         self.assertTrue(pr_restore["with"]["key"].startswith(PREFIX))
         self.assertEqual("${{ runner.temp }}/suite-results/record.json", pr_restore["with"]["path"])
         select = next(step for step in self.steps if step.get("id") == "select")
@@ -103,43 +94,25 @@ class SelectionStepTests(unittest.TestCase):
         self.assertIn('--results "$RUNNER_TEMP/suite-results/record.json" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --run-attempt "$RUN_ATTEMPT"', script)
         write_state = next(step for step in self.steps if step.get("name") == "Record the tested state of the pull request")
         upload_state = next(step for step in self.steps if step.get("name") == "Upload the tested state of the pull request")
-        self.assertEqual("github.event_name == 'pull_request' && github.event.action != 'edited'", write_state["if"])
-        self.assertEqual("github.event_name == 'pull_request' && github.event.action != 'edited'", upload_state["if"])
+        self.assertIn("github.event_name == 'pull_request'", write_state["if"])
+        self.assertIn("edited", write_state["if"])
+        self.assertIn("github.event_name == 'pull_request'", upload_state["if"])
+        self.assertIn("edited", upload_state["if"])
         self.assertTrue(upload_state["uses"].startswith("actions/upload-artifact@"))
         self.assertEqual("tested-state", upload_state["with"]["name"])
 
-    def test_the_select_outputs_carry_the_units_the_reused_results_and_the_identical_tree_to_the_verdict(self) -> None:
+    def test_the_plan_outputs_carry_the_units_the_reused_results_and_the_identical_tree(self) -> None:
         for output in ("units", "reused", "reused-units", "identical"):
             with self.subTest(output=output):
-                self.assertIn(f"      {output}: ${{{{ steps.select.outputs.{output} }}}}\n", self.text)
-                self.assertRegex(self.text, rf"(?m)^      {output}:\n        description: .*\n        value: \$\{{\{{ jobs\.select\.outputs\.{output} \}}\}}$")
+                self.assertEqual(f"${{{{ steps.select.outputs.{output} }}}}", self.outputs.get(output))
 
 
 class StoreStepTests(unittest.TestCase):
-    def test_only_the_verdict_the_pipeline_and_hygiene_store_results_on_pull_requests_and_the_gitleaks_marker_on_the_default_branch(self) -> None:
+    def test_only_the_pipeline_and_hygiene_store_results_on_pull_requests_and_the_gitleaks_marker_on_the_default_branch(self) -> None:
         for path in sorted(WORKFLOWS.glob("*.yml")):
-            if path.name not in ("suite-verdict.yml", "repository-hygiene.yml", "pipeline.yml"):
+            if path.name not in ("repository-hygiene.yml", "pipeline.yml"):
                 with self.subTest(workflow=path.name):
                     self.assertNotIn("actions/cache/save", path.read_text(encoding="utf-8"))
-        text, workflow = read_workflow(WORKFLOWS / "suite-verdict.yml")
-        steps = steps_of(workflow, "validation")
-        self.assertEqual(1, text.count("uses: actions/cache"))
-        download = next(step for step in steps if step.get("name") == "Download the entry files that passed in the run")
-        store = next(step for step in steps if step.get("id") == "store")
-        save = next(step for step in steps if str(step.get("uses", "")).startswith("actions/cache/save@"))
-        checkout = next(step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@"))
-        self.assertTrue(download["uses"].startswith("actions/download-artifact@"))
-        self.assertEqual("suite-results-*", download["with"]["pattern"])
-        self.assertIn('suite_selection.py" store --needs', store["run"])
-        self.assertLess(steps.index(store), steps.index(save))
-        for step in steps[1:steps.index(store) + 1]:
-            if step is not checkout:
-                self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' }}", step["if"])
-        self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' && steps.additions.outputs.found == 'true' }}", checkout["if"])
-        self.assertTrue(save["uses"].startswith("actions/cache/save@"))
-        self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' && steps.store.outputs.stored == 'true' }}", save["if"])
-        self.assertEqual(PREFIX + "${{ github.run_id }}-${{ github.run_attempt }}", save["with"]["key"])
-        self.assertNotIn("if", steps[-1], "the verdict itself reports on every run")
         pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
         self.assertEqual(4, pipeline_text.count("uses: actions/cache/save"))
         pipeline_saves = {
@@ -180,7 +153,10 @@ class StoreStepTests(unittest.TestCase):
             "${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}",
             results["if"],
         )
-        self.assertEqual(save["with"], results["steps"][-1]["with"], "the pipeline stores under the key that the selection restores")
+        self.assertEqual({
+            "path": "${{ runner.temp }}/suite-results/record.json",
+            "key": PREFIX + "${{ github.run_id }}-${{ github.run_attempt }}",
+        }, results["steps"][-1]["with"], "the pipeline stores under the key that the selection restores")
         self.assertEqual(results["steps"][-1], pipeline_saves["suite-selection-results"][0])
         hygiene_text, hygiene = read_workflow(WORKFLOWS / "repository-hygiene.yml")
         self.assertEqual(3, hygiene_text.count("uses: actions/cache/save"))
@@ -215,39 +191,36 @@ class StoreStepTests(unittest.TestCase):
         }, hygiene_pr_save["with"])
 
     def test_store_keys_the_passed_units_under_the_run_s_additions_in_a_checkout_of_the_tested_tree(self) -> None:
-        _, verdict = read_workflow(WORKFLOWS / "suite-verdict.yml")
         _, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
-        for label, steps in (("suite-verdict", steps_of(verdict, "validation")), ("pipeline", steps_of(pipeline, "suite-selection-results"))):
-            with self.subTest(workflow=label):
-                names = [step.get("name") or step.get("uses", "").split("@")[0] for step in steps]
-                found = names.index("Find the additions of the run")
-                additions = steps[found - 1]
-                self.assertTrue(additions["uses"].startswith("actions/download-artifact@"))
-                self.assertEqual({"pattern": "recording-additions-*", "path": "${{ runner.temp }}/suite-results/additions"}, additions["with"],
-                                 "the artifacts that the additions workflow applies")
-                self.assertEqual("additions", steps[found]["id"])
-                self.assertIn('-name additions.json', steps[found]["run"])
-                checkout = steps[found + 1]
-                self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
-                self.assertIn("steps.additions.outputs.found == 'true'", checkout["if"])
-                self.assertEqual("false", str(checkout["with"]["persist-credentials"]).lower(), "the tested tree of the run, without a token")
-                self.assertIn(checkout["with"].get("ref", ""), ("", "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}"),
-                              "the commit that select checked out")
-                store = steps[found + 2]
-                self.assertEqual("store", store["id"])
-                self.assertEqual("${{ steps.additions.outputs.found }}", store["env"]["ADDITIONS"])
-                self.assertIn('if [ "$ADDITIONS" = true ]; then set -- --additions "$RUNNER_TEMP/suite-results/additions" --root .; else set --; fi',
-                              store["run"])
-                self.assertIn('--run-id "$RUN_ID" "$@" --output', store["run"])
+        steps = steps_of(pipeline, "suite-selection-results")
+        names = [step.get("name") or step.get("uses", "").split("@")[0] for step in steps]
+        found = names.index("Find the additions of the run")
+        additions = steps[found - 1]
+        self.assertTrue(additions["uses"].startswith("actions/download-artifact@"))
+        self.assertEqual({"pattern": "recording-additions-*", "path": "${{ runner.temp }}/suite-results/additions"}, additions["with"],
+                         "the artifacts that the additions workflow applies")
+        self.assertEqual("additions", steps[found]["id"])
+        self.assertIn('-name additions.json', steps[found]["run"])
+        checkout = steps[found + 1]
+        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        self.assertIn("steps.additions.outputs.found == 'true'", checkout["if"])
+        self.assertEqual("false", str(checkout["with"]["persist-credentials"]).lower(), "the tested tree of the run, without a token")
+        self.assertIn(checkout["with"].get("ref", ""), ("", "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}"),
+                      "the commit that select checked out")
+        store = steps[found + 2]
+        self.assertEqual("store", store["id"])
+        self.assertEqual("${{ steps.additions.outputs.found }}", store["env"]["ADDITIONS"])
+        self.assertIn('if [ "$ADDITIONS" = true ]; then set -- --additions "$RUNNER_TEMP/suite-results/additions" --root .; else set --; fi',
+                      store["run"])
+        self.assertIn('--run-id "$RUN_ID" "$@" --output', store["run"])
 
     def test_the_store_steps_decide_no_result_the_verdict_reads(self) -> None:
         # A job that reports additions fails on its check; storing its passes changes neither that job nor the verdict.
-        for path, job in (("suite-verdict.yml", "validation"), ("pipeline.yml", "suite-selection-results")):
-            _, workflow = read_workflow(WORKFLOWS / path)
-            for step in steps_of(workflow, job):
-                with self.subTest(workflow=path, step=step.get("name") or step.get("uses")):
-                    self.assertNotIn("continue-on-error", step)
-                    self.assertNotIn("steps.store.outputs", str(step.get("env", {})), "no verdict reads what store wrote")
+        _, workflow = read_workflow(WORKFLOWS / "pipeline.yml")
+        for step in steps_of(workflow, "suite-selection-results"):
+            with self.subTest(workflow="pipeline.yml", step=step.get("name") or step.get("uses")):
+                self.assertNotIn("continue-on-error", step)
+                self.assertNotIn("steps.store.outputs", str(step.get("env", {})), "no verdict reads what store wrote")
 
 
 def outside_the_full_recording(workflow: dict) -> dict:

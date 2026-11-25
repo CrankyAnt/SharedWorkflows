@@ -12,8 +12,9 @@ from tests.consumer_kit_support import read_yaml
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 OWN_WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
-OWN_CALLERS = ("dependabot-auto-merge-caller.yml", "repository-hygiene-caller.yml")
+OWN_CALLERS = ("automation-caller.yml", "ci.yml")
 OWN_DEPENDABOT = REPOSITORY_ROOT / ".github" / "dependabot.yml"
+OWN_CONFIG = REPOSITORY_ROOT / ".github" / "ci-config.yml"
 HYGIENE_RESOURCES = REPOSITORY_ROOT / "actions" / "repository-hygiene"
 
 
@@ -53,7 +54,9 @@ class InstallByNeedTest(unittest.TestCase):
     def test_this_repository_has_a_dependency_of_its_own_and_carries_both_files_that_come_with_one(self) -> None:
         self.assertTrue(own_dependencies())
         self.assertTrue(OWN_DEPENDABOT.is_file())
-        self.assertIn(".github/workflows/dependabot-auto-merge.yml", local_path_callers())
+        self.assertIn(".github/workflows/automation.yml", local_path_callers())
+        _, config = read_yaml(OWN_CONFIG)
+        self.assertIn("dependabot-auto-merge", config["parts"])
 
 
 if __name__ == "__main__":

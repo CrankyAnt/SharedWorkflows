@@ -4,8 +4,6 @@
   "paths": [
     ".github/workflows/repository-hygiene.yml",
     ".github/workflows/dependabot-auto-merge.yml",
-    ".github/workflows/suite-selection.yml",
-    ".github/workflows/suite-verdict.yml",
     ".github/workflows/suite-jobs.yml",
     ".github/workflows/python-tests.yml",
     ".github/workflows/pipeline.yml",
@@ -32,8 +30,6 @@
   "classes": {
     ".github/workflows/repository-hygiene.yml": "read",
     ".github/workflows/dependabot-auto-merge.yml": "write",
-    ".github/workflows/suite-selection.yml": "read",
-    ".github/workflows/suite-verdict.yml": "read",
     ".github/workflows/suite-jobs.yml": "write",
     ".github/workflows/python-tests.yml": "read",
     ".github/workflows/pipeline.yml": "read",

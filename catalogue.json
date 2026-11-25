@@ -41,7 +41,7 @@
     "checks": "Repository hygiene reads each issue that an entry names with the token of the run: it is an issue of the repository and no pull request, and the one of a permanent entry is closed. When the request of a temporary entry was closed as not planned, the request was declined: a pull request whose author is not Dependabot fails with the instruction to make the entry permanent, with declined-request and the request's number in place of request and waits-for; a pull request of Dependabot and a push get a notice and pass. When the part that a temporary entry waits for exists at v1, or the part's schema fragment there knows the setting that the entry waits for, a pull request whose author is not Dependabot fails with the instruction to switch the part on or state the setting, remove the temporary workflow with its entry and close the request; a pull request of Dependabot and a push get a notice and pass. The free job is checked the same way when parts.custom names request and waits-for, which come together: the request is an issue of the repository and no pull request, the switch-over check reports when the part exists or knows the setting, with the instruction to move the work out of the free job, remove the two settings and close the request, and a request that was closed as not planned leaves the free job without the two settings."
   },
   "routes": {
-    "corrected_title": "The fixed caller ci.yml does not start on an edit of a pull request, so a corrected title or body starts no run. The title check and the reference check of repository hygiene read the current title and body from GitHub: after the correction, re-run the failed jobs of the pull request's run."
+    "corrected_title": "The fixed caller ci.yml starts on an edited pull request, running only the title and reference checks of repository hygiene without rerunning code checks or clearing an existing code failure."
   },
   "parts": [
     {
@@ -66,18 +66,6 @@
       "needs": "A Dependabot configuration, Dependabot alerts and security updates enabled, and a default-branch ruleset that requires status checks.",
       "applies": "A repository with a dependency of its own: a package file that Dependabot updates, or a workflow of its own, other than a caller of a shared workflow, that uses an action from outside the repository.",
       "consumer_kit": "actions/dependabot-auto-merge/consumer-kit",
-      "audience": "consumer"
-    },
-    {
-      "name": "Suite selection",
-      "purpose": "Runs only the test suites and entry files that a change can affect: in its current form as the part suite-selection of the pipeline, which the entry suite-selection describes and through which a repository adopts it, and in its earlier form, the form of a consumer that has not adopted the pipeline, through that consumer's own validation caller, which calls the selection and verdict workflows of this entry and reports one verdict as the required check.",
-      "configuration": null,
-      "workflows": [".github/workflows/suite-selection.yml", ".github/workflows/suite-verdict.yml"],
-      "steps": ["actions/suite-selection", "actions/recording"],
-      "required_checks": ["validation / validation"],
-      "needs": "In the current form, what the entry suite-selection states. In the earlier form, the validation caller and the validation workflow that a consumer that has not adopted the pipeline holds, and a suite list of its suites; validation / validation is that consumer's required check until it adopts the pipeline and switches the part suite-selection on, whose result reports in ci / verdict.",
-      "applies": "The current form applies as the entry suite-selection says. The earlier form applies only to a consumer that has not adopted the pipeline and holds its validation caller already; no repository adopts the earlier form anew.",
-      "consumer_kit": "actions/suite-selection/consumer-kit",
       "audience": "consumer"
     },
     {
@@ -190,13 +178,13 @@
     },
     {
       "name": "suite-selection",
-      "purpose": "The current form of the suite selection: runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, as the part suite-selection of the pipeline: a job that selects, the shared suite jobs that run the setups of the suite list and the selected entry files in Linux shards and one Windows job, and a job that stores the passed results of a pull request, with its result in the pipeline's verdict.",
+      "purpose": "Runs only the test suites and entry files that a change can affect, from path lists recorded by the recording step, as the part suite-selection of the pipeline: selection in the plan job, the shared suite jobs that run the setups of the suite list and the selected entry files in Linux shards and one Windows job, and a job that stores the passed results of a pull request, with its result in the pipeline's verdict.",
       "configuration": "actions/pipeline/schema/v1/parts/suite-selection.json",
       "workflows": [],
       "steps": ["actions/suite-selection", "actions/recording", "actions/python-language-step"],
       "required_checks": [],
       "needs": "The pipeline, parts.suite-selection in .github/ci-config.yml with suites, the path of the suite list, and optionally language-steps, of which the schema fragment actions/pipeline/schema/v1/parts/suite-selection.json states every setting; a suite list that states the suites, each setup with its one script under setups and, where they differ from the defaults, the runner label and the fetch depth of each system's job under jobs; and for the full recording and the additions workflow a GitHub App that may push branches and open pull requests.",
-      "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs. A consumer that has not adopted the pipeline and runs the earlier form, which the entry Suite selection describes, switches to this part when it adopts the pipeline.",
+      "applies": "A repository whose test suites take long enough that running only the affected ones saves more than the selection costs.",
       "consumer_kit": "actions/suite-selection/consumer-kit",
       "audience": "consumer"
     },

@@ -70,9 +70,9 @@ class HygieneCoreTests(unittest.TestCase):
                       "          BRANCH: ${{ github.event.repository.default_branch }}\n"
                       '        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch '
                       '--root . --sha "$PAYLOAD" --branch "$BRANCH"\n', workflow)
-        selection = (REPOSITORY_ROOT / ".github" / "workflows" / "suite-selection.yml").read_text(encoding="utf-8")
+        pipeline = (REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml").read_text(encoding="utf-8")
         check = next(line for line in workflow.splitlines() if 'suite_selection.py" check-dispatch' in line)
-        self.assertIn(check.replace("$SELECTION_PATH/", "$RESOURCE_PATH/"), selection.splitlines(), "both workflows run the same check")
+        self.assertIn(check.strip(), [line.strip() for line in pipeline.splitlines()], "both workflows run the same check")
         # A step that runs after an earlier failure either runs only on a pull request, waits for a step that a failed
         # check skips, or is a per-tool installation, which its own tool check waits for. On a dispatch run it needs a
         # passed dispatch check, so neither a failed check nor a failed checkout runs any tool check.
@@ -92,9 +92,10 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertTrue(all(name.startswith("Load ") for name in names[:checkout]), "only resource loads precede the checkout")
         self.assertIn("        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'\n", workflow)
         self.assertIn("uses: $/actions/suite-selection", workflow)
-        selection = (REPOSITORY_ROOT / ".github" / "workflows" / "suite-selection.yml").read_text(encoding="utf-8")
-        lookup = next(line for line in workflow.splitlines() if 'suite_selection.py" lookup' in line)
-        self.assertIn(lookup.replace("$SELECTION_PATH/", "$RESOURCE_PATH/"), selection.splitlines(), "the hygiene job runs the selection's own lookup command")
+        pipeline = (REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml").read_text(encoding="utf-8")
+        lookup = next(line for line in workflow.splitlines() if 'suite_selection.py" lookup' in line).strip().removeprefix("run: ")
+        pipeline_lookup = next(line for line in pipeline.splitlines() if 'suite_selection.py" lookup' in line).strip()
+        self.assertIn(lookup, pipeline_lookup, "the hygiene job runs the selection's own lookup command")
         self.assertIn("SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}", workflow)
         self.assertIn('push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;', workflow)
 
@@ -178,8 +179,8 @@ class HygieneCoreTests(unittest.TestCase):
             self.assertIn(f'--definition "actions/repository-hygiene/action.yml#{selector}"', workflow)
         for flag, step, field in (("packages", "coverage", "coverage-exclude"), ("markdown", "links", "link-exclude")):
             self.assertIn(f'--{flag}-definition ".github/workflows/repository-hygiene.yml#step:{step}"', workflow)
-            for definition in ("repository-hygiene.yml", "repository-hygiene-caller.yml"):
-                self.assertIn(f'--{flag}-definition ".github/workflows/{definition}#{field}"', workflow)
+            self.assertIn(f'--{flag}-definition ".github/workflows/repository-hygiene.yml#{field}"', workflow)
+            self.assertNotIn("repository-hygiene-caller.yml", workflow)
         self.assertIn("BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}", workflow)
         self.assertIn("HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn("COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}", workflow)

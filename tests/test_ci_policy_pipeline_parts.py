@@ -51,11 +51,11 @@ PARTS = {
     PYTHON_VERIFY: Part(shared_steps=["actions/python-tests", "actions/python-language-step"],
                         name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=False,
                         fixture_folder="working-directory",
-                        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
+                        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
     PYTHON_TEST: Part(shared_steps=["actions/python-tests", "actions/python-language-step"],
                       name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=True,
                       fixture_folder="working-directory",
-                      paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
+                      paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
     DOTNET_TEST: Part(shared_steps=["actions/dotnet-test"], name="${{ matrix.project['project'] }}", runner_label=True,
                       fixture_folder="project", paths=["tests/fixtures/dotnet_test/", "tests/fixtures/dotnet_console/", "actions/dotnet-test/"]),
     NODE_TEST: Part(shared_steps=["actions/node-test", "actions/node-test"], name="${{ matrix.project['working-directory'] }}", runner_label=True,
@@ -237,11 +237,6 @@ class PartJobTests(unittest.TestCase):
 
 
 CONFIGURATION = REPOSITORY_ROOT / ".github" / "ci-config.yml"
-# The paths that every fixture part names besides its fixture and its part folders: the plan program and the schema, the
-# pipeline and this repository's caller of it.
-COMMON_PATHS = ["actions/pipeline/", ".github/workflows/pipeline.yml", ".github/workflows/ci.yml"]
-# A part folder that a shared step's own run block reaches beside its own folder, such as the pins of repository-hygiene.
-SIBLING_FOLDER = re.compile(r"\$RESOURCE_PATH/\.\./([\w.-]+)/")
 
 
 def fixture_folders(part: str, settings: dict) -> list[str]:
@@ -256,51 +251,52 @@ def fixture_folders(part: str, settings: dict) -> list[str]:
 
 
 def loaded_part_folders(job: dict) -> list[str]:
-    """The part folders that a job loads through `$/`, with each folder that the loaded step's run block reaches beside it."""
+    """The part folders that a job loads through `$/`."""
     folders = []
     for step in job["steps"]:
         uses = str(step.get("uses", ""))
         if uses.startswith("$/actions/"):
             folders.append(uses[2:].rstrip("/") + "/")
-            text = (REPOSITORY_ROOT / uses[2:] / "action.yml").read_text(encoding="utf-8")
-            folders += [f"actions/{sibling}/" for sibling in SIBLING_FOLDER.findall(text)]
     return list(dict.fromkeys(folders))
 
 
 def missing_paths(part: str, settings: dict, job: dict) -> list[str]:
     """Each path that a change can reach the part's job through and that the part's `paths` do not cover, named with the part."""
     paths = [str(item) for item in settings.get("paths", [])]
-    required = list(dict.fromkeys(fixture_folders(part, settings) + loaded_part_folders(job) + COMMON_PATHS))
+    required = list(dict.fromkeys(fixture_folders(part, settings) + loaded_part_folders(job)))
     return [f"{part}: paths lack {path}" for path in required
             if not any(entry == path or (entry.endswith("/") and path.startswith(entry)) for entry in paths)]
 
 
 class FixturePartPathsTests(unittest.TestCase):
-    """This repository's configuration file runs each project part on its fixture only for a change that can reach it, so
-    its `paths` must name every path through which a change reaches the part's job."""
+    """This repository's configuration file runs each project part on its fixture only for a change to its fixture or
+    its own part code; shared pipeline and pin inputs come from plan.py."""
 
     def setUp(self) -> None:
         self.parts = ci_definition().read_yaml(CONFIGURATION.read_text(encoding="utf-8"), str(CONFIGURATION))["parts"]
         self.jobs = read_workflow(PIPELINE)[1]["jobs"]
 
     def test_the_configuration_file_states_paths_for_each_fixture_part(self) -> None:
-        for part in PARTS:
+        for part in ("custom", *PARTS):
             with self.subTest(part=part):
                 self.assertTrue(self.parts[part].get("paths"), f"{part} states no paths")
 
-    def test_the_paths_of_each_fixture_part_name_its_fixture_its_part_folders_the_plan_and_the_pipeline(self) -> None:
-        for part in PARTS:
+    def test_the_paths_of_each_fixture_part_select_only_its_fixture_and_its_own_part_code(self) -> None:
+        self.assertEqual(["tests/fixtures/custom/"], self.parts["custom"]["paths"])
+        for part, entry in PARTS.items():
             with self.subTest(part=part):
                 self.assertEqual([], missing_paths(part, self.parts[part], self.jobs[part]))
+                self.assertEqual(sorted(entry.paths), sorted(self.parts[part]["paths"]),
+                                 f"{part} paths should cover only its fixture and its own part code")
 
     def test_a_missing_path_is_named_with_its_part(self) -> None:
-        for part, path in [(part, path) for part, entry in PARTS.items() for path in [*entry.paths, *COMMON_PATHS]]:
+        for part, path in [(part, path) for part, entry in PARTS.items() for path in entry.paths]:
             with self.subTest(part=part, path=path):
                 settings = {**self.parts[part], "paths": [item for item in self.parts[part]["paths"] if item != path]}
                 self.assertEqual([f"{part}: paths lack {path}"], missing_paths(part, settings, self.jobs[part]))
 
     def test_a_folder_that_holds_a_required_path_covers_it(self) -> None:
-        settings = {**self.parts[PYTHON_TEST], "paths": ["tests/", "actions/", ".github/workflows/"]}
+        settings = {**self.parts[PYTHON_TEST], "paths": ["tests/", "actions/"]}
         self.assertEqual([], missing_paths(PYTHON_TEST, settings, self.jobs[PYTHON_TEST]))
 
 

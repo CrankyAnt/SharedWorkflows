@@ -236,7 +236,7 @@ class CatalogueTests(unittest.TestCase):
                 self.assertTrue(on_surface(kit, self.surface))
 
     def test_a_shared_workflow_or_step_without_an_entry_fails(self) -> None:
-        for path in (".github/workflows/suite-verdict.yml", "actions/recording"):
+        for path in (".github/workflows/suite-jobs.yml", "actions/recording"):
             with self.subTest(path=path):
                 catalogue = {"parts": [{**entry, "workflows": [item for item in entry["workflows"] if item != path],
                                         "steps": [item for item in entry["steps"] if item != path]} for entry in self.catalogue["parts"]]}
@@ -260,7 +260,8 @@ class CatalogueTests(unittest.TestCase):
 
     def test_the_suite_selection_names_its_consumer_kit(self) -> None:
         entries = {entry["name"]: entry for entry in self.catalogue["parts"]}
-        self.assertEqual("actions/suite-selection/consumer-kit", entries["Suite selection"]["consumer_kit"])
+        self.assertNotIn("Suite selection", entries, "the legacy suite-selection entry is retired")
+        self.assertEqual("actions/suite-selection/consumer-kit", entries["suite-selection"]["consumer_kit"])
 
     def test_repository_hygiene_names_its_consumer_kit_and_an_entry_without_one_says_so(self) -> None:
         entries = {entry["name"]: entry for entry in self.catalogue["parts"]}
