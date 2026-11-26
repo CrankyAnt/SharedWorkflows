@@ -8,6 +8,11 @@ metadata from the pull request's first commit as ``dependabot/fetch-metadata`` v
 commit must be authored by ``dependabot[bot]``, the commit's signature must be verified, and its message must hold the
 ``updated-dependencies`` block.
 
+The pip title parser departs from ``dependabot/fetch-metadata`` v3.1.0 by reading both bounds of a requirement range
+and comparing them in either order. The merge decision uses only the verified first commit's diff for pip requirements
+without an explicit update type. It compares plain numeric ``==`` pins or both bounds of ``>=...,<...`` ranges in
+``requirements*.txt``. Missing, unsupported or conflicting evidence and later changes to pip inputs leave it manual.
+
 The decision is automatic only when every updated dependency has a patch or minor update type, every GitHub Actions
 dependency belongs to the ``actions`` owner, every commit is authored by ``dependabot[bot]`` or is a commit of the
 updater App within its scope, and an active ruleset rule on the base branch requires ``ci / verdict``. The App's
@@ -32,9 +37,10 @@ import json
 import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 BOT = "dependabot[bot]"
@@ -89,12 +95,22 @@ class MetadataError(ValueError):
 
 
 UPDATE_FRAGMENT = re.compile(r"\b[Uu]pdate .* requirement from \S*? ?(?P<from>v?[0-9]\S*) to \S*? ?(?P<to>v?[0-9]\S*)")
+PIP_UPDATE_FRAGMENT = re.compile(r"\b[Uu]pdate [^\n]+ requirement from (?P<old>.+?) to (?P<new>.+?)(?: in /[^\n]*)?$")
 BUMP_FRAGMENT = re.compile(r"^Bumps .* from (?P<from>v?[0-9][^ ]*) to (?P<to>v?[0-9][^ ]*)\.$", re.MULTILINE)
 YAML_FRAGMENT = re.compile(r"^-{3}\n(?P<dependencies>[\S\s]*?)\n^\.{3}\n", re.MULTILINE)
 METADATA_LINK = re.compile(r"^Updates `(?P<name>\S+)` (?:from (?P<from>\S+) )?to (?P<to>\S+)$", re.MULTILINE)
 DEPENDABOT_PREFIX = "dependabot"  # the head branch starts with it; the character after it delimits the branch's segments
 ENTRY_LINE = re.compile(r"(?P<start>- |  )(?P<key>[A-Za-z0-9_.-]+):(?: (?P<value>.*))?")
 BLOCK_KEY = "updated-dependencies:"
+RELEASE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
+REQUIREMENT_CLAUSE = re.compile(rf"(==|>=|<)\s*({RELEASE_VERSION})")
+PACKAGE_NAME = r"[a-zA-Z0-9](?:[a-zA-Z0-9._-]*[a-zA-Z0-9])?"
+REQUIREMENT_LINE = re.compile(rf"(?P<name>{PACKAGE_NAME})\s*(?P<specifiers>[<>=].*)")
+DIFF_HUNK = re.compile(r"@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@.*")
+MAX_PR_COMMITS = 250
+MAX_COMMIT_FILES = 3000
+Release = tuple[int, ...]
+Requirement = tuple[Release, ...]
 
 
 def _shown(login: str) -> str:
@@ -151,8 +167,58 @@ def calculate_update_type(last_version: str, next_version: str) -> str:
     return "version-update:semver-patch"
 
 
-def parse_update_metadata(message: str, branch: str, title: str) -> tuple[Dependency, ...]:
-    """The updated dependencies of a Dependabot commit message on its head branch, with fetch-metadata's results."""
+def _release(value: str) -> Release:
+    if not re.fullmatch(RELEASE_VERSION, value):
+        raise ValueError("expected a plain numeric release version")
+    parts = [int(part) for part in value.split(".")]
+    while len(parts) > 2 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts if len(parts) > 1 else [*parts, 0])
+
+
+def _requirement(value: str) -> Requirement:
+    clauses = {}
+    for clause in value.split(","):
+        match = REQUIREMENT_CLAUSE.fullmatch(clause.strip())
+        if match is None or match[1] in clauses:
+            raise ValueError("expected a pip pin or a lower and upper bound")
+        clauses[match[1]] = _release(match[2])
+    if clauses.keys() == {"=="}:
+        return (clauses["=="],)
+    if clauses.keys() == {">=", "<"} and clauses[">="] < clauses["<"]:
+        return clauses[">="], clauses["<"]
+    raise ValueError("expected a pip pin or a lower and upper bound")
+
+
+def _requirement_update_type(old: Requirement, new: Requirement) -> str:
+    if len(old) != len(new):
+        raise ValueError("the pip requirement changed form")
+    changed = [(before, after) for before, after in zip(old, new, strict=True) if before != after]
+    for index, update in enumerate(("major", "minor")):
+        if any(before[index] != after[index] for before, after in changed):
+            return f"version-update:semver-{update}"
+    return "version-update:semver-patch" if changed else ""
+
+
+def _pip_title_update_type(text: str) -> str:
+    match = PIP_UPDATE_FRAGMENT.search(text)
+    if match is None:
+        return ""
+    try:
+        return _requirement_update_type(_requirement(match["old"]), _requirement(match["new"]))
+    except ValueError:
+        return ""
+
+
+@dataclass(frozen=True)
+class UpdateMetadata:
+    dependency: Dependency
+    explicit_type: str
+    previous_versions: tuple[str, ...]
+    new_versions: tuple[str, ...]
+
+
+def _parse_update_metadata(message: str, branch: str, title: str) -> tuple[UpdateMetadata, ...]:
     block = YAML_FRAGMENT.search(message)
     if block is None:
         raise MetadataError("the first commit's message has no `updated-dependencies` block.")
@@ -180,13 +246,26 @@ def parse_update_metadata(message: str, branch: str, title: str) -> tuple[Depend
         linked_from, linked_to = linked[occurrence] if occurrence < len(linked) else ("", "")
         last_version = linked_from or (previous if index == 0 else "")
         next_version = entry.get("dependency-version") or linked_to or (new if index == 0 else "")
-        update_type = entry.get("update-type") or calculate_update_type(last_version, next_version)
-        dependencies.append(Dependency(name, ecosystem, update_type))
+        if ecosystem == "pip" and not bump and not linked_from and index == 0:
+            inferred = _pip_title_update_type(message.split("\n")[0] if update else title)
+        else:
+            inferred = calculate_update_type(last_version, next_version)
+        explicit = entry.get("update-type", "")
+        bump_from, bump_to = (bump["from"], bump["to"]) if bump and index == 0 else ("", "")
+        dependencies.append(UpdateMetadata(
+            Dependency(name, ecosystem, explicit or inferred), explicit,
+            tuple(filter(None, (linked_from, bump_from))),
+            tuple(filter(None, (entry.get("dependency-version", ""), linked_to, bump_to))),
+        ))
     return tuple(dependencies)
 
 
-def read_metadata(pull_request: dict, commits: list[dict]) -> tuple[Dependency, ...]:
-    """The verified update metadata of a pull request from its first commit; anything unverified is an error."""
+def parse_update_metadata(message: str, branch: str, title: str) -> tuple[Dependency, ...]:
+    """The update types from the commit message and, for a requirement update, its subject or PR title."""
+    return tuple(update.dependency for update in _parse_update_metadata(message, branch, title))
+
+
+def _read_update_metadata(pull_request: dict, commits: list[dict], title: str) -> tuple[UpdateMetadata, ...]:
     author = (pull_request.get("user") or {}).get("login") or ""
     if author != BOT:
         raise MetadataError(f"the pull request is authored by {_shown(author)}, not by `{BOT}`.")
@@ -201,7 +280,116 @@ def read_metadata(pull_request: dict, commits: list[dict]) -> tuple[Dependency, 
     if not (commit.get("verification") or {}).get("verified"):
         raise MetadataError(f"the signature of the first commit `{sha}` is not verified.")
     head = pull_request.get("head") or {}
-    return parse_update_metadata(str(commit.get("message") or ""), str(head.get("ref") or ""), str(pull_request.get("title") or ""))
+    return _parse_update_metadata(str(commit.get("message") or ""), str(head.get("ref") or ""), title)
+
+
+def read_metadata(pull_request: dict, commits: list[dict]) -> tuple[Dependency, ...]:
+    """The verified update metadata of a pull request from its first commit; anything unverified is an error."""
+    return tuple(update.dependency for update in _read_update_metadata(pull_request, commits, str(pull_request.get("title") or "")))
+
+
+# --- pip requirement evidence -----------------------------------------------------------------------------------
+
+
+def _package_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _requirements_file(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    return name.startswith("requirements") and name.endswith(".txt")
+
+
+def _pip_input(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1].lower()
+    return (name.startswith(("requirements", "constraints")) or name.endswith((".txt", ".in", ".lock"))
+            or name in {"pyproject.toml", "setup.py", "setup.cfg", "pipfile"})
+
+
+def _changed_lines(file: dict) -> tuple[list[str], list[str]]:
+    """Check that the JSON patch contains all the added and deleted lines reported by GitHub."""
+    patch = file.get("patch")
+    if not isinstance(patch, str) or not patch:
+        raise ValueError("the patch is missing")
+    removed: list[str] = []
+    added: list[str] = []
+    old_left = new_left = 0
+    saw_hunk = False
+    for line in patch.splitlines():
+        header = DIFF_HUNK.fullmatch(line)
+        if header is not None and not old_left and not new_left:
+            old_left, new_left = (int(count) if count is not None else 1 for count in header.groups())
+            saw_hunk = True
+        elif line == r"\ No newline at end of file" and saw_hunk:
+            continue
+        elif line.startswith((" ", "-", "+")) and (old_left or new_left):
+            if line.rstrip().endswith("\\"):
+                raise ValueError("the patch contains a line continuation")
+            old_left -= line[0] != "+"
+            new_left -= line[0] != "-"
+            if old_left < 0 or new_left < 0:
+                raise ValueError("the patch hunk is incomplete")
+            if line[0] == "-":
+                removed.append(line[1:])
+            elif line[0] == "+":
+                added.append(line[1:])
+        else:
+            raise ValueError("the patch is incomplete")
+    if old_left or new_left or not saw_hunk or len(removed) != file.get("deletions") or len(added) != file.get("additions"):
+        raise ValueError("the patch is incomplete")
+    return removed, added
+
+
+def _declarations(lines: list[str]) -> dict[str, list[Requirement]]:
+    declarations: dict[str, list[Requirement]] = {}
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        line = re.split(r"\s+#", line, maxsplit=1)[0]
+        match = REQUIREMENT_LINE.fullmatch(line)
+        if match is None:
+            raise ValueError("a changed line is outside the supported pip requirement forms")
+        declarations.setdefault(_package_name(match["name"]), []).append(_requirement(match["specifiers"]))
+    return declarations
+
+
+def _file_updates(file: dict) -> dict[str, list[tuple[Requirement, Requirement]]]:
+    if file["status"] != "modified" or not _requirements_file(file["filename"]) or file.get("previous_filename"):
+        raise ValueError("the commit changes a file outside the supported pip requirement forms")
+    removed, added = _changed_lines(file)
+    before, after = _declarations(removed), _declarations(added)
+    if not before or before.keys() != after.keys() or any(len(before[name]) != len(after[name]) for name in before):
+        raise ValueError("the removed and added requirement declarations cannot be paired")
+    return {name: list(zip(old, after[name], strict=True)) for name, old in before.items()}
+
+
+def _classify_pip_updates(updates: tuple[UpdateMetadata, ...], files: list[dict]) -> tuple[Dependency, ...]:
+    declarations: dict[str, list[tuple[Requirement, Requirement]]] = {}
+    for file in files:
+        try:
+            for name, changes in _file_updates(file).items():
+                declarations.setdefault(name, []).extend(changes)
+        except ValueError as error:
+            raise ValueError(f"`{file['filename']}`: {error}") from error
+
+    names = [_package_name(update.dependency.name) for update in updates]
+    if declarations.keys() != set(names) or any(len(declarations[name]) < names.count(name) for name in declarations):
+        raise ValueError("the changed declarations do not match the dependencies in the first commit's metadata")
+    classified = []
+    for update, name in zip(updates, names, strict=True):
+        previous = {_release(version) for version in update.previous_versions}
+        new = {_release(version) for version in update.new_versions}
+        changes = declarations[name]
+        if (previous and any(previous != {old[0]} for old, _ in changes)
+                or new and any(new != {after[0]} for _, after in changes)):
+            raise ValueError(f"`{name}` has conflicting versions in the metadata and patch")
+        types = {_requirement_update_type(old, after) for old, after in changes}
+        inferred = next((kind for kind in ("version-update:semver-major", *reversed(AUTOMATIC_UPDATE_TYPES)) if kind in types), "")
+        if "" in types and inferred in AUTOMATIC_UPDATE_TYPES:
+            raise ValueError(f"a changed declaration of `{name}` has no version change")
+        classified.append(replace(update.dependency, update_type=inferred))
+    return tuple(classified)
 
 
 # --- the decision ------------------------------------------------------------------------------------------------
@@ -328,7 +516,7 @@ class GitHub:
             raise GitHubError(f"`gh {' '.join(arguments)}` failed (exit {result.returncode}): {shown}", int(status[1]) if status else None, response)
         return result.stdout
 
-    def _api(self, *arguments: str) -> object:
+    def _api(self, *arguments: str) -> Any:
         try:
             return json.loads(self._run("api", *arguments))
         except json.JSONDecodeError as error:
@@ -344,10 +532,34 @@ class GitHub:
         pages = self._api("--paginate", "--slurp", f"repos/{repository}/pulls/{number}/commits")
         return [entry for page in pages for entry in page]
 
+    def _commit_pages(self, repository: str, sha: str) -> list[dict]:
+        return self._api("--paginate", "--slurp", f"repos/{repository}/commits/{sha}")
+
     def commit_files(self, repository: str, sha: str) -> list[str]:
         """The paths a commit changes; a rename names its old and its new path."""
-        pages = self._api("--paginate", "--slurp", f"repos/{repository}/commits/{sha}")
+        pages = self._commit_pages(repository, sha)
         return [path for page in pages for entry in page.get("files") or [] for path in (entry.get("filename"), entry.get("previous_filename")) if path]
+
+    def commit_changes(self, repository: str, sha: str) -> list[dict]:
+        """The complete JSON file list and available patches of a commit at its SHA."""
+        pages = self._commit_pages(repository, sha)
+        if not pages or any(not isinstance(page, dict) or page.get("sha") != sha or not isinstance(page.get("files"), list) for page in pages):
+            raise ValueError(f"the changed files of commit `{sha[:7]}` are incomplete")
+        files = [file for page in pages for file in page["files"]]
+        names = set()
+        for file in files:
+            if not isinstance(file, dict):
+                raise ValueError(f"the changed files of commit `{sha[:7]}` are incomplete")
+            name = file.get("filename")
+            previous = file.get("previous_filename")
+            if not isinstance(name, str) or not name or name in names or not file.get("status"):
+                raise ValueError(f"the changed paths of commit `{sha[:7]}` are incomplete")
+            if (previous is not None and (not isinstance(previous, str) or not previous)) or (file["status"] == "renamed" and not previous):
+                raise ValueError(f"the old path of a rename in commit `{sha[:7]}` is missing")
+            names.add(name)
+        if len(files) >= MAX_COMMIT_FILES:
+            raise ValueError(f"the changed files of commit `{sha[:7]}` reach GitHub's listing limit")
+        return files
 
     def branch_rules(self, repository: str, branch: str) -> list[dict]:
         return self._api(f"repos/{repository}/rules/branches/{quote(branch, safe='')}")
@@ -389,6 +601,26 @@ class Reading:
     head: str  # the head commit the decision read; empty when the commits did not end at the pull request's head
 
 
+def _pip_update_evidence(github: GitHub, repository: str, commits: list[dict], head: str,
+                         updates: tuple[UpdateMetadata, ...]) -> tuple[Dependency, ...]:
+    if not head or len(commits) >= MAX_PR_COMMITS:
+        raise ValueError("the commit list is incomplete or does not end at the evaluated head")
+    previous = None
+    for entry in commits:
+        sha = entry.get("sha", "")
+        parents = entry.get("parents") or []
+        if (not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha) or len(parents) != 1
+                or (previous is not None and parents[0].get("sha") != previous)):
+            raise ValueError("the commit list does not form a complete linear history")
+        previous = sha
+    first = github.commit_changes(repository, commits[0]["sha"])
+    for entry in commits[1:]:
+        later = github.commit_changes(repository, entry["sha"])
+        if any(_pip_input(path) for file in later for path in (file["filename"], file.get("previous_filename")) if path):
+            raise ValueError(f"a later commit `{entry['sha'][:7]}` touches a pip requirement file or manifest")
+    return _classify_pip_updates(updates, first)
+
+
 def _read_and_decide(github: GitHub, repository: str, pull_request: dict, suite_list: str | None,
                      updater_paths: tuple[str, ...] = ()) -> Reading:
     """Read the commits, the metadata and the rules of an already read pull request, and decide."""
@@ -396,13 +628,22 @@ def _read_and_decide(github: GitHub, repository: str, pull_request: dict, suite_
     scope = updater_scope(suite_list, updater_paths)
     try:
         commits = github.commits(repository, int(pull_request["number"]))
-        dependencies = read_metadata(pull_request, commits)
+        updates = _read_update_metadata(pull_request, commits, "")
+        dependencies = tuple(replace(update.dependency, update_type=update.explicit_type) for update in updates)
+        head = (pull_request.get("head") or {}).get("sha") or ""
+        evaluated_head = head if commits[-1].get("sha") == head else ""
+        if dependencies[0].ecosystem == "pip" and any(not update.explicit_type for update in updates):
+            if any(update.explicit_type and update.explicit_type not in AUTOMATIC_UPDATE_TYPES for update in updates):
+                return Reading(Decision(Outcome.MANUAL, "; ".join(dependency_problems(dependencies)) + ".", dependencies), evaluated_head)
+            try:
+                dependencies = _pip_update_evidence(github, repository, commits, evaluated_head, updates)
+            except (ValueError, GitHubError) as error:
+                return Reading(Decision(Outcome.MANUAL, f"pip requirement evidence: {error}.", dependencies), evaluated_head)
         commit_files = {sha: github.commit_files(repository, sha) for sha in updater_commits(commits)} if scope is not None else None
         rules = github.branch_rules(repository, (pull_request.get("base") or {}).get("ref") or "")
     except (MetadataError, GitHubError) as error:
         return Reading(Decision(Outcome.ERROR, str(error), dependencies), "")
-    head = (pull_request.get("head") or {}).get("sha") or ""
-    return Reading(decide(dependencies, commits, rules, commit_files, scope), head if commits[-1].get("sha") == head else "")
+    return Reading(decide(dependencies, commits, rules, commit_files, scope), evaluated_head)
 
 
 def _refusal(github: GitHub, repository: str, number: int, error: GitHubError) -> str | None:
