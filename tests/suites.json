@@ -62,37 +62,37 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_ci_policy_action_pins.py": 0.54,
-        "tests/test_ci_policy_additions.py": 0.58,
+        "tests/test_ci_policy_action_pins.py": 0.35,
+        "tests/test_ci_policy_additions.py": 0.41,
         "tests/test_ci_policy_auto_merge_caller.py": 0.6,
         "tests/test_ci_policy_automation.py": 2.17,
-        "tests/test_ci_policy_catalogue.py": 0.77,
+        "tests/test_ci_policy_catalogue.py": 0.42,
         "tests/test_ci_policy_entry_files.py": 1.66,
-        "tests/test_ci_policy_etw_consumer.py": 0.66,
+        "tests/test_ci_policy_etw_consumer.py": 0.41,
         "tests/test_ci_policy_fixed_callers.py": 1.6,
         "tests/test_ci_policy_full_recording.py": 0.79,
         "tests/test_ci_policy_hygiene_caller.py": 0.53,
         "tests/test_ci_policy_hygiene_core.py": 0.78,
-        "tests/test_ci_policy_hygiene_promotion.py": 0.54,
+        "tests/test_ci_policy_hygiene_promotion.py": 0.4,
         "tests/test_ci_policy_hygiene_promotion_surface.py": 0.54,
         "tests/test_ci_policy_hygiene_updater.py": 0.55,
         "tests/test_ci_policy_hygiene_validate.py": 0.68,
-        "tests/test_ci_policy_measurement.py": 1.1,
+        "tests/test_ci_policy_measurement.py": 0.61,
         "tests/test_ci_policy_off_path_runners.py": 0.61,
-        "tests/test_ci_policy_pipeline.py": 3.09,
-        "tests/test_ci_policy_pipeline_parts.py": 0.73,
+        "tests/test_ci_policy_pipeline.py": 1.5,
+        "tests/test_ci_policy_pipeline_parts.py": 0.48,
         "tests/test_ci_policy_publication.py": 0.49,
-        "tests/test_ci_policy_publication_document.py": 0.68,
-        "tests/test_ci_policy_python_language_step.py": 0.63,
+        "tests/test_ci_policy_publication_document.py": 0.36,
+        "tests/test_ci_policy_python_language_step.py": 0.46,
         "tests/test_ci_policy_python_tests_caller.py": 0.55,
         "tests/test_ci_policy_recording_action.py": 0.54,
-        "tests/test_ci_policy_release.py": 0.59,
-        "tests/test_ci_policy_reuse.py": 0.73,
-        "tests/test_ci_policy_shared_surface.py": 2.23,
-        "tests/test_ci_policy_suite_jobs.py": 1.25,
+        "tests/test_ci_policy_release.py": 0.41,
+        "tests/test_ci_policy_reuse.py": 0.41,
+        "tests/test_ci_policy_shared_surface.py": 1.53,
+        "tests/test_ci_policy_suite_jobs.py": 0.79,
         "tests/test_ci_policy_sync.py": 0.8,
-        "tests/test_ci_policy_temporary_files.py": 1.97,
-        "tests/test_ci_policy_tool_pins.py": 0.59,
+        "tests/test_ci_policy_temporary_files.py": 1.22,
+        "tests/test_ci_policy_tool_pins.py": 0.41,
         "tests/test_ci_policy_zizmor.py": 0.54
       },
       "entry_selection": true,
@@ -128,6 +128,8 @@
         "actions/measurement/action.yml",
         "actions/measurement/caller.yml",
         "actions/measurement/measurement.py",
+        "actions/measurement/measurement_api.py",
+        "actions/measurement/measurement_store.py",
         "actions/node-test/action.yml",
         "actions/node-test/node_test.py",
         "actions/pipeline/action.yml",
@@ -573,6 +575,8 @@
           ".github/workflows/suite-jobs.yml",
           "actions/measurement/caller.yml",
           "actions/measurement/measurement.py",
+          "actions/measurement/measurement_api.py",
+          "actions/measurement/measurement_store.py",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_list.py",
@@ -688,6 +692,8 @@
           "actions/measurement/action.yml",
           "actions/measurement/caller.yml",
           "actions/measurement/measurement.py",
+          "actions/measurement/measurement_api.py",
+          "actions/measurement/measurement_store.py",
           "actions/node-test/action.yml",
           "actions/node-test/node_test.py",
           "actions/pipeline/action.yml",
@@ -1550,6 +1556,38 @@
         },
         {
           "path": "actions/measurement/measurement.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_api",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/measurement/measurement_api.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_api.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_api.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_store",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/measurement/measurement_store.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_store.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_store.so",
           "kind": "any"
         },
         {
@@ -3658,6 +3696,38 @@
             "kind": "any"
           },
           {
+            "path": "actions/measurement/measurement_api",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/measurement/measurement_api.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/measurement/measurement_api.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/measurement/measurement_api.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/measurement/measurement_store",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/measurement/measurement_store.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/measurement/measurement_store.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/measurement/measurement_store.so",
+            "kind": "any"
+          },
+          {
             "path": "actions/suite-selection",
             "kind": "directory"
           },
@@ -5407,7 +5477,9 @@
           "tests"
         ],
         "actions/suite-selection": [
-          "measurement"
+          "measurement",
+          "measurement_api",
+          "measurement_store"
         ]
       },
       "entry_module_lookups": {
@@ -5491,7 +5563,9 @@
             "tests"
           ],
           "actions/suite-selection": [
-            "measurement"
+            "measurement",
+            "measurement_api",
+            "measurement_store"
           ]
         },
         "tests/test_ci_policy_off_path_runners.py": {
@@ -6072,7 +6146,7 @@
         "tests/test_consumer_kit_dependabot.py": 0.53,
         "tests/test_consumer_kit_fixed_callers.py": 1.66,
         "tests/test_consumer_kit_hygiene.py": 0.75,
-        "tests/test_consumer_kit_install_by_need.py": 0.9,
+        "tests/test_consumer_kit_install_by_need.py": 0.48,
         "tests/test_consumer_kit_installed_permissions.py": 0.71,
         "tests/test_consumer_kit_installed_targets.py": 0.54,
         "tests/test_consumer_kit_own_dependabot.py": 0.73,
@@ -13839,7 +13913,7 @@
         "tests/test_hygiene_push_and_reuse.py": 18.94,
         "tests/test_hygiene_repository_hygiene.py": 0.65,
         "tests/test_hygiene_reuse.py": 5.44,
-        "tests/test_hygiene_v1_promotion.py": 117.35,
+        "tests/test_hygiene_v1_promotion.py": 87.67,
         "tests/test_hygiene_workflow.py": 0.73,
         "tests/test_hygiene_zizmor.py": 1.66,
         "tests/test_hygiene_zizmor_configuration.py": 2.55,
@@ -17427,7 +17501,7 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_pipeline_automation_invocations.py": 2.52,
+        "tests/test_pipeline_automation_invocations.py": 1.38,
         "tests/test_pipeline_callers.py": 25.83,
         "tests/test_pipeline_custom.py": 5.75,
         "tests/test_pipeline_dependabot.py": 8.13,
@@ -21964,13 +22038,15 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_floor.py": 10.47
+        "tests/test_python_floor.py": 5.33
       },
       "paths": [
         "actions/dependabot-auto-merge/auto_merge.py",
         "actions/dotnet-test/dotnet_test.py",
         "actions/issue-title/issue_title.py",
         "actions/measurement/measurement.py",
+        "actions/measurement/measurement_api.py",
+        "actions/measurement/measurement_store.py",
         "actions/node-test/node_test.py",
         "actions/pipeline/consumer_checks.py",
         "actions/pipeline/plan.py",
@@ -24792,10 +24868,12 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_measurement.py": 9.4
+        "tests/test_measurement.py": 27.51
       },
       "paths": [
         "actions/measurement/measurement.py",
+        "actions/measurement/measurement_api.py",
+        "actions/measurement/measurement_store.py",
         "actions/pipeline/plan.py",
         "actions/pipeline/timeouts.json",
         "actions/repository-hygiene/dependabot_coverage.py",
@@ -24828,6 +24906,38 @@
         },
         {
           "path": "actions/measurement/measurement.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_api",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/measurement/measurement_api.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_api.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_api.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_store",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/measurement/measurement_store.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_store.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/measurement/measurement_store.so",
           "kind": "any"
         },
         {
@@ -24995,6 +25105,8 @@
     ],
     "actions/suite-selection": [
       "measurement",
+      "measurement_api",
+      "measurement_store",
       "tests"
     ],
     "actions/sync": [
