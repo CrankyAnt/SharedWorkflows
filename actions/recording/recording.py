@@ -2479,12 +2479,33 @@ def granted_write_directories(output: Path, provided: dict[str, dict], suite: su
     return tuple(directories)
 
 
+WINDOWS_SYSTEM_PREFIXES = ("windows", "programdata/microsoft/crypto")
+WINDOWS_USER_CACHE_SUBPATHS = (
+    "/appdata/locallow/microsoft/cryptneturlcache",
+    "/appdata/roaming/microsoft/systemcertificates",
+)
+MAX_DEPARTURES_PER_ENTRY = 10
+
+
+def is_windows_system_path(probe: str, system_root: str | None = None) -> bool:
+    """Whether a lowercased Windows ``dos_form`` path outside the checkout lies in an OS directory or OS-managed cache."""
+    if system_root and (probe == system_root or probe.startswith(system_root + "/")):
+        return True
+    if len(probe) >= 4 and probe[0] == "/" and probe[1].isalpha() and probe[2:4] == ":/":
+        rest = probe[4:]
+        if any(rest == prefix or rest.startswith(prefix + "/") for prefix in WINDOWS_SYSTEM_PREFIXES):
+            return True
+    return any(probe.endswith(subpath) or (subpath + "/") in probe for subpath in WINDOWS_USER_CACHE_SUBPATHS)
+
+
 def write_departures(output: Path, recorded: list[tuple[suite_selection.Suite, Unit, Reads]], root: Path,
                      *, etw: bool = False) -> list[tuple[str, str]]:
     """(where, path) pairs for every entry file that wrote outside its setup's grants."""
     provided = provisions(output)
     checkout_root = (str(root) if os.sep == "/" else dos_form(str(root))) if etw else normalize(str(root))
     folded_root = checkout_root.lower()
+    raw_system_root = os.environ.get("SystemRoot") if etw else None
+    system_root = dos_form(raw_system_root).lower() if raw_system_root and re.match(r"^[A-Za-z]:[\\/]", raw_system_root) else None
     departures: list[tuple[str, str]] = []
     for suite, unit, _ in recorded:
         if not unit.writes:
@@ -2496,7 +2517,10 @@ def write_departures(output: Path, recorded: list[tuple[suite_selection.Suite, U
             probe = path.lower() if etw else path
             if any(probe == grant or probe.startswith(grant + "/") for grant in folded_grants):
                 continue
-            if (probe if etw else path).startswith((folded_root if etw else checkout_root) + "/"):
+            inside_checkout = (probe if etw else path).startswith((folded_root if etw else checkout_root) + "/")
+            if etw and not inside_checkout and is_windows_system_path(probe, system_root):
+                continue
+            if inside_checkout:
                 display = path[len(checkout_root) + 1:]
             elif etw and re.match(r"^/[A-Za-z]:(/|$)", path):
                 display = path[1:]
@@ -2506,21 +2530,45 @@ def write_departures(output: Path, recorded: list[tuple[suite_selection.Suite, U
     return departures
 
 
-def report_departures(departures: list[tuple[str, str]]) -> None:
-    """Print each write departure and emit a warning annotation on a runner."""
+def bounded_departures(departures: list[tuple[str, str]]) -> list[tuple[str, list[str], int, int]]:
+    """Group ``(where, path)`` departures by entry file, yielding ``(where, shown, omitted, total)``."""
+    grouped: dict[str, list[str]] = {}
     for where, path in departures:
-        message = f"Departure: {where} wrote outside its setup's grants: `{path}`"
-        print(message)
-        if os.environ.get("GITHUB_ACTIONS") == "true":
-            escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-            print(f"::warning::{escaped}", flush=True)
+        grouped.setdefault(where, []).append(path)
+    return [(where, paths[:MAX_DEPARTURES_PER_ENTRY], max(0, len(paths) - MAX_DEPARTURES_PER_ENTRY), len(paths))
+            for where, paths in grouped.items()]
+
+
+def emit_warning(message: str) -> None:
+    """Emit a GitHub Actions ``::warning::`` annotation with workflow-command escaping."""
+    escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::warning::{escaped}", flush=True)
+
+
+def report_departures(departures: list[tuple[str, str]]) -> None:
+    """Print each write departure and emit bounded warning annotations on a runner."""
+    on_runner = os.environ.get("GITHUB_ACTIONS") == "true"
+    for where, shown, omitted, total in bounded_departures(departures):
+        for path in shown:
+            message = f"Departure: {where} wrote outside its setup's grants: `{path}`"
+            print(message)
+            if on_runner and not omitted:
+                emit_warning(message)
+        if omitted:
+            print(f"Departure: {where} wrote to {omitted} more path{'' if omitted == 1 else 's'} outside its setup's grants ({total} total)")
+            if on_runner:
+                emit_warning(f"Departure: {where} wrote to {total} paths outside its setup's grants "
+                             f"({omitted} omitted from log; first: `{shown[0]}`)")
 
 
 def departures_summary(departures: list[tuple[str, str]]) -> str:
     if not departures:
         return ""
     lines = ["", "### Departures", "", "| Entry file | Write outside setup grants |", "| --- | --- |"]
-    lines += [f"| {where} | `{path}` |" for where, path in departures]
+    for where, shown, omitted, total in bounded_departures(departures):
+        lines += [f"| {where} | `{path}` |" for path in shown]
+        if omitted:
+            lines.append(f"| {where} | ... and {omitted} more path{'' if omitted == 1 else 's'} ({total} total) |")
     return "\n".join(lines) + "\n"
 
 
