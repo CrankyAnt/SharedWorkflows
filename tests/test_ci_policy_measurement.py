@@ -17,6 +17,7 @@ CALLER = REPOSITORY_ROOT / PART / "caller.yml"
 ACTION = REPOSITORY_ROOT / PART / "action.yml"
 SECRET = "MEASUREMENT_APP_PRIVATE_KEY"
 TOKEN_ACTION = "actions/create-github-app-token"
+UPLOAD_ACTION = "actions/upload-artifact"
 SHARED = "CrankyAnt/SharedWorkflows"
 
 sys.path.insert(0, str(REPOSITORY_ROOT / PART))
@@ -42,13 +43,17 @@ class MeasurementWorkflowContractTests(unittest.TestCase):
         self.assertEqual({"workflow_call"}, workflow_triggers(self.text, "measurement.yml"))
         self.assertEqual("{}", self.document.get("permissions"))
         self.assertEqual(["measurement"], list(self.document["jobs"]))
-        self.assertEqual({"issues": "write"}, self.job["permissions"])
+        self.assertEqual("ubuntu-slim", self.job["runs-on"])
+        timeout = int(self.job["timeout-minutes"])
+        self.assertGreaterEqual(timeout, 10)
+        self.assertLessEqual(timeout, 14, "timeout must cancel cleanly before ubuntu-slim's 15-minute hard limit")
+        self.assertEqual({"actions": "read", "issues": "write"}, self.job["permissions"])
         self.assertEqual("measurement", self.job["environment"])
         self.assertEqual("${{ github.ref == 'refs/heads/main' }}", self.job["if"])
         self.assertEqual([SECRET], list(self.document["on"]["workflow_call"]["secrets"]))
         self.assertEqual(1, self.text.count(f"secrets.{SECRET}"))
         outside = [value for value in uses_values(self.text, "measurement.yml") if not value.startswith("$/")]
-        self.assertEqual([TOKEN_ACTION], [value.split("@")[0] for value in outside])
+        self.assertEqual([TOKEN_ACTION, UPLOAD_ACTION], [value.split("@")[0] for value in outside])
         for line in self.text.splitlines():
             if "uses:" in line and "$/" not in line:
                 with self.subTest(line=line.strip()):
@@ -66,14 +71,25 @@ class MeasurementWorkflowContractTests(unittest.TestCase):
             token["with"],
         )
 
-    def test_the_workflow_invokes_measurement_py_measure_and_failure(self) -> None:
+    def test_the_workflow_invokes_measurement_py_measure_uploads_the_store_and_runs_failure(self) -> None:
         invocations = script_invocations(WORKFLOW, "measurement.py")
         self.assertEqual(2, len(invocations))
         measure_options = measurement_program.parser().parse_args(invocations[0])
         self.assertEqual("measure", measure_options.command)
         self.assertFalse(measure_options.local)
+        self.assertEqual(measurement_program.MEASUREMENT_STORE_FILENAME, measure_options.store_out)
+        self.assertEqual(measurement_program.DEFAULT_MAX_RPS, measure_options.max_rps)
         failure_options = measurement_program.parser().parse_args(invocations[1])
         self.assertEqual("failure", failure_options.command)
+        upload_step = next(step for step in self.job["steps"] if str(step.get("uses", "")).startswith(UPLOAD_ACTION))
+        self.assertEqual(
+            f"${{{{ always() && hashFiles('{measurement_program.MEASUREMENT_STORE_FILENAME}') != '' }}}}",
+            upload_step["if"],
+        )
+        self.assertEqual(measurement_program.MEASUREMENT_STORE_ARTIFACT, upload_step["with"]["name"])
+        self.assertEqual(measurement_program.MEASUREMENT_STORE_FILENAME, upload_step["with"]["path"])
+        self.assertEqual(30, int(upload_step["with"]["retention-days"]))
+        self.assertEqual("error", upload_step["with"]["if-no-files-found"])
         failure_step = self.job["steps"][-1]
         self.assertEqual("${{ failure() || cancelled() }}", failure_step["if"])
 
@@ -106,6 +122,7 @@ class MeasurementAppDocumentTests(unittest.TestCase):
         self.assertIn("The App is installed on selected repositories only", self.app)
         self.assertIn("Create the environment `measurement`", self.environment)
         self.assertIn("add `main` as the only branch", self.environment)
+        self.assertIn("before moving `v1`", self.environment)
         for name, reference in (("MEASUREMENT_APP_CLIENT_ID", "vars.MEASUREMENT_APP_CLIENT_ID"), (SECRET, f"secrets.{SECRET}")):
             self.assertIn(f"`{name}`", self.app)
             self.assertIn(f"`{name}`", self.environment)
@@ -125,13 +142,18 @@ class MeasurementCallerTemplateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text, self.document = read_workflow(CALLER)
 
-    def test_the_caller_schedules_the_measurement_and_calls_the_shared_workflow_at_v1(self) -> None:
+    def test_the_caller_schedules_the_measurement_daily_and_calls_the_shared_workflow_at_v1(self) -> None:
         triggers = workflow_triggers(self.text, "caller.yml")
         self.assertEqual({"schedule", "workflow_dispatch"}, triggers)
+        crons = [entry["cron"] for entry in self.document["on"]["schedule"]]
+        self.assertEqual(1, len(crons))
+        fields = crons[0].split()
+        self.assertEqual(5, len(fields))
+        self.assertEqual(["*", "*", "*"], fields[2:], "the caller schedule runs daily")
         self.assertEqual("{}", self.document.get("permissions"))
         self.assertEqual(["measurement"], list(self.document["jobs"]))
         job = self.document["jobs"]["measurement"]
-        self.assertEqual({"issues": "write"}, job["permissions"])
+        self.assertEqual({"actions": "read", "issues": "write"}, job["permissions"])
         self.assertEqual({SECRET: f"${{{{ secrets.{SECRET} }}}}"}, job["secrets"])
         self.assertEqual(f"{SHARED}/.github/workflows/measurement.yml@v1", job["uses"])
         self.assertNotIn("steps", job)

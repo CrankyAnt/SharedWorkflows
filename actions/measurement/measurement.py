@@ -3,36 +3,93 @@
 
     python3 measurement.py measure [--own-repository OWNER/NAME] [common options]
     python3 measurement.py measure --local --repository OWNER/NAME [--repository ...] [common options]
+    python3 measurement.py report --store FILE [--window-days DAYS] [--now TIME]
+                                  [--repository OWNER/NAME ...] [--summary FILE] [--json-output FILE]
     python3 measurement.py failure --own-repository OWNER/NAME --run-url URL [--api-url URL] [--summary FILE]
 
     common options: [--api-url URL] [--workflow FILE] [--window-days DAYS] [--now TIME]
+                    [--store-in FILE] [--store-out FILE] [--workers N] [--max-rps N]
+                    [--time-budget SECONDS] [--request-budget N] [--ratelimit-reserve N]
                     [--summary FILE] [--json-output FILE]
 """
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import copy
 import datetime
 import enum
-import io
 import json
 import math
 import os
 import re
 import statistics
 import sys
-import urllib.error
+import threading
+import time
 import urllib.parse
-import urllib.request
-import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-API_TIMEOUT = 30
-PAGE = 100
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
+from measurement_api import (  # noqa: E402
+    API_TIMEOUT,
+    DEFAULT_MAX_RPS,
+    DEFAULT_MIN_SECONDARY_WAIT_SECONDS,
+    DEFAULT_RATELIMIT_RESERVE,
+    DEFAULT_REQUEST_BUDGET,
+    DEFAULT_TIME_BUDGET_SECONDS,
+    PAGE,
+    Api,
+    BudgetController,
+    BudgetStoppedError,
+    MeasurementError,
+    RateLimitError,
+    RateLimitKind,
+    RatePacer,
+    SetupError,
+    extract_json_from_zip,
+    format_moment,
+    moment,
+    token,
+)
+from measurement_store import (  # noqa: E402
+    DEFAULT_RETENTION_DAYS,
+    FROZEN_STATES,
+    JUDGE_VERSION,
+    MEASUREMENT_STORE_ARTIFACT,
+    MEASUREMENT_STORE_FILENAME,
+    SCHEMA_VERSION,
+    FixedCostOutcome,
+    FixedCostSample,
+    RecordState,
+    StoreInvalidError,
+    StoreLoadInfo,
+    empty_repo_entry,
+    empty_store,
+    load_store_from_artifact,
+    load_store_from_file,
+    make_record,
+    prune_store,
+    record_state,
+    write_store_atomic,
+)
+
 CREATED_SEARCH_CAP = 1000
 DEFAULT_WINDOW_DAYS = 28
+CI_PLAN_RETENTION_DAYS = 30
+SETTLE_MINUTES = 30
+LISTING_OVERLAP_DAYS = 1
+FINDING_COOLDOWN_DAYS = 7
 DEFAULT_WORKFLOW = "ci.yml"
+DEFAULT_WORKERS = 6
+CHECKPOINT_INTERVAL_ITEMS = 25
+CHECKPOINT_INTERVAL_SECONDS = 30.0
+
 THREE_MINUTE_SECONDS = 180.0
 THREE_MINUTE_TARGET = 0.99
 ONE_MINUTE_SECONDS = 60.0
@@ -50,6 +107,45 @@ FIXED_COST_QUANTILE = 0.95
 SUITE_SELECTION_SCRIPT = Path(__file__).resolve().parent.parent / "suite-selection" / "suite_selection.py"
 MARKER = "<!-- measurement-finding: {key} -->"
 MARKER_PATTERN = re.compile(r"<!-- measurement-finding: (\S+) -->")
+
+__all__ = [
+    "API_TIMEOUT",
+    "DEFAULT_MAX_RPS",
+    "ENTRY_FILE_STEP",
+    "FixedCostOutcome",
+    "FixedCostSample",
+    "JUDGE_VERSION",
+    "MEASUREMENT_STORE_ARTIFACT",
+    "MEASUREMENT_STORE_FILENAME",
+    "PYTHON_LANGUAGE_STEP",
+    "RateLimitKind",
+    "RecordState",
+    "SCHEMA_VERSION",
+    "StoreInvalidError",
+    "assumed_fixed_cost_seconds",
+    "language_step_allowance_seconds",
+    "main",
+    "parser",
+]
+
+
+class WorkKind(enum.Enum):
+    NEW = "new"
+    UNFINISHED = "unfinished"
+    REJUDGE = "rejudge"
+
+
+@dataclass(frozen=True)
+class MeasurementWindow:
+    cutoff: datetime.datetime
+    now: datetime.datetime
+    window_days: int
+
+
+@dataclass(frozen=True)
+class FixedCostThresholds:
+    assumed_fixed_cost: float
+    language_step_allowance: float
 
 
 def _suite_selection_constant(name: str) -> float:
@@ -71,94 +167,95 @@ def language_step_allowance_seconds() -> float:
     return _suite_selection_constant("LANGUAGE_STEP_ALLOWANCE_SECONDS")
 
 
-class SetupError(Exception):
-    """The command arguments or tokens cannot be used; the message says why."""
+def current_thresholds() -> FixedCostThresholds:
+    return FixedCostThresholds(
+        assumed_fixed_cost=assumed_fixed_cost_seconds(),
+        language_step_allowance=language_step_allowance_seconds(),
+    )
 
 
-class MeasurementError(Exception):
-    """A repository could not be measured or an API request failed; the message says why."""
-
-
-class Api:
-    """The GitHub REST API, asked with one token. A 404 returns None; any other error raises MeasurementError."""
-
-    def __init__(self, base: str, token: str) -> None:
-        self.base, self.token = base.rstrip("/"), token
-
-    def _headers(self, accept: str = "application/vnd.github+json") -> dict[str, str]:
-        return {
-            "Accept": accept,
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": f"Bearer {self.token}",
-        }
-
-    def request_json(self, method: str, path: str, body: dict | None = None) -> tuple[int, object]:
-        headers = self._headers()
-        data = None
-        if body is not None:
-            data = json.dumps(body).encode("utf-8")
-            headers["Content-Type"] = "application/json"
-        request = urllib.request.Request(f"{self.base}/{path}", data=data, headers=headers, method=method)
+def _select_plan_artifact(candidates: list[dict], max_created_at: datetime.datetime) -> dict | None:
+    qualified: list[tuple[datetime.datetime, dict]] = []
+    for item in candidates:
+        if item.get("name") != PLAN_ARTIFACT_NAME or item.get("expired"):
+            continue
+        if not isinstance(item.get("id"), int):
+            continue
+        created_raw = item.get("created_at")
+        if not isinstance(created_raw, str) or not created_raw:
+            continue
         try:
-            with urllib.request.urlopen(request, timeout=API_TIMEOUT) as response:  # noqa: S310 - the API host of the run
-                text = response.read().decode("utf-8")
-                return response.status, json.loads(text) if text else None
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return 404, None
-            raise MeasurementError(f"{method} {path}: HTTP {error.code}") from error
-        except (urllib.error.URLError, OSError, ValueError) as error:
-            raise MeasurementError(f"{method} {path}: {getattr(error, 'reason', error)}") from error
+            created_at = moment(created_raw)
+        except ValueError:
+            continue
+        if created_at <= max_created_at:
+            qualified.append((created_at, item))
+    if not qualified:
+        return None
+    qualified.sort(key=lambda pair: pair[0])
+    return qualified[0][1]
 
-    def get(self, path: str) -> object:
-        return self.request_json("GET", path)[1]
 
-    def send(self, method: str, path: str, body: dict) -> dict:
-        status, document = self.request_json(method, path, body)
-        if status == 404 or not isinstance(document, dict):
-            raise MeasurementError(f"{method} {path}: GitHub does not know this address, or the token may not use it")
-        return document
+def _download_plan_zip(api: Api, repository: str, artifact_id: int) -> dict | None:
+    raw = api.get_bytes(f"repos/{repository}/actions/artifacts/{artifact_id}/zip")
+    if not raw:
+        return None
+    try:
+        document = extract_json_from_zip(raw, "ci-plan.json", error_type=ValueError)
+    except ValueError:
+        return None
+    return document if isinstance(document, dict) else None
 
-    def pages(self, path: str, key: str | None = None, *, allow_missing: bool = False) -> list[dict] | None:
-        items: list[dict] = []
-        page = 1
-        while True:
-            separator = "&" if "?" in path else "?"
-            status, document = self.request_json("GET", f"{path}{separator}per_page={PAGE}&page={page}")
-            if status == 404:
-                if allow_missing and page == 1:
-                    return None
-                raise MeasurementError(f"GET {path}: HTTP 404")
-            found = document.get(key) if key and isinstance(document, dict) else document
-            if not isinstance(found, list):
-                raise MeasurementError(f"GET {path}: expected a list")
-            items += [item for item in found if isinstance(item, dict)]
-            if len(found) < PAGE:
-                return items
-            page += 1
 
-    def get_bytes(self, path: str) -> bytes | None:
-        """Download binary content from ``path`` (e.g. an artifact zip), returning None on 404/410."""
-        origin = urllib.parse.urlsplit(self.base).netloc
+class RepoPlanArtifactIndex:
+    """Lazy per-repository index of ``ci-plan`` artifacts fetched at repository scope when cheaper than per-run."""
 
-        class _RedirectHandler(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
-                if redirected is not None and urllib.parse.urlsplit(newurl).netloc != origin:
-                    redirected.remove_header("Authorization")
-                return redirected
+    def __init__(self, api: Api, repository: str, planned_runs: int) -> None:
+        self.api = api
+        self.repository = repository
+        self.planned_runs = planned_runs
+        self._lock = threading.Lock()
+        self._loaded = False
+        self._use_per_run = planned_runs <= 1
+        self._by_run: dict[int, list[dict]] = {}
 
-        opener = urllib.request.build_opener(_RedirectHandler)
-        request = urllib.request.Request(f"{self.base}/{path}", headers=self._headers(), method="GET")
-        try:
-            with opener.open(request, timeout=API_TIMEOUT) as response:  # noqa: S310 - the API host of the run
-                return response.read()
-        except urllib.error.HTTPError as error:
-            if error.code in (404, 410):
-                return None
-            raise MeasurementError(f"GET {path}: HTTP {error.code}") from error
-        except (urllib.error.URLError, OSError) as error:
-            raise MeasurementError(f"GET {path}: {getattr(error, 'reason', error)}") from error
+    def _ensure_loaded(self) -> None:
+        with self._lock:
+            if self._loaded or self._use_per_run:
+                return
+            path = f"repos/{self.repository}/actions/artifacts?name={urllib.parse.quote(PLAN_ARTIFACT_NAME)}"
+            all_items: list[dict] = []
+            for page_number, total_count, items in self.api.iter_pages(path, "artifacts", allow_missing=True):
+                if page_number == 1:
+                    total_pages = math.ceil(total_count / PAGE) if total_count and total_count > 0 else 1
+                    if total_pages > self.planned_runs:
+                        self._use_per_run = True
+                        self._loaded = True
+                        return
+                all_items.extend(items)
+            by_run: dict[int, list[dict]] = {}
+            missing_run_link = False
+            for item in all_items:
+                workflow_run = item.get("workflow_run")
+                if isinstance(workflow_run, dict) and isinstance(workflow_run.get("id"), int):
+                    by_run.setdefault(workflow_run["id"], []).append(item)
+                else:
+                    missing_run_link = True
+            if missing_run_link and not by_run:
+                self._use_per_run = True
+            else:
+                self._by_run = by_run
+            self._loaded = True
+
+    def read_plan(self, run_id: int, max_created_at: datetime.datetime) -> dict | None:
+        self._ensure_loaded()
+        if self._use_per_run:
+            return read_plan_artifact(self.api, self.repository, run_id, max_created_at=max_created_at)
+        candidates = self._by_run.get(run_id, [])
+        artifact = _select_plan_artifact(candidates, max_created_at)
+        if artifact is None:
+            return None
+        return _download_plan_zip(self.api, self.repository, int(artifact["id"]))
 
 
 def read_plan_artifact(
@@ -177,40 +274,14 @@ def read_plan_artifact(
     )
     if not artifacts:
         return None
-    candidates = [item for item in artifacts if item.get("name") == PLAN_ARTIFACT_NAME and not item.get("expired")]
     if max_created_at is not None:
-        qualified: list[tuple[datetime.datetime, dict]] = []
-        for item in candidates:
-            created_raw = item.get("created_at")
-            if not isinstance(created_raw, str) or not created_raw:
-                continue
-            try:
-                created_at = moment(created_raw)
-            except ValueError:
-                continue
-            if created_at <= max_created_at:
-                qualified.append((created_at, item))
-        if not qualified:
-            return None
-        qualified.sort(key=lambda pair: pair[0])
-        artifact = qualified[0][1]
+        artifact = _select_plan_artifact(artifacts, max_created_at)
     else:
+        candidates = [item for item in artifacts if item.get("name") == PLAN_ARTIFACT_NAME and not item.get("expired")]
         artifact = candidates[0] if candidates else None
     if artifact is None or not isinstance(artifact.get("id"), int):
         return None
-    raw = api.get_bytes(f"repos/{repository}/actions/artifacts/{artifact['id']}/zip")
-    if not raw:
-        return None
-    try:
-        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            names = [name for name in archive.namelist() if name.endswith(".json")]
-            if not names:
-                return None
-            chosen = "ci-plan.json" if "ci-plan.json" in names else names[0]
-            document = json.loads(archive.read(chosen).decode("utf-8"))
-    except (zipfile.BadZipFile, OSError, UnicodeDecodeError, ValueError):
-        return None
-    return document if isinstance(document, dict) else None
+    return _download_plan_zip(api, repository, artifact["id"])
 
 
 def plan_selects_no_tests(plan: dict) -> bool:
@@ -255,18 +326,6 @@ def plan_fallbacks(plan: dict) -> dict[str, int]:
     return {name: count for name, count in raw.items() if isinstance(name, str) and isinstance(count, int) and count > 0}
 
 
-def moment(text: str) -> datetime.datetime:
-    parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.timezone.utc)
-
-
-def token(name: str) -> str:
-    value = os.environ.get(name, "")
-    if not value:
-        raise SetupError(f"the environment holds no token in {name}")
-    return value
-
-
 def short_job_name(job: dict) -> str:
     return str(job.get("name") or "").rsplit(" / ", 1)[-1]
 
@@ -279,37 +338,6 @@ def verdict_job(jobs: list[dict]) -> dict | None:
         if job.get("status") == "completed" and job.get("conclusion") in VERDICT_CONCLUSIONS and job.get("completed_at"):
             return job
     return None
-
-
-class FixedCostOutcome(enum.Enum):
-    SAMPLE = "sample"
-    NON_SHARD = "non-shard"
-    UNMATCHED = "unmatched"
-    SKIP = "skip"
-
-
-@dataclass(frozen=True)
-class FixedCostSample:
-    fixed_cost: float
-    outside_entry_step: float
-    step_excess: float
-    language_step_seconds: float
-    plan_seconds: float
-    queue_seconds: float
-    shard_to_entry_seconds: float
-    after_entry_seconds: float
-    results_seconds: float
-    verdict_seconds: float
-
-    def phases_document(self) -> dict[str, float]:
-        return {
-            "plan": round(self.plan_seconds, 1),
-            "queue": round(self.queue_seconds, 1),
-            "shard_to_entry": round(self.shard_to_entry_seconds, 1),
-            "after_entry": round(self.after_entry_seconds, 1),
-            "results": round(self.results_seconds, 1),
-            "verdict": round(self.verdict_seconds, 1),
-        }
 
 
 def _step_by_name(job: dict, name: str) -> dict | None:
@@ -451,13 +479,327 @@ def fixed_cost_of_run(
     )
 
 
+# ---------------------------------------------------------------------------
+# Fetching: listing with cap-splitting, and attempt-1 run judging
+# ---------------------------------------------------------------------------
+
+
+def _list_runs_range(
+    api: Api,
+    repository: str,
+    workflow: str,
+    start: datetime.datetime,
+    end: datetime.datetime,
+    *,
+    use_ge_start: bool,
+) -> list[dict] | None:
+    created_expr = f">={start.strftime('%Y-%m-%d')}" if use_ge_start else f"{format_moment(start)}..{format_moment(end)}"
+    encoded_created = urllib.parse.quote(created_expr, safe="")
+    base_path = (
+        f"repos/{repository}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
+        f"?created={encoded_created}&exclude_pull_requests=true"
+    )
+
+    def split_or_fail() -> list[dict]:
+        span_seconds = int((end - start).total_seconds())
+        if span_seconds < 1:
+            raise MeasurementError(
+                f"workflow runs listing for {workflow} reached GitHub's {CREATED_SEARCH_CAP}-result cap under created={created_expr}"
+            )
+        mid = start + datetime.timedelta(seconds=span_seconds // 2)
+        left = _list_runs_range(api, repository, workflow, start, mid, use_ge_start=False) or []
+        right = _list_runs_range(api, repository, workflow, mid + datetime.timedelta(seconds=1), end, use_ge_start=False) or []
+        by_id: dict[int, dict] = {}
+        for run in left + right:
+            run_id = run.get("id")
+            if isinstance(run_id, int):
+                by_id[run_id] = run
+        return list(by_id.values())
+
+    items: list[dict] = []
+    saw_page = False
+    for page_number, total_count, page_items in api.iter_pages(base_path, "workflow_runs", allow_missing=True):
+        saw_page = True
+        if page_number == 1 and total_count is not None and total_count >= CREATED_SEARCH_CAP:
+            return split_or_fail()
+        items.extend(page_items)
+        if len(items) >= CREATED_SEARCH_CAP:
+            return split_or_fail()
+    if not saw_page:
+        return None
+    return items
+
+
+def list_repository_runs(
+    api: Api,
+    repository: str,
+    workflow: str,
+    repo_entry: dict,
+    window: MeasurementWindow,
+) -> tuple[bool, set[int]]:
+    """List the uncovered part of ``window`` (plus overlap), upserting stub records into ``repo_entry``.
+    Return ``(has_workflow, seen_run_ids)``."""
+    listed_from_raw = repo_entry.get("listed_from")
+    listed_to_raw = repo_entry.get("listed_to")
+    ranges: list[tuple[datetime.datetime, datetime.datetime, bool]] = []
+    if listed_from_raw is None or listed_to_raw is None:
+        ranges.append((window.cutoff, window.now, True))
+    else:
+        listed_from = moment(listed_from_raw)
+        listed_to = moment(listed_to_raw)
+        overlap_start = max(window.cutoff, listed_to - datetime.timedelta(days=LISTING_OVERLAP_DAYS))
+        ranges.append((overlap_start, window.now, True))
+        if window.cutoff < listed_from:
+            backfill_end = min(window.now, listed_from + datetime.timedelta(days=LISTING_OVERLAP_DAYS))
+            ranges.append((window.cutoff, backfill_end, False))
+
+    seen_ids: set[int] = set()
+    all_runs: list[dict] = []
+    for range_start, range_end, use_ge in ranges:
+        found = _list_runs_range(api, repository, workflow, range_start, range_end, use_ge_start=use_ge)
+        if found is None:
+            repo_entry["has_workflow"] = False
+            return False, set()
+        all_runs.extend(found)
+
+    repo_entry["has_workflow"] = True
+    records: dict[str, dict] = repo_entry["records"]
+    for run in all_runs:
+        if run.get("event") in MANUAL_EVENTS:
+            continue
+        created_raw = run.get("created_at")
+        if not isinstance(created_raw, str) or not created_raw:
+            continue
+        created_at = moment(created_raw)
+        if created_at < window.cutoff or created_at > window.now:
+            continue
+        run_id = run.get("id")
+        if not isinstance(run_id, int) or isinstance(run_id, bool):
+            continue
+        seen_ids.add(run_id)
+        key = str(run_id)
+        attempt = int(run.get("run_attempt") or 1)
+        status = str(run.get("status") or "unknown")
+        conclusion = run.get("conclusion") if isinstance(run.get("conclusion"), str) else None
+        updated_at = run.get("updated_at") if isinstance(run.get("updated_at"), str) else None
+        existing = records.get(key)
+        if existing is None:
+            records[key] = make_record(
+                run_id=run_id,
+                created_at=created_raw,
+                run_attempt=attempt,
+                status=status,
+                conclusion=conclusion,
+                updated_at=updated_at,
+                state=RecordState.PENDING,
+            )
+        elif record_state(existing) in (RecordState.PENDING, RecordState.UNFINISHED):
+            existing["run_attempt"] = attempt
+            existing["status"] = status
+            existing["conclusion"] = conclusion
+            existing["updated_at"] = updated_at
+
+    new_from = min(moment(listed_from_raw), window.cutoff) if listed_from_raw is not None else window.cutoff
+    new_to = max(moment(listed_to_raw), window.now) if listed_to_raw is not None else window.now
+    repo_entry["listed_from"] = format_moment(new_from)
+    repo_entry["listed_to"] = format_moment(new_to)
+    return True, seen_ids
+
+
+def _latest_job_completed_at(jobs: list[dict] | None) -> datetime.datetime | None:
+    latest: datetime.datetime | None = None
+    for job in jobs or ():
+        raw = job.get("completed_at")
+        if isinstance(raw, str) and raw:
+            try:
+                timestamp = moment(raw)
+            except ValueError:
+                continue
+            if latest is None or timestamp > latest:
+                latest = timestamp
+    return latest
+
+
+def _mark_unfinished(record: dict, now: datetime.datetime) -> dict:
+    record["state"] = RecordState.UNFINISHED.value
+    record["judged_at"] = format_moment(now)
+    return record
+
+
+def _mark_non_verdict_terminal(record: dict, state: RecordState, now: datetime.datetime) -> dict:
+    record["state"] = state.value
+    record["verdict_completed_at"] = None
+    record["duration_seconds"] = None
+    record["plan_found"] = None
+    record["selects_no_tests"] = None
+    record["fallbacks"] = {}
+    record["unknown_input_parts"] = []
+    record["fixed_cost_outcome"] = None
+    record["fixed_cost_sample"] = None
+    record["judged_at"] = format_moment(now)
+    record["judge_version"] = JUDGE_VERSION
+    return record
+
+
+def judge_record(
+    api: Api,
+    repository: str,
+    record: dict,
+    now: datetime.datetime,
+    *,
+    in_overlap: bool,
+    plan_index: RepoPlanArtifactIndex,
+    is_rejudge: bool = False,
+) -> dict:
+    """Fetch first-attempt jobs and plan for ``record`` and return its updated record dictionary."""
+    updated = copy.deepcopy(record)
+    run_id = int(updated["run_id"])
+    created_at = moment(updated["created_at"])
+    settle_delta = datetime.timedelta(minutes=SETTLE_MINUTES)
+
+    # Refresh an older unfinished record that fell outside today's listing overlap.
+    if record_state(updated) is RecordState.UNFINISHED and not in_overlap:
+        run_status, run_doc = api.request_json("GET", f"repos/{repository}/actions/runs/{run_id}")
+        if run_status == 404:
+            return _mark_non_verdict_terminal(updated, RecordState.DELETED, now)
+        if isinstance(run_doc, dict):
+            updated["run_attempt"] = int(run_doc.get("run_attempt") or 1)
+            updated["status"] = str(run_doc.get("status") or updated["status"])
+            updated["conclusion"] = run_doc.get("conclusion") if isinstance(run_doc.get("conclusion"), str) else None
+            updated["updated_at"] = run_doc.get("updated_at") if isinstance(run_doc.get("updated_at"), str) else None
+
+    attempt = int(updated.get("run_attempt") or 1)
+    if attempt > 1:
+        attempt_path = f"repos/{repository}/actions/runs/{run_id}/attempts/1"
+        attempt_status_code, attempt_doc = api.request_json("GET", attempt_path)
+        if attempt_status_code == 404 or not isinstance(attempt_doc, dict):
+            raise MeasurementError(f"GET {attempt_path}: expected attempt 1 object (HTTP {attempt_status_code})")
+        attempt_status = attempt_doc.get("status")
+        attempt_conclusion = attempt_doc.get("conclusion")
+        attempt_updated_raw = attempt_doc.get("updated_at")
+    else:
+        attempt_status = updated.get("status")
+        attempt_conclusion = updated.get("conclusion")
+        attempt_updated_raw = updated.get("updated_at")
+
+    if attempt_status != "completed":
+        return _mark_unfinished(updated, now)
+
+    if attempt_conclusion == "cancelled":
+        completed_moment = moment(attempt_updated_raw) if isinstance(attempt_updated_raw, str) and attempt_updated_raw else created_at
+        if (now - completed_moment) < settle_delta:
+            return _mark_unfinished(updated, now)
+        return _mark_non_verdict_terminal(updated, RecordState.EXCLUDED_CANCELLED, now)
+
+    # Always judge through attempts/1/jobs so a concurrent re-run never leaks attempt 2 jobs.
+    jobs = api.pages(f"repos/{repository}/actions/runs/{run_id}/attempts/1/jobs", "jobs", allow_missing=(attempt == 1))
+    verdict = verdict_job(jobs) if jobs else None
+    if verdict is None:
+        completed_moment = (
+            _latest_job_completed_at(jobs)
+            or (moment(attempt_updated_raw) if isinstance(attempt_updated_raw, str) and attempt_updated_raw else None)
+            or created_at
+        )
+        if (now - completed_moment) < settle_delta:
+            return _mark_unfinished(updated, now)
+        return _mark_non_verdict_terminal(updated, RecordState.NO_VERDICT, now)
+
+    completed_at = moment(str(verdict["completed_at"]))
+    if (now - completed_at) < settle_delta:
+        return _mark_unfinished(updated, now)
+
+    # Always pass max_created_at = attempt 1 verdict completed_at so a later re-run's ci-plan never wins.
+    plan = plan_index.read_plan(run_id, completed_at)
+    # During a judge-version re-judge, if the ci-plan artifact has already expired, keep the old record intact.
+    if is_rejudge and record.get("plan_found") is True and plan is None:
+        return copy.deepcopy(record)
+
+    duration = max(0.0, (completed_at - created_at).total_seconds())
+    plan_found = plan is not None
+    selects_no_tests = plan_selects_no_tests(plan) if plan is not None else None
+    fallbacks = plan_fallbacks(plan) if plan is not None else {}
+    unknown_parts = sorted(plan_unknown_input_parts(plan)) if plan is not None else []
+    outcome, sample = fixed_cost_of_run(created_at, verdict, jobs or [], plan)
+
+    updated["state"] = RecordState.VERDICT.value
+    updated["verdict_completed_at"] = str(verdict["completed_at"])
+    updated["duration_seconds"] = duration
+    updated["plan_found"] = plan_found
+    updated["selects_no_tests"] = selects_no_tests
+    updated["fallbacks"] = fallbacks
+    updated["unknown_input_parts"] = unknown_parts
+    updated["fixed_cost_outcome"] = outcome.value
+    updated["fixed_cost_sample"] = sample.to_dict() if sample is not None else None
+    updated["judged_at"] = format_moment(now)
+    updated["judge_version"] = JUDGE_VERSION
+    return updated
+
+
+# ---------------------------------------------------------------------------
+# Coverage & aggregation from store records
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CoverageInfo:
+    complete: bool
+    listed_from: str | None = None
+    listed_to: str | None = None
+    pending_runs: int = 0
+    unchecked_unfinished_runs: int = 0
+    stale_judge_runs: int = 0
+    deleted_runs: int = 0
+    judge_versions: tuple[int, ...] = ()
+    window_days: int = DEFAULT_WINDOW_DAYS
+    covered_days: float | None = None
+
+    def format_cell(self, *, show_judge_versions: bool = False) -> str:
+        notes: list[str] = []
+        if self.deleted_runs:
+            notes.append(f"{self.deleted_runs} deleted")
+        if self.judge_versions and (show_judge_versions or any(version != JUDGE_VERSION for version in self.judge_versions)):
+            versions = ", ".join(f"v{version}" for version in self.judge_versions)
+            notes.append(f"judge {versions}")
+        notes_suffix = f"; {'; '.join(notes)}" if notes else ""
+        if self.complete:
+            since = self.listed_from[:10] if self.listed_from else "unknown"
+            return f"complete (since {since}{notes_suffix})"
+        reasons: list[str] = []
+        if self.listed_from is None or self.listed_to is None:
+            reasons.append("not listed")
+        elif self.covered_days is not None and self.covered_days + 0.01 < self.window_days:
+            reasons.append(f"listed {self.listed_from[:10]}..{self.listed_to[:10]} ({self.covered_days:.0f}/{self.window_days}d)")
+        if self.pending_runs:
+            reasons.append(f"build-up: {self.pending_runs} pending")
+        if self.unchecked_unfinished_runs:
+            reasons.append(f"{self.unchecked_unfinished_runs} unfinished unchecked")
+        if self.stale_judge_runs:
+            reasons.append(f"{self.stale_judge_runs} stale judge")
+        detail = ", ".join(reasons) if reasons else "incomplete"
+        return f"partial ({detail}{notes_suffix})"
+
+    def document(self) -> dict:
+        return {
+            "complete": self.complete,
+            "listed_from": self.listed_from,
+            "listed_to": self.listed_to,
+            "pending_runs": self.pending_runs,
+            "unchecked_unfinished_runs": self.unchecked_unfinished_runs,
+            "stale_judge_runs": self.stale_judge_runs,
+            "deleted_runs": self.deleted_runs,
+            "judge_versions": list(self.judge_versions),
+        }
+
+
 @dataclass
 class RepositoryMetrics:
     repository: str
     has_workflow: bool = True
     error: str | None = None
+    coverage: CoverageInfo = field(default_factory=lambda: CoverageInfo(complete=True))
     verdict_runs: int = 0
     non_verdict_runs: int = 0
+    deleted_runs: int = 0
     within_3m_count: int = 0
     durations: list[float] = field(default_factory=list)
     no_tests_durations: list[float] = field(default_factory=list)
@@ -491,20 +833,22 @@ class RepositoryMetrics:
         index = math.ceil(FIXED_COST_QUANTILE * len(ordered)) - 1
         return ordered[index]
 
-    def document(self, assumed_fixed_cost: float, language_step_allowance: float) -> dict:
+    def document(self, thresholds: FixedCostThresholds) -> dict:
         sample = self.fixed_cost_p95
         language_step_p95 = self.language_step_p95_seconds
         return {
             "has_workflow": self.has_workflow,
             "error": self.error,
+            "coverage": self.coverage.document(),
             "verdict_runs": self.verdict_runs,
             "non_verdict_runs": self.non_verdict_runs,
+            "deleted_runs": self.deleted_runs,
             "within_3m_count": self.within_3m_count,
             "within_3m_share": self.within_3m_share,
             "no_tests_runs": len(self.no_tests_durations),
             "no_tests_median_seconds": self.no_tests_median_seconds,
             "fixed_cost": {
-                "assumed_seconds": assumed_fixed_cost,
+                "assumed_seconds": thresholds.assumed_fixed_cost,
                 "runs": len(self.fixed_cost_samples),
                 "non_shard_decided_runs": self.non_shard_decided_runs,
                 "unmatched_runs": self.fixed_cost_unmatched_runs,
@@ -512,7 +856,7 @@ class RepositoryMetrics:
                 "outside_entry_step_seconds": round(sample.outside_entry_step, 1) if sample is not None else None,
                 "step_excess_seconds": round(sample.step_excess, 1) if sample is not None else None,
                 "language_step_p95_seconds": round(language_step_p95, 1) if language_step_p95 is not None else None,
-                "language_step_allowance_seconds": language_step_allowance,
+                "language_step_allowance_seconds": thresholds.language_step_allowance,
                 "phases": sample.phases_document() if sample is not None else None,
             },
             "fallbacks": dict(sorted(self.fallbacks.items())),
@@ -520,79 +864,126 @@ class RepositoryMetrics:
         }
 
 
-def measure_repository(api: Api, repository: str, workflow: str, cutoff: datetime.datetime, now: datetime.datetime) -> RepositoryMetrics:
-    metrics = RepositoryMetrics(repository=repository)
-    since = cutoff.strftime("%Y-%m-%d")
-    created_query = urllib.parse.quote(f">={since}", safe="")
-    runs = api.pages(
-        f"repos/{repository}/actions/workflows/{urllib.parse.quote(workflow)}/runs?created={created_query}",
-        "workflow_runs",
-        allow_missing=True,
-    )
-    if runs is None:
-        metrics.has_workflow = False
-        return metrics
-    if len(runs) >= CREATED_SEARCH_CAP:
-        raise MeasurementError(
-            f"workflow runs listing for {workflow} reached GitHub's {CREATED_SEARCH_CAP}-result cap under created=>={since}"
+def metrics_from_store_repo(
+    repository: str,
+    repo_entry: dict | None,
+    window: MeasurementWindow,
+    *,
+    error: str | None = None,
+) -> RepositoryMetrics:
+    if error is not None:
+        return RepositoryMetrics(
+            repository=repository,
+            error=error,
+            coverage=CoverageInfo(complete=False, window_days=window.window_days),
         )
-    for run in runs:
-        if run.get("event") in MANUAL_EVENTS:
+    if repo_entry is None:
+        return RepositoryMetrics(
+            repository=repository,
+            coverage=CoverageInfo(complete=False, window_days=window.window_days),
+        )
+    if not repo_entry.get("has_workflow", True):
+        return RepositoryMetrics(
+            repository=repository,
+            has_workflow=False,
+            coverage=CoverageInfo(
+                complete=True,
+                listed_from=repo_entry.get("listed_from"),
+                listed_to=repo_entry.get("listed_to"),
+                window_days=window.window_days,
+            ),
+        )
+
+    listed_from_raw = repo_entry.get("listed_from")
+    listed_to_raw = repo_entry.get("listed_to")
+    listed_from = moment(listed_from_raw) if listed_from_raw else None
+    listed_to = moment(listed_to_raw) if listed_to_raw else None
+    listing_covers = (
+        listed_from is not None
+        and listed_to is not None
+        and listed_from <= window.cutoff
+        and listed_to >= window.now
+    )
+    covered_days: float | None = None
+    if listed_from is not None and listed_to is not None:
+        overlap_start = max(window.cutoff, listed_from)
+        overlap_end = min(window.now, listed_to)
+        covered_days = max(0.0, (overlap_end - overlap_start).total_seconds() / 86400.0)
+
+    metrics = RepositoryMetrics(repository=repository, has_workflow=True)
+    pending_runs = 0
+    unchecked_unfinished_runs = 0
+    stale_judge_runs = 0
+    judge_versions: set[int] = set()
+    rejudge_cutoff = window.now - datetime.timedelta(days=CI_PLAN_RETENTION_DAYS)
+
+    for record in repo_entry.get("records", {}).values():
+        created_at = moment(record["created_at"])
+        if created_at < window.cutoff or created_at > window.now:
             continue
-        created_raw = run.get("created_at")
-        if not isinstance(created_raw, str) or not created_raw:
+        state = record_state(record)
+        if state is RecordState.PENDING:
+            pending_runs += 1
             continue
-        created_at = moment(created_raw)
-        if created_at < cutoff or created_at > now:
+        if state is RecordState.UNFINISHED:
+            judged_raw = record.get("judged_at")
+            if listed_to is not None and (judged_raw is None or moment(judged_raw) < listed_to):
+                unchecked_unfinished_runs += 1
             continue
-        run_id = run.get("id")
-        if not isinstance(run_id, int):
+        judge_version = record.get("judge_version")
+        if isinstance(judge_version, int):
+            judge_versions.add(judge_version)
+            if judge_version != JUDGE_VERSION and created_at >= rejudge_cutoff:
+                stale_judge_runs += 1
+        if state is RecordState.EXCLUDED_CANCELLED:
             continue
-        attempt = int(run.get("run_attempt") or 1)
-        if attempt > 1:
-            attempt_path = f"repos/{repository}/actions/runs/{run_id}/attempts/1"
-            attempt_status, attempt_doc = api.request_json("GET", attempt_path)
-            if attempt_status == 404 or not isinstance(attempt_doc, dict):
-                raise MeasurementError(f"GET {attempt_path}: expected attempt 1 object (HTTP {attempt_status})")
-            if attempt_doc.get("status") != "completed":
-                continue
-            if attempt_doc.get("conclusion") == "cancelled":
-                continue
-            jobs = api.pages(f"{attempt_path}/jobs", "jobs", allow_missing=False)
-        else:
-            if run.get("status") != "completed":
-                continue
-            if run.get("conclusion") == "cancelled":
-                continue
-            jobs = api.pages(f"repos/{repository}/actions/runs/{run_id}/jobs", "jobs", allow_missing=True)
-        if not jobs:
+        if state is RecordState.DELETED:
+            metrics.deleted_runs += 1
+            continue
+        if state is RecordState.NO_VERDICT:
             metrics.non_verdict_runs += 1
             continue
-        verdict = verdict_job(jobs)
-        if verdict is None:
-            metrics.non_verdict_runs += 1
-            continue
-        completed_at = moment(str(verdict["completed_at"]))
-        duration = max(0.0, (completed_at - created_at).total_seconds())
-        metrics.verdict_runs += 1
-        metrics.durations.append(duration)
-        if duration <= THREE_MINUTE_SECONDS:
-            metrics.within_3m_count += 1
-        plan = read_plan_artifact(api, repository, run_id, max_created_at=completed_at if attempt > 1 else None)
-        if plan is not None:
-            if plan_selects_no_tests(plan):
-                metrics.no_tests_durations.append(duration)
-            for reason, count in plan_fallbacks(plan).items():
-                metrics.fallbacks[reason] = metrics.fallbacks.get(reason, 0) + count
-            metrics.unknown_input_parts.update(plan_unknown_input_parts(plan))
-        outcome, sample = fixed_cost_of_run(created_at, verdict, jobs, plan)
-        if outcome is FixedCostOutcome.SAMPLE and sample is not None:
-            metrics.fixed_cost_samples.append(sample)
-        elif outcome is FixedCostOutcome.NON_SHARD:
-            metrics.non_shard_decided_runs += 1
-        elif outcome is FixedCostOutcome.UNMATCHED:
-            metrics.fixed_cost_unmatched_runs += 1
+        if state is RecordState.VERDICT:
+            duration = float(record["duration_seconds"])
+            metrics.verdict_runs += 1
+            metrics.durations.append(duration)
+            if duration <= THREE_MINUTE_SECONDS:
+                metrics.within_3m_count += 1
+            if record.get("plan_found"):
+                if record.get("selects_no_tests") is True:
+                    metrics.no_tests_durations.append(duration)
+                for reason, count in (record.get("fallbacks") or {}).items():
+                    metrics.fallbacks[reason] = metrics.fallbacks.get(reason, 0) + count
+                metrics.unknown_input_parts.update(record.get("unknown_input_parts") or ())
+            fixed_cost_outcome_raw = record.get("fixed_cost_outcome")
+            if fixed_cost_outcome_raw is not None:
+                fixed_cost_outcome = FixedCostOutcome(fixed_cost_outcome_raw)
+                if fixed_cost_outcome is FixedCostOutcome.SAMPLE and isinstance(record.get("fixed_cost_sample"), dict):
+                    metrics.fixed_cost_samples.append(FixedCostSample.from_dict(record["fixed_cost_sample"]))
+                elif fixed_cost_outcome is FixedCostOutcome.NON_SHARD:
+                    metrics.non_shard_decided_runs += 1
+                elif fixed_cost_outcome is FixedCostOutcome.UNMATCHED:
+                    metrics.fixed_cost_unmatched_runs += 1
+
+    complete = listing_covers and pending_runs == 0 and unchecked_unfinished_runs == 0 and stale_judge_runs == 0
+    metrics.coverage = CoverageInfo(
+        complete=complete,
+        listed_from=listed_from_raw,
+        listed_to=listed_to_raw,
+        pending_runs=pending_runs,
+        unchecked_unfinished_runs=unchecked_unfinished_runs,
+        stale_judge_runs=stale_judge_runs,
+        deleted_runs=metrics.deleted_runs,
+        judge_versions=tuple(sorted(judge_versions)),
+        window_days=window.window_days,
+        covered_days=covered_days,
+    )
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Formatting, findings and issue reporting
+# ---------------------------------------------------------------------------
 
 
 def format_share(share: float | None, count: int, total: int) -> str:
@@ -648,38 +1039,53 @@ def format_fixed_cost(item: RepositoryMetrics, language_step_allowance: float) -
 
 def report_markdown(
     results: list[RepositoryMetrics],
-    window_days: int,
-    cutoff: datetime.datetime,
-    now: datetime.datetime,
-    assumed_fixed_cost: float,
-    language_step_allowance: float,
+    window: MeasurementWindow,
+    thresholds: FixedCostThresholds,
     workflow: str = DEFAULT_WORKFLOW,
+    *,
+    store_info: StoreLoadInfo | None = None,
+    budget_stop_reason: str | None = None,
+    show_judge_versions: bool = False,
 ) -> str:
     lines = [
         "## CI Goal Measurement",
         "",
-        f"Window: {cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')} to {now.strftime('%Y-%m-%dT%H:%M:%SZ')} ({window_days} days; verdict runs, re-run runs counted by first attempt).",
-        "",
+        f"Window: {format_moment(window.cutoff)} to {format_moment(window.now)} ({window.window_days} days; verdict runs, re-run runs counted by first attempt).",
     ]
+    if store_info is not None:
+        lines.append(store_info.format_line(window.now))
+    pending_total = sum(item.coverage.pending_runs for item in results if item.error is None)
+    partial_repos = [item.repository for item in results if item.error is None and item.has_workflow and not item.coverage.complete]
+    if partial_repos or budget_stop_reason:
+        parts: list[str] = []
+        if partial_repos:
+            parts.append(f"{len(partial_repos)} repository(ies) partial ({pending_total} runs pending)")
+        if budget_stop_reason:
+            parts.append(f"fetch stopped: {budget_stop_reason}")
+        lines.append(f"Coverage: {'; '.join(parts)}.")
+    elif results:
+        lines.append("Coverage: complete for every measured repository.")
+    lines.append("")
     if not results:
         lines.append("No consumer repositories were measured.")
         return "\n".join(lines) + "\n"
     lines += [
-        f"| Repository | Verdict runs | Within 3 min (target 99%) | No-tests median (target 1 min) | Fixed cost p95 (assumed {assumed_fixed_cost:.0f}s) | Fallbacks by reason | Parts with unknown inputs |",
-        "| --- | ---: | --- | --- | --- | --- | --- |",
+        f"| Repository | Coverage | Verdict runs | Within 3 min (target 99%) | No-tests median (target 1 min) | Fixed cost p95 (assumed {thresholds.assumed_fixed_cost:.0f}s) | Fallbacks by reason | Parts with unknown inputs |",
+        "| --- | --- | ---: | --- | --- | --- | --- | --- |",
     ]
     for item in results:
         if item.error is not None:
             reason = item.error.replace("\n", " ").replace("|", "/")
-            lines.append(f"| `{item.repository}` | n/a | could not be measured: {reason} | n/a | n/a | none | none |")
+            lines.append(f"| `{item.repository}` | error | n/a | could not be measured: {reason} | n/a | n/a | none | none |")
             continue
         if not item.has_workflow:
-            lines.append(f"| `{item.repository}` | n/a | no `{workflow}` workflow | n/a | n/a | none | none |")
+            lines.append(f"| `{item.repository}` | no workflow | n/a | no `{workflow}` workflow | n/a | n/a | none | none |")
             continue
         lines.append(
-            f"| `{item.repository}` | {item.verdict_runs} | {format_share(item.within_3m_share, item.within_3m_count, item.verdict_runs)} "
+            f"| `{item.repository}` | {item.coverage.format_cell(show_judge_versions=show_judge_versions)} | {item.verdict_runs} "
+            f"| {format_share(item.within_3m_share, item.within_3m_count, item.verdict_runs)} "
             f"| {format_median(item.no_tests_median_seconds, len(item.no_tests_durations))} "
-            f"| {format_fixed_cost(item, language_step_allowance)} "
+            f"| {format_fixed_cost(item, thresholds.language_step_allowance)} "
             f"| {format_fallbacks(item.fallbacks)} | {format_unknown_inputs(item.unknown_input_parts)} |"
         )
     return "\n".join(lines) + "\n"
@@ -695,11 +1101,11 @@ class Finding:
 def misses_of(
     item: RepositoryMetrics,
     window_days: int,
-    assumed_fixed_cost: float,
-    language_step_allowance: float,
+    thresholds: FixedCostThresholds,
     workflow: str = DEFAULT_WORKFLOW,
 ) -> list[Finding]:
-    """Return one Finding for each goal target or coverage gap that ``item`` reports."""
+    """Return one Finding for each goal target or coverage gap that ``item`` reports.
+    Partial-coverage repositories open no finding except ``no-workflow``."""
     if item.error is not None:
         return []
     if not item.has_workflow:
@@ -713,6 +1119,8 @@ def misses_of(
             title=f"No {workflow} workflow: {item.repository}",
             body=body,
         )]
+    if not item.coverage.complete:
+        return []
     findings: list[Finding] = []
     if item.verdict_runs == 0 and item.non_verdict_runs > 0:
         body = "\n".join([
@@ -760,15 +1168,15 @@ def misses_of(
         ))
     sample = item.fixed_cost_p95
     language_step_p95 = item.language_step_p95_seconds
-    if sample is not None and sample.fixed_cost > assumed_fixed_cost:
+    if sample is not None and sample.fixed_cost > thresholds.assumed_fixed_cost:
         body = "\n".join([
-            f"`{item.repository}` exceeded the assumed fixed cost ({assumed_fixed_cost:.0f}s) at p95 over runs decided by a Linux shard with entry files.",
+            f"`{item.repository}` exceeded the assumed fixed cost ({thresholds.assumed_fixed_cost:.0f}s) at p95 over runs decided by a Linux shard with entry files.",
             "",
             f"- Measured p95 fixed cost: {sample.fixed_cost:.1f}s ({len(item.fixed_cost_samples)} runs)",
             f"- Outside entry-file step (excluding Python language step): {sample.outside_entry_step:.1f}s",
             f"- Entry-file step excess over planned estimate: {sample.step_excess:+.1f}s",
             (
-                f"- Python language step p95: {language_step_p95:.1f}s (allowance {language_step_allowance:.0f}s)"
+                f"- Python language step p95: {language_step_p95:.1f}s (allowance {thresholds.language_step_allowance:.0f}s)"
                 if language_step_p95 is not None
                 else "- Python language step p95: n/a"
             ),
@@ -776,48 +1184,67 @@ def misses_of(
             f"shard start to entry step {sample.shard_to_entry_seconds:.1f}s, "
             f"after entry step {sample.after_entry_seconds:.1f}s, results {sample.results_seconds:.1f}s, verdict {sample.verdict_seconds:.1f}s",
             f"- Excluded runs: {item.non_shard_decided_runs} decided by a part, hygiene or Windows; {item.fixed_cost_unmatched_runs} unmatched",
-            f"- Assumed fixed cost: {assumed_fixed_cost:.1f}s",
+            f"- Assumed fixed cost: {thresholds.assumed_fixed_cost:.1f}s",
             "",
             *context,
         ])
         findings.append(Finding(
             key=f"miss:{item.repository}:fixed-cost",
-            title=f"CI fixed cost above assumed {assumed_fixed_cost:.0f}s: {item.repository}",
+            title=f"CI fixed cost above assumed {thresholds.assumed_fixed_cost:.0f}s: {item.repository}",
             body=body,
         ))
-    if language_step_p95 is not None and language_step_p95 > language_step_allowance:
+    if language_step_p95 is not None and language_step_p95 > thresholds.language_step_allowance:
         body = "\n".join([
-            f"`{item.repository}` exceeded the Python language-step allowance ({language_step_allowance:.0f}s) at p95 over runs decided by a Linux shard with entry files.",
+            f"`{item.repository}` exceeded the Python language-step allowance ({thresholds.language_step_allowance:.0f}s) at p95 over runs decided by a Linux shard with entry files.",
             "",
             f"- Measured Python language step p95: {language_step_p95:.1f}s ({len(item.fixed_cost_samples)} runs)",
-            f"- Stated allowance: {language_step_allowance:.1f}s",
+            f"- Stated allowance: {thresholds.language_step_allowance:.1f}s",
             "",
             *context,
         ])
         findings.append(Finding(
             key=f"miss:{item.repository}:language-step",
-            title=f"Python language step above allowance {language_step_allowance:.0f}s: {item.repository}",
+            title=f"Python language step above allowance {thresholds.language_step_allowance:.0f}s: {item.repository}",
             body=body,
         ))
     return findings
 
 
-def report_findings(api: Api, repository: str, findings: list[Finding]) -> list[str]:
-    """Open one issue per finding unless an issue with the same marker is already open."""
+def report_findings(
+    api: Api,
+    repository: str,
+    findings: list[Finding],
+    *,
+    now: datetime.datetime | None = None,
+    cooldown_days: int = 0,
+) -> list[str]:
+    """Open one issue per finding unless an issue with the same marker is open or closed within ``cooldown_days``."""
     if not findings:
         return []
-    still_open: set[str] = set()
+    suppressed: set[str] = set()
     for issue in api.pages(f"repos/{repository}/issues?state=open") or []:
-        still_open.update(MARKER_PATTERN.findall(issue.get("body") or ""))
+        suppressed.update(MARKER_PATTERN.findall(issue.get("body") or ""))
+    if cooldown_days > 0 and now is not None:
+        cooldown_cutoff = now - datetime.timedelta(days=cooldown_days)
+        since = urllib.parse.quote(format_moment(cooldown_cutoff), safe="")
+        for issue in api.pages(f"repos/{repository}/issues?state=closed&since={since}") or []:
+            closed_raw = issue.get("closed_at")
+            if isinstance(closed_raw, str) and closed_raw:
+                try:
+                    closed_at = moment(closed_raw)
+                except ValueError:
+                    continue
+                if closed_at >= cooldown_cutoff:
+                    suppressed.update(MARKER_PATTERN.findall(issue.get("body") or ""))
     opened: list[str] = []
     for finding in findings:
-        if finding.key in still_open:
+        if finding.key in suppressed:
             continue
         created = api.send("POST", f"repos/{repository}/issues", {
             "title": finding.title,
             "body": f"{finding.body}\n\n{MARKER.format(key=finding.key)}\n",
         })
-        still_open.add(finding.key)
+        suppressed.add(finding.key)
         opened.append(f"Opened issue #{created.get('number')}: {finding.title}")
     return opened
 
@@ -828,92 +1255,476 @@ def append_file(path: str | None, text: str) -> None:
             stream.write(text)
 
 
-def run_measure(options: argparse.Namespace) -> int:
-    api = Api(options.api_url, token("GH_TOKEN"))
-    if options.local:
-        if not options.repository:
-            raise SetupError("the local mode names its repositories with --repository")
-        repositories = list(options.repository)
-    else:
-        if options.repository:
-            raise SetupError("without --local the repositories come from the App's installation; --repository belongs to the local mode")
-        found = api.pages("installation/repositories", "repositories") or []
-        repositories = [str(item["full_name"]) for item in found if not item.get("archived")]
-    now = options.now
-    cutoff = now - datetime.timedelta(days=options.window_days)
-    results: list[RepositoryMetrics] = []
-    failed = False
-    for repository in repositories:
-        if repository == options.own_repository:
-            continue
+def write_json_report(path: str | None, payload: dict) -> None:
+    if not path:
+        return
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
+# ---------------------------------------------------------------------------
+# Measurement session orchestration and CLI commands
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _RepoProgress:
+    repository: str
+    started_at: float
+    new_fetched: int = 0
+    unfinished_rechecked: int = 0
+    rejudged: int = 0
+    remaining: int = 0
+    reported: bool = False
+
+
+def _print_progress(line: str) -> None:
+    print(line, file=sys.stderr, flush=True)
+
+
+def _needs_detail_fetch(record: dict, now: datetime.datetime) -> WorkKind | None:
+    state = record_state(record)
+    if state is RecordState.PENDING:
+        return WorkKind.NEW
+    if state is RecordState.UNFINISHED:
+        return WorkKind.UNFINISHED
+    if state in FROZEN_STATES:
+        judge_version = record.get("judge_version")
+        if judge_version != JUDGE_VERSION:
+            rejudge_cutoff = now - datetime.timedelta(days=CI_PLAN_RETENTION_DAYS)
+            if moment(record["created_at"]) >= rejudge_cutoff:
+                return WorkKind.REJUDGE
+    return None
+
+
+class _MeasureSession:
+    """Coordinates parallel listing, newest-first detail fetching, error rollback and atomic checkpointing."""
+
+    def __init__(
+        self,
+        *,
+        api: Api,
+        budget: BudgetController,
+        store: dict,
+        repositories: list[str],
+        workflow: str,
+        window: MeasurementWindow,
+        workers: int,
+        store_out_path: Path | None,
+    ) -> None:
+        self.api = api
+        self.budget = budget
+        self.store = store
+        self.repositories = repositories
+        self.workflow = workflow
+        self.window = window
+        self.workers = max(1, workers)
+        self.store_out_path = store_out_path
+        self.pre_run_snapshots: dict[str, dict | None] = {
+            repo: copy.deepcopy(store["repositories"].get(repo)) for repo in repositories
+        }
+        self.staged_repos: dict[str, dict] = {
+            repo: copy.deepcopy(store["repositories"].get(repo) or empty_repo_entry()) for repo in repositories
+        }
+        self.repo_errors: dict[str, str] = {}
+        self.seen_in_overlap: dict[str, set[int]] = {repo: set() for repo in repositories}
+        self.progress_by_repo: dict[str, _RepoProgress] = {
+            repo: _RepoProgress(repository=repo, started_at=time.monotonic()) for repo in repositories
+        }
+        self._lock = threading.Lock()
+        self._items_since_checkpoint = 0
+        self._last_checkpoint_at = time.monotonic()
+
+    def checkpoint_store(self) -> None:
+        if self.store_out_path is None:
+            return
+        with self._lock:
+            prune_store(self.store, self.window.now, DEFAULT_RETENTION_DAYS)
+            write_store_atomic(self.store_out_path, self.store, self.window.now)
+            self._items_since_checkpoint = 0
+            self._last_checkpoint_at = time.monotonic()
+
+    def _record_repo_error_locked(self, repo: str, error: MeasurementError) -> bool:
+        if repo in self.repo_errors:
+            return False
+        self.repo_errors[repo] = str(error)
+        snapshot = self.pre_run_snapshots[repo]
+        if snapshot is None:
+            self.store["repositories"].pop(repo, None)
+        else:
+            self.store["repositories"][repo] = copy.deepcopy(snapshot)
+        print(f"::error::{repo}: {error}", file=sys.stderr)
+        return True
+
+    def emit_repo_progress(self, repo: str) -> None:
+        progress = self.progress_by_repo[repo]
+        if progress.reported:
+            return
+        progress.reported = True
+        elapsed = time.monotonic() - progress.started_at
+        entry = self.store["repositories"].get(repo) or self.staged_repos.get(repo) or empty_repo_entry()
+        records = entry.get("records", {})
+        pending_left = sum(1 for rec in records.values() if record_state(rec) is RecordState.PENDING)
+        if repo in self.repo_errors:
+            _print_progress(f"{repo}: error={self.repo_errors[repo]} ({elapsed:.1f}s)")
+        else:
+            _print_progress(
+                f"{repo}: new={progress.new_fetched} unfinished={progress.unfinished_rechecked} "
+                f"pending={pending_left} kept={len(records)} ({elapsed:.1f}s)"
+            )
+
+    def _list_one(self, repo: str) -> None:
+        self.progress_by_repo[repo].started_at = time.monotonic()
         try:
-            results.append(measure_repository(api, repository, options.workflow, cutoff, now))
+            _, seen = list_repository_runs(self.api, repo, self.workflow, self.staged_repos[repo], self.window)
+            self.seen_in_overlap[repo] = seen
+        except RateLimitError as error:
+            self.budget.handle_rate_limit(error)
+        except BudgetStoppedError:
+            pass
         except MeasurementError as error:
-            failed = True
-            results.append(RepositoryMetrics(repository=repository, error=str(error)))
-            print(f"::error::{repository}: {error}", file=sys.stderr)
-    assumed_fixed_cost = assumed_fixed_cost_seconds()
-    language_step_allowance = language_step_allowance_seconds()
-    findings = [
-        finding
-        for item in results
-        for finding in misses_of(item, options.window_days, assumed_fixed_cost, language_step_allowance, workflow=options.workflow)
-    ]
-    opened: list[str] = []
+            with self._lock:
+                self._record_repo_error_locked(repo, error)
+
+    def list_all(self) -> None:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
+            futures = [executor.submit(self._list_one, repo) for repo in self.repositories]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+        with self._lock:
+            for repo in self.repositories:
+                if repo not in self.repo_errors and (
+                    self.staged_repos[repo].get("listed_to") is not None or not self.staged_repos[repo].get("has_workflow", True)
+                ):
+                    self.store["repositories"][repo] = self.staged_repos[repo]
+        self.checkpoint_store()
+
+    def fetch_details(self) -> None:
+        work_items: list[tuple[datetime.datetime, str, str, WorkKind]] = []
+        per_repo_counts: dict[str, int] = {repo: 0 for repo in self.repositories}
+        for repo in self.repositories:
+            if repo in self.repo_errors:
+                self.emit_repo_progress(repo)
+                continue
+            entry = self.staged_repos[repo]
+            if not entry.get("has_workflow", True):
+                self.emit_repo_progress(repo)
+                continue
+            for key, record in entry["records"].items():
+                work_kind = _needs_detail_fetch(record, self.window.now)
+                if work_kind is not None:
+                    work_items.append((moment(record["created_at"]), repo, key, work_kind))
+                    per_repo_counts[repo] += 1
+            self.progress_by_repo[repo].remaining = per_repo_counts[repo]
+            if per_repo_counts[repo] == 0:
+                self.emit_repo_progress(repo)
+
+        work_items.sort(key=lambda item: (item[0], int(item[2])), reverse=True)
+        plan_indices = {
+            repo: RepoPlanArtifactIndex(self.api, repo, per_repo_counts[repo])
+            for repo in self.repositories
+            if per_repo_counts[repo] > 0
+        }
+
+        def finish_one_item(repo: str, key: str, work_kind: WorkKind) -> None:
+            with self._lock:
+                if repo in self.repo_errors or self.budget.stop_event.is_set():
+                    return
+                record = self.staged_repos[repo]["records"][key]
+                in_overlap = int(record["run_id"]) in self.seen_in_overlap[repo]
+            try:
+                judged = judge_record(
+                    self.api,
+                    repo,
+                    record,
+                    self.window.now,
+                    in_overlap=in_overlap,
+                    plan_index=plan_indices[repo],
+                    is_rejudge=(work_kind is WorkKind.REJUDGE),
+                )
+            except RateLimitError as error:
+                self.budget.handle_rate_limit(error)
+                return
+            except BudgetStoppedError:
+                return
+            except MeasurementError as error:
+                with self._lock:
+                    recorded = self._record_repo_error_locked(repo, error)
+                if recorded:
+                    self.checkpoint_store()
+                return
+
+            repo_completed = False
+            periodic_checkpoint_due = False
+            with self._lock:
+                if repo in self.repo_errors:
+                    return
+                self.staged_repos[repo]["records"][key] = judged
+                self.store["repositories"][repo] = self.staged_repos[repo]
+                progress = self.progress_by_repo[repo]
+                if work_kind is WorkKind.NEW:
+                    progress.new_fetched += 1
+                elif work_kind is WorkKind.UNFINISHED:
+                    progress.unfinished_rechecked += 1
+                else:
+                    progress.rejudged += 1
+                progress.remaining -= 1
+                self._items_since_checkpoint += 1
+                if progress.remaining == 0:
+                    repo_completed = True
+                elif (
+                    self._items_since_checkpoint >= CHECKPOINT_INTERVAL_ITEMS
+                    or (time.monotonic() - self._last_checkpoint_at) >= CHECKPOINT_INTERVAL_SECONDS
+                ):
+                    periodic_checkpoint_due = True
+            if repo_completed or periodic_checkpoint_due:
+                self.checkpoint_store()
+            if repo_completed:
+                self.emit_repo_progress(repo)
+
+        if work_items and not self.budget.stop_event.is_set():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
+                in_flight: set[concurrent.futures.Future[None]] = set()
+                item_iter = iter(work_items)
+                max_queued = self.workers * 2
+                while True:
+                    while len(in_flight) < max_queued and not self.budget.stop_event.is_set():
+                        try:
+                            _, repo, key, work_kind = next(item_iter)
+                        except StopIteration:
+                            break
+                        with self._lock:
+                            if repo in self.repo_errors:
+                                continue
+                        in_flight.add(executor.submit(finish_one_item, repo, key, work_kind))
+                    if not in_flight:
+                        break
+                    done, in_flight = concurrent.futures.wait(in_flight, return_when=concurrent.futures.FIRST_COMPLETED)
+                    for future in done:
+                        future.result()
+
+        self.checkpoint_store()
+        for repo in self.repositories:
+            self.emit_repo_progress(repo)
+
+
+def run_measure(options: argparse.Namespace) -> int:
+    start_monotonic = time.monotonic()
+    now: datetime.datetime = options.now
+    window = MeasurementWindow(
+        cutoff=now - datetime.timedelta(days=options.window_days),
+        now=now,
+        window_days=options.window_days,
+    )
+    store_out_path = Path(options.store_out) if options.store_out else None
+
+    own_api: Api | None = None
     if options.own_repository and not options.local:
-        opened = report_findings(Api(options.api_url, token("GITHUB_TOKEN")), options.own_repository, findings)
+        own_api = Api(options.api_url, token("GITHUB_TOKEN"))
+
+    pacer = RatePacer(options.max_rps)
+    deadline = (start_monotonic + options.time_budget) if options.time_budget > 0 else None
+    budget = BudgetController(
+        deadline=deadline,
+        request_budget=options.request_budget if options.request_budget > 0 else None,
+        ratelimit_reserve=options.ratelimit_reserve,
+        min_secondary_wait=options.min_secondary_wait,
+    )
+    api = Api(options.api_url, token("GH_TOKEN"), pacer=pacer, budget=budget)
+
+    try:
+        # Load store BEFORE measuring; any read failure or unreadable artifact aborts before writing store_out.
+        if options.store_in:
+            store, store_info = load_store_from_file(Path(options.store_in))
+        elif own_api is not None:
+            store, store_info = load_store_from_artifact(own_api, options.own_repository, now)
+        else:
+            store, store_info = empty_store(now), StoreLoadInfo(source="none", is_buildup=True)
+
+        prune_store(store, now, DEFAULT_RETENTION_DAYS)
+
+        if options.local:
+            if not options.repository:
+                raise SetupError("the local mode names its repositories with --repository")
+            repositories = [repo for repo in options.repository if repo != options.own_repository]
+        else:
+            if options.repository:
+                raise SetupError("without --local the repositories come from the App's installation; --repository belongs to the local mode")
+            try:
+                found = api.pages("installation/repositories", "repositories") or []
+            except RateLimitError as error:
+                budget.handle_rate_limit(error)
+                raise MeasurementError(str(error)) from error
+            except BudgetStoppedError as error:
+                raise MeasurementError(str(error)) from error
+            repositories = [
+                str(item["full_name"])
+                for item in found
+                if not item.get("archived") and str(item["full_name"]) != options.own_repository
+            ]
+
+        session = _MeasureSession(
+            api=api,
+            budget=budget,
+            store=store,
+            repositories=repositories,
+            workflow=options.workflow,
+            window=window,
+            workers=int(options.workers),
+            store_out_path=store_out_path,
+        )
+        session.list_all()
+        session.fetch_details()
+
+        results: list[RepositoryMetrics] = []
+        for repo in repositories:
+            if repo in session.repo_errors:
+                results.append(metrics_from_store_repo(repo, None, window, error=session.repo_errors[repo]))
+            else:
+                results.append(metrics_from_store_repo(repo, store["repositories"].get(repo), window))
+
+        thresholds = current_thresholds()
+        findings = [
+            finding
+            for item in results
+            for finding in misses_of(item, window.window_days, thresholds, workflow=options.workflow)
+        ]
+        opened: list[str] = []
+        if own_api is not None:
+            opened = report_findings(own_api, options.own_repository, findings, now=now, cooldown_days=FINDING_COOLDOWN_DAYS)
+
+        total_pending = sum(item.coverage.pending_runs for item in results if item.error is None)
+        total_elapsed = time.monotonic() - start_monotonic
+        remaining_text = str(api.ratelimit_remaining) if api.ratelimit_remaining is not None else "n/a"
+        stop_text = f" stopped={budget.stop_reason}" if budget.stop_reason else ""
+        _print_progress(
+            f"Measurement totals: requests={api.request_count} ratelimit_remaining={remaining_text} "
+            f"pending={total_pending} elapsed={total_elapsed:.1f}s{stop_text}"
+        )
+
+        markdown = report_markdown(
+            results,
+            window,
+            thresholds,
+            workflow=options.workflow,
+            store_info=store_info,
+            budget_stop_reason=budget.stop_reason,
+        )
+        if opened:
+            markdown += "\n" + "\n".join(f"- {line}" for line in opened) + "\n"
+        print(markdown, end="")
+        append_file(options.summary, markdown)
+        write_json_report(options.json_output, {
+            "window_days": window.window_days,
+            "cutoff": format_moment(window.cutoff),
+            "now": format_moment(window.now),
+            "store": store_info.document(window.now),
+            "requests": api.request_count,
+            "ratelimit_remaining": api.ratelimit_remaining,
+            "budget_stop_reason": budget.stop_reason,
+            "pending_runs": total_pending,
+            "repositories": {item.repository: item.document(thresholds) for item in results},
+        })
+
+        failed = bool(session.repo_errors) or (budget.rate_limit_failure is not None)
+        if budget.rate_limit_failure is not None:
+            print(f"::error::{budget.rate_limit_failure}", file=sys.stderr)
+        return 1 if failed else 0
+    finally:
+        api.close()
+        if own_api is not None:
+            own_api.close()
+
+
+def run_report(options: argparse.Namespace) -> int:
+    store, store_info = load_store_from_file(Path(options.store))
+    if options.now is not None:
+        now = options.now
+    elif store.get("generated_at"):
+        now = moment(str(store["generated_at"]))
+    else:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    if options.window_days <= 0 or options.window_days > DEFAULT_RETENTION_DAYS:
+        raise SetupError(f"--window-days must be between 1 and {DEFAULT_RETENTION_DAYS}")
+    window = MeasurementWindow(
+        cutoff=now - datetime.timedelta(days=options.window_days),
+        now=now,
+        window_days=options.window_days,
+    )
+    repositories = list(options.repository) if options.repository else sorted(store["repositories"])
+    results = [metrics_from_store_repo(repo, store["repositories"].get(repo), window) for repo in repositories]
+    thresholds = current_thresholds()
     markdown = report_markdown(
         results,
-        options.window_days,
-        cutoff,
-        now,
-        assumed_fixed_cost,
-        language_step_allowance,
+        window,
+        thresholds,
         workflow=options.workflow,
+        store_info=store_info,
+        show_judge_versions=True,
     )
-    if opened:
-        markdown += "\n" + "\n".join(f"- {line}" for line in opened) + "\n"
     print(markdown, end="")
     append_file(options.summary, markdown)
-    if options.json_output:
-        destination = Path(options.json_output)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "window_days": options.window_days,
-            "cutoff": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "repositories": {item.repository: item.document(assumed_fixed_cost, language_step_allowance) for item in results},
-        }
-        destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
-    return 1 if failed else 0
+    write_json_report(options.json_output, {
+        "window_days": window.window_days,
+        "cutoff": format_moment(window.cutoff),
+        "now": format_moment(window.now),
+        "store": store_info.document(window.now),
+        "repositories": {item.repository: item.document(thresholds) for item in results},
+    })
+    return 0
 
 
 def run_failure(options: argparse.Namespace) -> int:
     body = f"The run {options.run_url} of the CI goal measurement failed. Its log says which repository could not be measured and why."
-    opened = report_findings(
-        Api(options.api_url, token("GITHUB_TOKEN")),
-        options.own_repository,
-        [Finding("failure", "The CI goal measurement failed", body)],
-    )
+    own_api = Api(options.api_url, token("GITHUB_TOKEN"))
+    try:
+        opened = report_findings(
+            own_api,
+            options.own_repository,
+            [Finding("failure", "The CI goal measurement failed", body)],
+        )
+    finally:
+        own_api.close()
     text = "## Measurement failure\n\n" + ("\n".join(f"- {line}" for line in opened) if opened else "An issue for a failed run is already open.") + "\n"
     print(text, end="")
     append_file(options.summary, text)
     return 0
 
 
+def _add_report_arguments(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument("--workflow", default=DEFAULT_WORKFLOW, help="the pipeline caller workflow file name")
+    subparser.add_argument("--window-days", type=int, default=DEFAULT_WINDOW_DAYS, help="rolling window length in days")
+    subparser.add_argument("--summary", help="the file that receives the Markdown report")
+    subparser.add_argument("--json-output", help="the file that receives the structured JSON report")
+
+
 def parser() -> argparse.ArgumentParser:
     main_parser = argparse.ArgumentParser(description="Measure the shared CI goal for every consumer repository.")
     commands = main_parser.add_subparsers(dest="command", required=True)
-    measure = commands.add_parser("measure", help="measure every consumer repository and open issues on missed targets")
+
+    measure = commands.add_parser("measure", help="measure every consumer repository incrementally and open issues on missed targets")
     measure.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
     measure.add_argument("--own-repository", default="", help="the repository of the run, as OWNER/NAME: excluded from measurement and receives miss issues")
     measure.add_argument("--local", action="store_true", help="run with the owner's own token on the named repositories")
     measure.add_argument("--repository", action="append", help="a repository of the local mode, as OWNER/NAME")
-    measure.add_argument("--workflow", default=DEFAULT_WORKFLOW, help="the pipeline caller workflow file name")
-    measure.add_argument("--window-days", type=int, default=DEFAULT_WINDOW_DAYS, help="rolling window length in days")
     measure.add_argument("--now", type=moment, default=datetime.datetime.now(datetime.timezone.utc), help="the reference UTC timestamp of the measurement")
-    measure.add_argument("--summary", help="the file that receives the Markdown report")
-    measure.add_argument("--json-output", help="the file that receives the structured JSON report")
+    measure.add_argument("--store-in", help="read the incremental records store from this local JSON file instead of the artifact")
+    measure.add_argument("--store-out", help="write the updated incremental records store atomically to this JSON file")
+    measure.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="maximum concurrent fetch workers")
+    measure.add_argument("--max-rps", type=float, default=DEFAULT_MAX_RPS, help="maximum global API requests per second (0 disables pacing)")
+    measure.add_argument("--time-budget", type=float, default=DEFAULT_TIME_BUDGET_SECONDS, help="global fetch time budget in seconds (0 disables)")
+    measure.add_argument("--request-budget", type=int, default=DEFAULT_REQUEST_BUDGET, help="maximum API requests for fetching (0 disables)")
+    measure.add_argument("--ratelimit-reserve", type=int, default=DEFAULT_RATELIMIT_RESERVE, help="stop fetching when x-ratelimit-remaining falls below this reserve")
+    measure.add_argument("--min-secondary-wait", type=float, default=DEFAULT_MIN_SECONDARY_WAIT_SECONDS, help="minimum backoff seconds on a secondary rate limit without Retry-After")
+    _add_report_arguments(measure)
+
+    report = commands.add_parser("report", help="compute the CI goal report over a chosen window (up to 90 days) from a downloaded store file")
+    report.add_argument("--store", required=True, help="the downloaded measurement-records JSON file")
+    report.add_argument("--now", type=moment, default=None, help="the reference UTC timestamp (defaults to the store's generated_at)")
+    report.add_argument("--repository", action="append", help="limit the report to named repositories, as OWNER/NAME")
+    _add_report_arguments(report)
+
     failure = commands.add_parser("failure", help="open an issue for a failed measurement run")
     failure.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
     failure.add_argument("--own-repository", required=True, help="the repository of the run, as OWNER/NAME")
@@ -925,7 +1736,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     options = parser().parse_args(argv)
     try:
-        return {"measure": run_measure, "failure": run_failure}[options.command](options)
+        return {"measure": run_measure, "report": run_report, "failure": run_failure}[options.command](options)
     except SetupError as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2

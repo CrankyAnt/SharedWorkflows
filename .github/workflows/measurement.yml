@@ -17,9 +17,10 @@ jobs:
   measurement:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-slim
-    timeout-minutes: 30
+    timeout-minutes: 13
     environment: measurement
     permissions:
+      actions: read
       issues: write
     steps:
       - name: Load the measurement program from this workflow revision
@@ -38,7 +39,15 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/measurement.py" measure --own-repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/measurement.py" measure --own-repository "$GITHUB_REPOSITORY" --store-out measurement-records.json --summary "$GITHUB_STEP_SUMMARY"
+      - name: Upload the measurement records store
+        if: ${{ always() && hashFiles('measurement-records.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: measurement-records
+          path: measurement-records.json
+          retention-days: 30
+          if-no-files-found: error
       - name: Open an issue for a failed run
         if: ${{ failure() || cancelled() }}
         env:

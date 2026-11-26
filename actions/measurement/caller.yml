@@ -2,8 +2,8 @@ name: Measurement
 
 on:
   schedule:
-    # Weekly on Monday at 06:17 UTC.
-    - cron: "17 6 * * 1"
+    # Daily at 06:17 UTC.
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -11,6 +11,7 @@ permissions: {}
 jobs:
   measurement:
     permissions:
+      actions: read
       issues: write
     secrets:
       MEASUREMENT_APP_PRIVATE_KEY: ${{ secrets.MEASUREMENT_APP_PRIVATE_KEY }}
