@@ -16,7 +16,9 @@ kit's record ``fixed-callers.json`` holds. The CI guide ``docs/agents/ci.md`` eq
 at that path there, byte for byte up to and including the heading ``## Repository choices`` that closes the template;
 below it a consumer records its own choices. Its previous version, ``previous/docs/agents/ci.md``, passes for the
 same month. A kit without that template compares none. Every other workflow file under
-``.github/workflows/`` must be registered under ``local-workflows`` in the configuration file. A caller or a CI guide
+``.github/workflows/`` must be registered under ``local-workflows`` in the configuration file, must not call a shared
+workflow of this repository, must have a trigger other than an unreferenced ``workflow_call`` (a self-call does not
+count), and must be readable YAML. A caller or a CI guide
 that differs is reported with the consumer's open pull request on the sync's branch, which the record names.
 A caller that calls its shared workflow at any tag other than ``v1`` differs from its template, in every repository.
 
@@ -62,6 +64,8 @@ from pathlib import Path
 
 PART_FOLDER = Path(__file__).resolve().parent
 sys.path.insert(0, str(PART_FOLDER))
+sys.path.insert(0, str(PART_FOLDER.parent / "suite-selection"))
+import ci_definition  # noqa: E402
 import plan  # noqa: E402
 
 KIT = PART_FOLDER / "consumer-kit"
@@ -69,6 +73,7 @@ KIT_PATH = "actions/pipeline/consumer-kit"  # the kit's path in the repository o
 RECORD = "fixed-callers.json"
 CALLERS = ("ci.yml", "automation.yml", "release.yml")
 WORKFLOWS = ".github/workflows"
+FIXED_CALLER_PATHS = frozenset(f"{WORKFLOWS}/{name}" for name in CALLERS)
 CI_GUIDE = "docs/agents/ci.md"  # the CI guide: its template is this path in the kit, when the kit holds it
 CHOICES = b"## Repository choices\n"  # the heading that closes the template of the CI guide
 DEPENDABOT_FILE = ".github/dependabot.yml"
@@ -312,6 +317,141 @@ def holds_the_shared_parts(options: argparse.Namespace, kit: Path, title: str) -
     return True
 
 
+# --- workflow inspection --------------------------------------------------------------------------------------------
+
+
+def _flow_items(text: str, source: str) -> list[str]:
+    """Top-level items of the inner text of a YAML flow list or flow mapping; raises on unbalanced delimiters."""
+    items: list[str] = []
+    depth = 0
+    quote = ""
+    start = 0
+    for index, character in enumerate(text):
+        if quote:
+            if character == quote:
+                quote = ""
+        elif character in "'\"":
+            quote = character
+        elif character in "[{":
+            depth += 1
+        elif character in "]}":
+            depth -= 1
+            if depth < 0:
+                raise ci_definition.WorkflowReadError(f"{source}: unbalanced flow collection in on")
+        elif character == "," and depth == 0:
+            items.append(text[start:index])
+            start = index + 1
+    if depth != 0 or quote:
+        raise ci_definition.WorkflowReadError(f"{source}: unbalanced flow collection in on")
+    return [item.strip() for item in [*items, text[start:]] if item.strip()]
+
+
+def _workflow_triggers(document: dict, source: str) -> set[str]:
+    """The trigger event names in a workflow's ``on`` section; empty when absent or empty."""
+    on = document.get("on")
+    if on is None:
+        return set()
+    if isinstance(on, dict):
+        return {str(key) for key in on}
+    if isinstance(on, str):
+        stripped = on.strip()
+        if not stripped or stripped in ("null", "Null", "NULL", "~"):
+            return set()
+        if stripped[0] in "[{":
+            closing = "]" if stripped[0] == "[" else "}"
+            if not stripped.endswith(closing):
+                raise ci_definition.WorkflowReadError(f"{source}: unbalanced flow collection in on")
+            items = _flow_items(stripped[1:-1], source)
+            if stripped[0] == "{":
+                return {item.split(":", 1)[0].strip().strip("'\"") for item in items if item.split(":", 1)[0].strip().strip("'\"")}
+            return {item.strip().strip("'\"") for item in items if item.strip().strip("'\"")}
+        return {stripped.strip("'\"")}
+    if isinstance(on, list):
+        return {str(item).strip().strip("'\"") for item in on if item is not None and str(item).strip().strip("'\"")}
+    return set()
+
+
+def _job_uses(document: dict) -> list[str]:
+    """The ``uses`` value of every job in a workflow document, in document order."""
+    jobs = document.get("jobs")
+    if not isinstance(jobs, dict):
+        return []
+    return [str(job["uses"]).strip() for job in jobs.values() if isinstance(job, dict) and isinstance(job.get("uses"), str) and job["uses"].strip()]
+
+
+def inspect_workflows(
+    workflows: dict[str, bytes | str],
+    *,
+    shared: str,
+    adopted: bool,
+    registered: set[str] | None = None,
+    shared_workflows: frozenset[str] | set[str] | None = None,
+) -> list[Finding]:
+    """Inspect all direct workflow files under ``.github/workflows/`` for unregistered workflows, calls to shared
+    workflows outside the fixed callers, uncallable workflows, and unreadable YAML."""
+    parsed: dict[str, tuple[set[str], list[str]]] = {}
+    unreadable: dict[str, str] = {}
+    for path in sorted(workflows):
+        raw = workflows[path]
+        if isinstance(raw, bytes):
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError as error:
+                unreadable[path] = str(error)
+                continue
+        else:
+            text = raw
+        try:
+            document = ci_definition.read_yaml(text, path)
+            if document is None:
+                document = {}
+            if not isinstance(document, dict):
+                raise ci_definition.WorkflowReadError(f"{path}: expected a mapping")
+            parsed[path] = (_workflow_triggers(document, path), _job_uses(document))
+        except ci_definition.WorkflowReadError as error:
+            unreadable[path] = str(error)
+
+    called_locally: dict[str, set[str]] = {}
+    local_prefixes = tuple(f"{prefix}{WORKFLOWS}/" for prefix in ci_definition.LOCAL_PREFIXES)
+    for caller_path, (_, uses_list) in parsed.items():
+        for uses in uses_list:
+            for prefix in local_prefixes:
+                if uses.startswith(prefix):
+                    target = f"{WORKFLOWS}/{uses[len(prefix):]}"
+                    if target != caller_path:
+                        called_locally.setdefault(target, set()).add(caller_path)
+                    break
+
+    shared_call = re.compile(rf"^{re.escape(shared)}/({re.escape(WORKFLOWS)}/[^/@\s]+)@")
+    findings: list[Finding] = []
+    for path in sorted(workflows):
+        if adopted and path in FIXED_CALLER_PATHS:
+            continue
+        if adopted and registered is not None and path not in registered:
+            findings.append(Finding(f"`{path}` is neither a fixed caller nor registered under `local-workflows` in `{plan.CONFIGURATION}`.", path))
+        if path in unreadable:
+            findings.append(Finding(f"`{path}` could not be read as YAML: {unreadable[path]}.", path))
+            continue
+        triggers, uses_list = parsed[path]
+        seen_shared: set[str] = set()
+        for uses in uses_list:
+            match = shared_call.match(uses)
+            if match is None or uses in seen_shared:
+                continue
+            workflow_path = match.group(1)
+            if adopted:
+                seen_shared.add(uses)
+                findings.append(Finding(f"`{path}` calls the shared workflow `{uses}` outside the fixed callers.", path))
+            elif shared_workflows is None or workflow_path not in shared_workflows:
+                seen_shared.add(uses)
+                findings.append(Finding(f"`{path}` calls the retired shared workflow `{uses}`.", path))
+        if not triggers:
+            findings.append(Finding(f"`{path}` has no triggers and cannot be called.", path))
+        elif triggers == {"workflow_call"} and path not in called_locally:
+            findings.append(Finding(f"`{path}` has only `workflow_call` as its trigger and no other workflow in `{WORKFLOWS}/` calls `./{path}`.", path))
+    return findings
+
+
 # --- callers --------------------------------------------------------------------------------------------------------
 
 CALLERS_TITLE = "Fixed callers and local workflows"
@@ -358,19 +498,23 @@ def run_callers(options: argparse.Namespace, *, configuration_result: tuple[dict
         findings.append(Finding(sync_pull_request_note(Api(options.api_url, options.repository, os.environ.get("GITHUB_TOKEN")), branch, shared)))
     configuration, reasons = read_configuration(root, Path(options.schemas)) if configuration_result is None else configuration_result
     folder = root / WORKFLOWS
-    local = sorted(f"{WORKFLOWS}/{item.name}" for item in (folder.iterdir() if folder.is_dir() else [])
-                   if item.is_file() and item.suffix in (".yml", ".yaml") and item.name not in CALLERS)
-    registered = []
+    workflow_files = {f"{WORKFLOWS}/{item.name}": item.read_bytes()
+                      for item in (sorted(folder.iterdir()) if folder.is_dir() else [])
+                      if item.is_file() and item.suffix in (".yml", ".yaml")}
+    local = sorted(path for path in workflow_files if path not in FIXED_CALLER_PATHS)
+    registered: list[str] = []
+    register: set[str] | None = None
+    missing_registered: list[str] = []
     if configuration is None:
         findings.append(Finding(f"`{plan.CONFIGURATION}` cannot be used, so the local workflow register is unknown: {'; '.join(reasons)}.", plan.CONFIGURATION))
     else:
         register = plan.registered_workflows(configuration)
         registered = [path for path in local if path in register]
-        unregistered = [path for path in local if path not in register]
         missing_registered = sorted(path for path in register if path not in local)
-        findings += [Finding(f"`{path}` is neither a fixed caller nor registered under `local-workflows` in `{plan.CONFIGURATION}`.", path) for path in unregistered]
+    findings += inspect_workflows(workflow_files, shared=shared, adopted=True, registered=register)
+    if register is not None:
         findings += [Finding(f"`{path}` is registered under `local-workflows` in `{plan.CONFIGURATION}`, but the workflow file does not exist.", plan.CONFIGURATION) for path in missing_registered]
-        if unregistered:
+        if any(path not in register for path in local):
             findings.append(Finding(f"The decision rule in the catalogue says where its work belongs: {catalogue_url(shared)}"))
     fixed = "Every fixed caller equals its template" if guide is None else "Every fixed caller and the CI guide equal their templates"
     passed = [f"{fixed}, and every other workflow file is registered.", *[f"- `{path}` is registered." for path in registered]]

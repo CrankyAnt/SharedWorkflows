@@ -313,7 +313,7 @@ class SyncAppDocumentTests(unittest.TestCase):
         issues = section(self.document, "#### Issues in the management repository")
         self.assertEqual(["| Finding | Issue title | One issue |"], [line for line in issues.splitlines() if line.startswith("| Finding")])
         self.assertNotIn("What it asks for", self.document)
-        for title in ("Sync pull request not merged after six hours", "Request for shared CI", "Settings differ", "The sync failed"):
+        for title in ("Sync pull request not merged after six hours", "Request for shared CI", "Settings differ", "Unwanted workflows", "The sync failed"):
             with self.subTest(title=title):
                 self.assertIn(f"`{title}", issues)
                 self.assertIn(f'"{title}', program)

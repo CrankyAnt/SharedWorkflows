@@ -17,7 +17,8 @@ LOCAL = f"{WORKFLOWS}/nightly-report.yml"
 CI_GUIDE = "docs/agents/ci.md"
 CI_GUIDE_TEXT = "# CI\n\nAn invented pointer to the catalogue.\n"
 WITH_CHOICES = CI_GUIDE_TEXT + "\n## Repository choices\n"
-REAL_KIT =PART_FOLDER / "consumer-kit"
+REAL_KIT = PART_FOLDER / "consumer-kit"
+CALLABLE = "name: Nightly report\non:\n  schedule:\n    - cron: '0 3 * * *'\njobs:\n  report:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n"
 REGISTERED = f"version: 1\nlocal-workflows:\n  - workflow: {LOCAL}\n    request: 12\n    waits-for: python-release\n"
 
 
@@ -129,7 +130,7 @@ class LocalWorkflowTests(ConsumerFixture):
         self.assertEqual([], self.api.requests, "the callers equal their templates, so no sync pull request is looked up")
 
     def test_a_registered_workflow_passes(self) -> None:
-        self.consumer({LOCAL: "name: Nightly report\n", CONFIGURATION: REGISTERED})
+        self.consumer({LOCAL: CALLABLE, CONFIGURATION: REGISTERED})
         checked = self.check("callers")
         self.assertEqual(0, checked.status, checked.stdout)
         self.assertIn(f"`{LOCAL}` is registered", checked.summary)
@@ -155,12 +156,72 @@ class LocalWorkflowTests(ConsumerFixture):
                 self.assertIn(f"::notice file={LOCAL}::", checked.stdout)
 
     def test_a_configuration_file_that_cannot_be_used_fails_and_names_no_workflow_as_unregistered(self) -> None:
-        self.consumer({LOCAL: "name: Nightly report\n", CONFIGURATION: "version: 1\nlocal-workflows: none\n"})
+        self.consumer({LOCAL: CALLABLE, CONFIGURATION: "version: 1\nlocal-workflows: none\n"})
         checked = self.check("callers")
         self.assertEqual(1, checked.status)
         self.assertIn(f"`{CONFIGURATION}` cannot be used, so the local workflow register is unknown", checked.summary)
         self.assertIn("local-workflows: expected a list", checked.summary)
         self.assertNotIn("neither a fixed caller", checked.summary)
+
+    def test_a_registered_non_fixed_workflow_calling_a_shared_workflow_fails(self) -> None:
+        called = f"{SHARED}/.github/workflows/legacy-tests.yml@v1"
+        workflow = f"name: Legacy\non:\n  workflow_dispatch:\njobs:\n  run:\n    uses: {called}\n"
+        self.consumer({LOCAL: workflow, CONFIGURATION: REGISTERED})
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status, checked.stdout + checked.stderr)
+        self.assertIn(f"::error file={LOCAL}::", checked.stdout)
+        self.assertIn(f"`{LOCAL}`", checked.summary)
+        self.assertIn(f"`{called}`", checked.summary)
+
+    def test_an_uncallable_registered_workflow_fails(self) -> None:
+        cases = (
+            ("no on section", "name: Orphan\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n"),
+            ("empty on mapping", "name: Empty\non: {}\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n"),
+            ("unreferenced workflow_call", "name: Helper\non:\n  workflow_call:\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n"),
+            ("self-calling workflow_call", f"name: Self\non:\n  workflow_call:\njobs:\n  run:\n    uses: ./{LOCAL}\n"),
+        )
+        for label, content in cases:
+            with self.subTest(case=label):
+                self.consumer({LOCAL: content, CONFIGURATION: REGISTERED})
+                checked = self.check("callers")
+                self.assertEqual(1, checked.status, checked.stdout + checked.stderr)
+                self.assertIn(f"::error file={LOCAL}::", checked.stdout)
+                self.assertIn(f"`{LOCAL}`", checked.summary)
+
+    def test_callable_registered_workflows_pass(self) -> None:
+        helper = f"{WORKFLOWS}/helper.yml"
+        register = (f"version: 1\nlocal-workflows:\n"
+                    f"  - workflow: {LOCAL}\n    request: 12\n    waits-for: python-release\n"
+                    f"  - workflow: {helper}\n    request: 13\n    waits-for: python-release\n")
+        helper_wf = "name: Helper\non:\n  workflow_call:\njobs:\n  work:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n"
+        for prefix in ("./", "$/"):
+            with self.subTest(prefix=prefix):
+                caller_wf = f"name: Dispatch\non:\n  workflow_dispatch:\n  workflow_call:\njobs:\n  call:\n    uses: {prefix}{helper}\n"
+                self.consumer({LOCAL: caller_wf, helper: helper_wf, CONFIGURATION: register})
+                checked = self.check("callers")
+                self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+                self.assertNotIn("workflow_call", checked.summary)
+
+    def test_an_unreadable_workflow_file_fails(self) -> None:
+        self.consumer({LOCAL: "on: [unclosed\n", CONFIGURATION: REGISTERED})
+        checked = self.check("callers")
+        self.assertEqual(1, checked.status, checked.stdout + checked.stderr)
+        self.assertIn(f"::error file={LOCAL}::", checked.stdout)
+        self.assertIn(f"`{LOCAL}`", checked.summary)
+        self.assertIn("could not be read", checked.summary)
+
+    def test_workflow_inspection_findings_are_notices_on_dependabot_or_push_and_skipped_in_shared_repo(self) -> None:
+        called = f"{SHARED}/.github/workflows/legacy.yml@v1"
+        self.consumer({LOCAL: f"name: Legacy\non:\n  workflow_call:\njobs:\n  run:\n    uses: {called}\n", CONFIGURATION: REGISTERED})
+        for event, author in (("pull_request", "dependabot[bot]"), ("push", "")):
+            with self.subTest(event=event, author=author):
+                checked = self.check("callers", event=event, author=author)
+                self.assertEqual(0, checked.status, checked.stdout)
+                self.assertIn(f"::notice file={LOCAL}::", checked.stdout)
+                self.assertNotIn("::error", checked.stdout)
+        skipped = self.check("callers", repository=SHARED)
+        self.assertEqual(0, skipped.status, skipped.stdout)
+        self.assertIn("nothing to check", skipped.stdout)
 
 
 class CiGuideTests(ConsumerFixture):
@@ -357,7 +418,7 @@ class SharedRepositoryTests(ConsumerFixture):
 
 class AllConsumerChecksTests(ConsumerFixture):
     def test_all_runs_callers_register_and_dependabot_in_one_command(self) -> None:
-        self.consumer({LOCAL: "name: Nightly report\n", CONFIGURATION: REGISTERED})
+        self.consumer({LOCAL: CALLABLE, CONFIGURATION: REGISTERED})
         self.api.issue(12, "open")
         checked = self.start("all")
         self.assertEqual(0, checked.status, checked.stdout + checked.stderr)

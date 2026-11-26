@@ -19,7 +19,7 @@ The shared parts, with one row per shared step:
 | Pipeline | `pipeline.yml` | Pipeline, `pipeline/`; its job of repository hygiene loads `repository-hygiene/`, `suite-selection/` and `publication-checks/`, and its job `suite-selection` loads `suite-selection/` and `recording/` | `pipeline/plan.py`, `pipeline/consumer_checks.py` | `pipeline` |
 | Pipeline | `automation.yml`, the [automation workflow](#the-automation-workflow) | Issue-title normalisation, `issue-title/`; the workflow also loads `pipeline/`, `dependabot-auto-merge/`, `recording/`, `suite-selection/` and `repository-hygiene/` | `issue-title/issue_title.py` | `pipeline` |
 | GitHub release | `release.yml` | Pipeline, `pipeline/` | `pipeline/release.py` | `pipeline` |
-| Sync | `sync.yml` | Sync, `sync/`; it reads the templates, the schema and the consumer checks of `pipeline/` and the ruleset template of `repository-ruleset/` | `sync/sync.py` | `sync` |
+| Sync | `sync.yml` | Sync, `sync/`; it reads the templates, the schema and the consumer checks of `pipeline/`, the ruleset template of `repository-ruleset/` and the shared surface of `repository-hygiene/` | `sync/sync.py` | `sync` |
 | Measurement | `measurement.yml` | Measurement, `measurement/` | `measurement/measurement.py` | `measurement` |
 
 The repository workflows run only for this repository, and no caller calls them. Each runs scripts from a part folder:
@@ -754,7 +754,7 @@ Three steps of the job `repository-hygiene` run a command of `consumer_checks.py
 | --- | --- |
 | `callers` | A fixed caller under `.github/workflows/` is missing or differs from its template. A caller that equals `previous/<caller>` passes up to and including the same day of the month after the promotion date in the record, or that month's last day when it is shorter, with a notice; after that day it is a finding. With such a finding the summary links the consumer's open pull request on the sync's branch, or says that none is open and links the templates at `v1`. |
 | `callers` | The CI guide `docs/agents/ci.md` is missing or differs from its template `docs/agents/ci.md` in the kit, compared up to and including the first heading `## Repository choices`, with the same link. A document that equals `previous/docs/agents/ci.md` up to that heading passes for the same month as a caller does. A kit without that template compares no CI guide. |
-| `callers` | A file `*.yml` or `*.yaml` directly under `.github/workflows/` that is no fixed caller and that no entry of `local-workflows` names, with the link to the catalogue at `v1`, which holds the decision rule. |
+| `callers` | A file `*.yml` or `*.yaml` directly under `.github/workflows/` that is no fixed caller and that no entry of `local-workflows` names, with the link to the catalogue at `v1`, which holds the decision rule; any non-fixed workflow with a job whose `uses` calls a shared workflow of this repository, even when registered; any non-fixed workflow whose `on` section is absent or empty or holds only `workflow_call` while no other workflow under `.github/workflows/` calls `./.github/workflows/<filename>` or `$/.github/workflows/<filename>` (a self-call does not count); and any non-fixed workflow file that cannot be parsed as YAML. |
 | `register` | A temporary entry whose `request`, or a permanent entry whose `declined-request`, is no issue of the repository or is a pull request; a permanent entry whose issue is open; a temporary entry whose issue was closed as not planned (`state_reason` `not_planned`), with the instruction to make the entry permanent: `declined-request` with that number in place of `request` and `waits-for`; an issue that GitHub does not let the job read. The free job's `request` and `waits-for` under `parts.custom` are checked as a temporary entry is, the switch-over check included; one of the two without the other is a finding, and a request closed as not planned is reported with the instruction to remove both. |
 | `register` | The switch-over check: a temporary entry whose `waits-for` names a part of the current schema version of the pipeline's own revision, which for a consumer is `v1`. An entry that waits for `<part>.<setting>` is a finding once that part's configuration there knows the setting, among its own properties or those of the items of its lists. The finding tells the consumer to switch the part on or to state the setting, to remove the workflow with its entry and to close the request, and the summary links the catalogue at `v1`. It needs no answer of GitHub. |
 | `dependabot` | `.github/dependabot.yml` is missing or differs from the file generated from `dependabot`, `.github/dependabot.yaml` exists, or either exists while the configuration file states no ecosystems. The summary holds the expected content. |
@@ -961,7 +961,7 @@ The file in the management repository is never edited there. A promotion by hand
 
 #### What the sync compares
 
-`sync.py sync` asks GitHub for the repositories of the installation. An archived repository and the calling repository are left alone. The repository that the template of `ci.yml` calls, this one, is never synced: when the installation holds it, the run fails before any write. A repository without `.github/ci-config.yml` has not adopted the pipeline; the summary says so and nothing else happens to it.
+`sync.py sync` asks GitHub for the repositories of the installation. An archived repository and the calling repository are left alone. The repository that the template of `ci.yml` calls, this one, is never synced: when the installation holds it, the run fails before any write. A repository without `.github/ci-config.yml` has not adopted the pipeline; the summary says so, still inspects direct `.yml` and `.yaml` files under `.github/workflows/` for calls to retired shared workflows (absent from `actions/repository-hygiene/shared-surface.json`), uncallable workflows and unreadable YAML, and makes no other check or write.
 
 For every other repository the sync compares, on the default branch:
 
@@ -970,6 +970,7 @@ For every other repository the sync compares, on the default branch:
 | The fixed callers `ci.yml`, `automation.yml` and `release.yml` | their templates in `actions/pipeline/consumer-kit/` | joins the sync pull request |
 | The CI guide `docs/agents/ci.md`, up to and including the first heading `## Repository choices` | its template `docs/agents/ci.md` in the same kit, when the kit holds it | joins the sync pull request, with what the repository recorded below that heading kept |
 | `.github/dependabot.yml` | the file that [the consumer checks](#the-consumer-checks) generate from `dependabot` in the configuration file; `.github/dependabot.yaml` leaves | joins the sync pull request |
+| Direct `.yml` and `.yaml` files under `.github/workflows/` | the local workflow register, the fixed callers and the workflow callability rules of [the consumer checks](#the-consumer-checks) | is a workflow finding; the sync never removes or edits non-fixed workflow files |
 | The default-branch ruleset | `actions/repository-ruleset/ruleset-main-template.json` with `ci / verdict` as its one required check | is a settings difference |
 | The merge settings | `actions/sync/merge-settings.json`: the merge settings of the hygiene kit and `allow_auto_merge` | is a settings difference |
 
@@ -996,9 +997,10 @@ With `--own-repository`, the sync opens issues there with the token of the run, 
 | A sync pull request is still open six hours after it was opened | `Sync pull request not merged after six hours: <repository>#<number>` | ever, per pull request |
 | An open issue with the label `shared-ci` in a repository of the installation | `Request for shared CI: <repository>#<number>` | ever, per request |
 | A repository's settings differ | `Settings differ: <repository>` | while an issue with the same differences is open |
+| A repository holds unwanted workflows | `Unwanted workflows: <repository>` | while an issue with the same findings is open |
 | The run failed | `The sync failed` | while one is open |
 
-Each issue carries the marker `<!-- sync-finding: <key> -->` in its body, by which a later run finds it among all issues of the repository. The key of a settings difference holds a digest of its differences, so changed differences open a new issue. A run without findings opens none.
+Each issue carries the marker `<!-- sync-finding: <key> -->` in its body, by which a later run finds it among all issues of the repository. The key of a settings difference or of unwanted workflows holds a digest of its findings, so changed findings open a new issue. A run without findings opens none.
 
 #### Adoption
 
