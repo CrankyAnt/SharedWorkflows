@@ -149,7 +149,7 @@ class StoreStepTests(unittest.TestCase):
                 }))
         results = pipeline["jobs"]["suite-selection-results"]
         self.assertEqual(
-            "${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}",
+            "${{ !cancelled() && needs.plan.outputs.plan != '' && github.event_name == 'pull_request' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}",
             results["if"],
         )
         self.assertEqual({

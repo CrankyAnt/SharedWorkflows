@@ -58,6 +58,12 @@ class VerdictTests(PipelineFixture):
         self.assertEqual(1, outcome.status, "a failed light check fails the verdict when every part passed")
         self.assertIn("**Failed.** `plan` ended failure; the light check of relative links in tracked Markdown in `plan` failed.", outcome.summary)
 
+    def test_a_failed_light_check_in_a_plan_that_gave_no_plan_output_is_named_and_fails_the_verdict(self) -> None:
+        outcome = self.verdict(needs(plan="failure", outputs={"plan": "", "light-branch": "failure"}))
+        self.assertEqual(1, outcome.status)
+        self.assertIn("**Failed.** `plan` ended failure; the light check of the pull request branch in `plan` failed.", outcome.summary)
+        self.assertIn("The `plan` job gave no plan", outcome.summary)
+
     def test_a_needs_context_without_the_plan_job_fails_the_verdict(self) -> None:
         outcome = self.verdict({"fixture-floor": {"result": "success", "outputs": {}}})
         self.assertEqual(1, outcome.status)

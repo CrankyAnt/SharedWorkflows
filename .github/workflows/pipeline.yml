@@ -32,6 +32,7 @@ jobs:
       units: ${{ steps.select.outputs.units }}
       reused: ${{ steps.select.outputs.reused }}
       reused-units: ${{ steps.select.outputs.reused-units }}
+      selection: ${{ steps.select.outcome }}
       shared-digests: ${{ steps.digest.outputs.shared-digests }}
       identical: ${{ steps.select.outputs.identical }}
       # The outcome of each light hygiene check, so that the verdict names a failed one while the parts still run.
@@ -58,6 +59,7 @@ jobs:
           ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}
           fetch-depth: 0
           persist-credentials: false
+        id: checkout
       - name: Check that the dispatched commit is on the default branch
         id: dispatch
         if: github.event_name == 'repository_dispatch'
@@ -106,7 +108,7 @@ jobs:
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Decide which checks the changed files can affect
         id: changes
-        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
+        if: ${{ !cancelled() && steps.hygiene.outcome == 'success' && steps.checkout.outcome == 'success' && !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
         env:
           RESOURCE_PATH: ${{ steps.hygiene.outputs.path }}
           EVENT: ${{ github.event_name }}
@@ -241,7 +243,7 @@ jobs:
           if-no-files-found: error
       - name: Decide whether the PR author skips the convention checks
         id: author-decision
-        if: ${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
@@ -256,18 +258,18 @@ jobs:
           EOF
       - name: Load the convention checks from this workflow revision
         id: conventions
-        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}
         uses: $/actions/publication-checks
       - name: Check the pull request branch
         id: branch
-        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' && github.event.action != 'edited' }}
+        if: ${{ !cancelled() && steps.conventions.outcome == 'success' && steps.author-decision.outputs.skip == 'false' && github.event.action != 'edited' }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
           HEAD_BRANCH: ${{ github.head_ref }}
         run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
       - name: Check the references to repositories of the owner
         id: references
-        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && steps.conventions.outcome == 'success' && steps.checkout.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -276,7 +278,7 @@ jobs:
         run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
       - name: Consumer checks
         id: consumer-checks
-        if: ${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' && github.event.pull_request.user.login != 'dependabot[bot]' }}
+        if: ${{ !cancelled() && steps.resources.outcome == 'success' && steps.checkout.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' && github.event.pull_request.user.login != 'dependabot[bot]' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -285,7 +287,7 @@ jobs:
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/consumer_checks.py" all --event "$EVENT" --author "$PR_AUTHOR" --summary "$GITHUB_STEP_SUMMARY"
       - name: Dependabot coverage of tracked package files
         id: coverage
-        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.changes.outputs.packages == 'true' }}
+        if: ${{ !cancelled() && steps.resources.outcome == 'success' && steps.hygiene.outcome == 'success' && steps.checkout.outcome == 'success' && steps.changes.outputs.packages == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.hygiene.outputs.path }}
           PIPELINE_PATH: ${{ steps.resources.outputs.path }}
@@ -296,7 +298,7 @@ jobs:
             PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" coverage --exclude-from -
       - name: Relative links in tracked Markdown
         id: links
-        if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.changes.outputs.markdown == 'true' }}
+        if: ${{ !cancelled() && steps.resources.outcome == 'success' && steps.hygiene.outcome == 'success' && steps.checkout.outcome == 'success' && steps.changes.outputs.markdown == 'true' }}
         env:
           RESOURCE_PATH: ${{ steps.hygiene.outputs.path }}
           PIPELINE_PATH: ${{ steps.resources.outputs.path }}
@@ -792,7 +794,7 @@ jobs:
 
   suite-selection-results:
     needs: [plan, suite-selection-jobs]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && github.event_name == 'pull_request' && (needs.plan.outputs.units != '' || needs.plan.outputs.reused != '') }}
     runs-on: ubuntu-slim
     timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan || '{}').timeouts['suite-selection-results'] || 5 }}
     permissions:

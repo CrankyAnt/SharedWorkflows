@@ -663,6 +663,26 @@ class ReuseTests(FixtureRepository):
         self.assertFalse(self.store(outputs, self.ALL, 9005, result="failure"))
         self.assertFalse(self.record.exists())
 
+    def test_a_failed_plan_job_with_a_written_plan_and_passed_selection_stores_pull_request_results(self) -> None:
+        first = self.head({"src/feature.py": "feature v2\n"})
+        outputs = self.select_head(first)
+        self.assertTrue(self.store(outputs, [("pr-only", "tests/test_pr.py")], 9070))
+        later = self.select_head(self.head({"README.md": "unread\n"}))
+        with_plan = {**later, "plan": '{"parts":{}}', "selection": "success"}
+        self.record.unlink()
+        self.assertTrue(self.store(with_plan, [("both", "tests/test_both.py")], 9071, result="failure", job="plan"))
+        carried = json.loads(self.record.read_text(encoding="utf-8"))["passed"]
+        self.assertEqual([9070, 9071], sorted(carried.values()), "keeps both reused and newly passed units after a failed light check")
+        for bad_outputs, label in (
+            ({**later, "plan": "", "selection": "success"}, "an empty plan output stores nothing"),
+            ({**later, "plan": '{"parts":{}}', "selection": "failure"}, "a failed selection stores nothing"),
+            ({**later, "plan": '{"parts":{}}'}, "a missing selection outcome stores nothing"),
+        ):
+            with self.subTest(case=label):
+                self.record.unlink(missing_ok=True)
+                self.assertFalse(self.store(bad_outputs, [("both", "tests/test_both.py")], 9072, result="failure", job="plan"), label)
+                self.assertFalse(self.record.exists(), label)
+
     def test_a_later_head_that_does_not_apply_the_additions_reuses_the_unmarked_passes_and_runs_the_entry_files_with_additions(self) -> None:
         self.first_run_with_additions(9007)
         later = self.select_head(self.head({"README.md": "a change no suite reads\n"}))
@@ -1008,6 +1028,13 @@ class DefaultBranchRecordTests(FixtureRepository):
                 self.assertFalse(self.store_default(outputs, self.ALL_PASSED, 7002, self.base, self.DIGESTS,
                                                     extra_jobs={"repository-hygiene": {"result": bad_result, "outputs": {}}}))
                 self.assertFalse(self.default_record.exists())
+        # A failed plan job still writes no default-branch record, even with a written plan and successful selection.
+        self.default_record.unlink(missing_ok=True)
+        self.assertFalse(self.store_default(
+            outputs, self.ALL_PASSED, 7004, self.base, self.DIGESTS,
+            extra_jobs={"plan": {"result": "failure", "outputs": {**outputs, "plan": '{"parts":{}}', "selection": "success"}}},
+        ))
+        self.assertFalse(self.default_record.exists())
         # A cancelled pull-request run also stores nothing.
         needs = self.root.parent / "cancelled-pr-needs.json"
         needs.write_text(json.dumps({

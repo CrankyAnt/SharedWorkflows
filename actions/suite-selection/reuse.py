@@ -652,13 +652,30 @@ def read_passed(directory: Path) -> tuple[set[tuple[str, str]], set[tuple[str, s
     return passed, with_additions
 
 
-def selection_outputs(needs: dict, selection_job: str) -> tuple[dict | None, dict | None]:
-    """The outputs ``units`` and ``reused`` of the job that ran ``select``; None for both when it did not succeed or
-    its outputs cannot be read."""
+def selection_job_outputs(needs: dict, selection_job: str) -> dict | None:
+    """The ``outputs`` dict of ``selection_job`` when it ran ``select`` to completion, or None otherwise. Accepts a
+    failed job whose ``plan`` output is non-empty and whose ``selection`` output is ``success``, so a failed light
+    hygiene check in ``plan`` does not drop passed pull-request results; ``store_default_branch`` rejects any
+    non-``success`` job before calling ``store``."""
     selection = needs.get(selection_job)
-    if not isinstance(selection, dict) or selection.get("result") != "success":
-        return None, None
+    if not isinstance(selection, dict):
+        return None
+    result = selection.get("result")
     outputs = selection.get("outputs") if isinstance(selection.get("outputs"), dict) else {}
+    if result == "success":
+        return outputs
+    if result == "failure" and outputs.get("selection") == "success" and isinstance(outputs.get("plan"), str) and outputs.get("plan"):
+        return outputs
+    return None
+
+
+def selection_outputs(needs: dict, selection_job: str) -> tuple[dict | None, dict | None]:
+    """The outputs ``units`` and ``reused`` of the job that ran ``select``; None for both when it did not succeed
+    (unless ``result`` is ``failure`` with a non-empty ``plan`` output and ``selection == 'success'``) or its outputs
+    cannot be read."""
+    outputs = selection_job_outputs(needs, selection_job)
+    if outputs is None:
+        return None, None
     try:
         units = json.loads(outputs.get("units") or "{}")
         reused = json.loads(outputs.get("reused") or "{}")
@@ -672,10 +689,9 @@ def selection_outputs(needs: dict, selection_job: str) -> tuple[dict | None, dic
 def reused_unit_outputs(needs: dict, selection_job: str) -> dict:
     """The output ``reused-units`` of the job that ran ``select``: each reused unit by its key with what ``store``
     needs to key it again under applied additions, or empty when absent or unreadable."""
-    selection = needs.get(selection_job)
-    if not isinstance(selection, dict) or selection.get("result") != "success":
+    outputs = selection_job_outputs(needs, selection_job)
+    if outputs is None:
         return {}
-    outputs = selection.get("outputs") if isinstance(selection.get("outputs"), dict) else {}
     try:
         reused_units = json.loads(outputs.get("reused-units") or "{}")
     except json.JSONDecodeError:
@@ -686,8 +702,9 @@ def reused_unit_outputs(needs: dict, selection_job: str) -> dict:
 def store(needs: dict, passed: set[tuple[str, str]], run_id: int, selection_job: str = "select", *,
           with_additions: set[tuple[str, str]] = frozenset(), applied: dict[str, str] | None = None) -> dict[str, int] | None:
     """The record of a run: the results ``select`` reused, and every unit that ran and passed with all its entry
-    files. ``selection_job`` names the job of the needs context that ran ``select``. None when the selection did not
-    succeed or any job was cancelled, so that nothing is stored.
+    files. ``selection_job`` names the job of the needs context that ran ``select``. Accepts a failed ``plan`` job
+    whose ``plan`` output is non-empty and whose ``selection`` output is ``success``; returns None when the selection
+    is not accepted or any job was cancelled, so that nothing is stored.
 
     In a run whose checks reported additions, ``with_additions`` holds the passed entry files that the additions name,
     and ``applied`` maps the key of each running or reused unit to its key under the suite list with every addition of

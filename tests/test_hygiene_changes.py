@@ -77,6 +77,28 @@ class ChangeDecisionTests(unittest.TestCase):
         self.assertEqual({"true"}, {value for name, value in every_check.items() if name != "reuse"}, "without a SHA the base is empty and every check runs")
         self.assertEqual("false", every_check["reuse"], "the fixture has no REUSE.toml")
 
+    def test_missing_push_lookup_or_shared_lookup_falls_back_to_every_check_and_counts_fallback(self) -> None:
+        head = self.commit({"src/app.py": "print(2)\n"})
+        missing = self.root / "missing.json"
+        for label, args, expected_reason in (
+            ("missing push lookup", ("--lookup", str(missing)), "hygiene-unreadable-push-lookup"),
+            ("missing shared lookup", ("--base", self.base, "--head", head, "--compare", "direct", "--shared-lookup", str(missing)),
+             "hygiene-unreadable-shared-digests"),
+        ):
+            with self.subTest(case=label):
+                output, summary, fallbacks = self.root / "output.txt", self.root / "summary.md", self.root / "fallbacks.json"
+                output.write_text("", encoding="utf-8")
+                summary.write_text("", encoding="utf-8")
+                fallbacks.unlink(missing_ok=True)
+                result = hygiene("changes", self.repo, *args, "--fallbacks", str(fallbacks),
+                                 "--github-output", str(output), "--summary", str(summary))
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                decisions = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+                for check in ("actionlint", "zizmor", "packages", "markdown"):
+                    self.assertEqual("true", decisions[check], f"{label} must select {check}")
+                recorded = json.loads(fallbacks.read_text(encoding="utf-8"))
+                self.assertGreaterEqual(recorded.get(expected_reason, 0), 1, recorded)
+
     def test_a_package_file_or_dependabot_change_runs_the_coverage_check(self) -> None:
         base = self.base
         for relative in ("service/requirements.txt", "web/package.json", ".github/dependabot.yml"):

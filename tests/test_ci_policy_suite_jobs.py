@@ -439,6 +439,7 @@ class PipelinePartTests(unittest.TestCase):
             "language-steps": "${{ steps.select.outputs.language-steps }}",
             "units": "${{ steps.select.outputs.units }}",
             "reused": "${{ steps.select.outputs.reused }}",
+            "selection": "${{ steps.select.outcome }}",
             "shared-digests": "${{ steps.digest.outputs.shared-digests }}",
             "identical": "${{ steps.select.outputs.identical }}",
             "jobs": "${{ steps.select.outputs.jobs }}",
@@ -479,17 +480,18 @@ class PipelinePartTests(unittest.TestCase):
         self.assertEqual(["plan", f"{PART}-jobs"], needed(job))
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertEqual("ubuntu-slim", job["runs-on"])
-        for event, result, units, reused, runs in (
-            ("pull_request", "success", '{"k":1}', "", True),
-            ("pull_request", "success", "", '{"k":1}', True),
-            ("pull_request", "success", "", "", False),
-            ("push", "success", '{"k":1}', "", False),
-            ("pull_request", "failure", '{"k":1}', "", False),
-            ("pull_request", "skipped", '{"k":1}', "", False),
-            ("repository_dispatch", "success", '{"k":1}', "", False),
+        for event, result, plan, units, reused, runs in (
+            ("pull_request", "success", "written", '{"k":1}', "", True),
+            ("pull_request", "success", "written", "", '{"k":1}', True),
+            ("pull_request", "failure", "written", '{"k":1}', "", True),
+            ("pull_request", "failure", "", '{"k":1}', "", False),
+            ("pull_request", "skipped", "", '{"k":1}', "", False),
+            ("pull_request", "success", "written", "", "", False),
+            ("push", "success", "written", '{"k":1}', "", False),
+            ("repository_dispatch", "success", "written", '{"k":1}', "", False),
         ):
-            with self.subTest(event=event, result=result, units=units, reused=reused):
-                context = {"github": {"event_name": event}, "needs": {"plan": {"result": result, "outputs": {"units": units, "reused": reused}}}}
+            with self.subTest(event=event, result=result, plan=plan, units=units, reused=reused):
+                context = {"github": {"event_name": event}, "needs": {"plan": {"result": result, "outputs": {"plan": plan, "units": units, "reused": reused}}}}
                 self.assertEqual(runs, bool(expression_value(job["if"].replace("!cancelled() && ", ""), context)))
         self.assertIn("!cancelled()", job["if"], "the passes of a run with a failed suite job are stored; those of a cancelled run are not")
         names = [step_key(step) for step in job["steps"]]

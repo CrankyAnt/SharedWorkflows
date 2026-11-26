@@ -29,20 +29,21 @@ LEFT_OUT = {
 }
 # The steps that differ between the two jobs, each with its reason; every other step is equal in both.
 DIFFERENT = {
+    "actions/checkout": "the pipeline names the checkout step id checkout so light checks in plan wait for it",
     "Load resources from this workflow revision": "the pipeline loads hygiene resources in plan under id hygiene",
     "Restore the default-branch record": "the pipeline restores the default-branch record for pull requests as well as pushes, and skips it on edited",
     "Look up the tested tree of the pushed commit's pull request": "the pipeline runs the push lookup once in plan and exports it as an output",
     "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run, passes shared-lookup for hygiene check digests, and runs change detection in plan",
-    "Decide whether the PR author skips the convention checks": "the pipeline runs light convention checks in plan after the plan step succeeds",
+    "Decide whether the PR author skips the convention checks": "the pipeline runs light convention checks in plan",
     "Load the convention checks from this workflow revision": "the pipeline loads publication-checks in plan for branch/reference checks and in repository-hygiene for commitlint",
     "actions/setup-node": "the pipeline reads pr-author-skip from needs.plan.outputs",
-    "Check the pull request branch": "the pipeline runs the light branch check in plan after the plan step succeeds",
+    "Check the pull request branch": "the pipeline runs the light branch check in plan",
     "Check every pull request commit": "the pipeline skips commitlint on commits on an edited run",
     "Compute the commitlint cache key": "the pipeline reads pr-author-skip from needs.plan.outputs",
     "Restore the cached commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
     "Install the locked commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
     "Check the pull request title": "the pipeline reads the current title through the API, for a re-run after a corrected title",
-    "Check the references to repositories of the owner": "the pipeline runs the light reference check in plan after the plan step succeeds",
+    "Check the references to repositories of the owner": "the pipeline runs the light reference check in plan",
     "Dependabot coverage of tracked package files": "the pipeline runs coverage in plan and reads coverage-exclude from the configuration file, not from an input",
     "Relative links in tracked Markdown": "the pipeline runs links in plan and reads link-exclude from the configuration file, not from an input",
     "Compute the hygiene tools cache key": "the pipeline reads hygiene change flags from needs.plan.outputs, relies on plan for the dispatch check, and skips tools on edited",
@@ -283,9 +284,16 @@ class PipelineTests(unittest.TestCase):
 
     def test_a_failed_light_check_in_plan_skips_no_job_that_needs_the_plan_once_the_plan_is_written(self) -> None:
         # The run of a failed link check: plan ended failure after it wrote its plan with every part planned.
-        context = {"needs": {"plan": {"result": "failure", "outputs": {"plan": "written", "shards": "[1]", "windows": "", "light-links": "failure"}}}}
+        context = {
+            "github": {"event_name": "pull_request"},
+            "needs": {"plan": {"result": "failure", "outputs": {
+                "plan": "written", "selection": "success", "shards": "[1]", "windows": "",
+                "units": '{"a":{}}', "reused": "", "light-links": "failure",
+            }}},
+        }
+        self.assertEqual("${{ steps.select.outcome }}", self.jobs[PLAN]["outputs"].get("selection"))
         for name, job in self.jobs.items():
-            if PLAN not in needed(job) or name in (VERDICT, "suite-selection-results"):
+            if PLAN not in needed(job) or name == VERDICT:
                 continue
             with self.subTest(job=name):
                 condition = str(job["if"])
@@ -296,6 +304,30 @@ class PipelineTests(unittest.TestCase):
                 without_plan = {"needs": {"plan": {"result": "failure", "outputs": {"plan": ""}}}}
                 self.assertFalse(expression_value("needs.plan.outputs.plan != ''", without_plan), "no job runs without a written plan")
         self.assertEqual("${{ !cancelled() }}", self.jobs[VERDICT]["if"], "the verdict judges the jobs after a failed light check")
+
+    def test_light_checks_in_plan_do_not_depend_on_the_plan_step_succeeding(self) -> None:
+        by_id = {step.get("id"): step for step in self.jobs[PLAN]["steps"] if step.get("id")}
+        expected_loaders = {
+            "changes": ("hygiene", "checkout"),
+            "author-decision": (),
+            "conventions": (),
+            "branch": ("conventions",),
+            "references": ("conventions", "checkout"),
+            "consumer-checks": ("resources", "checkout"),
+            "coverage": ("resources", "hygiene", "checkout"),
+            "links": ("resources", "hygiene", "checkout"),
+        }
+        for step_id, loaders in expected_loaders.items():
+            with self.subTest(step=step_id):
+                condition = str(by_id[step_id].get("if", ""))
+                self.assertIn("!cancelled()", condition)
+                self.assertNotIn("steps.plan.outcome", condition, f"{step_id} must still run when an earlier plan step fails")
+                for loader in loaders:
+                    self.assertIn(f"steps.{loader}.outcome == 'success'", condition, f"{step_id} must wait for its input loader {loader}")
+        by_name = {step.get("name"): step for step in self.jobs[PLAN]["steps"] if step.get("name")}
+        for name in ("Upload the pipeline plan", "Record the tested state of the pull request", "Upload the tested state of the pull request"):
+            with self.subTest(step=name):
+                self.assertIn("steps.plan.outcome == 'success'", str(by_name[name].get("if", "")))
 
     def test_suite_selection_results_downloads_entry_times_and_checks_out_only_when_additions_were_reported(self) -> None:
         steps = self.jobs["suite-selection-results"]["steps"]
@@ -566,12 +598,12 @@ class HygieneStepTests(unittest.TestCase):
         self.assertIn(f"{moved}: listed as a step of the pipeline alone, but the shared workflow has this step",
                       hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, moved: "none"}))
 
-    def test_the_consumer_checks_run_in_plan_after_the_plan_step_succeeds_and_read_github_with_the_job_s_token(self) -> None:
+    def test_the_consumer_checks_run_in_plan_and_read_github_with_the_job_s_token(self) -> None:
         checks = [step for step in self.plan_steps if "consumer_checks.py" in str(step.get("run", ""))]
         self.assertEqual(["Consumer checks"], [step["name"] for step in checks])
         step = checks[0]
         self.assertEqual(
-            "${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' && github.event.pull_request.user.login != 'dependabot[bot]' }}",
+            "${{ !cancelled() && steps.resources.outcome == 'success' && steps.checkout.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' && github.event.pull_request.user.login != 'dependabot[bot]' }}",
             step["if"],
         )
         self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "GITHUB_TOKEN": "${{ github.token }}", "EVENT": "${{ github.event_name }}",
