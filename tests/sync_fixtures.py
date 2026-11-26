@@ -132,6 +132,7 @@ class GitHubStandIn:
         self.writes: list[Write] = []
         self.requests: list[tuple[str, str, str]] = []
         self.refused: dict[str, int] = {}
+        self.snapshot_errors: dict[str, list[dict]] = {}
         self.on_request = None
         stand_in = self
 
@@ -307,9 +308,19 @@ class GitHubStandIn:
                 return 200, {"data": {"repository": {"defaultBranchRef": None}}}
             files = repository.trees[commit["tree"]]
             target: dict[str, object] = {"oid": tip, "tree": {"oid": commit["tree"]}}
+            errors: list[dict[str, object]] = []
             for alias, var in re.findall(r"(\w+):\s*file\(path:\s*\$(\w+)\)", query):
                 file_path = variables[var]
-                target[alias] = {"oid": digest(files[file_path]), "object": {"text": files[file_path]}} if file_path in files else None
+                if file_path in files:
+                    target[alias] = {"oid": digest(files[file_path]), "object": {"text": files[file_path]}}
+                else:
+                    target[alias] = None
+                    errors.append({
+                        "type": "NOT_FOUND",
+                        "path": ["repository", "defaultBranchRef", "target", alias],
+                        "message": f"Could not resolve file for path '{file_path}'.",
+                    })
+            errors.extend(self.snapshot_errors.get(full_name, []))
             pulls = [
                 {
                     "number": pull["number"],
@@ -335,7 +346,10 @@ class GitHubStandIn:
                     and (label is None or label in [item["name"] for item in issue["labels"]])
                 ]
                 result["issues"] = {"pageInfo": {"hasNextPage": False}, "nodes": issues}
-            return 200, {"data": {"repository": result}}
+            response: dict[str, object] = {"data": {"repository": result}}
+            if errors:
+                response["errors"] = errors
+            return 200, response
         if "enablePullRequestAutoMerge" not in query:
             return 200, {"errors": [{"message": "unknown operation"}]}
         for repository in self.repositories.values():

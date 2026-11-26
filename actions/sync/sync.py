@@ -335,18 +335,42 @@ class Snapshot:
     requests: list[dict]
 
 
+def is_missing_file_error(error: object, aliases: dict[str, str]) -> bool:
+    """Whether a GraphQL error entry reports one of the snapshot's requested file fields as not found."""
+    if not isinstance(error, dict):
+        return False
+    error_path = error.get("path")
+    error_type = error.get("type")
+    message = error.get("message")
+    if isinstance(error_path, list):
+        if len(error_path) != 4 or error_path[:3] != ["repository", "defaultBranchRef", "target"]:
+            return False
+        alias = error_path[3]
+        if not isinstance(alias, str) or alias not in aliases:
+            return False
+        if error_type is not None:
+            return error_type == "NOT_FOUND"
+        return message == f"Could not resolve file for path '{aliases[alias]}'."
+    if error_path is None and (error_type is None or error_type == "NOT_FOUND") and isinstance(message, str):
+        return message in {f"Could not resolve file for path '{path}'." for path in aliases.values()}
+    return False
+
+
 def read_snapshot(api: Api, repository: str, default: str, paths: list[str], branch: str, include_requests: bool) -> Snapshot:
     """Read every needed file of a consumer from one commit snapshot of its default branch, together with its open
     sync pull request and, when needed, its open ``shared-ci`` issues."""
     owner, name = repository.split("/", 1)
     variables: dict[str, object] = {"owner": owner, "name": name, "branch": branch}
+    aliases: dict[str, str] = {}
     path_decls = []
     file_fields = []
     for index, path in enumerate(paths):
+        alias = f"f{index}"
         var = f"path{index}"
+        aliases[alias] = path
         variables[var] = path
         path_decls.append(f"${var}: String!")
-        file_fields.append(f"f{index}: file(path: ${var}) {{ oid object {{ ... on Blob {{ text }} }} }}")
+        file_fields.append(f"{alias}: file(path: ${var}) {{ oid object {{ ... on Blob {{ text }} }} }}")
     issues_decl = ", $label: String!" if include_requests else ""
     issues_field = ("issues(states: [OPEN], labels: [$label], first: 100) { pageInfo { hasNextPage } nodes { number title url } }"
                     if include_requests else "")
@@ -360,6 +384,8 @@ def read_snapshot(api: Api, repository: str, default: str, paths: list[str], bra
              f"{issues_field} }} }}")
     answer = api.send("POST", "graphql", {"query": query, "variables": variables})
     errors = answer.get("errors")
+    if isinstance(errors, list):
+        errors = [error for error in errors if not is_missing_file_error(error, aliases)]
     if errors:
         raise SyncError("; ".join(str(error.get("message", error)) if isinstance(error, dict) else str(error) for error in errors))
     repo_data = (answer.get("data") or {}).get("repository")
