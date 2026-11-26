@@ -163,8 +163,12 @@ The SHA-256 (`tool:<name>`) over one pinned tool's entry in the pins file and, f
 _Avoid_: Shared digest, pin hash
 
 **Language-step digest**:
-The SHA-256 (`language:<name>`) over one shared language step's folder, the installer scripts it imports, and its pinned tool entries in the pins file (such as `ruff` and `mypy` for `language:python`). A change to a language-step digest reruns only that language step and changes no test unit's digest.
+The SHA-256 (`language:<name>`) over what one shared language step runs: its folder without the consumer kit, the installer scripts it imports, and its pinned tool entries in the pins file (such as `ruff` and `mypy` for `language:python`). A change to a language-step digest reruns that language step and the pipeline parts that run it, and changes no test unit's digest.
 _Avoid_: Shared digest, linter hash
+
+**Part digest**:
+The SHA-256 (`part:<name>`) over what one pipeline part's job runs: its shared folder without the consumer kit, and its job in the pipeline workflow with the workflow's lines before its jobs. A change to a part digest reruns only that part.
+_Avoid_: Shared digest, pipeline hash
 
 ### Sync
 
