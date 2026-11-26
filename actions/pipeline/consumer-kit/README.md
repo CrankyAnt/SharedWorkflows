@@ -148,7 +148,7 @@ Repository hygiene runs in every run of the pipeline and checks the files of thi
 | --- | --- |
 | Fixed callers | a fixed caller is missing or differs from its template |
 | CI guide | `docs/agents/ci.md` is missing or differs from its template up to and including the heading `## Repository choices` |
-| Local workflows | a workflow file under `.github/workflows/` is no fixed caller and has no entry under `local-workflows` |
+| Local workflows | a workflow file under `.github/workflows/` is no fixed caller and has no entry under `local-workflows`, calls a shared workflow outside the fixed callers, has no triggers or only an unreferenced `workflow_call`, or cannot be parsed as YAML |
 | Register | a temporary entry names a `request` that is no issue of the repository, or a permanent entry names a `declined-request` that is no closed issue of the repository; a pull request is no issue; a temporary entry names a `request` that was closed as not planned, so the entry becomes permanent; `parts.custom` names `request` or `waits-for` without the other, or a `request` that is no issue of the repository or was closed as not planned |
 | Switch-over | the part that a temporary entry, or the free job under `parts.custom`, names under `waits-for` exists at `v1`, or for `<part>.<setting>` the part knows that setting there: switch the part on under `parts` or state the setting, remove the workflow with its entry, and close the request |
 | Dependabot configuration | `.github/dependabot.yml` differs from the file generated from `dependabot`, or exists while the configuration file states no ecosystems |
