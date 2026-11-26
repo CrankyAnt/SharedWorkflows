@@ -33,7 +33,6 @@ OWNED = re.compile(r"\bCrankyAnt/[\w-]+(?:\.[\w-]+)*")
 ADDRESSED = re.compile(r"(?:\brepos/|github\.com/)([A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*)")
 USED = re.compile(r"(?m)^\s*(?:- )?uses:\s*([A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*)")
 # The settings that the sync keeps in every consumer, and the documents that state them.
-HYGIENE_KIT = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "consumer-kit"
 PIPELINE_KIT = REPOSITORY_ROOT / "actions" / "pipeline" / "consumer-kit"
 CI_GUIDE = "docs/agents/ci.md"
 MERGE_SETTINGS = REPOSITORY_ROOT / PART / "merge-settings.json"
@@ -383,7 +382,7 @@ class RepositorySettingsTest(unittest.TestCase):
     keeps equal in every consumer."""
 
     def setUp(self) -> None:
-        self.readme = (HYGIENE_KIT / "README.md").read_text(encoding="utf-8")
+        self.readme = (PIPELINE_KIT / "README.md").read_text(encoding="utf-8")
         self.merge = section(self.readme, "### Merge settings")
         self.settings = json.loads(MERGE_SETTINGS.read_text(encoding="utf-8"))
         self.ruleset_section = section(self.readme, "### Default-branch ruleset")
@@ -432,12 +431,10 @@ class RepositorySettingsTest(unittest.TestCase):
         self.assertIn("one required check", self.ruleset_section)
         self.assertIn("settings difference", self.ruleset_section)
 
-    def test_the_checks_of_the_earlier_callers_are_named_only_for_a_repository_without_the_pipeline(self) -> None:
+    def test_the_checks_of_the_earlier_callers_are_no_longer_named(self) -> None:
         for check in ("`hygiene / hygiene`", "`validation / validation`", "`tests / tests`"):
             with self.subTest(check=check):
-                for sentence in re.split(r"(?<=[.;])\s", self.ruleset_section):
-                    if check in sentence:
-                        self.assertIn("not adopted the pipeline", sentence)
+                self.assertNotIn(check, self.ruleset_section)
 
     def test_a_merge_setting_or_ruleset_that_differs_is_no_choice_of_the_repository(self) -> None:
         settings = section(self.readme, "## Repository settings")
@@ -453,8 +450,7 @@ class KeptSettingsTests(unittest.TestCase):
     def test_no_document_names_a_deviation_of_the_ruleset_or_a_merge_setting_as_a_choice_to_record(self) -> None:
         documents = {"the CI guide template": (PIPELINE_KIT / CI_GUIDE).read_text(encoding="utf-8"),
                      "the pipeline kit's README": (PIPELINE_KIT / "README.md").read_text(encoding="utf-8"),
-                     "the ruleset README": (REPOSITORY_ROOT / "actions" / "repository-ruleset" / "README.md").read_text(encoding="utf-8"),
-                     "the hygiene kit's README": (REPOSITORY_ROOT / "actions" / "repository-hygiene" / "consumer-kit" / "README.md").read_text(encoding="utf-8")}
+                     "the ruleset README": (REPOSITORY_ROOT / "actions" / "repository-ruleset" / "README.md").read_text(encoding="utf-8")}
         for name, text in documents.items():
             with self.subTest(document=name):
                 self.assertEqual([], recorded_deviations(text))

@@ -255,7 +255,7 @@ A run on the default branch that a `repository_dispatch` event starts and that s
 _Avoid_: Repository dispatch, triggered run
 
 **Push lookup**:
-The step of a push run or a dispatch run that reads the structured tested-state record of the pull-request run that tested the commit it runs on (without reading job logs or walking a fixed commit limit), checks the default-branch record on a `behind` merge to verify whether the landing base has passed, counts any fallback by reason, and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection, the hygiene job and Python tests select.
+The step of a push run or a dispatch run that reads the structured tested-state record of the pull-request run that tested the commit it runs on (without reading job logs or walking a fixed commit limit), checks the default-branch record on a `behind` merge to verify whether the landing base has passed, counts any fallback by reason, and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection and the pipeline plan select.
 _Avoid_: PR lookup, merge lookup
 
 **Landing base**:

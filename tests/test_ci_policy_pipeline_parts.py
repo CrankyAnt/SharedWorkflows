@@ -228,8 +228,8 @@ class PartJobTests(unittest.TestCase):
         self.assertNotIn("if", step, "a failed check or setup skips the npm commands")
 
     def test_the_setup_actions_carry_the_pins_of_this_repository_s_other_workflows(self) -> None:
-        for action, source in (("actions/setup-python", "python-tests.yml"), ("actions/setup-dotnet", "suite-jobs.yml"), ("actions/setup-node", "suite-jobs.yml"),
-                               ("actions/checkout", "python-tests.yml")):
+        for action, source in (("actions/setup-python", "suite-jobs.yml"), ("actions/setup-dotnet", "suite-jobs.yml"), ("actions/setup-node", "suite-jobs.yml"),
+                               ("actions/checkout", "suite-jobs.yml")):
             with self.subTest(action=action):
                 pins = set(re.findall(rf"uses: ({re.escape(action)}@[0-9a-f]{{40}} # v[\d.]+)", self.text))
                 self.assertEqual(1, len(pins))

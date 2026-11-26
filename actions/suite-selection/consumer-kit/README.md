@@ -35,7 +35,7 @@ An earlier adoption also takes these steps where they apply:
 
 The result works when these pass:
 
-- on the pull request, the required check `ci / verdict` passes. Where additions are reported, the additions part commits them onto the pull request's branch and the run on the applied lists passes. `hygiene / hygiene` passes as well, with actionlint and zizmor over the changed workflows;
+- on the pull request, the required check `ci / verdict` passes, including actionlint and zizmor over the changed workflows. Where additions are reported, the additions part commits them onto the pull request's branch and the run on the applied lists passes;
 - after the merge, the same check passes on the push to the default branch;
 - the full recording, started by hand on the default branch with `gh workflow run automation.yml -f part=full-recording -f verify-token=true --ref <default-branch>`, whose run passes and whose summary reports the App's token as minted.
 

@@ -230,10 +230,11 @@ class AdoptionBoundsTests(AdoptionFixture):
 
 
 class RealTableTests(unittest.TestCase):
-    def test_the_adoption_table_names_shared_workflows_of_this_repository_and_parts_of_the_schema(self) -> None:
+    def test_the_adoption_table_names_only_shared_workflows_of_this_repository_and_parts_of_the_schema(self) -> None:
         table = sync_program.read_json(sync_program.ADOPTION, "the adoption table")["shared-workflows"]
         versions = plan_program.schema_versions(SCHEMAS)
-        self.assertTrue(table)
+        self.assertIsInstance(table, dict)
+        self.assertNotIn("repository-hygiene.yml", table)
         for workflow, part in table.items():
             with self.subTest(workflow=workflow):
                 self.assertTrue((REPOSITORY_ROOT / ".github" / "workflows" / workflow).is_file())

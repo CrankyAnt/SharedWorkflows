@@ -261,8 +261,14 @@ class AutomationWorkflowTests(unittest.TestCase):
         self.assertTrue(run["run"].endswith('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --updater-paths "$UPDATER_PATHS" --summary "$GITHUB_STEP_SUMMARY" '
                                             'workflow-run --head-branch "$HEAD_BRANCH" --disable-auto-merge'), run["run"])
         self.assertEqual("${{ github.event.workflow_run.head_branch }}", run["env"]["HEAD_BRANCH"])
-        shared = read_workflow(WORKFLOWS / "dependabot-auto-merge.yml")[1]["jobs"]["merge"]
-        self.assertEqual(shared["if"], events_of("dependabot-auto-merge", job), "the events of the merge job of dependabot-auto-merge.yml")
+        self.assertEqual(
+            "github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && "
+            "github.event.workflow_run.conclusion == 'success' && "
+            "(github.event.workflow_run.actor.login == 'dependabot[bot]' || "
+            "(github.event.workflow_run.actor.login == 'crankyant-publication-checks[bot]' && "
+            "startsWith(github.event.workflow_run.head_branch, 'dependabot/')))",
+            events_of("dependabot-auto-merge", job),
+        )
 
     def test_the_auto_merge_job_disables_a_still_enabled_auto_merge_since_no_pull_request_event_reaches_the_caller(self) -> None:
         self.assertEqual([], auto_merge_disable_problems(self.jobs["dependabot-auto-merge"], TEMPLATE.read_text(encoding="utf-8")))

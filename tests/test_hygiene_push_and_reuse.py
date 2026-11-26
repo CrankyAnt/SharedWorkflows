@@ -1,4 +1,4 @@
-"""The hygiene decision on a push through the push lookup, and the reuse of passed checks on an ``edited`` run."""
+"""The hygiene decision on a push through the push lookup and shared CI digests."""
 
 from __future__ import annotations
 
@@ -142,80 +142,6 @@ class HygieneFallbackTests(HygieneFixture):
                 counts, stdout = self.fallbacks(*arguments)
                 self.assertEqual({}, counts)
                 self.assertNotIn("title=ci-fallback", stdout)
-
-
-class EditedReuseTests(HygieneFixture):
-    def record(self, tree: str, checks: dict[str, int], reuse_version: str | None = None) -> str:
-        path = self.root / "record.json"
-        payload: dict[str, object] = {"tree": tree, "checks": checks}
-        if reuse_version is not None:
-            payload["reuse_version"] = reuse_version
-        path.write_text(json.dumps(payload), encoding="utf-8")
-        return str(path)
-
-    def pins(self, reuse_version: str) -> str:
-        path = self.root / "pins.json"
-        path.write_text(json.dumps({"python": {"reuse": {"version": reuse_version}}}), encoding="utf-8")
-        return str(path)
-
-    def test_an_edited_run_reuses_each_selected_check_that_passed_on_the_same_tested_tree(self) -> None:
-        head = self.commit({".github/workflows/ci.yml": "x: 1\n", "docs/notes.md": "n\n"})
-        tree = git(self.repo, "rev-parse", "HEAD^{tree}")
-        decisions, stdout, summary = self.decide("--base", self.base, "--head", head, "--results", self.record(tree, {"actionlint": 111, "markdown": 222, "packages": 333}))
-        self.assertEqual({"actionlint": "false", "zizmor": "true", "packages": "false", "markdown": "false", "reuse": "false"},
-                         {name: decisions[name] for name in CHECKS})
-        self.assertEqual({"actionlint": 111, "markdown": 222}, json.loads(decisions["reused"]), "a check the change does not select is not reused")
-        self.assertIn("::notice title=actionlint::passed in run 111, whose tested tree this run shares", stdout)
-        self.assertIn("| actionlint | passed in run 111 |", summary)
-        self.assertIn("| Relative links | passed in run 222 |", summary)
-        self.assertIn("| Gitleaks | yes | every event |", summary)
-
-    def test_an_edited_run_never_takes_gitleaks_or_a_convention_check_from_the_record(self) -> None:
-        head = self.commit({".github/workflows/ci.yml": "x: 1\n"})
-        tree = git(self.repo, "rev-parse", "HEAD^{tree}")
-        record = self.record(tree, {"actionlint": 111, "gitleaks": 111, "branch": 111, "commits": 111, "title": 111})
-        decisions, stdout, summary = self.decide("--base", self.base, "--head", head, "--results", record)
-        self.assertEqual({"actionlint": 111}, json.loads(decisions["reused"]))
-        self.assertEqual(1, stdout.count("::notice title="), stdout)
-        self.assertIn("| Gitleaks | yes | every event |", summary)
-        self.assertEqual(1, summary.count("| passed in run 111 |"), summary)
-
-    def test_an_edited_run_on_another_tree_or_without_a_record_reuses_nothing(self) -> None:
-        head = self.commit({".github/workflows/ci.yml": "x: 1\n"})
-        other = git(self.repo, "rev-parse", f"{self.base}^{{tree}}")
-        for record in (self.record(other, {"actionlint": 111}), str(self.root / "missing.json")):
-            with self.subTest(record=record):
-                decisions, _, _ = self.decide("--base", self.base, "--head", head, "--results", record)
-                self.assertEqual("true", decisions["actionlint"])
-                self.assertEqual({}, json.loads(decisions["reused"]))
-
-    def test_record_keeps_the_checks_that_passed_or_were_reused_with_the_run_they_passed_in(self) -> None:
-        head = self.commit({"docs/notes.md": "n\n"})
-        output = self.root / "stored.json"
-        result = hygiene("record", self.repo, "--run-id", "444", "--outcome", "actionlint=success", "--outcome", "zizmor=failure",
-                         "--outcome", "markdown=skipped", "--outcome", "reuse=success", "--reused", json.dumps({"packages": 111}),
-                         "--pins", self.pins("6.3.0"), "--output", str(output))
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual({"tree": git(self.repo, "rev-parse", f"{head}^{{tree}}"), "checks": {"actionlint": 444, "packages": 111, "reuse": 444},
-                          "reuse_version": "6.3.0"},
-                         json.loads(output.read_text(encoding="utf-8")))
-
-    def test_an_edited_run_does_not_reuse_a_reuse_pass_from_another_pinned_reuse_version(self) -> None:
-        base = self.commit({"REUSE.toml": "version = 1\n", ".github/workflows/ci.yml": "x: 1\n"})
-        head = self.commit({".github/workflows/ci.yml": "x: 2\n", "src/new.py": "print(2)\n"})
-        tree = git(self.repo, "rev-parse", "HEAD^{tree}")
-        pins = self.pins("6.3.0")
-        for recorded_version in ("6.2.0", None):
-            with self.subTest(recorded_version=recorded_version):
-                rec = self.record(tree, {"actionlint": 111, "reuse": 111}, reuse_version=recorded_version)
-                decisions, _, _ = self.decide("--base", base, "--head", head, "--results", rec, "--pins", pins)
-                self.assertEqual("false", decisions["actionlint"])
-                self.assertEqual("true", decisions["reuse"])
-                self.assertEqual({"actionlint": 111}, json.loads(decisions["reused"]))
-        same = self.record(tree, {"actionlint": 111, "reuse": 111}, reuse_version="6.3.0")
-        decisions, _, _ = self.decide("--base", base, "--head", head, "--results", same, "--pins", pins)
-        self.assertEqual("false", decisions["reuse"])
-        self.assertEqual({"actionlint": 111, "reuse": 111}, json.loads(decisions["reused"]))
 
 
 class HygieneSharedDigestTests(HygieneFixture):

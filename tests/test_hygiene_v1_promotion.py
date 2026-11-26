@@ -1153,7 +1153,7 @@ class PrepareTests(ManualMove):
             "actions/recording/etw-consumer/Program.cs": "// etw 2\n",
             "actions/dotnet-test/dotnet_test.py": "# dotnet 2\n",
             "actions/pipeline/release.py": "# release 2\n",
-            "actions/python-tests/consumer-kit/README.md": "# Python tests 2\n",
+            "actions/dependabot-auto-merge/consumer-kit/README.md": "# Dependabot auto-merge 2\n",
         })
         git(self.fixture.repo, "push", "-q", "origin", "main")
         code, output = self.prepare()

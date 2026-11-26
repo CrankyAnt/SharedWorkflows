@@ -1316,7 +1316,6 @@ class SharedDigestTests(unittest.TestCase):
             ("repository-hygiene/link_check.py", {"hygiene:markdown"}),
             ("repository-hygiene/zizmor-policy.yml", {"hygiene:zizmor-policy"}),
             ("repository-hygiene/hygiene.py", {"hygiene:actionlint", "hygiene:zizmor", "hygiene:packages", "hygiene:markdown", "hygiene:reuse"}),
-            ("repository-hygiene/consumer-kit/README.md", set()),
             ("repository-hygiene/promote_v1.py", set()),
         ):
             with self.subTest(file=relative):
@@ -1429,7 +1428,7 @@ class SharedDigestTests(unittest.TestCase):
         write(workflow.parent, workflow.name, self.PIPELINE)
         first = self.taken()
         for relative in ("pipeline/consumer-kit/README.md", "pipeline/schema/README.md", "pipeline/release.py", "pipeline/plan.py",
-                         "python-tests/consumer-kit/README.md", "dotnet-test/consumer-kit/README.md",
+                         "dotnet-test/consumer-kit/README.md",
                          "python-language-step/consumer-kit/README.md", "python-language-step/consumer-kit/python-language-step.yml"):
             with self.subTest(file=relative):
                 path = self.shared_folder / relative
@@ -1528,7 +1527,7 @@ class SharedDigestScopeTests(unittest.TestCase):
     def test_a_consumer_kit_file_moves_no_digest_of_a_commit(self) -> None:
         self.scopes()
         before = git(self.repo, "rev-parse", "HEAD").strip()
-        for relative in ("actions/python-language-step/consumer-kit/README.md", "actions/python-tests/consumer-kit/README.md"):
+        for relative in ("actions/python-language-step/consumer-kit/README.md", "actions/pipeline/consumer-kit/README.md"):
             write(self.repo, relative, "changed\n")
         git(self.repo, "add", "-A", "-f", ".")
         git(self.repo, "commit", "-q", "-m", "kit")
@@ -1687,7 +1686,7 @@ class SharedDigestScopeTests(unittest.TestCase):
             "import json, sys\n"
             f"sys.path[:0] = [{str(actions / 'repository-hygiene')!r}, {str(actions / 'pipeline')!r}, {str(actions / 'suite-selection')!r}]\n"
             "import hygiene, plan, reuse\n"
-            "print(json.dumps({'check_keys': sorted(hygiene.CHECK_DIGESTS), 'recorded_checks': sorted(hygiene.RECORDED_CHECKS), "
+            "print(json.dumps({'check_keys': sorted(hygiene.CHECK_DIGESTS), 'checks': sorted(c for c in hygiene.CHECKS if c != 'workflows'), "
             "'digest_names': sorted({name for names in hygiene.CHECK_DIGESTS.values() for name in names})}))\n"
             "good = {'a': '0' * 64, 'b': '1' * 64}\n"
             "other = {'a': '0' * 64, 'c': '2' * 64}\n"
@@ -1700,7 +1699,7 @@ class SharedDigestScopeTests(unittest.TestCase):
         completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         info = json.loads(completed.stdout.splitlines()[0])
-        self.assertEqual(info["recorded_checks"], info["check_keys"])
+        self.assertEqual(info["checks"], info["check_keys"])
         recorded_hygiene = sorted(name for name in recorded if name.startswith("hygiene:"))
         promoted_hygiene = sorted(name for name in promoted if name.startswith("hygiene:"))
         self.assertEqual(recorded_hygiene, info["digest_names"])

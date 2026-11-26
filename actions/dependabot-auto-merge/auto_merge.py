@@ -1,13 +1,11 @@
 """Decide whether a Dependabot pull request merges automatically, and merge it once its required checks have passed.
 
-    python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--updater-paths PATHS] [--summary FILE] pull-request --number N
     python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--updater-paths PATHS] [--summary FILE] workflow-run --head-branch BRANCH [--disable-auto-merge]
 
-The reusable workflow runs ``pull-request`` on a Dependabot ``pull_request`` event and ``workflow-run`` when a
-workflow that produces a required check completes for a Dependabot pull request. Both read the pull request, its
-commits and the active rules on the base branch with ``gh api`` and the run's token, and read the update metadata
-from the pull request's first commit as ``dependabot/fetch-metadata`` v3.1.0 does: the pull request and that commit
-must be authored by ``dependabot[bot]``, the commit's signature must be verified, and its message must hold the
+The automation workflow runs ``workflow-run`` when ``CI`` completes for a Dependabot pull request. It reads the pull
+request, its commits and the active rules on the base branch with ``gh api`` and the run's token, and reads the update
+metadata from the pull request's first commit as ``dependabot/fetch-metadata`` v3.1.0 does: the pull request and that
+commit must be authored by ``dependabot[bot]``, the commit's signature must be verified, and its message must hold the
 ``updated-dependencies`` block.
 
 The decision is automatic only when every updated dependency has a patch or minor update type, every GitHub Actions
@@ -19,14 +17,12 @@ rules is manual, and the run succeeds. A pull request that meets them while the 
 blocked, and the run fails naming the missing ruleset. Unverified metadata or a failed read is an error, and the run
 fails with the reason.
 
-``pull-request`` enables no auto-merge and disables one that the pull request still has. ``workflow-run`` decides
-again for each open Dependabot pull request of the head branch and, on an automatic decision, requests a squash merge
-bound to the head commit that the decision read. A merge refused because a required check is pending or failed,
-because the head moved, because the pull request is a draft or has conflicts, or because it is already merged ends the
-run successfully. After a merge it made itself, it sends one ``repository_dispatch`` event of type
-``dependabot-merged`` with the merged commit and confirms that a run for that commit started. With
-``--disable-auto-merge``, for a caller that no pull request event reaches, it also disables any auto-merge that a
-pull request still has before attempting the merge.
+``workflow-run`` decides for each open Dependabot pull request of the head branch and, on an automatic decision,
+requests a squash merge bound to the head commit that the decision read. A merge refused because a required check is
+pending or failed, because the head moved, because the pull request is a draft or has conflicts, or because it is
+already merged ends the run successfully. After a merge it made itself, it sends one ``repository_dispatch`` event of
+type ``dependabot-merged`` with the merged commit and confirms that a run for that commit started. With
+``--disable-auto-merge``, it also disables any auto-merge that a pull request still has before attempting the merge.
 """
 
 from __future__ import annotations
@@ -409,38 +405,6 @@ def _read_and_decide(github: GitHub, repository: str, pull_request: dict, suite_
     return Reading(decide(dependencies, commits, rules, commit_files, scope), head if commits[-1].get("sha") == head else "")
 
 
-def _disable_if_enabled(github: GitHub, pull_request: dict, rest: str) -> str:
-    if not pull_request.get("auto_merge"):
-        return f"nothing to disable; {rest}"
-    github.disable_auto_merge(pull_request["html_url"])
-    return f"auto-merge disabled; {rest}"
-
-
-def run_pull_request(github: GitHub, repository: str, number: int, suite_list: str | None = None,
-                     updater_paths: tuple[str, ...] = ()) -> Result:
-    """On a pull request event: read the pull request, decide, and disable an auto-merge it still has."""
-    try:
-        pull_request = github.pull_request(repository, number)
-    except GitHubError as error:
-        return Result(Decision(Outcome.ERROR, f"the pull request could not be read: {error}"), "nothing; auto-merge could not be read, so it was not changed.")
-    url = pull_request["html_url"]
-    decision = _read_and_decide(github, repository, pull_request, suite_list, updater_paths).decision
-    try:
-        if decision.outcome in (Outcome.MANUAL, Outcome.ERROR):
-            return Result(decision, _disable_if_enabled(github, pull_request, "the pull request is left to the user."))
-        if decision.outcome is Outcome.BLOCKED:
-            if not pull_request.get("auto_merge"):
-                return Result(decision, "nothing enabled and nothing merged; the user settles the ruleset first.")
-            github.disable_auto_merge(url)
-            return Result(decision, "auto-merge disabled; nothing merged; the user settles the ruleset first.")
-        if not pull_request.get("auto_merge"):
-            return Result(decision, "nothing enabled and nothing to disable.")
-        github.disable_auto_merge(url)
-        return Result(decision, "auto-merge disabled; nothing enabled.")
-    except GitHubError as error:
-        return Result(decision.failed(), f"auto-merge could not be disabled: {error}")
-
-
 def _refusal(github: GitHub, repository: str, number: int, error: GitHubError) -> str | None:
     """Why GitHub refused the merge, when the refusal ends the run successfully; None for any other failure."""
     if error.status not in (405, 409):
@@ -558,9 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--updater-paths", default="", help="comma-separated extra paths or prefixes (ending with /) the updater App may change")
     parser.add_argument("--summary", type=Path, help="file to append the run summary to, such as GITHUB_STEP_SUMMARY")
     events = parser.add_subparsers(dest="event", required=True)
-    pull_request = events.add_parser("pull-request", help="decide on a pull request event and disable an auto-merge it still has")
-    pull_request.add_argument("--number", required=True, type=int, help="the pull request number")
-    workflow_run = events.add_parser("workflow-run", help="decide again when a required-check workflow completed, and merge")
+    workflow_run = events.add_parser("workflow-run", help="decide when CI completed, and merge")
     workflow_run.add_argument("--head-branch", required=True, help="the head branch of the completed run")
     workflow_run.add_argument("--disable-auto-merge", action="store_true", help="disable an auto-merge that a pull request still has when it does not merge on its own")
     return parser
@@ -570,10 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     suite_list = arguments.suites or None
     updater_paths = _parsed_paths(arguments.updater_paths)
-    if arguments.event == "pull-request":
-        results = [run_pull_request(GitHub(), arguments.repository, arguments.number, suite_list, updater_paths)]
-    else:
-        results = run_workflow_run(GitHub(), arguments.repository, arguments.head_branch, suite_list, arguments.disable_auto_merge, updater_paths)
+    results = run_workflow_run(GitHub(), arguments.repository, arguments.head_branch, suite_list, arguments.disable_auto_merge, updater_paths)
     summary = "\n".join(result.summary for result in results)
     print(summary)
     if arguments.summary:

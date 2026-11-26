@@ -85,12 +85,11 @@ class PythonLanguageStepConsumerKitTests(unittest.TestCase):
                     self.assertNotIn(forbidden, text)
 
 
-# The shared workflows that install a Python interpreter: Python tests sets up the Python its caller names, and the
-# pipeline sets up the Python that the configuration file names, in its jobs python-verify and python-test and, for
-# the setup that a repository names for its script, in its free job. The release part sets up the Python of the setup
-# that a repository names for the script that writes its files. The full recording of the automation workflow sets up
-# the Python that the suites of its suite list run on.
-INSTALLING = [".github/workflows/pipeline.yml", ".github/workflows/python-tests.yml", ".github/workflows/release.yml", ".github/workflows/suite-jobs.yml"]
+# The shared workflows that install a Python interpreter: the pipeline sets up the Python that the configuration file
+# names, in its jobs python-verify and python-test and, for the setup that a repository names for its script, in its
+# free job. The release part sets up the Python of the setup that a repository names for the script that writes its
+# files. The full recording of the automation workflow sets up the Python that the suites of its suite list run on.
+INSTALLING = [".github/workflows/pipeline.yml", ".github/workflows/release.yml", ".github/workflows/suite-jobs.yml"]
 
 
 class NoInterpreterInstallTests(unittest.TestCase):

@@ -1,9 +1,7 @@
-"""Run one repository-hygiene check with the pinned tools; the reusable workflow calls one subcommand per step.
+"""Run one repository-hygiene check with the pinned tools; the pipeline calls one subcommand per step.
 
-    python3 hygiene.py changes    [--root DIR] --base SHA --head SHA [--compare merge-base|direct] [--definition GLOB ...] [--packages-definition PATH#INPUT ...] [--markdown-definition PATH#INPUT ...] [--github-output FILE] [--summary FILE]
-    python3 hygiene.py changes    [--root DIR] --lookup FILE [definitions as above] [--github-output FILE] [--summary FILE]
-    python3 hygiene.py changes    [--root DIR] --base SHA --head SHA --results FILE [definitions as above] [--github-output FILE] [--summary FILE]
-    python3 hygiene.py record     [--root DIR] --run-id ID [--outcome CHECK=OUTCOME ...] [--reused JSON] --output FILE
+    python3 hygiene.py changes    [--root DIR] --base SHA --head SHA [--compare merge-base|direct] [--definition GLOB ...] [--packages-definition PATH#INPUT ...] [--markdown-definition PATH#INPUT ...] [--shared-lookup FILE] [--fallbacks FILE] [--github-output FILE] [--summary FILE]
+    python3 hygiene.py changes    [--root DIR] --lookup FILE [definitions as above] [--shared-lookup FILE] [--fallbacks FILE] [--github-output FILE] [--summary FILE]
     python3 hygiene.py actionlint [--tools DIR] [--root DIR]
     python3 hygiene.py zizmor     [--tools DIR] [--root DIR] [--persona NAME] [--policy FILE]
     python3 hygiene.py gitleaks   [--tools DIR] [--root DIR] [--config PATH] [--baseline PATH]
@@ -19,9 +17,7 @@ check. A change that cannot be read, or one to a shared ``--definition`` glob or
 (``PATH#value:parts.repository-hygiene.link-exclude``) compares the value at that dotted path as the YAML reader of the
 configuration file reads it; a value that neither revision states is unchanged, and a revision that the reader cannot
 read counts as a change. Check-specific definitions select only their check. ``--lookup``
-takes the push lookup of ``suite_selection.py lookup`` in place of ``--base`` and ``--head``. ``--results`` takes the
-record that ``record`` wrote in an earlier run of the pull request; a check it holds for the same tested tree is
-reused and named in the ``reused`` output with the run it passed in. ``--tools`` names the directory
+takes the push lookup of ``suite_selection.py lookup`` in place of ``--base`` and ``--head``. ``--tools`` names the directory
 that install_tools.py filled; without it the tools come from PATH. An empty ``--persona``, ``--config`` or
 ``--baseline`` leaves the tool on its own default. The exit code is the tool's.
 """
@@ -126,37 +122,6 @@ def _gitleaks_pin_version(pins_path: Path | None) -> str | None:
     return version if isinstance(version, str) and version else None
 
 
-def _reuse_pin_version(pins_path: Path | None) -> str | None:
-    if pins_path is None:
-        return None
-    try:
-        data = json.loads(pins_path.read_text(encoding="utf-8"))
-        version = data["python"]["reuse"]["version"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
-        return None
-    return version if isinstance(version, str) and version else None
-
-
-def _reuse_marker_matches(marker: Path, version: str | None) -> bool:
-    if version is None:
-        return False
-    try:
-        stored = json.loads(marker.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return isinstance(stored, dict) and stored == {"version": version}
-
-
-def _reuse_marker_readable(marker: Path) -> bool:
-    """Whether the default-branch REUSE version marker exists and holds a version: a missing, evicted or unreadable
-    marker is a fallback, a marker of another version is the rule."""
-    try:
-        stored = json.loads(marker.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return isinstance(stored, dict) and isinstance(stored.get("version"), str)
-
-
 def _in_repo_pins_path(root: Path) -> str | None:
     try:
         folder = RESOURCES.resolve().relative_to(root.resolve()).as_posix()
@@ -213,7 +178,6 @@ UNREADABLE_PUSH_LOOKUP = "hygiene-unreadable-push-lookup"
 CHANGED_FILES_UNKNOWN = "hygiene-changed-files-unknown"
 GITLEAKS_UNREADABLE_PUSH_LOOKUP = "gitleaks-unreadable-push-lookup"
 GITLEAKS_RANGE_UNKNOWN = "gitleaks-range-unknown"
-UNREADABLE_REUSE_MARKER = "hygiene-unreadable-reuse-marker"
 UNREADABLE_SHARED_DIGESTS = "hygiene-unreadable-shared-digests"
 UNREADABLE_TESTED_DIGESTS = "hygiene-unreadable-tested-digests"
 SHARED_DIGEST_FALLBACK_SUFFIX = "digest could not be compared"
@@ -398,20 +362,9 @@ def gitleaks(root: Path, tools: Path | None, config: str, baseline: str, base: s
     return returncode
 
 
-def reuse(root: Path, tools: Path | None, pins: Path | None = None, record_marker: Path | None = None, github_output: Path | None = None) -> int:
+def reuse(root: Path, tools: Path | None) -> int:
     """``reuse lint`` over the repository; its report names every file without a copyright and licence assignment."""
-    returncode = run([str(executable("reuse", tools)), "--root", ".", "lint"], root)
-    recorded = False
-    if returncode == 0 and record_marker is not None:
-        version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
-        if version is not None:
-            record_marker.parent.mkdir(parents=True, exist_ok=True)
-            record_marker.write_text(json.dumps({"version": version}, sort_keys=True) + "\n", encoding="utf-8")
-            recorded = True
-    if github_output is not None:
-        with github_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"recorded-marker={'true' if recorded else 'false'}\n")
-    return returncode
+    return run([str(executable("reuse", tools)), "--root", ".", "lint"], root)
 
 
 # The files whose change can change what actionlint and zizmor report: workflows, action definitions and the zizmor
@@ -840,8 +793,6 @@ def decisions_between(root: Path, base: str, head: str, compare: str, definition
 
 
 LOOKUP_CASES = ("identical", "behind", "pull-request", "own")
-# The checks whose result depends only on the tested tree; an edited run reuses their passed results.
-RECORDED_CHECKS = ("actionlint", "zizmor", "packages", "markdown", "reuse")
 
 
 def read_lookup(path: Path) -> dict:
@@ -877,36 +828,14 @@ def both_sides(pull_request: dict[str, tuple[bool, str]], main: dict[str, tuple[
     return decisions
 
 
-def tested_tree(root: Path) -> str:
-    return subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
-
-
-def read_results(path: Path, tree: str, reuse_version: str | None = None) -> tuple[dict[str, int], bool]:
-    """The passed checks of the record when it holds the same tested tree, and whether the recorded REUSE version
-    differs from ``reuse_version``; nothing when the record is missing, unreadable or for another tree."""
-    try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}, False
-    if not isinstance(record, dict) or record.get("tree") != tree or not isinstance(record.get("checks"), dict):
-        return {}, False
-    recorded_reuse = record.get("reuse_version")
-    reuse_version_changed = reuse_version is None or recorded_reuse != reuse_version
-    passed = {name: run for name, run in record["checks"].items() if name in RECORDED_CHECKS and isinstance(run, int)}
-    if reuse_version_changed:
-        passed.pop("reuse", None)
-    return passed, reuse_version_changed and recorded_reuse is not None
-
-
-def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, results: Path | None = None, pins: Path | None = None, reuse_marker: Path | None = None, fallbacks_output: Path | None = None, shared_lookup: Path | None = None) -> int:
+def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, fallbacks_output: Path | None = None, shared_lookup: Path | None = None) -> int:
     """Write individual check decisions and the compatible ``workflows`` union for the workflow's gates. With
     ``lookup``, a push decides by its case; with ``shared_lookup``, each hygiene check also compares its hygiene-check
     digests (against ``tested_digests`` on ``identical``/``behind`` pushes, or against the default-branch record's
-    digests otherwise); with ``results``, a passed check of the same tested tree is reused. With ``fallbacks_output``,
+    digests otherwise). With ``fallbacks_output``,
     write the hygiene fallbacks to running more as a JSON map of counts by reason: every check runs because the push
-    lookup, the changed files or the shared/tested digests cannot be read, REUSE runs because the default-branch REUSE
-    version marker is missing, evicted or unreadable, and Gitleaks scans the full history because it cannot read its
-    range (``gitleaks_fallback``, whose notice the Gitleaks step emits)."""
+    lookup, the changed files or the shared/tested digests cannot be read, and Gitleaks scans the full history because
+    it cannot read its range (``gitleaks_fallback``, whose notice the Gitleaks step emits)."""
     inputs = (definition, packages_definition, markdown_definition, ecosystems)
     heading = None
     lookup_unreadable = False
@@ -991,29 +920,9 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
                 if base_fell_back and comparison.base_fallback is not None:
                     fallbacks[comparison.base_fallback] = 1
                     print(fallback_notice(comparison.base_fallback, "hygiene checks selected by the newer base run: the shared CI digests could not be compared"))
-    current_reuse_version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
-    reuse_pin_changed = False
-    if shared_lookup is None and reuse_marker is not None and has_reuse_config(root) and not _reuse_marker_matches(reuse_marker, current_reuse_version):
-        decisions["reuse"] = (True, "the pinned REUSE version changed or has no default-branch marker")
-        reuse_pin_changed = True
-        if not _reuse_marker_readable(reuse_marker):
-            fallbacks[UNREADABLE_REUSE_MARKER] = 1
-            print(fallback_notice(UNREADABLE_REUSE_MARKER, "REUSE runs: the default-branch REUSE version marker is missing, evicted or unreadable"))
     if fallbacks_output is not None:
         fallbacks_output.parent.mkdir(parents=True, exist_ok=True)
         fallbacks_output.write_text(json.dumps(dict(sorted(fallbacks.items()))) + "\n", encoding="utf-8")
-    reused: dict[str, int] = {}
-    if results is not None:
-        passed, recorded_reuse_differs = read_results(results, tested_tree(root), current_reuse_version)
-        if reuse_pin_changed:
-            passed.pop("reuse", None)
-        elif recorded_reuse_differs and has_reuse_config(root) and not decisions["reuse"][0]:
-            decisions["reuse"] = (True, "the pinned REUSE version changed")
-        for name in RECORDED_CHECKS:
-            if decisions[name][0] and name in passed:
-                reused[name] = passed[name]
-                decisions[name] = (False, f"passed in run {passed[name]}, whose tested tree this run shares")
-                print(f"::notice title={name}::{decisions[name][1]}")
     if any(decisions[name][0] for name in ("actionlint", "zizmor")):
         if not decisions["workflows"][0]:
             first = next(name for name in ("actionlint", "zizmor") if decisions[name][0])
@@ -1028,40 +937,14 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
     for name, label in (("workflows", "actionlint, zizmor"), ("actionlint", "actionlint"), ("zizmor", "zizmor"), ("packages", "Dependabot coverage"), ("markdown", "Relative links"), ("reuse", "REUSE")):
         decided, reason = decisions[name]
         print(f"{name}={'true' if decided else 'false'}: {reason}")
-        lines.append(f"| {label} | {f'passed in run {reused[name]}' if name in reused else 'yes' if decided else 'no'} | {reason} |")
+        lines.append(f"| {label} | {'yes' if decided else 'no'} | {reason} |")
     lines.append("| Gitleaks | yes | every event |")
     if output is not None:
         with output.open("a", encoding="utf-8") as handle:
             handle.write("".join(f"{name}={'true' if decided else 'false'}\n" for name, (decided, _) in decisions.items()))
-            if results is not None:
-                handle.write(f"reused={json.dumps(reused, separators=(',', ':'))}\n")
     if summary is not None:
         with summary.open("a", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
-    return 0
-
-
-def record(root: Path, run_id: int, outcomes: list[str], reused: str, output: Path, pins: Path | None = None) -> int:
-    """Write the record of a pull-request run: the tested tree and each check that passed in it or was reused, with
-    the run it passed in."""
-    checks: dict[str, int] = {}
-    previous = json.loads(reused) if reused else {}
-    for item in outcomes:
-        name, _, outcome = item.partition("=")
-        if name not in RECORDED_CHECKS:
-            raise ValueError(f"--outcome names {name!r}, which is none of {', '.join(RECORDED_CHECKS)}")
-        if outcome == "success":
-            checks[name] = run_id
-    for name, run in previous.items():
-        if name in RECORDED_CHECKS and isinstance(run, int):
-            checks.setdefault(name, run)
-    payload: dict[str, object] = {"tree": tested_tree(root), "checks": dict(sorted(checks.items()))}
-    reuse_version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
-    if reuse_version is not None:
-        payload["reuse_version"] = reuse_version
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload) + "\n", encoding="utf-8")
-    print(f"recorded {', '.join(f'{name} (run {run})' for name, run in sorted(checks.items())) or 'no passed check'}")
     return 0
 
 
@@ -1086,10 +969,6 @@ def build_parser() -> argparse.ArgumentParser:
     gitleaks_parser.add_argument("--marker", type=Path)
     gitleaks_parser.add_argument("--record-marker", type=Path)
     gitleaks_parser.add_argument("--github-output", type=Path)
-    reuse_parser = subcommands.choices["reuse"]
-    reuse_parser.add_argument("--pins", type=Path)
-    reuse_parser.add_argument("--record-marker", type=Path)
-    reuse_parser.add_argument("--github-output", type=Path)
     coverage = subcommands.add_parser("coverage")
     coverage.add_argument("--root", type=Path, default=Path("."))
     coverage.add_argument("--ecosystems", type=Path, default=dependabot_coverage.ECOSYSTEMS_PATH)
@@ -1110,20 +989,10 @@ def build_parser() -> argparse.ArgumentParser:
     deciding.add_argument("--markdown-definition", action="append", default=[], help="PATH#SELECTOR that can change links; INPUT, step:ID, key:DOTTED.PATH or value:DOTTED.PATH (repeatable)")
     deciding.add_argument("--ecosystems", type=Path, default=dependabot_coverage.ECOSYSTEMS_PATH)
     deciding.add_argument("--lookup", type=Path, help="the push lookup of a push or dispatch run, in place of --base and --head")
-    deciding.add_argument("--results", type=Path, help="the record of an earlier run of the pull request, whose passed checks of the same tested tree are reused")
-    deciding.add_argument("--pins", type=Path, help="the pins file whose pinned REUSE version is compared with the marker and results")
-    deciding.add_argument("--reuse-marker", type=Path, help="the default-branch REUSE version marker")
     deciding.add_argument("--shared-lookup", type=Path, help="the shared CI digests lookup written by suite_selection.py shared-lookup")
     deciding.add_argument("--github-output", type=Path)
     deciding.add_argument("--summary", type=Path)
     deciding.add_argument("--fallbacks", type=Path, help="the JSON file of the hygiene fallbacks to running more, counted by reason, for plan.py plan")
-    recording = subcommands.add_parser("record")
-    recording.add_argument("--root", type=Path, default=Path("."))
-    recording.add_argument("--run-id", type=int, required=True)
-    recording.add_argument("--outcome", action="append", default=[], help="CHECK=OUTCOME of a check step of this run (repeatable)")
-    recording.add_argument("--reused", default="", help="the reused output of changes")
-    recording.add_argument("--pins", type=Path)
-    recording.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -1135,15 +1004,9 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("changes takes --lookup without --base and --head")
         try:
             return changes(arguments.root.resolve(), arguments.base, arguments.head, arguments.compare, arguments.definition, arguments.packages_definition, arguments.markdown_definition,
-                           arguments.ecosystems, arguments.github_output, arguments.summary, arguments.lookup, arguments.results, arguments.pins, arguments.reuse_marker,
+                           arguments.ecosystems, arguments.github_output, arguments.summary, arguments.lookup,
                            arguments.fallbacks, arguments.shared_lookup)
         except ValueError as error:
-            print(f"::error::{error}", file=sys.stderr)
-            return 2
-    if arguments.check == "record":
-        try:
-            return record(arguments.root.resolve(), arguments.run_id, arguments.outcome, arguments.reused, arguments.output, arguments.pins)
-        except (ValueError, json.JSONDecodeError) as error:
             print(f"::error::{error}", file=sys.stderr)
             return 2
     if arguments.check == "coverage":
@@ -1163,7 +1026,7 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.check == "zizmor":
             return zizmor(root, tools, arguments.persona, arguments.policy)
         if arguments.check == "reuse":
-            return reuse(root, tools, arguments.pins, arguments.record_marker, arguments.github_output)
+            return reuse(root, tools)
         return gitleaks(root, tools, arguments.config, arguments.baseline, arguments.base, arguments.head, arguments.compare,
                         arguments.lookup, arguments.pins, arguments.marker, arguments.record_marker, arguments.github_output)
     except ToolMissing as error:
