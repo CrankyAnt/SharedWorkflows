@@ -407,7 +407,7 @@ class DotnetSetupTests(unittest.TestCase):
         self.assertIn(f"variable=DOTNET_ROOT={tool_dir}", lines)
         variables = dict(line.removeprefix("variable=").split("=", 1) for line in lines if line.startswith("variable="))
         writes = [line.removeprefix("write=") for line in lines if line.startswith("write=")]
-        for name in ("NUGET_PACKAGES", "NUGET_HTTP_CACHE_PATH", "NUGET_PLUGINS_CACHE_PATH"):
+        for name in ("DOTNET_CLI_HOME", "NUGET_PACKAGES", "NUGET_HTTP_CACHE_PATH", "NUGET_PLUGINS_CACHE_PATH"):
             self.assertIn(name, variables, f"{name} missing from {lines}")
             target = Path(variables[name])
             self.assertTrue(target.is_dir(), f"{name}={target} was not created")
