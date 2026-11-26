@@ -314,12 +314,24 @@ class GitHubStandIn:
                 if file_path in files:
                     target[alias] = {"oid": digest(files[file_path]), "object": {"text": files[file_path]}}
                 else:
-                    target[alias] = None
-                    errors.append({
-                        "type": "NOT_FOUND",
-                        "path": ["repository", "defaultBranchRef", "target", alias],
-                        "message": f"Could not resolve file for path '{file_path}'.",
-                    })
+                    prefix = file_path + "/"
+                    under = sorted({item[len(prefix):].split("/", 1)[0] for item in files if item.startswith(prefix)})
+                    if under:
+                        entries = []
+                        for name in under:
+                            full = f"{file_path}/{name}"
+                            if full in files:
+                                entries.append({"name": name, "type": "blob", "oid": digest(files[full]), "object": {"text": files[full]}})
+                            else:
+                                entries.append({"name": name, "type": "tree", "oid": digest(full), "object": None})
+                        target[alias] = {"type": "tree", "object": {"entries": entries}}
+                    else:
+                        target[alias] = None
+                        errors.append({
+                            "type": "NOT_FOUND",
+                            "path": ["repository", "defaultBranchRef", "target", alias],
+                            "message": f"Could not resolve file for path '{file_path}'.",
+                        })
             errors.extend(self.snapshot_errors.get(full_name, []))
             pulls = [
                 {

@@ -7,6 +7,7 @@ import copy
 import unittest
 
 from tests.consumer_checks_fixtures import SHARED, SYNC_BRANCH, WORKFLOWS
+from tests.pipeline_fixtures import CONFIGURATION
 from tests.sync_fixtures import (APP_TOKEN, CONSUMER, MANAGEMENT, MERGE_SETTINGS, NOW, OWNER_TOKEN, RULESET, RUN_TOKEN, SyncFixture,
                                  expected_ruleset)
 
@@ -132,8 +133,8 @@ class LocalModeTests(SyncFixture):
         self.assertIn("the repository of the shared parts", refused.stderr)
 
 
-class IssueTests(SyncFixture):
-    """A run with ``--own-repository`` opens its issues in that repository with the token of the run."""
+class _ManagementFixture(SyncFixture):
+    """Shared fixture for tests that run with ``--own-repository`` against the management repository."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -144,6 +145,10 @@ class IssueTests(SyncFixture):
 
     def titles(self) -> list[str]:
         return [issue["title"] for issue in self.management.issues]
+
+
+class IssueTests(_ManagementFixture):
+    """A run with ``--own-repository`` opens its issues in that repository with the token of the run."""
 
     def test_merged_branch_deletion_difference_is_reported_once_without_settings_writes(self) -> None:
         consumer = self.consumer()
@@ -263,6 +268,98 @@ class IssueTests(SyncFixture):
         self.consumer().settings["allow_rebase_merge"] = True
         self.scheduled()
         self.assertEqual([], [path for _, path, token in self.api.requests if path.startswith(f"/repos/{MANAGEMENT}") and token == APP_TOKEN])
+
+
+class WorkflowInspectionTests(_ManagementFixture):
+    """The sync inspects direct workflow files under ``.github/workflows/`` on every reached repository's default
+    branch, reports findings without editing or removing non-fixed workflows, and opens one deduplicated issue per
+    repository and finding set."""
+
+    def test_unwanted_workflows_are_reported_in_scheduled_and_local_modes_without_editing_them_and_deduplicated_as_one_issue(self) -> None:
+        unregistered = f"{WORKFLOWS}/stray.yml"
+        shared_caller = f"{WORKFLOWS}/legacy.yml"
+        uncallable = f"{WORKFLOWS}/orphan.yml"
+        unreadable = f"{WORKFLOWS}/broken.yaml"
+        called = f"{SHARED}/.github/workflows/old-suite.yml@v1"
+        config = (f"version: 1\nlocal-workflows:\n"
+                  f"  - workflow: {shared_caller}\n    request: 10\n    waits-for: python-test\n"
+                  f"  - workflow: {uncallable}\n    request: 11\n    waits-for: python-test\n"
+                  f"  - workflow: {unreadable}\n    request: 12\n    waits-for: python-test\n")
+        consumer = self.consumer({
+            CONFIGURATION: config,
+            unregistered: "name: Stray\non:\n  workflow_dispatch:\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+            shared_caller: f"name: Legacy\non:\n  push:\njobs:\n  run:\n    uses: {called}\n",
+            uncallable: "name: Orphan\non:\n  workflow_call:\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+            unreadable: "on: [unclosed\n",
+        })
+        synced = self.scheduled()
+        self.assertEqual(0, synced.status, synced.stdout + synced.stderr)
+        for text in (synced.stdout, synced.summary):
+            self.assertIn(f"`{unregistered}` is neither a fixed caller nor registered", text)
+            self.assertIn(f"`{shared_caller}` calls the shared workflow `{called}`", text)
+            self.assertIn(f"`{uncallable}` has only `workflow_call`", text)
+            self.assertIn(f"`{unreadable}` could not be read as YAML", text)
+        self.assertEqual([], consumer.pulls)
+        self.assertEqual([], self.api.writes_to(CONSUMER))
+        self.assertEqual([f"Unwanted workflows: {CONSUMER}"], self.titles())
+        body = self.management.issues[0]["body"]
+        for path in (unregistered, shared_caller, uncallable, unreadable):
+            self.assertIn(f"`{path}`", body)
+        # Second scheduled run opens no duplicate while identical issue is open.
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual(1, len(self.management.issues))
+        # Closing the issue reopens it while findings remain.
+        self.management.issues[0]["state"] = "closed"
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual(2, len(self.management.issues))
+        # Local mode also reports the findings in stdout and summary without touching the workflows.
+        local = self.local()
+        self.assertEqual(0, local.status, local.stdout + local.stderr)
+        for path in (unregistered, shared_caller, uncallable, unreadable):
+            self.assertIn(f"`{path}`", local.stdout)
+            self.assertIn(f"`{path}`", local.summary)
+        self.assertEqual([], consumer.pulls)
+        self.assertEqual([], self.api.writes_to(CONSUMER))
+
+    def test_unadopted_repository_checks_retired_shared_calls_and_uncallable_workflows_alongside_not_adopted_note(self) -> None:
+        active = f"{WORKFLOWS}/hygiene.yml"
+        retired = f"{WORKFLOWS}/old.yml"
+        orphan = f"{WORKFLOWS}/unused.yml"
+        retired_target = f"{SHARED}/.github/workflows/retired-legacy.yml@v1"
+        consumer = self.consumer({
+            CONFIGURATION: None,
+            CI: None,
+            f"{WORKFLOWS}/automation.yml": None,
+            f"{WORKFLOWS}/release.yml": None,
+            active: f"name: Hygiene\non:\n  pull_request:\njobs:\n  check:\n    uses: {SHARED}/.github/workflows/repository-hygiene.yml@v1\n",
+            retired: f"name: Old\non:\n  pull_request:\njobs:\n  run:\n    uses: {retired_target}\n",
+            orphan: "name: Unused\non:\n  workflow_call:\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+        })
+        synced = self.scheduled()
+        self.assertEqual(0, synced.status, synced.stdout + synced.stderr)
+        self.assertIn(f"`{CONSUMER}` holds no `{CONFIGURATION}`", synced.summary)
+        self.assertIn(f"`{retired}` calls the retired shared workflow `{retired_target}`", synced.summary)
+        self.assertIn(f"`{orphan}` has only `workflow_call`", synced.summary)
+        self.assertNotIn(active, synced.summary)
+        self.assertEqual([], consumer.pulls)
+        self.assertEqual([], self.api.writes_to(CONSUMER))
+        self.assertEqual([f"Unwanted workflows: {CONSUMER}"], self.titles())
+
+    def test_clean_consumer_with_fixed_callers_and_valid_registered_callable_workflows_produces_no_findings(self) -> None:
+        caller_wf = f"{WORKFLOWS}/nightly.yml"
+        helper_wf = f"{WORKFLOWS}/helper.yml"
+        config = (f"version: 1\nlocal-workflows:\n"
+                  f"  - workflow: {caller_wf}\n    request: 10\n    waits-for: python-release\n"
+                  f"  - workflow: {helper_wf}\n    request: 11\n    waits-for: python-release\n")
+        self.consumer({
+            CONFIGURATION: config,
+            caller_wf: f"name: Nightly\non:\n  schedule:\n    - cron: '0 3 * * *'\njobs:\n  run:\n    uses: ./{helper_wf}\n",
+            helper_wf: "name: Helper\non:\n  workflow_call:\njobs:\n  work:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+        })
+        synced = self.scheduled()
+        self.assertEqual(0, synced.status, synced.stdout + synced.stderr)
+        self.assertNotIn(CONSUMER, synced.summary)
+        self.assertEqual([], self.management.issues)
 
 
 if __name__ == "__main__":

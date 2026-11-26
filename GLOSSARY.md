@@ -177,7 +177,7 @@ _Avoid_: Shared digest, hygiene hash
 ### Sync
 
 **Sync**:
-The comparison of every reachable consumer's fixed callers, CI guide, generated Dependabot configuration and settings with the templates at `v1`, which proposes the files that differ and reports the settings that differ.
+The comparison of every reachable consumer's fixed callers, CI guide, generated Dependabot configuration, workflows and settings with the templates at `v1`, which proposes the files that differ and reports settings differences and unwanted workflows.
 _Avoid_: Drift fix, rollout, propagation
 
 **Sync pull request**:

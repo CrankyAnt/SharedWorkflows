@@ -21,11 +21,12 @@ Without ``--local`` the sync runs with the installation token of the sync App in
 repositories of that installation, which it asks GitHub for. A settings difference is reported, never changed. With
 ``--own-repository`` it opens, with the run's ``GITHUB_TOKEN``, one issue in that repository for each sync pull request
 that is still open six hours after it was opened, each open issue with the label ``shared-ci`` in a repository it
-reaches, and each repository whose settings differ. An issue is found again by a marker in its body: a pull request and
-a request get one issue ever, a settings difference gets none while an issue with the same differences is open.
+reaches, each repository whose settings differ, and each repository with unwanted workflow findings. An issue is found
+again by a marker in its body: a pull request and a request get one issue ever, while settings differences and unwanted
+workflows get none while an issue with the same findings is open.
 
 With ``--local`` the sync runs with the owner's own token in ``GH_TOKEN`` on the repositories that ``--repository``
-names, and corrects each settings difference as well.
+names, and corrects each settings difference as well. Non-fixed workflow files are never removed or edited.
 
 ``adopt`` makes the adoption pull request of one repository in the local mode: the fixed callers, the CI guide,
 a configuration file derived from the repository's workflows and its Dependabot configuration, and the generated
@@ -36,10 +37,11 @@ auto-merge.
 
 ``failure`` opens the issue for a failed run, unless one is open.
 
-A repository without a configuration file has not adopted the pipeline: ``sync`` says so and leaves it alone. The
-repository of the shared parts, which the template of ``ci.yml`` calls, is never synced; an installation of the App on
-it fails the run before any write. The exit code is 0 when the command did its work, 1 when a repository could not be
-synced or the command refused, and 2 when the kit, a template or the token is missing.
+A repository without a configuration file has not adopted the pipeline: ``sync`` says so, still inspects its
+``.github/workflows/`` for retired shared workflow calls, uncallable workflows and unreadable YAML, and makes no other
+check or write. The repository of the shared parts, which the template of ``ci.yml`` calls, is never synced; an
+installation of the App on it fails the run before any write. The exit code is 0 when the command did its work, 1 when
+a repository could not be synced or the command refused, and 2 when the kit, a template or the token is missing.
 """
 
 from __future__ import annotations
@@ -70,6 +72,7 @@ KIT = PIPELINE / "consumer-kit"
 RULESET = PART_FOLDER.parent / "repository-ruleset" / "ruleset-main-template.json"
 MERGE_SETTINGS = PART_FOLDER / "merge-settings.json"
 ADOPTION = PART_FOLDER / "adoption.json"
+SHARED_SURFACE = PART_FOLDER.parent / "repository-hygiene" / "shared-surface.json"
 CI_GUIDE, WORKFLOWS = consumer_checks.CI_GUIDE, consumer_checks.WORKFLOWS
 DEPENDABOT_FILE, DEPENDABOT_OTHER_NAME = consumer_checks.DEPENDABOT_FILE, consumer_checks.DEPENDABOT_OTHER_NAME
 REQUIRED_CHECK = "ci / verdict"
@@ -172,7 +175,8 @@ class Api:
 @dataclass(frozen=True)
 class Templates:
     """What a consumer is compared with: the fixed files by their path in a consumer, the sync's branch, the repository
-    of the shared parts, the schema versions, the expected ruleset and the expected merge settings."""
+    of the shared parts, the schema versions, the expected ruleset, the expected merge settings and the current shared
+    workflows."""
 
     fixed: dict[str, bytes]
     branch: str
@@ -180,6 +184,7 @@ class Templates:
     versions: dict
     ruleset: dict
     merge_settings: dict
+    shared_workflows: frozenset[str]
 
 
 def read_json(path: Path, what: str) -> dict:
@@ -223,7 +228,13 @@ def read_templates(options: argparse.Namespace) -> Templates:
     guide = consumer_checks.read_bytes(kit / CI_GUIDE)
     if guide is not None:
         fixed[CI_GUIDE] = guide
-    return Templates(fixed, branch, shared, versions, expected_ruleset(Path(options.ruleset)), read_json(Path(options.merge_settings), "the merge settings"))
+    surface = read_json(Path(options.shared_surface), "the shared surface")
+    surface_paths = surface.get("paths")
+    if not isinstance(surface_paths, list) or not all(isinstance(path, str) for path in surface_paths):
+        raise SetupError(f"the shared surface {options.shared_surface}: expected a list under paths")
+    shared_workflows = frozenset(path for path in surface_paths if path.startswith(f"{WORKFLOWS}/"))
+    return Templates(fixed, branch, shared, versions, expected_ruleset(Path(options.ruleset)),
+                     read_json(Path(options.merge_settings), "the merge settings"), shared_workflows)
 
 
 # --- the report -----------------------------------------------------------------------------------------------------
@@ -326,11 +337,13 @@ def request_auto_merge(api: Api, pull: dict) -> str | None:
 
 @dataclass(frozen=True)
 class Snapshot:
-    """One commit snapshot of a consumer's default branch, its open sync pull request and its open requests."""
+    """One commit snapshot of a consumer's default branch, its direct workflow files, its open sync pull request and
+    its open requests."""
 
     tip: str
     tree: str
     files: dict[str, bytes | None]
+    workflows: dict[str, bytes]
     pull_request: dict | None
     requests: list[dict]
 
@@ -356,6 +369,14 @@ def is_missing_file_error(error: object, aliases: dict[str, str]) -> bool:
     return False
 
 
+def _blob_bytes(api: Api, repository: str, entry: dict) -> bytes:
+    """The raw bytes of a GraphQL file or tree entry, falling back to the Git blob API when text is omitted."""
+    blob_obj = entry.get("object")
+    if isinstance(blob_obj, dict) and isinstance(blob_obj.get("text"), str):
+        return blob_obj["text"].encode("utf-8")
+    return api.blob(repository, entry["oid"])
+
+
 def read_snapshot(api: Api, repository: str, default: str, paths: list[str], branch: str, include_requests: bool) -> Snapshot:
     """Read every needed file of a consumer from one commit snapshot of its default branch, together with its open
     sync pull request and, when needed, its open ``shared-ci`` issues."""
@@ -371,6 +392,10 @@ def read_snapshot(api: Api, repository: str, default: str, paths: list[str], bra
         variables[var] = path
         path_decls.append(f"${var}: String!")
         file_fields.append(f"{alias}: file(path: ${var}) {{ oid object {{ ... on Blob {{ text }} }} }}")
+    aliases["workflows"] = WORKFLOWS
+    variables["workflowsPath"] = WORKFLOWS
+    path_decls.append("$workflowsPath: String!")
+    file_fields.append("workflows: file(path: $workflowsPath) { type object { ... on Tree { entries { name type oid object { ... on Blob { text } } } } } }")
     issues_decl = ", $label: String!" if include_requests else ""
     issues_field = ("issues(states: [OPEN], labels: [$label], first: 100) { pageInfo { hasNextPage } nodes { number title url } }"
                     if include_requests else "")
@@ -398,14 +423,17 @@ def read_snapshot(api: Api, repository: str, default: str, paths: list[str], bra
     files: dict[str, bytes | None] = {}
     for index, path in enumerate(paths):
         entry = target.get(f"f{index}")
-        if not isinstance(entry, dict):
-            files[path] = None
-        else:
-            blob_obj = entry.get("object")
-            if isinstance(blob_obj, dict) and isinstance(blob_obj.get("text"), str):
-                files[path] = blob_obj["text"].encode("utf-8")
-            else:
-                files[path] = api.blob(repository, entry["oid"])
+        files[path] = _blob_bytes(api, repository, entry) if isinstance(entry, dict) else None
+    workflows: dict[str, bytes] = {}
+    workflows_entry = target.get("workflows")
+    workflows_tree = workflows_entry.get("object") if isinstance(workflows_entry, dict) else None
+    for item in (workflows_tree.get("entries") or []) if isinstance(workflows_tree, dict) else []:
+        if not isinstance(item, dict) or item.get("type") != "blob":
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.endswith((".yml", ".yaml")):
+            continue
+        workflows[f"{WORKFLOWS}/{name}"] = _blob_bytes(api, repository, item)
     pull = None
     for node in ((repo_data.get("pullRequests") or {}).get("nodes") or []):
         if isinstance(node, dict) and ((node.get("headRepository") or {}).get("nameWithOwner") in (None, repository)):
@@ -421,7 +449,7 @@ def read_snapshot(api: Api, repository: str, default: str, paths: list[str], bra
         else:
             requests = [{"number": node["number"], "title": node.get("title", ""), "html_url": node.get("url", "")}
                         for node in (issues_data.get("nodes") or []) if isinstance(node, dict)]
-    return Snapshot(target["oid"], target["tree"]["oid"], files, pull, requests)
+    return Snapshot(target["oid"], target["tree"]["oid"], files, workflows, pull, requests)
 
 
 def file_changes(files: dict[str, bytes | None], templates: Templates, configuration_text: bytes, notes: list[str]) -> dict[str, bytes | None]:
@@ -540,6 +568,35 @@ def moment(text: str) -> datetime.datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.timezone.utc)
 
 
+def workflow_finding_issue(repository: str, findings: list[consumer_checks.Finding]) -> Finding:
+    """One deduplicated management issue for a repository's unwanted-workflow findings."""
+    texts = [finding.text for finding in findings]
+    digest = hashlib.sha256("\n".join(texts).encode("utf-8")).hexdigest()[:12]
+    body = "\n".join([
+        f"The workflows of `{repository}` have findings:",
+        "",
+        *[f"- {text}" for text in texts],
+        "",
+        "The sync never removes or edits non-fixed workflow files. Remove each obsolete or uncallable workflow, "
+        f"or register a needed local workflow under `local-workflows` in `{plan.CONFIGURATION}`.",
+    ])
+    return Finding(f"workflows:{repository}:{digest}", f"Unwanted workflows: {repository}", body, ever=False)
+
+
+def _record_workflow_findings(repository: str, workflows: dict[str, bytes], templates: Templates, options: argparse.Namespace,
+                              report: Report, lines: list[str], *, adopted: bool, registered: set[str] | None = None) -> None:
+    workflow_findings = consumer_checks.inspect_workflows(
+        workflows,
+        shared=templates.shared,
+        adopted=adopted,
+        registered=registered,
+        shared_workflows=None if adopted else templates.shared_workflows,
+    )
+    lines += [f"Workflow finding: {finding.text}" for finding in workflow_findings]
+    if workflow_findings and options.own_repository:
+        report.findings.append(workflow_finding_issue(repository, workflow_findings))
+
+
 def sync_repository(api: Api, repository: str, templates: Templates, options: argparse.Namespace, report: Report) -> None:
     held = api.get(f"repos/{repository}")
     if not isinstance(held, dict):
@@ -551,9 +608,11 @@ def sync_repository(api: Api, repository: str, templates: Templates, options: ar
     snapshot = read_snapshot(api, repository, default, paths, templates.branch, include_requests=bool(options.own_repository))
     configuration = snapshot.files.get(plan.CONFIGURATION)
     if configuration is None:
-        report.section(repository, [f"`{repository}` holds no `{plan.CONFIGURATION}`: it has not adopted the pipeline. `sync.py adopt` makes its adoption pull request."])
+        lines = [f"`{repository}` holds no `{plan.CONFIGURATION}`: it has not adopted the pipeline. `sync.py adopt` makes its adoption pull request."]
+        _record_workflow_findings(repository, snapshot.workflows, templates, options, report, lines, adopted=False)
+        report.section(repository, lines)
         return
-    lines: list[str] = []
+    lines = []
     differences, corrected = settings(api, repository, held, templates, correct=options.local)
     lines += [f"Corrected: {difference}." for difference in corrected]
     lines += [f"Settings difference: {difference}." for difference in differences]
@@ -567,6 +626,14 @@ def sync_repository(api: Api, repository: str, templates: Templates, options: ar
             reference = f"{repository}#{issue['number']}"
             body = f"An open request for shared CI: [{reference}]({issue.get('html_url', '')}), \"{issue.get('title', '')}\"."
             report.findings.append(Finding(f"request:{reference}", f"Request for shared CI: {reference}", body, ever=True))
+    registered: set[str] | None = None
+    try:
+        parsed_configuration, _ = plan.checked_configuration(configuration.decode("utf-8"), templates.versions)
+    except (plan.PlanError, UnicodeDecodeError):
+        pass
+    else:
+        registered = plan.registered_workflows(parsed_configuration)
+    _record_workflow_findings(repository, snapshot.workflows, templates, options, report, lines, adopted=True, registered=registered)
     changes = file_changes(snapshot.files, templates, configuration, lines)
     if changes:
         existing = snapshot.pull_request
@@ -861,6 +928,7 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--ruleset", default=str(RULESET), help="the ruleset template")
         command.add_argument("--merge-settings", default=str(MERGE_SETTINGS), help="the merge settings that the shared parts rely on")
         command.add_argument("--adoption", default=str(ADOPTION), help="the table from an earlier shared workflow to the part that replaces it")
+        command.add_argument("--shared-surface", default=str(SHARED_SURFACE), help="the shared-surface list of current shared workflows")
         command.add_argument("--repository", action="append", help="a repository of the local mode, as OWNER/NAME")
         command.add_argument("--now", type=moment, default=datetime.datetime.now(datetime.timezone.utc), help="the time of the run; the current time without it")
     commands.choices["sync"].add_argument("--local", action="store_true", help="run with the owner's own token on the named repositories and correct settings")
