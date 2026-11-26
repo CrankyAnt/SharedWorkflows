@@ -31,6 +31,8 @@ from pins import PinsError, load_pins  # noqa: E402
 
 # The files mypy reads its configuration from, in mypy's order of precedence.
 MYPY_CONFIGURATIONS = ("mypy.ini", ".mypy.ini", "pyproject.toml", "setup.cfg")
+# Subfolders of this part folder that no job runs, kept out of the language-step digest as in ``recording.py``.
+EXCLUDED_FOLDERS = ("consumer-kit",)
 
 
 class ToolMissing(RuntimeError):
@@ -87,12 +89,17 @@ def run(command: list[str], root: Path) -> int:
 
 
 def language_step_digest() -> str:
-    """The SHA-256 digest of the Python language step: its folder files, the tool installer scripts it imports, and the
-    pinned ruff and mypy entries in ``pins.json``."""
+    """The SHA-256 digest of the Python language step: its folder files outside the consumer kit, the tool installer
+    scripts it imports, and the pinned ruff and mypy entries in ``pins.json``."""
     folder = Path(__file__).resolve().parent
     shared = folder.parent
     hygiene = shared / "repository-hygiene"
-    files = [path for path in folder.rglob("*") if path.is_file() and "__pycache__" not in path.relative_to(folder).parts]
+    files = [
+        path for path in folder.rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.relative_to(folder).parts
+        and path.relative_to(folder).parts[0] not in EXCLUDED_FOLDERS
+    ]
     for helper in (hygiene / "install_tools.py", hygiene / "pins.py"):
         if helper.is_file():
             files.append(helper)
