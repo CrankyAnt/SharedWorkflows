@@ -379,5 +379,41 @@ class WindowsSetupOrderTests(unittest.TestCase):
         fixture.check()  # stops the session
 
 
+class DotnetSetupTests(unittest.TestCase):
+    """The repository's dotnet setup isolates NuGet packages and caches under SETUP_DIRECTORY."""
+
+    def test_dotnet_setup_creates_nuget_directories_exports_variables_and_grants_writes(self) -> None:
+        from tests import temporary_support
+
+        work = temporary_support.make_directory(self.addCleanup, prefix="dotnet-setup-")
+        setup_dir = work / "dotnet"
+        setup_dir.mkdir()
+        tool_dir = work / "sdk"
+        tool_dir.mkdir()
+        provides_file = work / "dotnet.provides"
+        provides_file.write_text("", encoding="utf-8")
+        env = {
+            **os.environ,
+            "SETUP_NAME": "dotnet",
+            "SETUP_DIRECTORY": str(setup_dir),
+            "SETUP_PROVIDES": str(provides_file),
+            "SETUP_TOOL": str(tool_dir),
+        }
+        ran = subprocess.run([sys.executable, str(REPOSITORY_ROOT / "tests" / "setups" / "dotnet.py")],
+                             cwd=REPOSITORY_ROOT, capture_output=True, text=True, env=env, check=False)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        lines = [line.strip() for line in provides_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertIn(f"path={tool_dir}", lines)
+        self.assertIn(f"variable=DOTNET_ROOT={tool_dir}", lines)
+        variables = dict(line.removeprefix("variable=").split("=", 1) for line in lines if line.startswith("variable="))
+        writes = [line.removeprefix("write=") for line in lines if line.startswith("write=")]
+        for name in ("NUGET_PACKAGES", "NUGET_HTTP_CACHE_PATH", "NUGET_PLUGINS_CACHE_PATH"):
+            self.assertIn(name, variables, f"{name} missing from {lines}")
+            target = Path(variables[name])
+            self.assertTrue(target.is_dir(), f"{name}={target} was not created")
+            self.assertTrue(target.resolve().is_relative_to(setup_dir.resolve()), f"{name}={target} is not under {setup_dir}")
+            self.assertIn(str(target), writes, f"{name}={target} was not granted via write=")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -806,6 +806,80 @@ class WindowsWriteDepartureTests(unittest.TestCase):
         reads = recording.fixture.reads_of("tests/write.py")
         self.assertEqual(["data/keep.txt", "tests/write.py"], reads["paths"])
 
+    def test_windows_os_caches_outside_the_checkout_are_excluded_while_checkout_and_ordinary_profile_writes_stay_departures(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/write.py": ""},
+                                     [suite("a", ["tests/write.py"], paths=["tests/write.py"])], mode="pull-request")
+        recording.unit("1-write", "tests/write.py", 100, 10, ["python.exe", "tests/write.py"])
+        settings_path = recording.fixture.output / "recording.json"
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        root_drive = recording.root[:2].upper()
+        sys_drive = "Z:" if root_drive != "Z:" else "Y:"
+        sys_device = "\\Device\\HarddiskVolume98"
+        settings["devices"][sys_device] = sys_drive
+        settings_path.write_text(json.dumps(settings), encoding="utf-8")
+        recording.events([
+            ("100", "10", "start", PYTHON),
+            ("100", "10", "open", recording.prefix + "\\tests\\write.py"),
+            # OS directories and OS-managed caches outside the checkout: excluded.
+            ("100", "10", "write", sys_device + "\\Windows\\System32\\catroot2\\dberr.txt"),
+            ("100", "10", "write", sys_device + "\\CustomWin\\Temp\\os.dat"),
+            ("100", "10", "write", sys_device + "\\ProgramData\\Microsoft\\Crypto\\RSA\\key.dat"),
+            ("100", "10", "write", sys_device + "\\Profiles\\runner\\AppData\\LocalLow\\Microsoft\\CryptnetUrlCache\\MetaData\\abc"),
+            ("100", "10", "write", sys_device + "\\Profiles\\runner\\AppData\\Roaming\\Microsoft\\SystemCertificates\\My\\cert.cer"),
+            # Ordinary user-profile writes outside OS caches: still departures.
+            ("100", "10", "write", sys_device + "\\Profiles\\runner\\.nuget\\packages\\pkg\\pkg.nupkg"),
+            ("100", "10", "write", sys_device + "\\Profiles\\runner\\AppData\\Local\\NuGet\\v3-cache\\feed.dat"),
+            ("100", "10", "write", sys_device + "\\Profiles\\runner\\Documents\\leaked.txt"),
+            # Ungranted write inside the checkout, even with an OS-cache-like subpath: still a departure.
+            ("100", "10", "write", recording.prefix + "\\AppData\\LocalLow\\Microsoft\\CryptnetUrlCache\\inside.dat"),
+        ])
+        with unittest.mock.patch.dict(os.environ, {"SystemRoot": f"{sys_drive}\\CustomWin"}):
+            checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        for excluded in ("catroot2", "CustomWin", "ProgramData", "SystemCertificates", "MetaData/abc"):
+            self.assertNotIn(excluded, checked.stdout)
+        for expected in (
+            f"`{sys_drive}/Profiles/runner/.nuget/packages/pkg/pkg.nupkg`",
+            f"`{sys_drive}/Profiles/runner/AppData/Local/NuGet/v3-cache/feed.dat`",
+            f"`{sys_drive}/Profiles/runner/Documents/leaked.txt`",
+            "`AppData/LocalLow/Microsoft/CryptnetUrlCache/inside.dat`",
+        ):
+            self.assertIn(expected, checked.stdout)
+        summary = recording.fixture.summary.read_text(encoding="utf-8")
+        self.assertIn("### Departures", summary)
+        self.assertNotIn("catroot2", summary)
+        self.assertIn(f"`{sys_drive}/Profiles/runner/Documents/leaked.txt`", summary)
+        self.assertIn("`AppData/LocalLow/Microsoft/CryptnetUrlCache/inside.dat`", summary)
+
+    def test_many_windows_write_departures_are_bounded_in_log_annotations_and_summary(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/write.py": ""},
+                                     [suite("a", ["tests/write.py"], paths=["tests/write.py"])], mode="pull-request")
+        recording.unit("1-write", "tests/write.py", 100, 10, ["python.exe", "tests/write.py"])
+        events = [
+            ("100", "10", "start", PYTHON),
+            ("100", "10", "open", recording.prefix + "\\tests\\write.py"),
+            *[("100", "10", "write", recording.prefix + f"\\out\\file_{index:03d}.txt") for index in range(150)],
+        ]
+        recording.events(events)
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        departure_lines = [line for line in checked.stdout.splitlines() if line.startswith("Departure:")]
+        warning_lines = [line for line in checked.stdout.splitlines() if line.startswith("::warning::")]
+        self.assertLessEqual(len(departure_lines), 15, departure_lines)
+        self.assertLessEqual(len(warning_lines), 5, warning_lines)
+        self.assertEqual(1, len(warning_lines), warning_lines)
+        self.assertIn("140 more paths", checked.stdout)
+        self.assertIn("150 total", checked.stdout)
+        self.assertIn("`out/file_000.txt`", checked.stdout)
+        self.assertNotIn("`out/file_149.txt`", checked.stdout)
+        summary = recording.fixture.summary.read_text(encoding="utf-8")
+        table_rows = [line for line in summary.splitlines() if line.startswith("| `a`: `tests/write.py` |")]
+        self.assertLessEqual(len(table_rows), 15, table_rows)
+        self.assertIn("140 more paths", summary)
+        self.assertIn("150 total", summary)
+        self.assertNotIn("`out/file_149.txt`", summary)
+
 
 if __name__ == "__main__":
     unittest.main()
