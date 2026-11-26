@@ -192,9 +192,44 @@ The sync keeps the fixed files of a repository equal to their templates: it open
 
 Only the owner adds a repository to the sync App. An agent in a repository does not install it and asks the user instead. A repository outside the installation receives no sync updates: no sync pull request arrives after `v1` moves, its fixed files stay as they are until someone brings them in line by hand as [When a repository adopted it earlier](#when-a-repository-adopted-it-earlier) says, and the hygiene job of its pipeline fails on a fixed file that differs from its template.
 
-## Default-branch ruleset
+## Repository settings
 
-The one check that the ruleset on `main` requires is `ci / verdict`. The [ruleset template](../../repository-ruleset/README.md) holds it with three checks of callers that a repository with the fixed callers no longer holds; drop those three. The sync compares the ruleset with the ruleset template holding `ci / verdict` as its one required check, and the merge settings with those that the [consumer kit of repository hygiene](../../repository-hygiene/consumer-kit/README.md#merge-settings) states. A difference in either is no choice of the repository and is not kept: the sync reports it on every run, and its local mode replaces it with the template's value.
+The shared parts rely on the merge settings and the default-branch ruleset below. The user configures them; no workflow changes them. An agent shows the user the values it will set and sets them only after the user's approval.
+
+Neither is a choice of the repository. The sync keeps both equal to their templates: a merge setting that differs from [merge-settings.json](../../sync/merge-settings.json), or a ruleset that differs from the template as the sync expects it below, is not kept. The sync reports it on every run, and its local mode replaces it with the value of that file or the template.
+
+### Merge settings
+
+The merge settings are the fields of [merge-settings.json](../../sync/merge-settings.json), which the sync compares:
+
+- `allow_squash_merge` is `true`: Dependabot auto-merge requests a squash merge.
+- `allow_merge_commit` is `true`: an integration branch reaches the default branch with a merge commit whose subject is the pull request title.
+- `allow_rebase_merge` is `false`: a pull request merges by squash or with a merge commit only.
+- `allow_auto_merge` is `true`: the sync pull request and the full recording's pull request merge themselves once their required checks have passed.
+- `delete_branch_on_merge` is `true`: GitHub automatically deletes the pull request's head branch after merge.
+- `squash_merge_commit_title` is `PR_TITLE`: a squash commit's subject is the pull request title.
+- `squash_merge_commit_message` is `BLANK`: a squash commit has an empty body.
+- `merge_commit_title` is `PR_TITLE`: a merge commit's subject is the pull request title.
+- `merge_commit_message` is `BLANK`: a merge commit has an empty body.
+
+Set them and read them back with:
+
+```text
+gh api -X PATCH repos/<owner>/<repo> -F allow_squash_merge=true -F allow_merge_commit=true -F allow_rebase_merge=false -F allow_auto_merge=true -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK -f merge_commit_title=PR_TITLE -f merge_commit_message=BLANK
+gh api repos/<owner>/<repo> --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, allow_auto_merge, delete_branch_on_merge, squash_merge_commit_title, squash_merge_commit_message, merge_commit_title, merge_commit_message}'
+```
+
+### Default-branch ruleset
+
+The [ruleset template](../../repository-ruleset/ruleset-main-template.json) holds the ruleset on the default branch, and [its README](../../repository-ruleset/README.md) says how to fill it for a repository, create it and read it back. The ruleset holds:
+
+- the target `~DEFAULT_BRANCH`;
+- the rules `deletion` and `non_fast_forward`;
+- the rule `required_status_checks` with the one required check `ci / verdict`, the pipeline's verdict, with GitHub Actions as its source (`integration_id` `15368`), which carries the result of every part of the pipeline, repository hygiene included. The sync compares the ruleset with the ruleset template holding that one required check, and reports a ruleset with another set of required checks as a settings difference;
+- a bypass for the repository admin role: `actor_id` `5`, `actor_type` `RepositoryRole`, `bypass_mode` `always`;
+- `enforcement` `active`.
+
+The ruleset becomes active only once the callers are on the default branch and `ci / verdict` has reported on a pull request since; until then it is created with `enforcement` set to `disabled`. The ruleset editor lists a check only after it succeeded in the repository within the past 7 days, and an active ruleset that requires a check that never reports blocks every pull request.
 
 ## When a repository adopted it earlier
 

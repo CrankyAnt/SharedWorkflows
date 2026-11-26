@@ -73,33 +73,30 @@ class SharedWorkflowTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             suite_selection.parse_arguments(["verdict", "--needs", "needs.json"])
 
-    def test_both_shared_workflows_check_the_dispatched_commit_with_options_the_selection_accepts(self) -> None:
+    def test_the_pipeline_checks_the_dispatched_commit_with_options_the_selection_accepts(self) -> None:
         import suite_selection
 
-        for name in ("pipeline.yml", "repository-hygiene.yml"):
-            with self.subTest(workflow=name):
-                lines = [line for line in (WORKFLOWS / name).read_text(encoding="utf-8").splitlines() if 'suite_selection.py" check-dispatch ' in line]
-                self.assertEqual(1, len(lines))
-                arguments = shlex.split(re.sub(r'"\$(\w+)"', r"\1", lines[0].split('suite_selection.py" ', 1)[1]))
-                options = suite_selection.parse_arguments(arguments)
-                self.assertEqual(("check-dispatch", "PAYLOAD", "BRANCH"), (options.command, options.sha, options.branch))
+        lines = [line for line in (WORKFLOWS / "pipeline.yml").read_text(encoding="utf-8").splitlines() if 'suite_selection.py" check-dispatch ' in line]
+        self.assertEqual(1, len(lines))
+        arguments = shlex.split(re.sub(r'"\$(\w+)"', r"\1", lines[0].split('suite_selection.py" ', 1)[1]))
+        options = suite_selection.parse_arguments(arguments)
+        self.assertEqual(("check-dispatch", "PAYLOAD", "BRANCH"), (options.command, options.sha, options.branch))
 
     def test_every_workflow_invocation_of_suite_selection_uses_options_the_program_accepts(self) -> None:
         import suite_selection
 
         int_flags = {"--pull-request", "--run-id", "--run-attempt"}
-        for name in ("pipeline.yml", "repository-hygiene.yml"):
-            for tokens in script_invocations(WORKFLOWS / name, "suite_selection.py"):
-                cleaned = []
-                for index, token in enumerate(tokens):
-                    if token == "$@":
-                        continue
-                    cleaned.append("1" if index and tokens[index - 1] in int_flags else token)
-                with self.subTest(workflow=name, command=cleaned[0]):
-                    if cleaned[0] == "select":
-                        suite_selection.parse_arguments([cleaned[0], "--base", "a", "--head", "b", *cleaned[1:]])
-                    else:
-                        suite_selection.parse_arguments(cleaned)
+        for tokens in script_invocations(WORKFLOWS / "pipeline.yml", "suite_selection.py"):
+            cleaned = []
+            for index, token in enumerate(tokens):
+                if token == "$@":
+                    continue
+                cleaned.append("1" if index and tokens[index - 1] in int_flags else token)
+            with self.subTest(command=cleaned[0]):
+                if cleaned[0] == "select":
+                    suite_selection.parse_arguments([cleaned[0], "--base", "a", "--head", "b", *cleaned[1:]])
+                else:
+                    suite_selection.parse_arguments(cleaned)
 
 
 

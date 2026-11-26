@@ -454,7 +454,6 @@ class SharedDigestTests(unittest.TestCase):
             ("repository-hygiene/link_check.py", {"hygiene:markdown"}),
             ("repository-hygiene/zizmor-policy.yml", {"hygiene:zizmor-policy"}),
             ("repository-hygiene/hygiene.py", {"hygiene:actionlint", "hygiene:zizmor", "hygiene:packages", "hygiene:markdown", "hygiene:reuse"}),
-            ("repository-hygiene/consumer-kit/README.md", set()),
             ("repository-hygiene/promote_v1.py", set()),
         ):
             with self.subTest(file=relative):
@@ -567,7 +566,7 @@ class SharedDigestTests(unittest.TestCase):
         write(workflow.parent, workflow.name, self.PIPELINE)
         first = self.taken()
         for relative in ("pipeline/consumer-kit/README.md", "pipeline/schema/README.md", "pipeline/release.py", "pipeline/plan.py",
-                         "python-tests/consumer-kit/README.md", "dotnet-test/consumer-kit/README.md",
+                         "dotnet-test/consumer-kit/README.md",
                          "python-language-step/consumer-kit/README.md", "python-language-step/consumer-kit/python-language-step.yml"):
             with self.subTest(file=relative):
                 path = self.shared_folder / relative
@@ -678,7 +677,7 @@ class SharedDigestScopeTests(unittest.TestCase):
 
     def test_a_consumer_kit_file_moves_no_digest_of_a_commit(self) -> None:
         before = git(self.repo, "rev-parse", "HEAD").strip()
-        for relative in ("actions/python-language-step/consumer-kit/README.md", "actions/python-tests/consumer-kit/README.md"):
+        for relative in ("actions/python-language-step/consumer-kit/README.md", "actions/pipeline/consumer-kit/README.md"):
             write(self.repo, relative, "changed\n")
         git(self.repo, "add", "-A", "-f", ".")
         git(self.repo, "commit", "-q", "-m", "kit")
@@ -779,7 +778,7 @@ class SharedDigestScopeTests(unittest.TestCase):
             plan_mod = load(actions / "pipeline" / "plan.py", "plan")
             reuse_mod = load(actions / "suite-selection" / "reuse.py", "reuse")
         check_keys = sorted(hygiene_mod.CHECK_DIGESTS)
-        recorded_checks = sorted(hygiene_mod.RECORDED_CHECKS)
+        checks = sorted(c for c in hygiene_mod.CHECKS if c != "workflows")
         digest_names = sorted({name for names in hygiene_mod.CHECK_DIGESTS.values() for name in names})
         good = {"a": "0" * 64, "b": "1" * 64}
         other = {"a": "0" * 64, "c": "2" * 64}
@@ -790,7 +789,7 @@ class SharedDigestScopeTests(unittest.TestCase):
         self.assertEqual(reuse_mod.moved_digest_names(good, other), {"b", "c"})
         self.assertEqual(plan_mod.moved_digest_names(good, other), {"b", "c"})
         self.assertEqual(hygiene_mod.moved_digest_names(good, other), {"b", "c"})
-        self.assertEqual(recorded_checks, check_keys)
+        self.assertEqual(checks, check_keys)
         recorded_hygiene = sorted(name for name in recorded if name.startswith("hygiene:"))
         promoted_hygiene = sorted(name for name in promoted if name.startswith("hygiene:"))
         self.assertEqual(recorded_hygiene, digest_names)

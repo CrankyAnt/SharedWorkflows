@@ -162,7 +162,7 @@ class HygieneInvocationTests(PipelineFixture):
             if skip_next:
                 skip_next = False
                 continue
-            if token in ("--github-output", "--summary", "--pins", "--reuse-marker", "--shared-lookup", "--fallbacks"):
+            if token in ("--github-output", "--summary", "--shared-lookup", "--fallbacks"):
                 skip_next = True
                 continue
             if token != "$@":

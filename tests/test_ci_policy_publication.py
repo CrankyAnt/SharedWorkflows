@@ -9,7 +9,6 @@ from tests.ci_policy_support import REPOSITORY_ROOT
 
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
-TEMPLATE_DEPENDABOT = REPOSITORY_ROOT / "actions" / "dependabot-auto-merge" / "consumer-kit" / "dependabot.yml"
 ZIZMOR_POLICY = REPOSITORY_ROOT / ".github" / "zizmor.yml"
 DEPENDABOT = REPOSITORY_ROOT / ".github" / "dependabot.yml"
 PACKAGE = REPOSITORY_ROOT / "actions" / "publication-checks" / "package.json"
@@ -18,14 +17,13 @@ LOCKFILE = REPOSITORY_ROOT / "actions" / "publication-checks" / "package-lock.js
 
 class PublicationWorkflowTests(unittest.TestCase):
     def test_the_convention_resources_and_the_updater_preserve_the_contract(self) -> None:
-        self.assertIn("package-ecosystem: github-actions", TEMPLATE_DEPENDABOT.read_text(encoding="utf-8"))
         policy = ZIZMOR_POLICY.read_text(encoding="utf-8")
         self.assertIn('"*": hash-pin', policy)
         self.assertNotIn("publication-checks.yml", policy, "the publication-checks workflow is gone")
         dependabot = DEPENDABOT.read_text(encoding="utf-8")
         self.assertIn("package-ecosystem: github-actions", dependabot)
         self.assertRegex(dependabot, r"(?m)^  - package-ecosystem: npm\n    directories:\n(      - .+\n)*      - /actions/publication-checks$")
-        self.assertIn("uses: $/actions/publication-checks\n", (WORKFLOWS / "repository-hygiene.yml").read_text(encoding="utf-8"),
+        self.assertIn("uses: $/actions/publication-checks\n", (WORKFLOWS / "pipeline.yml").read_text(encoding="utf-8"),
                       "the npm entry covers the package that the hygiene job installs")
         self.assertTrue(PACKAGE.is_file())
         updater = (WORKFLOWS / "update-publication-spec.yml").read_text(encoding="utf-8")

@@ -322,7 +322,7 @@ class WorkflowInspectionTests(_ManagementFixture):
         self.assertEqual([], self.api.writes_to(CONSUMER))
 
     def test_unadopted_repository_checks_retired_shared_calls_and_uncallable_workflows_alongside_not_adopted_note(self) -> None:
-        active = f"{WORKFLOWS}/hygiene.yml"
+        active = f"{WORKFLOWS}/pipeline-caller.yml"
         retired = f"{WORKFLOWS}/old.yml"
         orphan = f"{WORKFLOWS}/unused.yml"
         retired_target = f"{SHARED}/.github/workflows/retired-legacy.yml@v1"
@@ -331,7 +331,7 @@ class WorkflowInspectionTests(_ManagementFixture):
             CI: None,
             f"{WORKFLOWS}/automation.yml": None,
             f"{WORKFLOWS}/release.yml": None,
-            active: f"name: Hygiene\non:\n  pull_request:\njobs:\n  check:\n    uses: {SHARED}/.github/workflows/repository-hygiene.yml@v1\n",
+            active: f"name: Pipeline\non:\n  pull_request:\njobs:\n  check:\n    uses: {SHARED}/.github/workflows/pipeline.yml@v1\n",
             retired: f"name: Old\non:\n  pull_request:\njobs:\n  run:\n    uses: {retired_target}\n",
             orphan: "name: Unused\non:\n  workflow_call:\njobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
         })

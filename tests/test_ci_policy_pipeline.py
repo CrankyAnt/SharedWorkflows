@@ -17,52 +17,6 @@ PIPELINE = WORKFLOWS / "pipeline.yml"
 CALLER = WORKFLOWS / "ci.yml"
 FRAGMENTS = "actions/pipeline/schema/v1/parts"
 HYGIENE = "repository-hygiene"
-HYGIENE_WORKFLOW = WORKFLOWS / "repository-hygiene.yml"
-# The steps of the hygiene job of repository-hygiene.yml that the pipeline's job leaves out, each with its reason.
-LEFT_OUT = {
-    "Load the push lookup from this workflow revision": "the pipeline loads suite-selection once in plan as Load the scripts of the suite selection from this workflow revision",
-    "Restore the default-branch REUSE version marker": "the pipeline compares hygiene:reuse through the shared digests instead of a default-branch REUSE version marker",
-    "Store the default-branch REUSE version marker": "the pipeline compares hygiene:reuse through the shared digests instead of a default-branch REUSE version marker",
-    "Restore the passed checks of the pull request": "the pipeline has no edited run that reuses passed checks",
-    "Record the passed checks for an edit of the pull request": "the pipeline has no edited run that reuses passed checks",
-    "Store the passed checks in the pull request's cache": "the pipeline has no edited run that reuses passed checks",
-}
-# The steps that differ between the two jobs, each with its reason; every other step is equal in both.
-DIFFERENT = {
-    "actions/checkout": "the pipeline names the checkout step id checkout so light checks in plan wait for it",
-    "Load resources from this workflow revision": "the pipeline loads hygiene resources in plan under id hygiene",
-    "Restore the default-branch record": "the pipeline restores the default-branch record for pull requests as well as pushes, and skips it on edited",
-    "Look up the tested tree of the pushed commit's pull request": "the pipeline runs the push lookup once in plan and exports it as an output",
-    "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run, passes shared-lookup for hygiene check digests, and runs change detection in plan",
-    "Decide whether the PR author skips the convention checks": "the pipeline runs light convention checks in plan",
-    "Load the convention checks from this workflow revision": "the pipeline loads publication-checks in plan for branch/reference checks and in repository-hygiene for commitlint",
-    "actions/setup-node": "the pipeline reads pr-author-skip from needs.plan.outputs",
-    "Check the pull request branch": "the pipeline runs the light branch check in plan",
-    "Check every pull request commit": "the pipeline skips commitlint on commits on an edited run",
-    "Compute the commitlint cache key": "the pipeline reads pr-author-skip from needs.plan.outputs",
-    "Restore the cached commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
-    "Install the locked commitlint toolchain": "the pipeline reads pr-author-skip from needs.plan.outputs",
-    "Check the pull request title": "the pipeline reads the current title through the API, for a re-run after a corrected title",
-    "Check the references to repositories of the owner": "the pipeline runs the light reference check in plan",
-    "Dependabot coverage of tracked package files": "the pipeline runs coverage in plan and reads coverage-exclude from the configuration file, not from an input",
-    "Relative links in tracked Markdown": "the pipeline runs links in plan and reads link-exclude from the configuration file, not from an input",
-    "Compute the hygiene tools cache key": "the pipeline reads hygiene change flags from needs.plan.outputs, relies on plan for the dispatch check, and skips tools on edited",
-    "Restore the cached hygiene tools": "the pipeline relies on plan for the dispatch check and skips tools on edited",
-    "Install actionlint and ShellCheck": "the pipeline reads hygiene-actionlint from needs.plan.outputs, relies on plan for the dispatch check, and skips tools on edited",
-    "actionlint with the pinned ShellCheck": "the pipeline reads hygiene-actionlint from needs.plan.outputs",
-    "Install zizmor": "the pipeline reads hygiene-zizmor from needs.plan.outputs, relies on plan for the dispatch check, and skips tools on edited",
-    "zizmor over workflows and action definitions": "the pipeline has no input zizmor-persona and reads hygiene-zizmor from needs.plan.outputs",
-    "Install REUSE": "the pipeline reads hygiene-reuse from needs.plan.outputs, relies on plan for the dispatch check, and skips tools on edited",
-    "REUSE licence assignments": "the pipeline reads hygiene-reuse from needs.plan.outputs",
-    "Install Gitleaks": "the pipeline relies on plan for the dispatch check and skips tools on edited",
-    "Restore the default-branch Gitleaks scan marker": "the pipeline skips Gitleaks on an edited run",
-    "Gitleaks over added commits": "the pipeline takes the Gitleaks files by their fixed names, not from inputs, and skips Gitleaks on an edited run",
-}
-# The steps that only the pipeline's hygiene checks hold, each with its reason.
-PIPELINE_ONLY = {
-    "Write the push lookup from the plan": "the pipeline reuses the single push lookup run in plan",
-    "Consumer checks": "a caller of repository-hygiene.yml holds a caller of its own and no configuration file",
-}
 # The jobs of the pipeline that are no shared part.
 PLAN, VERDICT = "plan", "verdict"
 # The part that runs inside plan (no separate job of its own) and the jobs that follow it.
@@ -92,36 +46,8 @@ def pipeline_parts() -> list[str]:
 
 
 def step_key(step: dict) -> str:
-    """What names a step in both hygiene jobs: its name, or the action it uses without its pin."""
+    """What names a step in the pipeline: its name, or the action it uses without its pin."""
     return str(step.get("name") or str(step["uses"]).split("@", 1)[0])
-
-
-def hygiene_step_problems(shared: list[dict], pipeline: list[dict], left_out: dict[str, str], different: dict[str, str], pipeline_only: dict[str, str] | None = None) -> list[str]:
-    """Each way the pipeline's hygiene job is out of step with the hygiene job of the shared workflow: a step without a
-    counterpart, a step that differs, or a stated difference that no longer exists."""
-    pipeline_only = PIPELINE_ONLY if pipeline_only is None else pipeline_only
-    ours = {step_key(step): step for step in pipeline}
-    theirs = {step_key(step): step for step in shared}
-    problems = []
-    for key, step in theirs.items():
-        if key in left_out:
-            if key in ours:
-                problems.append(f"{key}: the pipeline has this step, but it is listed as left out")
-        elif key not in ours:
-            problems.append(f"{key}: the pipeline's hygiene job has no such step")
-        elif key in different:
-            if ours[key] == step:
-                problems.append(f"{key}: the step is equal in both jobs, but it is listed as different")
-        elif ours[key] != step:
-            problems.append(f"{key}: the step differs between the two jobs")
-    problems += [f"{key}: listed as a difference, but the shared workflow has no such step" for key in [*left_out, *different] if key not in theirs]
-    problems += [f"{key}: only the pipeline's hygiene job has this step" for key in ours if key not in theirs and key not in pipeline_only]
-    problems += [f"{key}: listed as a step of the pipeline alone, but the shared workflow has this step" for key in pipeline_only if key in theirs]
-    problems += [f"{key}: listed as a step of the pipeline alone, but the pipeline has no such step" for key in pipeline_only if key not in ours]
-    order = [key for key in theirs if key in ours]
-    if order != [key for key in ours if key in theirs]:
-        problems.append("the steps that both jobs hold are in a different order")
-    return problems
 
 
 def needed(job: dict) -> list[str]:
@@ -534,69 +460,12 @@ class OtherWorkflowTests(unittest.TestCase):
 
 
 class HygieneStepTests(unittest.TestCase):
-    """The pipeline's hygiene checks (light checks in ``plan``, tool-installing checks in ``repository-hygiene``) run
-    the floor of repository-hygiene.yml: each step there has its counterpart here."""
+    """The pipeline's hygiene checks (light checks in ``plan``, tool-installing checks in ``repository-hygiene``)."""
 
     def setUp(self) -> None:
-        self.shared = read_workflow(HYGIENE_WORKFLOW)[1]["jobs"]["hygiene"]["steps"]
         jobs = read_workflow(PIPELINE)[1]["jobs"]
         self.plan_steps = jobs[PLAN]["steps"]
         self.hygiene_steps = jobs[HYGIENE]["steps"]
-        theirs_keys = {step_key(step) for step in self.shared}
-        # Combine the hygiene steps from plan and repository-hygiene in shared order, deduplicating shared keys.
-        seen: set[str] = set()
-        combined: list[dict] = []
-        for step in [*self.plan_steps, *self.hygiene_steps]:
-            key = step_key(step)
-            if key in seen:
-                continue
-            if key in theirs_keys or key in PIPELINE_ONLY:
-                seen.add(key)
-                combined.append(step)
-        self.pipeline = combined
-
-    def test_every_step_of_the_shared_hygiene_job_has_its_counterpart_in_the_pipeline_apart_from_the_stated_differences(self) -> None:
-        theirs = {step_key(step): step for step in self.shared}
-        ours = {step_key(step): step for step in self.pipeline}
-        for key in theirs:
-            if key in LEFT_OUT:
-                self.assertNotIn(key, ours)
-            else:
-                self.assertIn(key, ours, f"{key} missing from pipeline")
-                if key not in DIFFERENT:
-                    self.assertEqual(theirs[key], ours[key], f"{key} differs")
-
-    def test_a_step_that_only_the_shared_hygiene_job_holds_is_named(self) -> None:
-        added = [*self.shared, {"name": "A new check of the floor", "run": "check"}]
-        self.assertIn("A new check of the floor: the pipeline's hygiene job has no such step", hygiene_step_problems(added, self.pipeline, LEFT_OUT, DIFFERENT))
-        references = "Check the references to repositories of the owner"
-        without = [step for step in self.pipeline if step.get("name") != references]
-        self.assertIn(f"{references}: the pipeline's hygiene job has no such step", hygiene_step_problems(self.shared, without, LEFT_OUT, DIFFERENT))
-
-    def test_a_step_that_changed_in_one_job_only_is_named(self) -> None:
-        name = "Store the default-branch Gitleaks scan marker"
-        changed = [{**step, "run": "another command"} if step.get("name") == name else step for step in self.shared]
-        self.assertIn(f"{name}: the step differs between the two jobs", hygiene_step_problems(changed, self.pipeline, LEFT_OUT, DIFFERENT))
-
-    def test_a_stated_difference_that_no_longer_exists_is_named(self) -> None:
-        self.assertIn("Store the default-branch Gitleaks scan marker: the step is equal in both jobs, but it is listed as different",
-                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, {**DIFFERENT, "Store the default-branch Gitleaks scan marker": "none"}))
-        self.assertIn("A removed step: listed as a difference, but the shared workflow has no such step",
-                      hygiene_step_problems(self.shared, self.pipeline, {**LEFT_OUT, "A removed step": "none"}, DIFFERENT))
-        self.assertIn("An extra step: only the pipeline's hygiene job has this step",
-                      hygiene_step_problems(self.shared, [*self.pipeline, {"name": "An extra step", "run": "extra"}], LEFT_OUT, DIFFERENT))
-
-    def test_a_step_of_the_pipeline_alone_is_stated_with_its_reason(self) -> None:
-        only = [step_key(step) for step in self.pipeline if step_key(step) not in {step_key(other) for other in self.shared}]
-        self.assertEqual(sorted(PIPELINE_ONLY), sorted(only))
-        callers = "Consumer checks"
-        self.assertIn(f"{callers}: only the pipeline's hygiene job has this step",
-                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {key: reason for key, reason in PIPELINE_ONLY.items() if key != callers}))
-        self.assertIn("A removed check: listed as a step of the pipeline alone, but the pipeline has no such step",
-                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, "A removed check": "none"}))
-        moved = "Check every pull request commit"
-        self.assertIn(f"{moved}: listed as a step of the pipeline alone, but the shared workflow has this step",
-                      hygiene_step_problems(self.shared, self.pipeline, LEFT_OUT, DIFFERENT, {**PIPELINE_ONLY, moved: "none"}))
 
     def test_the_consumer_checks_run_in_plan_and_read_github_with_the_job_s_token(self) -> None:
         checks = [step for step in self.plan_steps if "consumer_checks.py" in str(step.get("run", ""))]
@@ -686,7 +555,7 @@ class DispatchTests(unittest.TestCase):
 
 
 # The shared workflows whose run blocks reach this repository's files only through a part folder that a `$/` step loaded.
-CONSUMER_PATH_WORKFLOWS = ("pipeline.yml", "repository-hygiene.yml", "python-tests.yml")
+CONSUMER_PATH_WORKFLOWS = ("pipeline.yml",)
 # The one stated exception: the definition options of `hygiene.py changes` name a definition by its path and selector,
 # which the program looks up in the checkout's history; they name no file of this repository to read.
 DEFINITION_OPTIONS = ("--definition", "--packages-definition", "--markdown-definition")
@@ -793,15 +662,15 @@ class ConsumerPathTests(unittest.TestCase):
                 self.assertIn(f"{path} is a path of this repository", problems[0])
 
     def test_a_program_s_own_path_and_a_variable_that_no_loaded_part_folder_set_are_named(self) -> None:
-        text, workflow = read_workflow(WORKFLOWS / "python-tests.yml")
+        text, workflow = read_workflow(PIPELINE)
         program = '"$RESOURCE_PATH/python_tests.py"'
         self.assertIn(program, text)
-        problems = self.problems("python-tests.yml", ci_definition().read_yaml(text.replace(program, "actions/python-tests/python_tests.py", 1), "python-tests.yml"))
+        problems = self.problems("pipeline.yml", ci_definition().read_yaml(text.replace(program, "actions/python-tests/python_tests.py", 1), "pipeline.yml"))
         self.assertEqual(1, len(problems), problems)
         self.assertIn("actions/python-tests/python_tests.py is a path of this repository", problems[0])
-        step = next(step for step in workflow["jobs"]["tests"]["steps"] if program in str(step.get("run", "")))
+        step = next(step for step in workflow["jobs"]["python-test"]["steps"] if program in str(step.get("run", "")))
         step["env"] = {**step["env"], "RESOURCE_PATH": "${{ github.workspace }}"}
-        self.assertTrue(any("$RESOURCE_PATH/python_tests.py" in problem for problem in self.problems("python-tests.yml", workflow)))
+        self.assertTrue(any("$RESOURCE_PATH/python_tests.py" in problem for problem in self.problems("pipeline.yml", workflow)))
 
     def test_the_definitions_of_the_change_decision_are_the_one_stated_exception(self) -> None:
         text = PIPELINE.read_text(encoding="utf-8")

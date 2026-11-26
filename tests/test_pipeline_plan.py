@@ -1114,7 +1114,6 @@ class PartInputsAndDeparturesTests(PipelineFixture):
             # A consumer kit is run by no job, so an edit of one selects no part, as it moves no part digest.
             ("actions/dotnet-test/consumer-kit/README.md", set()),
             ("actions/python-language-step/consumer-kit/python-language-step.yml", set()),
-            ("actions/python-tests/consumer-kit/README.md", set()),
             ("actions/python-tests/python_tests.py", {"python-test"}),
         ):
             with self.subTest(changed_file=changed_file):
