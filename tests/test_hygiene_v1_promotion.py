@@ -1137,6 +1137,8 @@ class PrepareTests(ManualMove):
             "ci/pins.json": pins_v2,
             "actions/recording/etw-consumer/Program.cs": "// etw 2\n",
             "actions/dotnet-test/dotnet_test.py": "# dotnet 2\n",
+            "actions/pipeline/release.py": "# release 2\n",
+            "actions/python-tests/consumer-kit/README.md": "# Python tests 2\n",
         })
         git(self.fixture.repo, "push", "-q", "origin", "main")
         code, output = self.prepare()
@@ -1147,6 +1149,8 @@ class PrepareTests(ManualMove):
         self.assertIn(f"It changes the shared digests {expected}.", question)
         self.assertNotIn("platform:linux", question, "a Windows-only change does not move platform:linux")
         self.assertNotIn("part:node-test", question, "an unchanged part does not move its part digest")
+        self.assertNotIn("part:python-test", question, "a consumer-kit README or another part folder's file moves no part digest")
+        self.assertNotIn("part:custom", question)
         self.assertNotIn("tool:node", question)
         decision = promote.decide(self.fixture.repo, target, self.fixture.v1, SURFACE)
         self.assertFalse(decision.follow)

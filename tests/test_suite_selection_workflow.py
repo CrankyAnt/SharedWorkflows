@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from tests import temporary_support
-from tests.ci_policy_support import BARE_DISPATCH_CONTEXT, BARE_DISPATCH_TIP, entry_pathspecs, expression_value, read_workflow, tracked_files
+from tests.ci_policy_support import entry_pathspecs, tracked_files
 from tests.workflow_commands import script_invocations
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +25,6 @@ DEFINITION_FILES = ("tests/suites.json", "tests/setups/python.py", "tests/setups
                     "actions/python-tests/action.yml", "actions/dotnet-test/action.yml",
                     "actions/node-test/action.yml")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "actions/suite-selection"))
-
-from reuse import DIGEST_STEP  # noqa: E402
 
 
 def fixture_checkout(root: Path, kept: tuple[str, ...]) -> None:

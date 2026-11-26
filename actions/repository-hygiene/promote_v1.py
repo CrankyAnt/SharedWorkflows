@@ -98,13 +98,17 @@ PIPELINE_WORKFLOW = ".github/workflows/pipeline.yml"
 TOOL_INSTALLER_FILES = ("actions/repository-hygiene/install_tools.py", "actions/repository-hygiene/pins.py")
 LANGUAGE_STEP_FOLDERS = {"python": "actions/python-language-step"}
 LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
+# The folders whose files each part's job runs, apart from the consumer kit; with the part's job in the pipeline
+# workflow they make up its part digest. ``SharedDigestScopeTests`` in tests/test_suite_selection_reuse.py ties these
+# scopes to those of actions/recording/recording.py.
 PART_DIGEST_FOLDERS: dict[str, tuple[str, ...]] = {
-    "custom": ("actions/pipeline",),
-    "dotnet-test": ("actions/dotnet-test", "actions/pipeline"),
-    "node-test": ("actions/node-test", "actions/pipeline"),
-    "python-test": ("actions/python-tests", "actions/pipeline"),
-    "python-verify": ("actions/python-tests", "actions/pipeline"),
+    "custom": (),
+    "dotnet-test": ("actions/dotnet-test",),
+    "node-test": ("actions/node-test",),
+    "python-test": ("actions/python-tests",),
+    "python-verify": ("actions/python-tests",),
 }
+PART_EXCLUDED_FOLDERS = ("consumer-kit",)
 RECORDING_MODULE_SEARCH = ("actions/suite-selection", "actions/recording")
 # GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
 GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
@@ -120,6 +124,10 @@ CI_TIMEOUT = 10 * 60
 CI_INTERVAL = 30
 REQUEST_TIMEOUT = 20
 Fetcher = Callable[[str], bytes | None]
+
+
+class DigestScopeError(RuntimeError):
+    """A shared digest of a commit cannot be taken over all that it covers; the message names the part and the file."""
 
 
 class CiReadError(RuntimeError):
@@ -362,15 +370,45 @@ def _digest_entries(entries: Mapping[str, str]) -> str:
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
+def part_job_text(workflow: str, job: str) -> str | None:
+    """The lines of the pipeline workflow that a part's job runs under, read as ``recording.part_job_text`` reads them:
+    the lines before ``jobs:`` and the job's block up to the next line at its indentation or less, without trailing
+    blank lines; None when the workflow has no such job."""
+    lines = workflow.splitlines()
+    try:
+        jobs = lines.index("jobs:")
+        start = lines.index(f"  {job}:", jobs + 1)
+    except ValueError:
+        return None
+    end = start + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end].startswith("   ")):
+        end += 1
+    block = lines[start:end]
+    while block and not block[-1].strip():
+        block.pop()
+    return "\n".join(lines[:jobs] + block) + "\n"
+
+
 def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, str]:
     """Per-platform, per-tool, per-language-step and per-part digest fingerprints of ``commit``, keyed like ``shared-digests``."""
+    return {name: _digest_entries(entries) for name, entries in commit_digest_entries(root, commit, pins_path).items()}
+
+
+def commit_digest_scopes(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, list[str]]:
+    """The entry names of every digest of ``commit``: the repository path of each file and the name of each extra entry."""
+    return {name: sorted(entries) for name, entries in commit_digest_entries(root, commit, pins_path).items()}
+
+
+def commit_digest_entries(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, dict[str, str]]:
+    """The entries of every shared digest of ``commit``, sorted by digest name: each file's path with its blob id, and
+    each extra entry with its value."""
     if not commit or not has_commit(root, commit):
         return {}
     part_folders = tuple(dict.fromkeys(folder for folders in PART_DIGEST_FOLDERS.values() for folder in folders))
     scope = [RECORDING_DIR, SUITE_JOBS_WORKFLOW, PIPELINE_WORKFLOW, *TOOL_INSTALLER_FILES, *LANGUAGE_STEP_FOLDERS.values(),
              *part_folders, *RECORDING_MODULE_SEARCH, pins_path]
     blobs = _tree_blobs(root, commit, scope)
-    digests: dict[str, str] = {}
+    digests: dict[str, dict[str, str]] = {}
     recording_files = {path: blob for path, blob in blobs.items() if path.startswith(f"{RECORDING_DIR}/")}
     if recording_files or SUITE_JOBS_WORKFLOW in blobs:
         loaded = _loaded_recording_modules(root, blobs)
@@ -380,8 +418,8 @@ def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository
         linux_entries = {**{path: blob for path, blob in recording_files.items()
                             if not path.removeprefix(f"{RECORDING_DIR}/").startswith(WINDOWS_ONLY_PARTS)}, **shared_extra}
         windows_entries = {**recording_files, **shared_extra}
-        digests["platform:linux"] = _digest_entries(linux_entries)
-        digests["platform:windows"] = _digest_entries(windows_entries)
+        digests["platform:linux"] = linux_entries
+        digests["platform:windows"] = windows_entries
     installer = {path: blobs[path] for path in TOOL_INSTALLER_FILES if path in blobs}
     pins: dict = {}
     if pins_path in blobs:
@@ -394,25 +432,32 @@ def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository
             except (UnicodeDecodeError, ValueError):
                 pass
     if isinstance(pins.get("node"), dict):
-        digests["tool:node"] = _digest_entries({"pins:node": json.dumps(pins["node"], sort_keys=True, separators=(",", ":"))})
+        digests["tool:node"] = {"pins:node": json.dumps(pins["node"], sort_keys=True, separators=(",", ":"))}
     for section in ("tools", "python"):
         entries = pins.get(section)
         if isinstance(entries, dict):
             for name, entry in sorted(entries.items()):
-                digests[f"tool:{name}"] = _digest_entries({**installer, f"pins:{section}/{name}": json.dumps(entry, sort_keys=True, separators=(",", ":"))})
+                digests[f"tool:{name}"] = {**installer, f"pins:{section}/{name}": json.dumps(entry, sort_keys=True, separators=(",", ":"))}
     python_pins = pins.get("python") if isinstance(pins.get("python"), dict) else {}
     for name, folder in sorted(LANGUAGE_STEP_FOLDERS.items()):
         lang_files = {path: blob for path, blob in blobs.items() if path.startswith(f"{folder}/")}
         if lang_files:
             extra = {f"pins:python/{tool}": json.dumps(python_pins[tool], sort_keys=True, separators=(",", ":"))
                      for tool in LANGUAGE_STEP_PYTHON_TOOLS.get(name, ()) if tool in python_pins}
-            digests[f"language:{name}"] = _digest_entries({**lang_files, **installer, **extra})
+            digests[f"language:{name}"] = {**lang_files, **installer, **extra}
+    raw_workflow = _blob_bytes(root, blobs[PIPELINE_WORKFLOW]) if PIPELINE_WORKFLOW in blobs else None
+    workflow = raw_workflow.decode("utf-8", errors="replace") if raw_workflow is not None else None
     for name, folders in sorted(PART_DIGEST_FOLDERS.items()):
-        part_files = {path: blob for path, blob in blobs.items() if any(path.startswith(f"{folder}/") for folder in folders)}
-        if PIPELINE_WORKFLOW in blobs:
-            part_files[PIPELINE_WORKFLOW] = blobs[PIPELINE_WORKFLOW]
+        part_files = {path: blob for path, blob in blobs.items() for folder in folders
+                      if path.startswith(f"{folder}/") and path.removeprefix(f"{folder}/").split("/")[0] not in PART_EXCLUDED_FOLDERS}
+        if workflow is not None:
+            job = part_job_text(workflow, name)
+            if job is None:
+                raise DigestScopeError(f"the job of the part {name} cannot be found in {PIPELINE_WORKFLOW} of {commit} as a line "
+                                       f"`  {name}:` under `jobs:`; its part digest cannot be taken")
+            part_files[f"{PIPELINE_WORKFLOW}#jobs.{name}"] = hashlib.sha256(job.encode("utf-8")).hexdigest()
         if part_files:
-            digests[f"part:{name}"] = _digest_entries(part_files)
+            digests[f"part:{name}"] = part_files
     return dict(sorted(digests.items()))
 
 

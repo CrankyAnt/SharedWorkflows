@@ -9,7 +9,7 @@ import json
 import re
 import unittest
 
-from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, condition_holds, flow_items, read_workflow, tracked_files
+from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, condition_holds, expression_value, flow_items, read_workflow, tracked_files
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 PIPELINE = WORKFLOWS / "pipeline.yml"
@@ -126,14 +126,19 @@ def needed(job: dict) -> list[str]:
     return flow_items(needs[1:-1]) if needs.startswith("[") else [needs] if needs else []
 
 
+# A job that needs the plan runs whenever the plan wrote its plan, also when a light hygiene check inside ``plan``
+# failed: the status function keeps a failed ``plan`` from skipping it.
+PLAN_WRITTEN = "!cancelled() && needs.plan.outputs.plan != ''"
+
+
 def part_job_problems(name: str, job: dict) -> list[str]:
     """Each way the job of a shared part that the configuration file switches on is not started by the plan alone."""
     problems = []
     if PLAN not in needed(job):
         problems.append(f"{name} does not need {PLAN}")
     condition = str(job.get("if", ""))
-    if condition != f"${{{{ fromJSON(needs.plan.outputs.plan).parts['{name}'].run }}}}":
-        problems.append(f"{name} does not run on the plan's decision for {name} alone")
+    if condition != f"${{{{ {PLAN_WRITTEN} && fromJSON(needs.plan.outputs.plan).parts['{name}'].run }}}}":
+        problems.append(f"{name} does not run on the plan's decision for {name} alone, whenever the plan wrote its plan")
     if "concurrency" in job:
         problems.append(f"{name} sets job-level concurrency instead of relying on the caller's workflow concurrency")
     return problems
@@ -239,10 +244,10 @@ class PipelineTests(unittest.TestCase):
                       "Dependabot coverage of tracked package files", "Relative links in tracked Markdown"):
             self.assertIn(light, plan_step_names, f"light hygiene check {light!r} runs in plan")
 
-    def test_repository_hygiene_runs_only_when_the_plan_succeeded_and_runs_only_tool_installing_checks(self) -> None:
+    def test_repository_hygiene_runs_whenever_the_plan_wrote_its_plan_and_runs_only_tool_installing_checks(self) -> None:
         hygiene = self.jobs[HYGIENE]
         self.assertEqual([PLAN], needed(hygiene))
-        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).parts['repository-hygiene'].run }}", hygiene["if"])
+        self.assertEqual(f"${{{{ {PLAN_WRITTEN} && fromJSON(needs.plan.outputs.plan).parts['repository-hygiene'].run }}}}", hygiene["if"])
         self.assertNotIn("concurrency", hygiene)
         hygiene_text = json.dumps(hygiene)
         self.assertNotIn("suite_selection.py", hygiene_text, "repository-hygiene runs neither check-dispatch nor push lookup")
@@ -256,15 +261,45 @@ class PipelineTests(unittest.TestCase):
                     self.assertEqual([], part_job_problems(name, self.jobs[name]))
 
     def test_a_part_job_that_does_not_follow_the_plan_is_named(self) -> None:
-        good = {"needs": "plan", "if": "${{ fromJSON(needs.plan.outputs.plan).parts['invented-test'].run }}"}
+        good = {"needs": "plan", "if": f"${{{{ {PLAN_WRITTEN} && fromJSON(needs.plan.outputs.plan).parts['invented-test'].run }}}}"}
         self.assertEqual([], part_job_problems("invented-test", good))
+        alone = "invented-test does not run on the plan's decision for invented-test alone, whenever the plan wrote its plan"
         for change, problem in (({"needs": "repository-hygiene"}, "invented-test does not need plan"),
-                                ({"if": "always()"}, "invented-test does not run on the plan's decision for invented-test alone"),
-                                ({"if": "${{ fromJSON(needs.plan.outputs.plan).parts['other-test'].run }}"}, "invented-test does not run on the plan's decision for invented-test alone"),
+                                ({"if": "always()"}, alone),
+                                ({"if": f"${{{{ {PLAN_WRITTEN} && fromJSON(needs.plan.outputs.plan).parts['other-test'].run }}}}"}, alone),
+                                ({"if": "${{ fromJSON(needs.plan.outputs.plan).parts['invented-test'].run }}"}, alone),
                                 ({"concurrency": {"group": "fixed", "cancel-in-progress": "true"}},
                                  "invented-test sets job-level concurrency instead of relying on the caller's workflow concurrency")):
             with self.subTest(change=change):
                 self.assertEqual([problem], part_job_problems("invented-test", {**good, **change}))
+
+    def test_a_failed_light_check_in_plan_skips_no_job_that_needs_the_plan_once_the_plan_is_written(self) -> None:
+        # The run of a failed link check: plan ended failure after it wrote its plan with every part planned.
+        context = {"needs": {"plan": {"result": "failure", "outputs": {"plan": "written", "shards": "[1]", "windows": "", "light-links": "failure"}}}}
+        for name, job in self.jobs.items():
+            if PLAN not in needed(job) or name in (VERDICT, "suite-selection-results"):
+                continue
+            with self.subTest(job=name):
+                condition = str(job["if"])
+                self.assertTrue(condition.startswith(f"${{{{ {PLAN_WRITTEN} && "), f"{name} runs whenever the plan wrote its plan")
+                rest = condition[len(f"${{{{ {PLAN_WRITTEN} && "):-2]
+                if "fromJSON" not in rest:
+                    self.assertTrue(expression_value(rest, context), f"{name} runs after a failed light check")
+                without_plan = {"needs": {"plan": {"result": "failure", "outputs": {"plan": ""}}}}
+                self.assertFalse(expression_value("needs.plan.outputs.plan != ''", without_plan), "no job runs without a written plan")
+        self.assertEqual("${{ !cancelled() }}", self.jobs[VERDICT]["if"], "the verdict judges the jobs after a failed light check")
+
+    def test_the_plan_gives_the_outcome_of_each_light_check_to_the_verdict(self) -> None:
+        outputs = self.jobs[PLAN]["outputs"]
+        steps = {step.get("id"): step_key(step) for step in self.jobs[PLAN]["steps"] if step.get("id")}
+        for output, step_id, step_name in (("light-branch", "branch", "Check the pull request branch"),
+                                           ("light-references", "references", "Check the references to repositories of the owner"),
+                                           ("light-consumer-checks", "consumer-checks", "Consumer checks"),
+                                           ("light-coverage", "coverage", "Dependabot coverage of tracked package files"),
+                                           ("light-links", "links", "Relative links in tracked Markdown")):
+            with self.subTest(output=output):
+                self.assertEqual(f"${{{{ steps.{step_id}.outcome }}}}", outputs[output])
+                self.assertEqual(step_name, steps[step_id])
 
     def test_repository_hygiene_has_read_rights_only_and_keeps_no_checkout_credentials(self) -> None:
         self.assertEqual({"contents": "read", "pull-requests": "read"}, self.jobs[HYGIENE]["permissions"])

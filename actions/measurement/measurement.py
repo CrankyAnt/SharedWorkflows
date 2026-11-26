@@ -35,7 +35,9 @@ THREE_MINUTE_TARGET = 0.99
 ONE_MINUTE_SECONDS = 60.0
 PLAN_ARTIFACT_NAME = "ci-plan"
 INPUTS_UNKNOWN_REASON = "inputs unknown"
-TEST_PARTS = frozenset({"python-test", "dotnet-test", "node-test", "suite-selection"})
+TEST_PARTS = frozenset({"python-test", "dotnet-test", "node-test"})
+# The part whose tests are its units: it runs for a language step alone too, so its test units decide.
+SUITE_SELECTION_PART = "suite-selection"
 VERDICT_CONCLUSIONS = frozenset({"success", "failure"})
 MANUAL_EVENTS = frozenset({"workflow_dispatch"})
 MARKER = "<!-- measurement-finding: {key} -->"
@@ -160,7 +162,8 @@ def read_plan_artifact(api: Api, repository: str, run_id: int) -> dict | None:
 
 
 def plan_selects_no_tests(plan: dict) -> bool:
-    """Whether ``plan`` selects no test part and no test unit."""
+    """Whether ``plan`` selects no test part and no test unit. The suite selection counts by its units: a run that
+    plans its job only for a language step selects no test, and one whose units are unknown counts as selecting tests."""
     parts = plan.get("parts")
     if isinstance(parts, dict):
         for name in TEST_PARTS:
@@ -171,6 +174,8 @@ def plan_selects_no_tests(plan: dict) -> bool:
     if isinstance(units, dict):
         if any(isinstance(unit, dict) and unit.get("run") is True for unit in units.values()):
             return False
+    elif isinstance(parts, dict) and isinstance(parts.get(SUITE_SELECTION_PART), dict) and parts[SUITE_SELECTION_PART].get("run") is True:
+        return False
     return True
 
 

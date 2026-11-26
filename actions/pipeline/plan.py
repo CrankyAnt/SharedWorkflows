@@ -614,7 +614,7 @@ def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, cha
     part_digests = PART_DIGESTS.get(name, ())
     if part_digests:
         if moved_digests is None:
-            return True, f"`{part_digests[0]}` digest could not be compared", False
+            return True, f"`{part_digests[0]}` {DIGEST_FALLBACK_SUFFIX}", False
         moved = next((digest for digest in part_digests if digest in moved_digests), None)
         if moved is not None:
             return True, f"`{moved}` digest moved", False
@@ -624,12 +624,38 @@ def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, cha
     if patterns is None:
         return (True, INPUTS_UNKNOWN_REASON, False) if supports_paths(name, version) else (True, "switched on", False)
     if changed is None:
-        return True, "the changed files are unknown", False
+        return True, CHANGED_FILES_UNKNOWN, False
     if base_parts.get(name) != parts[name] or (tested_base_parts is not None and tested_base_parts.get(name) != parts[name]):
         return True, "its configuration changed", False
     all_patterns = [*patterns, *declared_input_patterns(name, parts[name]), *PART_SHARED_INPUTS.get(name, ())]
     matched = first_match(all_patterns, changed)
     return (True, f"{matched} changed", False) if matched else (False, "no changed path matches its paths", False)
+
+
+# The plan's own fallbacks to running more, by the reason of a part's decision: the counted reason that the plan adds
+# to the fallbacks of the suite selection, as the suite selection counts its own (``reuse.fallback_notice``).
+DIGEST_FALLBACK_SUFFIX = "digest could not be compared"
+CHANGED_FILES_UNKNOWN = "the changed files are unknown"
+PLAN_FALLBACKS = {DIGEST_FALLBACK_SUFFIX: "unreadable-shared-digests", CHANGED_FILES_UNKNOWN: "changed-files-unknown"}
+
+
+def own_fallbacks(decisions: dict) -> list[tuple[str, str]]:
+    """The plan's own fallbacks, one per running part whose decision fell back to running it: the counted reason and
+    the detail of its notice, in the order of the parts."""
+    found = []
+    for name, entry in decisions.items():
+        reason = entry.get("reason") if isinstance(entry, dict) and entry.get("run") is True else None
+        if not isinstance(reason, str):
+            continue
+        key = next((counted for suffix, counted in PLAN_FALLBACKS.items() if reason.endswith(suffix)), None)
+        if key is not None:
+            found.append((key, f"`{name}` runs: {reason}"))
+    return found
+
+
+def fallback_notice(reason: str, detail: str) -> str:
+    """The notice of one fallback, in the form of the suite selection's ``reuse.fallback_notice``."""
+    return f"::notice title=ci-fallback::{reason}: {detail}"
 
 
 def read_unit_decisions(path: str | None) -> dict | None:
@@ -852,10 +878,16 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
         "switched-off": sorted(name for name in base_parts if name not in parts and name not in version.always),
         "local-workflows-added": [workflow for workflow in registered_workflows(configuration) if workflow not in known],
     }
+    fallbacks: dict[str, int] = {}
     if head_results is None and (selected_units := read_unit_decisions(unit_decisions)) is not None:
         result["units"] = selected_units["units"]
-        if isinstance(selected_units.get("fallbacks"), dict) and selected_units["fallbacks"]:
-            result["fallbacks"] = selected_units["fallbacks"]
+        if isinstance(selected_units.get("fallbacks"), dict):
+            fallbacks.update({name: count for name, count in selected_units["fallbacks"].items()
+                              if isinstance(name, str) and isinstance(count, int) and count > 0})
+    for reason, _ in own_fallbacks(decisions):
+        fallbacks[reason] = fallbacks.get(reason, 0) + 1
+    if fallbacks:
+        result["fallbacks"] = dict(sorted(fallbacks.items()))
     if head_results is not None:
         result["head-results"] = head_results
     return result
@@ -930,6 +962,8 @@ def run_plan(options: argparse.Namespace) -> int:
         print(f"{name}: {'runs' if part['run'] else 'does not run'} ({part['reason']})")
     for departure in plan.get("departures", []):
         print(f"departure: {departure['part']} ({departure['reason']})")
+    for reason, detail in own_fallbacks(plan["parts"]):
+        print(fallback_notice(reason, detail))
     for part_name, patterns in plan.get("unmatched-paths", {}).items():
         for pattern in patterns:
             print(f"unmatched path pattern: {part_name}: {pattern}")
@@ -1052,18 +1086,37 @@ def suite_selection_followups(needs: dict, selection_job: str = SUITE_SELECTION_
     return rows, reasons
 
 
+# The outputs of the ``plan`` job that hold the outcome of each light hygiene check that runs inside it.
+LIGHT_CHECKS = {"light-branch": "the pull request branch", "light-references": "the references to repositories of the owner",
+                "light-consumer-checks": "the consumer checks", "light-coverage": "Dependabot coverage",
+                "light-links": "relative links in tracked Markdown"}
+
+
+def light_check_failures(needs: dict) -> list[str]:
+    """The light hygiene checks inside ``plan`` whose step failed, as the plan job's outputs name them."""
+    plan_job = needs.get(PLAN_JOB)
+    outputs = plan_job.get("outputs") if isinstance(plan_job, dict) else None
+    if not isinstance(outputs, dict):
+        return []
+    return [f"the light check of {label} in `{PLAN_JOB}` failed" for output, label in LIGHT_CHECKS.items() if outputs.get(output) == "failure"]
+
+
 def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOutcome]]:
-    """Evaluate the needs context against the plan; returns (failure reasons, validated plan, check outcomes)."""
+    """Evaluate the needs context against the plan; returns (failure reasons, validated plan, check outcomes). A failed
+    ``plan`` job that wrote its plan, such as one whose light hygiene check failed, fails the verdict with the failed
+    check named, and its planned checks are judged as after a passed ``plan``."""
     reasons: list[str] = []
     if PLAN_JOB not in needs:
         reasons.append(f"the needs context has no `{PLAN_JOB}` job")
-    elif needs[PLAN_JOB].get("result") != "success":
-        result = needs[PLAN_JOB].get("result")
-        reasons.append(f"`{PLAN_JOB}` never started" if not isinstance(result, str) or not result else f"`{PLAN_JOB}` ended {result}")
     else:
-        plan, error = parse_job_plan(needs)
+        result = needs[PLAN_JOB].get("result")
+        if result != "success":
+            reasons.append(f"`{PLAN_JOB}` never started" if not isinstance(result, str) or not result else f"`{PLAN_JOB}` ended {result}")
+            reasons += light_check_failures(needs)
+        plan, error = parse_job_plan(needs) if result in ("success", "failure") else (None, None)
         if plan is None:
-            reasons.append(error or f"the `{PLAN_JOB}` job gave no plan output")
+            if result == "success":
+                reasons.append(error or f"the `{PLAN_JOB}` job gave no plan output")
         else:
             checks: list[CheckOutcome] = []
             for name, part in plan["parts"].items():

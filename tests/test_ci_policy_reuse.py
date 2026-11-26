@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import unittest
 
 from tests.ci_policy_support import REPOSITORY_ROOT, condition_holds, passed_list_steps, read_workflow

@@ -34,6 +34,12 @@ jobs:
       reused-units: ${{ steps.select.outputs.reused-units }}
       shared-digests: ${{ steps.digest.outputs.shared-digests }}
       identical: ${{ steps.select.outputs.identical }}
+      # The outcome of each light hygiene check, so that the verdict names a failed one while the parts still run.
+      light-branch: ${{ steps.branch.outcome }}
+      light-references: ${{ steps.references.outcome }}
+      light-consumer-checks: ${{ steps.consumer-checks.outcome }}
+      light-coverage: ${{ steps.coverage.outcome }}
+      light-links: ${{ steps.links.outcome }}
     steps:
       - name: Load the plan program from this workflow revision
         id: resources
@@ -257,12 +263,14 @@ jobs:
         if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
         uses: $/actions/publication-checks
       - name: Check the pull request branch
+        id: branch
         if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' && github.event.action != 'edited' }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
           HEAD_BRANCH: ${{ github.head_ref }}
         run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
       - name: Check the references to repositories of the owner
+        id: references
         if: ${{ !cancelled() && steps.plan.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
@@ -271,6 +279,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
       - name: Consumer checks
+        id: consumer-checks
         if: ${{ !cancelled() && steps.plan.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' && github.event.pull_request.user.login != 'dependabot[bot]' }}
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
@@ -303,7 +312,7 @@ jobs:
 
   custom:
     needs: plan
-    if: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].run }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && fromJSON(needs.plan.outputs.plan).parts['custom'].run }}
     runs-on: ${{ fromJSON(needs.plan.outputs.plan).parts['custom'].config['runner-label'] || 'ubuntu-26.04' }}
     timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['custom'] }}
     permissions:
@@ -382,7 +391,7 @@ jobs:
 
   dotnet-test:
     needs: plan
-    if: ${{ fromJSON(needs.plan.outputs.plan).parts['dotnet-test'].run }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && fromJSON(needs.plan.outputs.plan).parts['dotnet-test'].run }}
     name: dotnet-test (${{ matrix.project['project'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
     strategy:
       fail-fast: false
@@ -417,7 +426,7 @@ jobs:
 
   node-test:
     needs: plan
-    if: ${{ fromJSON(needs.plan.outputs.plan).parts['node-test'].run }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && fromJSON(needs.plan.outputs.plan).parts['node-test'].run }}
     name: node-test (${{ matrix.project['working-directory'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
     strategy:
       fail-fast: false
@@ -458,7 +467,7 @@ jobs:
 
   python-test:
     needs: plan
-    if: ${{ fromJSON(needs.plan.outputs.plan).parts['python-test'].run }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && fromJSON(needs.plan.outputs.plan).parts['python-test'].run }}
     name: python-test (${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}${{ matrix.project['runner-label'] && format(', {0}', matrix.project['runner-label']) || '' }})
     strategy:
       fail-fast: false
@@ -524,7 +533,7 @@ jobs:
 
   python-verify:
     needs: plan
-    if: ${{ fromJSON(needs.plan.outputs.plan).parts['python-verify'].run }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && fromJSON(needs.plan.outputs.plan).parts['python-verify'].run }}
     name: python-verify (${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }})
     strategy:
       fail-fast: false
@@ -576,7 +585,7 @@ jobs:
 
   repository-hygiene:
     needs: plan
-    if: ${{ fromJSON(needs.plan.outputs.plan).parts['repository-hygiene'].run }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && fromJSON(needs.plan.outputs.plan).parts['repository-hygiene'].run }}
     runs-on: ubuntu-26.04
     timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan).timeouts['repository-hygiene'] }}
     permissions:
@@ -783,7 +792,7 @@ jobs:
   # same jobs, so their steps stand once.
   suite-selection-jobs:
     needs: plan
-    if: ${{ (needs.plan.outputs.shards != '' && needs.plan.outputs.shards != '[]') || needs.plan.outputs.windows != '' }}
+    if: ${{ !cancelled() && needs.plan.outputs.plan != '' && ((needs.plan.outputs.shards != '' && needs.plan.outputs.shards != '[]') || needs.plan.outputs.windows != '') }}
     permissions:
       contents: read
     uses: $/.github/workflows/suite-jobs.yml

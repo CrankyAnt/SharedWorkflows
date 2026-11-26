@@ -491,6 +491,37 @@ class UnitDecisionPlanTests(PipelineFixture):
         self.assertIn("| `pipeline:tests/test_pipeline_verdict.py` | no (taken over) | reuses the passed result of run 7 |", outcome.summary)
         self.assertIn("| `sync` | no | no read changed |", outcome.summary)
 
+    def test_the_plan_counts_its_own_fallbacks_by_reason_beside_those_of_the_suite_selection_and_prints_them(self) -> None:
+        configuration = ("version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    paths: [ci/]\n"
+                         "  dotnet-test:\n    projects:\n      - sdk-version: \"10.0.x\"\n        project: tests/App.Tests.csproj\n    paths: [tests/]\n"
+                         "  suite-selection:\n    suites: tests/suites.json\n")
+        self.commit({CONFIGURATION: configuration, "ci/check.sh": "exit 0\n", "tests/App.Tests.csproj": "<Project />\n"})
+        units_file = self.write_units({"run": True, "reused": False, "reason": "1 Linux shard",
+                                       "units": {"sync": {"run": True, "reason": "every unit runs"}},
+                                       "fallbacks": {"changed-files-unknown": 1, "missing-pr-record": 1}})
+        outcome = self.plan("--unit-decisions", units_file)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual({"changed-files-unknown": 3, "missing-pr-record": 1}, outcome.plan["fallbacks"])
+        for part in ("custom", "dotnet-test"):
+            self.assertIn(f"::notice title=ci-fallback::changed-files-unknown: `{part}` runs: the changed files are unknown", outcome.stdout)
+        self.assertIn("Fallbacks: `changed-files-unknown` (3), `missing-pr-record` (1).", outcome.summary)
+
+        unreadable = self.directory / "shared-lookup.json"
+        unreadable.write_text("not json", encoding="utf-8")
+        outcome = self.plan("--unit-decisions", units_file, "--shared-lookup", str(unreadable))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual({"changed-files-unknown": 1, "missing-pr-record": 1, "unreadable-shared-digests": 2}, outcome.plan["fallbacks"])
+        self.assertIn("::notice title=ci-fallback::unreadable-shared-digests: `custom` runs: `part:custom` digest could not be compared", outcome.stdout)
+        self.assertIn("`unreadable-shared-digests` (2)", outcome.summary)
+
+    def test_a_plan_without_a_fallback_records_none(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    paths: [ci/]\n", "ci/check.sh": "exit 0\n"})
+        head = self.commit({"README.md": "2\n"})
+        outcome = self.plan("--base", base, "--head", head)
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertNotIn("fallbacks", outcome.plan)
+        self.assertNotIn("ci-fallback", outcome.stdout)
+
     def test_unit_decisions_that_run_nothing_mark_suite_selection_as_not_running_or_taken_over(self) -> None:
         self.commit({CONFIGURATION: "version: 1\nparts:\n  suite-selection:\n    suites: tests/suites.json\n"})
         reused_file = self.write_units({

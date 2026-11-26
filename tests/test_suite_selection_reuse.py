@@ -1231,30 +1231,69 @@ class SharedDigestTests(unittest.TestCase):
         write(workflow.parent, workflow.name, "name: Suite jobs\n")
         self.assertEqual(first, self.taken(), "another workflow is not part of it")
 
+    PIPELINE = ("name: Pipeline\non: workflow_call\njobs:\n  plan:\n    runs-on: ubuntu-26.04\n\n"
+                "  custom:\n    needs: plan\n    steps:\n      - run: bash -- \"$SCRIPT\"\n\n"
+                "  dotnet-test:\n    needs: plan\n    steps:\n      - uses: $/actions/dotnet-test\n\n"
+                "  node-test:\n    needs: plan\n    steps:\n      - uses: $/actions/node-test\n\n"
+                "  python-test:\n    needs: plan\n    steps:\n      - uses: $/actions/python-tests\n\n"
+                "  python-verify:\n    needs: plan\n    steps:\n      - uses: $/actions/python-tests\n")
+    PARTS = ("part:custom", "part:dotnet-test", "part:node-test", "part:python-test", "part:python-verify")
+
+    def assert_moves_only(self, before: dict[str, str], after: dict[str, str], moved: set[str]) -> None:
+        self.assertEqual(moved, {name for name in set(before) | set(after) if before.get(name) != after.get(name)})
+
     def test_part_digests_track_each_pipeline_part_s_shared_code_independently(self) -> None:
         for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
             shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
         workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
-        write(workflow.parent, workflow.name, "name: Pipeline\n")
+        write(workflow.parent, workflow.name, self.PIPELINE)
         first = self.taken()
-        for key in ("part:custom", "part:dotnet-test", "part:node-test", "part:python-test", "part:python-verify"):
+        for key in self.PARTS:
             self.assertIn(key, first)
         # Changing dotnet-test changes only part:dotnet-test.
         dotnet_script = self.shared_folder / "dotnet-test" / "dotnet_test.py"
         original = dotnet_script.read_bytes()
         dotnet_script.write_bytes(original + b"\n")
-        after_dotnet = self.taken()
+        self.assert_moves_only(first, self.taken(), {"part:dotnet-test"})
         dotnet_script.write_bytes(original)
-        self.assertNotEqual(first["part:dotnet-test"], after_dotnet["part:dotnet-test"])
-        self.assertEqual({k: v for k, v in first.items() if k != "part:dotnet-test"},
-                         {k: v for k, v in after_dotnet.items() if k != "part:dotnet-test"})
-        # Changing pipeline.yml changes all part:* digests and no platform/tool/language digest.
-        write(workflow.parent, workflow.name, "name: Pipeline v2\n")
-        after_workflow = self.taken()
-        for key in ("part:custom", "part:dotnet-test", "part:node-test", "part:python-test", "part:python-verify"):
-            self.assertNotEqual(first[key], after_workflow[key], key)
-        self.assertEqual({k: v for k, v in first.items() if not k.startswith("part:")},
-                         {k: v for k, v in after_workflow.items() if not k.startswith("part:")})
+        # Changing the job of one part in pipeline.yml changes only that part's digest.
+        write(workflow.parent, workflow.name, self.PIPELINE.replace("uses: $/actions/node-test", "uses: $/actions/node-test\n        with: {a: b}"))
+        self.assert_moves_only(first, self.taken(), {"part:node-test"})
+        # Changing another job, or the blank lines between jobs, changes no part digest.
+        write(workflow.parent, workflow.name, self.PIPELINE.replace("runs-on: ubuntu-26.04\n", "runs-on: ubuntu-26.04\n    timeout-minutes: 5\n\n\n"))
+        self.assert_moves_only(first, self.taken(), set())
+        # Changing the lines before jobs: changes every part digest and no platform, tool or language digest.
+        write(workflow.parent, workflow.name, self.PIPELINE.replace("name: Pipeline\n", "name: Pipeline v2\n"))
+        self.assert_moves_only(first, self.taken(), set(self.PARTS))
+        write(workflow.parent, workflow.name, self.PIPELINE)
+
+    def test_a_part_job_that_the_pipeline_workflow_does_not_hold_as_expected_fails_the_digest(self) -> None:
+        workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
+        for name, text in (("missing", self.PIPELINE.replace("  node-test:\n", "  node-tests:\n")),
+                           ("indented", self.PIPELINE.replace("  node-test:\n", "    node-test:\n"))):
+            with self.subTest(case=name):
+                write(workflow.parent, workflow.name, text)
+                completed = self.digest()
+                self.assertNotEqual(0, completed.returncode)
+                self.assertIn("the job of the part node-test cannot be found in ../.github/workflows/pipeline.yml", completed.stdout + completed.stderr)
+
+    def test_part_digests_leave_out_what_no_part_job_runs(self) -> None:
+        for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
+            shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
+        workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
+        write(workflow.parent, workflow.name, self.PIPELINE)
+        first = self.taken()
+        for relative in ("pipeline/consumer-kit/README.md", "pipeline/schema/README.md", "pipeline/release.py", "pipeline/plan.py",
+                         "python-tests/consumer-kit/README.md", "dotnet-test/consumer-kit/README.md"):
+            with self.subTest(file=relative):
+                path = self.shared_folder / relative
+                original = path.read_bytes() if path.is_file() else None
+                write(self.shared_folder, relative, "changed\n")
+                self.assert_moves_only(first, self.taken(), set())
+                if original is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(original)
 
     def test_the_digest_is_the_same_whichever_order_a_platform_sorts_the_shared_files_in(self) -> None:
         # Windows orders paths case-insensitively and Linux by code point, so the same revision lists its shared
@@ -1289,6 +1328,89 @@ class SharedDigestTests(unittest.TestCase):
         self.assertIn("v1 moved during the run", moved.stderr)
         bad = self.digest("--expect", "not-json")
         self.assertEqual(bad.returncode, 1)
+
+
+class SharedDigestScopeTests(unittest.TestCase):
+    """The digests that recording.py takes in a job and those that promote_v1.py takes from a commit name the same
+    digests over the same files, on a committed copy of the shared CI's part folders."""
+
+    PARTS = ("recording", "suite-selection", "python-language-step", "repository-hygiene", "pipeline", "dotnet-test", "node-test", "python-tests")
+
+    def setUp(self) -> None:
+        self.temporary = temporary_support.Directory()
+        self.addCleanup(self.temporary.cleanup)
+        self.repo = Path(self.temporary.name) / "repo"
+        for part in self.PARTS:
+            shutil.copytree(SHARED_FOLDER / part, self.repo / "actions" / part, ignore=shutil.ignore_patterns("__pycache__"))
+        for name in ("pipeline.yml", "suite-jobs.yml"):
+            target = self.repo / ".github" / "workflows" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SHARED_FOLDER.parent / ".github" / "workflows" / name, target)
+
+    def scopes(self) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+        """The scopes of recording.py on the copy's files and of promote_v1.py on its commit, both by repository path."""
+        git(self.repo, "init", "-q")
+        git(self.repo, "add", "-A", "-f", ".")
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "fixture")
+        actions = self.repo / "actions"
+        script = (
+            "import json, sys\n"
+            f"sys.path[:0] = [{str(actions / 'recording')!r}, {str(actions / 'suite-selection')!r}, {str(actions / 'repository-hygiene')!r}]\n"
+            "import recording, promote_v1\n"
+            "def by_path(name):\n"
+            "    return name[3:] if name.startswith('../') else name if name.startswith('pins:') else 'actions/' + name\n"
+            "print(json.dumps({name: sorted(by_path(entry) for entry in entries) for name, entries in recording.shared_digest_scopes().items()}))\n"
+            f"print(json.dumps(promote_v1.commit_digest_scopes(promote_v1.Path({str(self.repo)!r}), 'HEAD')))\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        recorded, promoted = completed.stdout.splitlines()
+        return json.loads(recorded), json.loads(promoted)
+
+    def test_both_take_the_same_digests_over_the_same_files(self) -> None:
+        recorded, promoted = self.scopes()
+        self.assertEqual(sorted(recorded), sorted(promoted))
+        for name in recorded:
+            with self.subTest(digest=name):
+                self.assertEqual(recorded[name], promoted[name])
+        for name in ("platform:linux", "platform:windows", "tool:gitleaks", "language:python", "part:custom", "part:dotnet-test"):
+            self.assertIn(name, recorded)
+
+    def test_promote_v1_fails_on_a_commit_whose_pipeline_workflow_does_not_hold_a_part_job_as_expected(self) -> None:
+        workflow = self.repo / ".github" / "workflows" / "pipeline.yml"
+        workflow.write_text(workflow.read_text(encoding="utf-8").replace("\n  dotnet-test:\n", "\n   dotnet-test:\n", 1), encoding="utf-8")
+        git(self.repo, "init", "-q")
+        git(self.repo, "add", "-A", "-f", ".")
+        git(self.repo, "commit", "-q", "-m", "fixture")
+        script = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(self.repo / 'actions' / 'repository-hygiene')!r})\n"
+            "import promote_v1\n"
+            "try:\n"
+            f"    promote_v1.commit_digests(promote_v1.Path({str(self.repo)!r}), 'HEAD')\n"
+            "except promote_v1.DigestScopeError as error:\n"
+            "    print(error)\n"
+            "else:\n"
+            "    print('no error')\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("the job of the part dotnet-test cannot be found in .github/workflows/pipeline.yml", completed.stdout)
+
+    def test_a_folder_added_to_one_side_only_breaks_the_tie(self) -> None:
+        recording_script = self.repo / "actions" / "recording" / "recording.py"
+        text = recording_script.read_text(encoding="utf-8")
+        recording_script.write_text(text.replace('"custom": (),', '"custom": (SHARED_FOLDER / "pipeline",),', 1), encoding="utf-8")
+        recorded, promoted = self.scopes()
+        self.assertNotEqual(recorded["part:custom"], promoted["part:custom"])
+        promote_script = self.repo / "actions" / "repository-hygiene" / "promote_v1.py"
+        text = promote_script.read_text(encoding="utf-8")
+        promote_script.write_text(text.replace('LANGUAGE_STEP_FOLDERS = {"python": "actions/python-language-step"}',
+                                               'LANGUAGE_STEP_FOLDERS = {"python": "actions/python-language-step", "node": "actions/node-test"}', 1),
+                                  encoding="utf-8")
+        recorded, promoted = self.scopes()
+        self.assertIn("language:node", promoted)
+        self.assertNotIn("language:node", recorded)
 
 
 class SharedLookupFixture(FixtureRepository):

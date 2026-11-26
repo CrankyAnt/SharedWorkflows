@@ -241,7 +241,7 @@ class EarlierAdoptionSectionTest(unittest.TestCase):
         self.assertEqual(1, readme.count("`v1-moved`"), "only the earlier adoption still names the event")
         self.assertIn("No move of `v1` sends the repository an event", readme_section(readme, "## When `v1` moves"))
 
-    def test_the_earlier_adoption_registers_both_files_or_switches_and_names_the_required_check(self) -> None:
+    def test_the_earlier_adoption_switches_to_the_part_and_names_the_change_of_the_required_check(self) -> None:
         section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
         for text in ("`validation.yml`", "`local-workflows`", "../../pipeline/consumer-kit/README.md#the-configuration-file",
                      "`suite-selection`", "`setups`", "`jobs`", "`validation / validation`", "`ci / verdict`",

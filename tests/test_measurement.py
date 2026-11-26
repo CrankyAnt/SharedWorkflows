@@ -84,6 +84,31 @@ class MeasurementPlanMetricsTests(MeasurementFixture):
         self.assertAlmostEqual(50.0, metrics["no_tests_median_seconds"], places=2)
         self.assertIn("50.0s", outcome.summary)
 
+    def test_a_suite_selection_that_runs_only_the_language_step_selects_no_tests(self) -> None:
+        consumer = self.stand_in.repository(CONSUMER)
+        language_step_only = {
+            "version": 1,
+            "parts": {
+                "repository-hygiene": {"run": True, "reason": "always runs"},
+                "suite-selection": {"run": True, "reason": "1 Linux shard"},
+            },
+            "units": {"unit:tests/test_a.py": {"run": False, "reason": "no read changed"}},
+            "departures": [],
+        }
+        with_test_unit = {**language_step_only, "units": {"unit:tests/test_a.py": {"run": True, "reason": "src/a.py changed"}}}
+        units_unknown = {key: value for key, value in language_step_only.items() if key != "units"}
+        consumer.add_run("2026-03-20T10:00:00Z", verdict_completed_at="2026-03-20T10:00:40Z", plan=language_step_only)
+        consumer.add_run("2026-03-21T10:00:00Z", verdict_completed_at="2026-03-21T10:02:00Z", plan=with_test_unit)
+        consumer.add_run("2026-03-22T10:00:00Z", verdict_completed_at="2026-03-22T10:02:30Z", plan=units_unknown)
+
+        outcome = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, outcome.status, outcome.stderr)
+        assert outcome.report is not None
+        metrics = outcome.report["repositories"][CONSUMER]
+        self.assertEqual(3, metrics["verdict_runs"])
+        self.assertEqual(1, metrics["no_tests_runs"])
+        self.assertAlmostEqual(40.0, metrics["no_tests_median_seconds"], places=2)
+
     def test_lists_fallbacks_by_reason_and_parts_that_run_with_unknown_inputs(self) -> None:
         consumer = self.stand_in.repository(CONSUMER)
         plan_a = {

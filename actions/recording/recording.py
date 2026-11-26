@@ -3261,13 +3261,18 @@ PINS_FILE = SHARED_FOLDER / "repository-hygiene" / "pins.json"
 TOOL_INSTALLER_FILES = (SHARED_FOLDER / "repository-hygiene" / "install_tools.py", SHARED_FOLDER / "repository-hygiene" / "pins.py")
 LANGUAGE_STEP_FOLDERS = {"python": SHARED_FOLDER / "python-language-step"}
 LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
+# The shared folders whose files each pipeline part's job runs, apart from the consumer kit, which no job runs; with
+# the part's job in the pipeline workflow (``part_job_text``) they make up its ``part:<name>`` digest. Kept equal to
+# ``PART_DIGEST_FOLDERS`` of actions/repository-hygiene/promote_v1.py, as ``SharedDigestScopeTests`` in
+# tests/test_suite_selection_reuse.py checks.
 PART_DIGEST_FOLDERS: dict[str, tuple[Path, ...]] = {
-    "custom": (SHARED_FOLDER / "pipeline",),
-    "dotnet-test": (SHARED_FOLDER / "dotnet-test", SHARED_FOLDER / "pipeline"),
-    "node-test": (SHARED_FOLDER / "node-test", SHARED_FOLDER / "pipeline"),
-    "python-test": (SHARED_FOLDER / "python-tests", SHARED_FOLDER / "pipeline"),
-    "python-verify": (SHARED_FOLDER / "python-tests", SHARED_FOLDER / "pipeline"),
+    "custom": (),
+    "dotnet-test": (SHARED_FOLDER / "dotnet-test",),
+    "node-test": (SHARED_FOLDER / "node-test",),
+    "python-test": (SHARED_FOLDER / "python-tests",),
+    "python-verify": (SHARED_FOLDER / "python-tests",),
 }
+PART_EXCLUDED_FOLDERS = ("consumer-kit",)
 
 
 def _canonical_json(value: object) -> bytes:
@@ -3355,19 +3360,82 @@ def language_step_digests(pins: dict | None = None) -> dict[str, str]:
     return digests
 
 
+def part_job_text(workflow: str, job: str) -> str | None:
+    """The lines of the pipeline workflow that a part's job runs under: the workflow's lines before ``jobs:`` and the
+    job's own block, from its ``  <job>:`` line to the next line at that indentation or less, without trailing blank
+    lines; None when the workflow has no such job. ``promote_v1.part_job_text`` reads it the same way."""
+    lines = workflow.splitlines()
+    try:
+        jobs = lines.index("jobs:")
+        start = lines.index(f"  {job}:", jobs + 1)
+    except ValueError:
+        return None
+    end = start + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end].startswith("   ")):
+        end += 1
+    block = lines[start:end]
+    while block and not block[-1].strip():
+        block.pop()
+    return "\n".join(lines[:jobs] + block) + "\n"
+
+
+def part_job_entry(name: str) -> dict[str, bytes]:
+    """The extra digest entry of a part's job in the pipeline workflow, or none without that workflow. A workflow in
+    which the job cannot be found fails, so that the part digest never covers less than the job runs."""
+    if not PIPELINE_WORKFLOW.is_file():
+        return {}
+    text = part_job_text(PIPELINE_WORKFLOW.read_text(encoding="utf-8"), name)
+    if text is None:
+        raise RecordingError(f"the job of the part {name} cannot be found in {shared_name(PIPELINE_WORKFLOW)} "
+                             f"as a line `  {name}:` under `jobs:`; its part digest cannot be taken")
+    return {f"{shared_name(PIPELINE_WORKFLOW)}#jobs.{name}": text.encode("utf-8")}
+
+
+def part_files(folders: Collection[Path]) -> list[Path]:
+    """The files of a part's shared folders that its job runs: every file outside the consumer kit."""
+    files: list[Path] = []
+    for folder in folders:
+        if folder.is_dir():
+            files.extend(path for path in _folder_files(folder) if path.relative_to(folder).parts[0] not in PART_EXCLUDED_FOLDERS)
+    return files
+
+
 def part_digests() -> dict[str, str]:
-    """One digest per pipeline part's shared code, keyed as ``part:<name>``."""
+    """One digest per pipeline part, keyed as ``part:<name>``: the files its job runs and its job in the pipeline
+    workflow, so that a README, a schema document or another job leaves it unmoved."""
     digests: dict[str, str] = {}
     for name, folders in sorted(PART_DIGEST_FOLDERS.items()):
-        files: list[Path] = []
-        for folder in folders:
-            if folder.is_dir():
-                files.extend(_folder_files(folder))
-        if PIPELINE_WORKFLOW.is_file():
-            files.append(PIPELINE_WORKFLOW)
-        if files:
-            digests[f"part:{name}"] = files_digest(files)
+        files, extra = part_files(folders), part_job_entry(name)
+        if files or extra:
+            digests[f"part:{name}"] = files_digest(files, extra)
     return digests
+
+
+def shared_digest_scopes() -> dict[str, list[str]]:
+    """The entry names of every shared CI digest, keyed like ``shared_digests``: each file by ``shared_name`` and each
+    extra entry by its own name. ``SharedDigestScopeTests`` in tests/test_suite_selection_reuse.py ties them to
+    ``promote_v1.commit_digest_scopes``."""
+    pins = _load_pins_document()
+    installer = [path for path in TOOL_INSTALLER_FILES if path.is_file()]
+    scopes: dict[str, list[str]] = {f"platform:{platform}": [shared_name(path) for path in platform_files(platform)]
+                                    for platform in suite_selection.OPERATING_SYSTEMS}
+    if isinstance(pins.get("node"), dict):
+        scopes["tool:node"] = ["pins:node"]
+    for section in ("tools", "python"):
+        entries = pins.get(section)
+        if isinstance(entries, dict):
+            for name in entries:
+                scopes[f"tool:{name}"] = [*(shared_name(path) for path in installer), f"pins:{section}/{name}"]
+    python_pins = pins.get("python") if isinstance(pins.get("python"), dict) else {}
+    for name, folder in LANGUAGE_STEP_FOLDERS.items():
+        if folder.is_dir():
+            scopes[f"language:{name}"] = [*(shared_name(path) for path in _folder_files(folder) + installer),
+                                          *(f"pins:python/{tool}" for tool in LANGUAGE_STEP_PYTHON_TOOLS.get(name, ()) if tool in python_pins)]
+    for name, folders in PART_DIGEST_FOLDERS.items():
+        part_entries = [*(shared_name(path) for path in part_files(folders)), *part_job_entry(name)]
+        if part_entries:
+            scopes[f"part:{name}"] = part_entries
+    return {name: sorted(entries) for name, entries in sorted(scopes.items())}
 
 
 def shared_digests() -> dict[str, str]:

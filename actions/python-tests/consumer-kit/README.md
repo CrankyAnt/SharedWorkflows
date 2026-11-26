@@ -4,7 +4,7 @@ The consumer kit of Python tests, a shared part of the [catalogue](../../../cata
 
 ## When a repository adopts it
 
-Python tests applies to a repository whose Python tests are short enough that running only the affected suites would not save more than the suite selection costs, such as a suite of pytest tests that runs in seconds. A repository runs its Python tests through either the suite selection or Python tests, never both. A repository that uses the suite selection does not adopt Python tests; its validation workflow runs the Python language step in shard 1 instead.
+Python tests applies to a repository whose Python tests are short enough that running only the affected suites would not save more than the suite selection costs, such as a suite of pytest tests that runs in seconds. A repository runs its Python tests through either the suite selection or Python tests, never both. A repository that uses the suite selection does not adopt Python tests; shard 1 of its suite jobs runs the Python language step instead.
 
 A repository whose own workflow already runs its tests adopts Python tests in place of that job: the caller replaces the job that installs Python and the dependencies and runs ruff, mypy and the tests.
 
@@ -52,7 +52,7 @@ A repository with several test roots, each with its own dependencies, adds one c
 
 ## Moving to the suite selection
 
-A repository whose tests grow until running only the affected suites saves more than the suite selection costs moves to the suite selection in one pull request: it adopts the suite selection as its consumer kit says, with the Python language step in shard 1 of the validation workflow, and removes the Python tests caller. Its default-branch ruleset then requires `validation / validation` in place of `tests / tests`; change the ruleset right before that pull request merges.
+A repository whose tests grow until running only the affected suites saves more than the suite selection costs moves to the suite selection in one pull request: it adopts the pipeline with its part `suite-selection` and `language-steps: [python]`, as the [suite selection kit](../../suite-selection/consumer-kit/README.md#switching-it-on) says, and removes the Python tests caller. Its default-branch ruleset then requires `ci / verdict` in place of `tests / tests`; change the ruleset right before that pull request merges.
 
 ## When a repository adopted it earlier
 

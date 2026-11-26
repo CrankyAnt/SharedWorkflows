@@ -43,6 +43,21 @@ class VerdictTests(PipelineFixture):
                 self.assertEqual(1, outcome.status)
                 self.assertIn(f"**Failed.** `plan` ended {result}.", outcome.summary)
 
+    def test_a_failed_light_check_in_a_plan_that_wrote_its_plan_is_named_and_the_planned_checks_are_still_judged(self) -> None:
+        both_planned = plan_output(parts={
+            "fixture-floor": {"run": True, "reason": "always runs", "config": {}},
+            "fixture-test": {"run": True, "reason": "src/a.py changed", "config": {"paths": ["src/"]}},
+        })
+        outputs = {**both_planned, "light-links": "failure", "light-branch": "success", "light-coverage": "skipped"}
+        outcome = self.verdict(needs(plan="failure", outputs=outputs, fixture_floor="success", fixture_test="failure"))
+        self.assertEqual(1, outcome.status)
+        self.assertIn("**Failed.** `plan` ended failure; the light check of relative links in tracked Markdown in `plan` failed; "
+                      "`fixture-test` ended failure.", outcome.summary)
+        self.assertIn("| `fixture-floor` | ran |", outcome.summary)
+        outcome = self.verdict(needs(plan="failure", outputs=outputs, fixture_floor="success", fixture_test="success"))
+        self.assertEqual(1, outcome.status, "a failed light check fails the verdict when every part passed")
+        self.assertIn("**Failed.** `plan` ended failure; the light check of relative links in tracked Markdown in `plan` failed.", outcome.summary)
+
     def test_a_needs_context_without_the_plan_job_fails_the_verdict(self) -> None:
         outcome = self.verdict({"fixture-floor": {"result": "success", "outputs": {}}})
         self.assertEqual(1, outcome.status)

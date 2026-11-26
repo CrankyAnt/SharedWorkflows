@@ -74,7 +74,7 @@ class PythonTestsReadmeTest(unittest.TestCase):
                 self.assertIn(text, self.readme)
 
     def test_the_readme_excludes_the_suite_selection_leads_to_it_and_gives_one_caller_job_per_test_root(self) -> None:
-        for text in ("either the suite selection or Python tests, never both", "## Moving to the suite selection", "`validation / validation`",
+        for text in ("either the suite selection or Python tests, never both", "## Moving to the suite selection", "`ci / verdict`",
                      "## Several test roots", "one caller job per root", "`tests-parser / tests`",
                      "## When a repository adopted it earlier", "## When `v1` moves"):
             with self.subTest(text=text):

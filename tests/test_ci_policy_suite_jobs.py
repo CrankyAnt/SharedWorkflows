@@ -452,10 +452,14 @@ class PipelinePartTests(unittest.TestCase):
         self.assertEqual(["plan"], needed(job))
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertNotIn("secrets", job)
-        for shards, windows, runs in (("", "", False), ("[]", "", False), ('[{"shard":1}]', "", True), ("", '{"entries":[]}', True), ("[]", "x", True)):
-            with self.subTest(shards=shards, windows=windows):
-                context = {"needs": {"plan": {"outputs": {"shards": shards, "windows": windows}}}}
-                self.assertEqual(runs, bool(expression_value(job["if"], context)))
+        # A failed light check in plan skips them not: they run unless cancelled whenever the plan wrote its plan.
+        self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
+        condition = job["if"].replace("!cancelled() && ", "", 1)
+        for plan in ("written", ""):
+            for shards, windows, runs in (("", "", False), ("[]", "", False), ('[{"shard":1}]', "", True), ("", '{"entries":[]}', True), ("[]", "x", True)):
+                with self.subTest(plan=plan, shards=shards, windows=windows):
+                    context = {"needs": {"plan": {"result": "failure", "outputs": {"plan": plan, "shards": shards, "windows": windows}}}}
+                    self.assertEqual(runs and bool(plan), bool(expression_value(condition, context)))
 
     def test_the_suite_jobs_get_exactly_the_inputs_that_the_workflow_declares_from_the_selection_and_the_configuration(self) -> None:
         passed = self.jobs[f"{PART}-jobs"]["with"]

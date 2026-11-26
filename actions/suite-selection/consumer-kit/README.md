@@ -30,13 +30,12 @@ A repository that adopted the suite selection with an earlier kit had an install
 An earlier adoption also takes these steps where they apply:
 
 - A caller copied from an earlier template removes `v1-moved` from the `types` of its `repository_dispatch` trigger: nothing sends that event any more, as [When `v1` moves](#when-v1-moves) states.
-- A validation workflow from an earlier kit, with a gate per suite, keeps working until the switch: `select` still reads the per-suite inputs and outputs it uses, and a changed step of it runs the units of its gate.
 - A repository without the additions part adds the fixed caller `automation.yml` and the `additions` part in a pull request of its own first, as [Additions](#additions) states.
 - A `full-recording.yml` or `apply-additions.yml` installed from an earlier kit has no template in this kit any more. It keeps working, since the shared steps that it calls stay at `v1`. The repository either registers the file under `local-workflows` of its configuration file, as the [pipeline kit](../../pipeline/consumer-kit/README.md#the-configuration-file) states, or switches the part on under `parts` and removes the file in the same pull request. A switched-on part runs the shared workflow instead, so the installed file is no longer needed. While the repository holds no fixed caller `automation.yml`, the job summary of a failed recording check names the manual route of the installed `Apply recorded additions` workflow, a start by hand with the run id; once it holds that caller, the summary names the route of [Additions](#additions).
 
 The result works when these pass:
 
-- on the pull request, the required check passes: `ci / verdict` after the switch, `validation / validation` while both files stay registered. Where additions are reported, the additions part commits them onto the pull request's branch and the run on the applied lists passes. `hygiene / hygiene` passes as well, with actionlint and zizmor over the changed workflows;
+- on the pull request, the required check `ci / verdict` passes. Where additions are reported, the additions part commits them onto the pull request's branch and the run on the applied lists passes. `hygiene / hygiene` passes as well, with actionlint and zizmor over the changed workflows;
 - after the merge, the same check passes on the push to the default branch;
 - the full recording, started by hand on the default branch with `gh workflow run automation.yml -f part=full-recording -f verify-token=true --ref <default-branch>`, whose run passes and whose summary reports the App's token as minted.
 

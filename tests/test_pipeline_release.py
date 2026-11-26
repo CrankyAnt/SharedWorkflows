@@ -697,7 +697,7 @@ class PublishTests(ReleaseFixture):
 
     def test_a_tag_that_moves_after_the_draft_is_created_publishes_nothing_and_deletes_the_draft(self) -> None:
         moved = "2" * 40
-        cases = {"moved": (lambda: self.github.hold_tag("v1.2.0", moved), f"the tag `v1.2.0` moved after its signature was verified:"),
+        cases = {"moved": (lambda: self.github.hold_tag("v1.2.0", moved), "the tag `v1.2.0` moved after its signature was verified:"),
                  "removed": (lambda: self.github.tags.pop("v1.2.0", None), "the tag `v1.2.0` no longer exists")}
         for name, (change, reason) in cases.items():
             with self.subTest(tag=name):
