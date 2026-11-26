@@ -434,6 +434,36 @@ class RecordingCheckTests(unittest.TestCase):
         self.assertIn(f"`{outside}/leaked.txt`", summary)
         self.assertNotIn(f"{granted}/ok.txt", summary)
 
+    def test_many_write_departures_are_bounded_in_log_annotations_and_summary(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/write.py": "print('ran')\n"},
+                                   [suite("a", ["tests/write.py"], paths=["tests/write.py"])])
+        self.assertEqual(0, fixture.start().returncode)
+        self.assertEqual(0, fixture.exec_entry("tests/write.py").returncode)
+        [unit_file] = list((fixture.output / "units").glob("*.json"))
+        unit = json.loads(unit_file.read_text(encoding="utf-8"))
+        trace_lines = [
+            f'100 openat(AT_FDCWD<{fixture.root}>, "out/file_{index:03d}.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = {index + 3}<{fixture.root}/out/file_{index:03d}.txt>\n'
+            for index in range(150)
+        ]
+        (fixture.output / "traces" / unit["trace"]).write_text("".join(trace_lines), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        departure_lines = [line for line in checked.stdout.splitlines() if line.startswith("Departure:")]
+        warning_lines = [line for line in checked.stdout.splitlines() if line.startswith("::warning::")]
+        self.assertLessEqual(len(departure_lines), 15, departure_lines)
+        self.assertEqual(1, len(warning_lines), warning_lines)
+        self.assertIn("140 more paths", checked.stdout)
+        self.assertIn("150 total", checked.stdout)
+        self.assertIn("`out/file_000.txt`", checked.stdout)
+        self.assertNotIn("`out/file_149.txt`", checked.stdout)
+        summary = fixture.summary.read_text(encoding="utf-8")
+        table_rows = [line for line in summary.splitlines() if line.startswith("| `a`: `tests/write.py` |")]
+        self.assertLessEqual(len(table_rows), 15, table_rows)
+        self.assertIn("140 more paths", summary)
+        self.assertIn("150 total", summary)
+        self.assertNotIn("`out/file_149.txt`", summary)
+
     def test_a_complete_pull_request_run_replaces_stored_lists_and_an_incomplete_one_only_adds(self) -> None:
         files = {
             "tests/complete.py": "print('2 passed in 0.01s')\n",
