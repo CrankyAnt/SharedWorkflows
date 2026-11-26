@@ -910,6 +910,18 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     fallbacks: dict[str, int] = {}
     if head_results is None and (selected_units := read_unit_decisions(unit_decisions)) is not None:
         result["units"] = selected_units["units"]
+        if isinstance(selected_units.get("shards"), list):
+            shards = [
+                {"shard": item["shard"], "estimate": float(item["estimate"])}
+                for item in selected_units["shards"]
+                if isinstance(item, dict)
+                and isinstance(item.get("shard"), int)
+                and not isinstance(item.get("shard"), bool)
+                and isinstance(item.get("estimate"), (int, float))
+                and not isinstance(item.get("estimate"), bool)
+            ]
+            if shards:
+                result["shards"] = shards
         if isinstance(selected_units.get("fallbacks"), dict):
             fallbacks.update({name: count for name, count in selected_units["fallbacks"].items()
                               if isinstance(name, str) and isinstance(count, int) and count > 0})

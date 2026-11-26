@@ -300,6 +300,10 @@ _Avoid_: Shared tool, built-in setup
 The traced test time that one entry file is expected to take, stored in the suite list. Every run records the duration of each clean entry file, and `apply` writes it when absent or differing from the stored estimate by more than 25% (with the full recording also correcting for the shard job's speed).
 _Avoid_: Duration, test timing
 
+**Fixed cost**:
+The time from trigger to verdict of a run outside the planned estimate of the shard job that finishes last, excluding the Python language step (whose allowance is reserved separately).
+_Avoid_: Overhead, runner overhead
+
 **Shard**:
 A share of the selected Linux entry files, with the setups they need, sized so that its estimated time stays under a bound; one shard job runs it.
 _Avoid_: Partition, batch, chunk

@@ -1522,7 +1522,10 @@ def unit_decisions_document(suite_list: SuiteList, selection: Selection, reused:
         if reused:
             count = len(reused)
             reason += f"; {count} passed unit{'' if count == 1 else 's'} taken over"
-        return {"run": True, "reused": False, "reason": reason, "units": unit_map}
+        document: dict = {"run": True, "reused": False, "reason": reason, "units": unit_map}
+        if shards:
+            document["shards"] = [{"shard": int(item["shard"]), "estimate": float(item["estimate"])} for item in shards]
+        return document
     if identical:
         reason = selection.decisions[0].reason if selection.decisions else "the tree equals a passed tested tree"
         return {"run": False, "reused": True, "reason": reason, "units": unit_map}

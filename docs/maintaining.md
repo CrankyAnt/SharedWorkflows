@@ -1014,14 +1014,15 @@ The command's output and the pull request's body list, under "Not derived", each
 
 `measurement.yml` is the shared workflow of the CI goal measurement, called weekly and on a start by hand by the private management repository through [caller.yml](../actions/measurement/caller.yml). No consumer calls it and this repository runs no caller of it; its program [measurement.py](../actions/measurement/measurement.py) is tested on fixture repositories behind a stand-in for the GitHub API.
 
-The workflow has one job, `measurement`, which runs only on `main`, in the environment `measurement` of the calling repository, with `issues: write`. It gets an installation token of the measurement App (`MEASUREMENT_APP_CLIENT_ID` and `MEASUREMENT_APP_PRIVATE_KEY`) limited to `Actions: read` across the installation, and runs `measurement.py measure --own-repository <the calling repository>`. For each installed non-archived consumer repository (skipping `--own-repository`), it reads completed pipeline runs (`.github/workflows/ci.yml`) over a rolling four weeks (28 days) that reached a verdict (`ci / verdict` completed with `success` or `failure`), excluding manual re-runs (`run_attempt > 1`) and `workflow_dispatch` runs, and downloads each run's `ci-plan` artifact uploaded by `pipeline.yml`. It reports per repository:
+The workflow has one job, `measurement`, which runs only on `main`, in the environment `measurement` of the calling repository, with `issues: write`. It gets an installation token of the [Measurement App](#measurement-app) (`MEASUREMENT_APP_CLIENT_ID` and `MEASUREMENT_APP_PRIVATE_KEY`) limited to `Actions: read` across the installation, and runs `measurement.py measure --own-repository <the calling repository>`. For each installed non-archived consumer repository (skipping `--own-repository`), it reads completed pipeline runs (`.github/workflows/ci.yml`) over a rolling four weeks (28 days) that reached a verdict (`ci / verdict` completed with `success` or `failure`), excluding `workflow_dispatch` runs. A re-run run (`run_attempt > 1`) counts by its first attempt: the verdict comes from `attempts/1/jobs` (checked ahead of the latest attempt's status and conclusion), and its `ci-plan` artifact is the one created no later than attempt 1's verdict (else no plan data). A `created`-filtered listing fails loudly at GitHub's 1000-result cap. It reports per repository:
 
 - the share of verdict runs within 3 minutes from trigger to verdict (target: 99%),
 - the median duration of runs whose plan selected no tests (target: 1 minute): no run of `python-test`, `dotnet-test` or `node-test` and no running unit of the suite selection, so a run whose suite-selection job runs only the language step counts, and one whose plan holds no units while the suite selection runs does not,
+- the p95 fixed cost with run count, over runs whose last Linux shard job with entry files decided the verdict, excluding the Python language step (whose own p95 duration is reported alongside it over the same run set), split into the time outside that shard's entry-file step and the step's excess over its planned estimate, and by phase (plan, queue from plan end to shard start, shard start to entry step, after entry step, results, verdict); the planned estimate leaves out unmeasured entry files, so their time counts as step excess; runs decided by a part, hygiene or the Windows job and unmatched runs are left out and counted,
 - fallbacks by reason,
 - parts that ran with unknown inputs.
 
-A missed target opens an issue in the management repository with the run's `GITHUB_TOKEN`, naming the repository and the target, deduplicated by an HTML marker while an issue for that repository and target is open. When the measurement job fails, `measurement.py failure` opens one failure issue while none is open. `measurement.py measure --local --repository <owner>/<name>` runs with the owner's own token on named repositories without opening issues.
+A missed target, a p95 fixed cost above `FIXED_COST_SECONDS`, an installed repository without `ci.yml`, or a repository with completed runs none of which reached a verdict opens an issue in the management repository with the run's `GITHUB_TOKEN`, naming the repository and the finding, deduplicated by an HTML marker while an issue for that finding is open. A repository that raises an error gets a report row stating the reason. When the measurement job fails or is cancelled (`failure() || cancelled()`), `measurement.py failure` opens one failure issue while none is open. `measurement.py measure --local --repository <owner>/<name>` runs with the owner's own token on named repositories without opening issues.
 
 ### Repository prerequisites
 
@@ -1052,6 +1053,7 @@ Every change to a kit's templates, `actions/*/consumer-kit/*.yml`, updates that 
 - This repository's own files: [Change this repository's Gitleaks configuration or baseline](#change-this-repositorys-gitleaks-configuration-or-baseline).
 - The GitHub App: [Rotate the App's private key](#rotate-the-apps-private-key) and [Replace the App](#replace-the-app).
 - The sync App: [Set up the sync environment](#set-up-the-sync-environment) and [Rotate the sync App's private key](#rotate-the-sync-apps-private-key).
+- The Measurement App: [Set up the measurement environment](#set-up-the-measurement-environment) and [Rotate the Measurement App's private key](#rotate-the-measurement-apps-private-key).
 - Pull requests and runs of the automation: [Act on an updater pull request or a failed updater run](#act-on-an-updater-pull-request-or-a-failed-updater-run) and [Act on the full recording's pull request or a failed `close`](#act-on-the-full-recordings-pull-request-or-a-failed-close).
 
 ### Validation
@@ -1290,7 +1292,7 @@ A consumer adopts shared parts through the [catalogue](../catalogue.json) and th
 7. For Python tests, add [the caller](../actions/python-tests/consumer-kit/README.md#the-caller) in a pull request, with one caller job per test root as [Several test roots](../actions/python-tests/consumer-kit/README.md#several-test-roots) says, in place of the repository's own job that runs its tests. Its job runs the Python language step, so the repository adds no step of its own for it.
 8. Create the default-branch ruleset from the [ruleset template](../actions/repository-ruleset/README.md#fill-the-template-for-a-repository) with the required checks of the parts the consumer uses, as [Default-branch ruleset](../actions/repository-hygiene/consumer-kit/README.md#default-branch-ruleset) of repository hygiene says, with `enforcement` set to `disabled`. Activate it once the callers are on the default branch and each required check has reported on a pull request since, as [When to activate](../actions/repository-ruleset/README.md#when-to-activate) says.
 9. For Dependabot auto-merge, switch the part on as [Switching it on](../actions/dependabot-auto-merge/consumer-kit/README.md#switching-it-on) says, [the Dependabot configuration](../actions/dependabot-auto-merge/consumer-kit/README.md#the-dependabot-configuration) unless step 3 added it, and the [repository settings](../actions/dependabot-auto-merge/consumer-kit/README.md#repository-settings). It merges only while an active ruleset requires a check, as [Which updates merge on their own](../actions/dependabot-auto-merge/consumer-kit/README.md#which-updates-merge-on-their-own) says, so it follows step 8.
-10. Check that the sweep of [Find the consumers](#find-the-consumers) lists the consumer. From then on, each move of `v1` reaches it as the sections "When `v1` moves" of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md#when-v1-moves), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-v1-moves), the [Python language step](../actions/python-language-step/consumer-kit/README.md#when-v1-moves) and [Python tests](../actions/python-tests/consumer-kit/README.md#when-v1-moves) say. A change of a kit's templates reaches it as the sections "When a repository adopted it earlier" of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md#when-a-repository-adopted-it-earlier), [Dependabot auto-merge](../actions/dependabot-auto-merge/consumer-kit/README.md#when-a-repository-adopted-it-earlier), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-a-repository-adopted-it-earlier), the [Python language step](../actions/python-language-step/consumer-kit/README.md#when-a-repository-adopted-it-earlier) and [Python tests](../actions/python-tests/consumer-kit/README.md#when-a-repository-adopted-it-earlier) say.
+10. Check that the sweep of [Find the consumers](#find-the-consumers) lists the consumer and that the [Measurement App](#measurement-app) is installed on it. From then on, each move of `v1` reaches it as the sections "When `v1` moves" of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md#when-v1-moves), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-v1-moves), the [Python language step](../actions/python-language-step/consumer-kit/README.md#when-v1-moves) and [Python tests](../actions/python-tests/consumer-kit/README.md#when-v1-moves) say. A change of a kit's templates reaches it as the sections "When a repository adopted it earlier" of [repository hygiene](../actions/repository-hygiene/consumer-kit/README.md#when-a-repository-adopted-it-earlier), [Dependabot auto-merge](../actions/dependabot-auto-merge/consumer-kit/README.md#when-a-repository-adopted-it-earlier), the [suite selection](../actions/suite-selection/consumer-kit/README.md#when-a-repository-adopted-it-earlier), the [Python language step](../actions/python-language-step/consumer-kit/README.md#when-a-repository-adopted-it-earlier) and [Python tests](../actions/python-tests/consumer-kit/README.md#when-a-repository-adopted-it-earlier) say.
 
 ### Adopt the pipeline in a consumer
 
@@ -1301,6 +1303,7 @@ Both commands change another repository, so each is a question to the user first
 3. Merge the pull request once `ci / verdict` passed on it.
 4. Correct the settings as [Correct a consumer's settings](#correct-a-consumers-settings) says, which sets the ruleset that requires `ci / verdict`.
 5. Install the [sync App](#sync-app) on the repository, so that the sync keeps its fixed files from then on. Only the owner adds a repository to the App's installation, and it is a question to the user.
+6. Install the [Measurement App](#measurement-app) on the repository, so that the measurement reads its pipeline runs. Only the owner adds a repository to the App's installation, and it is a question to the user.
 
 ### Correct a consumer's settings
 
@@ -1666,6 +1669,32 @@ This is the key of the [sync App](#sync-app), the environment secret `SYNC_APP_P
 3. Start the sync by hand, `gh workflow run sync.yml --repo <management repository> --ref main`, and wait until that run has passed: it mints the App's token with the new key.
 4. Delete the old key in the App's settings, under **Private keys**. A compromised key is deleted right after step 2 instead; a wrong secret then shows as a failed run and the issue `The sync failed`.
 
+### Set up the measurement environment
+
+The management repository reads the key of the [Measurement App](#measurement-app) as an environment secret, so that only a run on `main` can read it. Each step changes a setting or a secret of another repository and is a question to the user (`docs/agents/publication.md`).
+
+1. Create the environment `measurement` in the management repository.
+2. Under its deployment branches and tags, choose selected branches and add `main` as the only branch.
+3. Add the environment variable `MEASUREMENT_APP_CLIENT_ID` with the App's Client ID.
+4. Generate a private key for the App and add it as the environment secret `MEASUREMENT_APP_PRIVATE_KEY`. Delete the downloaded key file afterwards.
+5. Install the caller: commit [actions/measurement/caller.yml](../actions/measurement/caller.yml) as it is at `v1` to `.github/workflows/measurement.yml` on `main`, unchanged.
+
+The management repository holds no repository secret and no repository variable for the Measurement App. Code on its `main` can use the key, so only the owner pushes there.
+
+### Rotate the Measurement App's private key
+
+This is the key of the [Measurement App](#measurement-app), the environment secret `MEASUREMENT_APP_PRIVATE_KEY` of the management repository. A GitHub App holds several private keys at once, so the new key works before the old one goes. Each change to the App's settings and to the secret is a question to the user (`docs/agents/publication.md`).
+
+1. In the Measurement App's settings, under **Private keys**, generate a private key. GitHub downloads it as a PEM file; keep that file outside every repository and delete it after step 4.
+2. Replace the environment secret in the management repository:
+
+   ```text
+   gh secret set MEASUREMENT_APP_PRIVATE_KEY --env measurement --repo <management repository> < <key file>
+   ```
+
+3. Start the measurement by hand, `gh workflow run measurement.yml --repo <management repository> --ref main`, and wait until that run has passed: it mints the App's token with the new key.
+4. Delete the old key in the App's settings, under **Private keys**. A compromised key is deleted right after step 2 instead; a wrong secret then shows as a failed run and the issue `The CI goal measurement failed`.
+
 ## Reference
 
 ### Pins
@@ -1724,6 +1753,21 @@ The App is installed on selected repositories only, the consumers that the sync 
 The management repository holds the App's Client ID as the variable `SYNC_APP_CLIENT_ID` and its private key as the secret `SYNC_APP_PRIVATE_KEY`, both in the environment `sync`, which allows `main` as its only branch; [Set up the sync environment](#set-up-the-sync-environment) creates it and [Rotate the sync App's private key](#rotate-the-sync-apps-private-key) replaces the key. The shared workflow reads both names, and `tests/test_ci_policy_sync.py` holds this section and that procedure against it.
 
 The App has no part in keeping the management repository's own caller equal. That write uses the owner's login, as [Promote v1 by hand](#promote-v1-by-hand) says, so no App installation and no key reaches the management repository for it.
+
+### Measurement App
+
+The Measurement App is a GitHub App of its own, used for nothing but the [measurement](#measurement). The user creates it; its creation, each installation and each key are questions to the user.
+
+| Permission | Level | Use |
+| --- | --- | --- |
+| Actions | read | read workflow runs, jobs and `ci-plan` artifacts |
+| Metadata | read | list installed repositories |
+
+The App holds no write permission and no other read permission. It subscribes to no event and needs no webhook.
+
+The App is installed on selected repositories only, the consumers, chosen one by one; only the owner adds a repository to the installation. A consumer outside the installation is not measured, and an installed repository without `ci.yml` opens a finding. The App is not installed on the management repository: the measurement opens its issues there with the token of the run, and skips `--own-repository`.
+
+The management repository holds the App's Client ID as the variable `MEASUREMENT_APP_CLIENT_ID` and its private key as the secret `MEASUREMENT_APP_PRIVATE_KEY`, both in the environment `measurement`, which allows `main` as its only branch; [Set up the measurement environment](#set-up-the-measurement-environment) creates it and [Rotate the Measurement App's private key](#rotate-the-measurement-apps-private-key) replaces the key. The shared workflow reads both names, and `tests/test_ci_policy_measurement.py` holds this section and those procedures against it.
 
 ### Runner choice
 

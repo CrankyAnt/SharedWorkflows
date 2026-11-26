@@ -313,7 +313,10 @@ class PushLookupTests(FixtureRepository):
                 lookup.write_text(json.dumps(found), encoding="utf-8")
                 unit_decisions = self.root.parent / "unit-decisions.json"
                 _, _, summary = self.select("--lookup", str(lookup), "--unit-decisions", str(unit_decisions))
-                self.assertEqual({expected_fallback: 1}, json.loads(unit_decisions.read_text(encoding="utf-8"))["fallbacks"])
+                decisions_doc = json.loads(unit_decisions.read_text(encoding="utf-8"))
+                self.assertEqual({expected_fallback: 1}, decisions_doc["fallbacks"])
+                self.assertTrue(decisions_doc["shards"])
+                self.assertTrue(all(set(item) == {"shard", "estimate"} for item in decisions_doc["shards"]))
                 self.assertIn(f"The selection runs over the pull request's files: {found['reason']}.", summary)
 
     def test_a_push_whose_tree_equals_the_passed_tested_tree_runs_no_suite(self) -> None:

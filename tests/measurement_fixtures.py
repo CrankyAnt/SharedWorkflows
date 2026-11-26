@@ -50,17 +50,57 @@ class MeasuredRepository:
         self.has_workflow = has_workflow
         self.runs: list[dict] = []
         self.jobs: dict[int, list[dict]] = {}
+        self.attempts: dict[tuple[int, int], dict] = {}
+        self.attempt_jobs: dict[tuple[int, int], list[dict]] = {}
         self.artifacts: dict[int, list[dict]] = {}
         self.artifact_zips: dict[int, bytes] = {}
         self.issues: list[dict] = []
         self._next_run = 1000
         self._next_artifact = 5000
 
+    def _build_jobs(
+        self,
+        run_id: int,
+        created_at: str,
+        *,
+        plan_completed_at: str | None,
+        verdict_completed_at: str | None,
+        verdict_status: str,
+        verdict_conclusion: str | None,
+        verdict_job_name: str | None,
+        extra_jobs: list[dict] | None,
+        id_offset: int = 0,
+    ) -> list[dict]:
+        run_jobs: list[dict] = [
+            {
+                "id": run_id * 100 + id_offset + 1,
+                "name": "ci / plan",
+                "status": "completed",
+                "conclusion": "success",
+                "started_at": created_at,
+                "completed_at": plan_completed_at or created_at,
+            },
+        ]
+        if extra_jobs:
+            for index, extra in enumerate(extra_jobs, start=2):
+                run_jobs.append({"id": run_id * 100 + id_offset + index, **extra})
+        if verdict_job_name is not None:
+            run_jobs.append({
+                "id": run_id * 100 + id_offset + 90,
+                "name": verdict_job_name,
+                "status": verdict_status,
+                "conclusion": verdict_conclusion,
+                "started_at": verdict_completed_at or created_at,
+                "completed_at": verdict_completed_at,
+            })
+        return run_jobs
+
     def add_run(
         self,
         created_at: str,
         *,
         verdict_completed_at: str | None = None,
+        plan_completed_at: str | None = None,
         status: str = "completed",
         conclusion: str | None = "success",
         verdict_status: str = "completed",
@@ -70,11 +110,15 @@ class MeasuredRepository:
         run_attempt: int = 1,
         plan: dict | None = None,
         plan_expired: bool = False,
+        plan_created_at: str | None = None,
+        extra_artifacts: list[tuple[dict, str, bool]] | None = None,
+        extra_jobs: list[dict] | None = None,
+        attempt_1: dict | None = None,
         workflow: str = "ci.yml",
     ) -> int:
         run_id = self._next_run
         self._next_run += 1
-        self.runs.append({
+        run_doc = {
             "id": run_id,
             "path": f".github/workflows/{workflow}",
             "event": event,
@@ -84,39 +128,67 @@ class MeasuredRepository:
             "created_at": created_at,
             "updated_at": verdict_completed_at or created_at,
             "html_url": f"https://github.example/{self.full_name}/actions/runs/{run_id}",
-        })
-        run_jobs: list[dict] = [
-            {
-                "id": run_id * 10 + 1,
-                "name": "ci / plan",
-                "status": "completed",
-                "conclusion": "success",
-                "started_at": created_at,
-                "completed_at": created_at,
-            },
-        ]
-        if verdict_job_name is not None:
-            run_jobs.append({
-                "id": run_id * 10 + 2,
-                "name": verdict_job_name,
-                "status": verdict_status,
-                "conclusion": verdict_conclusion,
-                "started_at": created_at,
-                "completed_at": verdict_completed_at,
-            })
-        self.jobs[run_id] = run_jobs
+        }
+        self.runs.append(run_doc)
+        latest_jobs = self._build_jobs(
+            run_id,
+            created_at,
+            plan_completed_at=plan_completed_at,
+            verdict_completed_at=verdict_completed_at,
+            verdict_status=verdict_status,
+            verdict_conclusion=verdict_conclusion,
+            verdict_job_name=verdict_job_name,
+            extra_jobs=extra_jobs,
+        )
+        self.jobs[run_id] = latest_jobs
+        self.attempts[(run_id, run_attempt)] = dict(run_doc)
+        self.attempt_jobs[(run_id, run_attempt)] = latest_jobs
+        if attempt_1 is not None:
+            attempt_status = attempt_1.get("status", "completed")
+            attempt_conclusion = attempt_1.get("conclusion", "failure")
+            attempt_verdict_at = attempt_1.get("verdict_completed_at")
+            self.attempts[(run_id, 1)] = {
+                **run_doc,
+                "run_attempt": 1,
+                "status": attempt_status,
+                "conclusion": attempt_conclusion,
+                "updated_at": attempt_verdict_at or created_at,
+            }
+            self.attempt_jobs[(run_id, 1)] = self._build_jobs(
+                run_id,
+                created_at,
+                plan_completed_at=attempt_1.get("plan_completed_at"),
+                verdict_completed_at=attempt_verdict_at,
+                verdict_status=attempt_1.get("verdict_status", "completed"),
+                verdict_conclusion=attempt_1.get("verdict_conclusion", attempt_conclusion),
+                verdict_job_name=attempt_1.get("verdict_job_name", "ci / verdict"),
+                extra_jobs=attempt_1.get("extra_jobs"),
+                id_offset=50,
+            )
+        artifacts: list[dict] = []
         if plan is not None:
             artifact_id = self._next_artifact
             self._next_artifact += 1
-            self.artifacts[run_id] = [{
+            artifacts.append({
                 "id": artifact_id,
                 "name": "ci-plan",
                 "expired": plan_expired,
+                "created_at": plan_created_at or created_at,
                 "archive_download_url": f"/repos/{self.full_name}/actions/artifacts/{artifact_id}/zip",
-            }]
+            })
             self.artifact_zips[artifact_id] = plan_zip(plan)
-        else:
-            self.artifacts[run_id] = []
+        for extra_plan, art_created_at, art_expired in extra_artifacts or ():
+            artifact_id = self._next_artifact
+            self._next_artifact += 1
+            artifacts.append({
+                "id": artifact_id,
+                "name": "ci-plan",
+                "expired": art_expired,
+                "created_at": art_created_at,
+                "archive_download_url": f"/repos/{self.full_name}/actions/artifacts/{artifact_id}/zip",
+            })
+            self.artifact_zips[artifact_id] = plan_zip(extra_plan)
+        self.artifacts[run_id] = artifacts
         return run_id
 
     def issue(self, title: str, body: str = "", state: str = "open") -> dict:
@@ -149,6 +221,7 @@ class MeasurementStandIn:
         self.writes: list[Write] = []
         self.requests: list[tuple[str, str, str]] = []
         self.refused: dict[str, int] = {}
+        self.created_cap: int | None = 1000
         stand_in = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -215,7 +288,26 @@ class MeasurementStandIn:
             workflow = wf_match.group(1)
             matching = [r for r in repo.runs if r["path"] == f".github/workflows/{workflow}"]
             page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
+            if "created" in query and self.created_cap is not None:
+                start = (page - 1) * size
+                if start >= self.created_cap:
+                    return self._json(200, {"total_count": 0, "workflow_runs": []})
+                matching = matching[:self.created_cap]
             return self._json(200, {"total_count": len(matching), "workflow_runs": matching[(page - 1) * size:page * size]})
+        attempt_match = re.fullmatch(r"actions/runs/(\d+)/attempts/(\d+)", rest)
+        if attempt_match:
+            run_id, attempt = int(attempt_match.group(1)), int(attempt_match.group(2))
+            if (run_id, attempt) not in repo.attempts:
+                return self._json(404, {"message": "Not Found"})
+            return self._json(200, repo.attempts[(run_id, attempt)])
+        attempt_jobs_match = re.fullmatch(r"actions/runs/(\d+)/attempts/(\d+)/jobs", rest)
+        if attempt_jobs_match:
+            run_id, attempt = int(attempt_jobs_match.group(1)), int(attempt_jobs_match.group(2))
+            if (run_id, attempt) not in repo.attempt_jobs:
+                return self._json(404, {"message": "Not Found"})
+            jobs = repo.attempt_jobs[(run_id, attempt)]
+            page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
+            return self._json(200, {"total_count": len(jobs), "jobs": jobs[(page - 1) * size:page * size]})
         jobs_match = re.fullmatch(r"actions/runs/(\d+)/jobs", rest)
         if jobs_match:
             run_id = int(jobs_match.group(1))

@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import enum
 import io
 import json
+import math
 import os
 import re
 import statistics
@@ -28,6 +30,7 @@ from pathlib import Path
 
 API_TIMEOUT = 30
 PAGE = 100
+CREATED_SEARCH_CAP = 1000
 DEFAULT_WINDOW_DAYS = 28
 DEFAULT_WORKFLOW = "ci.yml"
 THREE_MINUTE_SECONDS = 180.0
@@ -40,8 +43,22 @@ TEST_PARTS = frozenset({"python-test", "dotnet-test", "node-test"})
 SUITE_SELECTION_PART = "suite-selection"
 VERDICT_CONCLUSIONS = frozenset({"success", "failure"})
 MANUAL_EVENTS = frozenset({"workflow_dispatch"})
+ENTRY_FILE_STEP = "Run the shard's entry files under the recording, two at a time"
+PYTHON_LANGUAGE_STEP = "Run the Python language step outside the recording"
+SHARD_JOB_PATTERN = re.compile(r"^shard (\d+)$")
+FIXED_COST_QUANTILE = 0.95
+SUITE_SELECTION_SCRIPT = Path(__file__).resolve().parent.parent / "suite-selection" / "suite_selection.py"
 MARKER = "<!-- measurement-finding: {key} -->"
 MARKER_PATTERN = re.compile(r"<!-- measurement-finding: (\S+) -->")
+
+
+def assumed_fixed_cost_seconds() -> float:
+    """Read ``FIXED_COST_SECONDS`` from the shared suite-selection code of this checkout."""
+    text = SUITE_SELECTION_SCRIPT.read_text(encoding="utf-8")
+    match = re.search(r"(?m)^FIXED_COST_SECONDS\s*=\s*([0-9]+(?:\.[0-9]+)?)\b", text)
+    if match is None:
+        raise SetupError(f"FIXED_COST_SECONDS not found in {SUITE_SELECTION_SCRIPT}")
+    return float(match.group(1))
 
 
 class SetupError(Exception):
@@ -134,8 +151,15 @@ class Api:
             raise MeasurementError(f"GET {path}: {getattr(error, 'reason', error)}") from error
 
 
-def read_plan_artifact(api: Api, repository: str, run_id: int) -> dict | None:
-    """Read and parse the ``ci-plan`` artifact JSON of ``run_id``, or None when absent, expired or unreadable."""
+def read_plan_artifact(
+    api: Api,
+    repository: str,
+    run_id: int,
+    *,
+    max_created_at: datetime.datetime | None = None,
+) -> dict | None:
+    """Read and parse the ``ci-plan`` artifact JSON of ``run_id``, or None when absent, expired or unreadable.
+    When ``max_created_at`` is given, only an artifact created no later than that moment qualifies."""
     artifacts = api.pages(
         f"repos/{repository}/actions/runs/{run_id}/artifacts?name={urllib.parse.quote(PLAN_ARTIFACT_NAME)}",
         "artifacts",
@@ -143,7 +167,25 @@ def read_plan_artifact(api: Api, repository: str, run_id: int) -> dict | None:
     )
     if not artifacts:
         return None
-    artifact = next((item for item in artifacts if item.get("name") == PLAN_ARTIFACT_NAME and not item.get("expired")), None)
+    candidates = [item for item in artifacts if item.get("name") == PLAN_ARTIFACT_NAME and not item.get("expired")]
+    if max_created_at is not None:
+        qualified: list[tuple[datetime.datetime, dict]] = []
+        for item in candidates:
+            created_raw = item.get("created_at")
+            if not isinstance(created_raw, str) or not created_raw:
+                continue
+            try:
+                created_at = moment(created_raw)
+            except ValueError:
+                continue
+            if created_at <= max_created_at:
+                qualified.append((created_at, item))
+        if not qualified:
+            return None
+        qualified.sort(key=lambda pair: pair[0])
+        artifact = qualified[0][1]
+    else:
+        artifact = candidates[0] if candidates else None
     if artifact is None or not isinstance(artifact.get("id"), int):
         return None
     raw = api.get_bytes(f"repos/{repository}/actions/artifacts/{artifact['id']}/zip")
@@ -215,28 +257,205 @@ def token(name: str) -> str:
     return value
 
 
+def short_job_name(job: dict) -> str:
+    return str(job.get("name") or "").rsplit(" / ", 1)[-1]
+
+
 def verdict_job(jobs: list[dict]) -> dict | None:
     """Return the completed verdict job of a run, or None when the run did not reach a verdict."""
     for job in jobs:
-        name = str(job.get("name") or "")
-        short = name.rsplit(" / ", 1)[-1]
-        if short != "verdict":
+        if short_job_name(job) != "verdict":
             continue
         if job.get("status") == "completed" and job.get("conclusion") in VERDICT_CONCLUSIONS and job.get("completed_at"):
             return job
     return None
 
 
+class FixedCostOutcome(enum.Enum):
+    SAMPLE = "sample"
+    NON_SHARD = "non-shard"
+    UNMATCHED = "unmatched"
+    SKIP = "skip"
+
+
+@dataclass(frozen=True)
+class FixedCostSample:
+    fixed_cost: float
+    outside_entry_step: float
+    step_excess: float
+    language_step_seconds: float
+    plan_seconds: float
+    queue_seconds: float
+    shard_to_entry_seconds: float
+    after_entry_seconds: float
+    results_seconds: float
+    verdict_seconds: float
+
+    def phases_document(self) -> dict[str, float]:
+        return {
+            "plan": round(self.plan_seconds, 1),
+            "queue": round(self.queue_seconds, 1),
+            "shard_to_entry": round(self.shard_to_entry_seconds, 1),
+            "after_entry": round(self.after_entry_seconds, 1),
+            "results": round(self.results_seconds, 1),
+            "verdict": round(self.verdict_seconds, 1),
+        }
+
+
+def _step_by_name(job: dict, name: str) -> dict | None:
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return None
+    for step in steps:
+        if isinstance(step, dict) and step.get("name") == name:
+            return step
+    return None
+
+
+def _successful_step_times(job: dict, name: str) -> tuple[datetime.datetime, datetime.datetime] | None:
+    """Return ``(started_at, completed_at)`` for step ``name`` when it completed with conclusion ``success``."""
+    step = _step_by_name(job, name)
+    if (
+        step is None
+        or step.get("conclusion") != "success"
+        or not isinstance(step.get("started_at"), str)
+        or not isinstance(step.get("completed_at"), str)
+    ):
+        return None
+    return moment(step["started_at"]), moment(step["completed_at"])
+
+
+def _planned_shard_estimate(plan: dict | None, shard_number: int) -> float | None:
+    if not isinstance(plan, dict):
+        return None
+    shards = plan.get("shards")
+    if not isinstance(shards, list):
+        return None
+    for item in shards:
+        if (
+            isinstance(item, dict)
+            and item.get("shard") == shard_number
+            and not isinstance(item.get("shard"), bool)
+            and isinstance(item.get("estimate"), (int, float))
+            and not isinstance(item.get("estimate"), bool)
+        ):
+            return float(item["estimate"])
+    return None
+
+
+def fixed_cost_of_run(
+    created_at: datetime.datetime,
+    verdict: dict,
+    jobs: list[dict],
+    plan: dict | None,
+) -> tuple[FixedCostOutcome, FixedCostSample | None]:
+    """Classify a verdict run for fixed-cost measurement."""
+    shard_jobs: list[tuple[int, datetime.datetime, dict]] = []
+    competing: list[tuple[str, datetime.datetime]] = []
+    plan_job: dict | None = None
+    results_job: dict | None = None
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("status") != "completed" or job.get("conclusion") == "skipped":
+            continue
+        completed_raw = job.get("completed_at")
+        if not isinstance(completed_raw, str) or not completed_raw:
+            continue
+        short = short_job_name(job)
+        if short == "verdict":
+            continue
+        if short == "plan":
+            plan_job = job
+            continue
+        if short == "suite-selection-results":
+            results_job = job
+            continue
+        match = SHARD_JOB_PATTERN.fullmatch(short)
+        if match:
+            shard_jobs.append((int(match.group(1)), moment(completed_raw), job))
+        else:
+            competing.append((short, moment(completed_raw)))
+
+    if not shard_jobs:
+        return (FixedCostOutcome.NON_SHARD, None) if competing else (FixedCostOutcome.SKIP, None)
+
+    # An empty language-step-only shard skips the entry-file step; skip the run rather than counting it as unmatched.
+    if all(
+        (step := _step_by_name(job, ENTRY_FILE_STEP)) is not None and step.get("conclusion") == "skipped"
+        for _, _, job in shard_jobs
+    ):
+        return FixedCostOutcome.SKIP, None
+
+    shard_number, shard_end, critical_shard = max(shard_jobs, key=lambda item: item[1])
+    results_end: datetime.datetime | None = None
+    if results_job is not None:
+        candidate = moment(str(results_job["completed_at"]))
+        if candidate >= shard_end:
+            results_end = candidate
+
+    for short, other_end in competing:
+        if short == "windows":
+            if other_end > shard_end:
+                return FixedCostOutcome.NON_SHARD, None
+        elif other_end > (results_end or shard_end):
+            return FixedCostOutcome.NON_SHARD, None
+
+    entry_times = _successful_step_times(critical_shard, ENTRY_FILE_STEP)
+    shard_started_raw = critical_shard.get("started_at")
+    if entry_times is None or not isinstance(shard_started_raw, str) or not shard_started_raw:
+        return FixedCostOutcome.UNMATCHED, None
+
+    planned_estimate = _planned_shard_estimate(plan, shard_number)
+    if planned_estimate is None or plan_job is None or not isinstance(plan_job.get("completed_at"), str):
+        return FixedCostOutcome.UNMATCHED, None
+
+    entry_start, entry_end = entry_times
+    shard_start = moment(shard_started_raw)
+    plan_end = moment(str(plan_job["completed_at"]))
+    verdict_end = moment(str(verdict["completed_at"]))
+
+    language_step_times = _successful_step_times(critical_shard, PYTHON_LANGUAGE_STEP)
+    language_step_seconds = (
+        max(0.0, (language_step_times[1] - language_step_times[0]).total_seconds())
+        if language_step_times is not None
+        else 0.0
+    )
+
+    run_duration = max(0.0, (verdict_end - created_at).total_seconds())
+    entry_duration = max(0.0, (entry_end - entry_start).total_seconds())
+    outside = max(0.0, run_duration - entry_duration - language_step_seconds)
+    excess = entry_duration - planned_estimate
+    return (
+        FixedCostOutcome.SAMPLE,
+        FixedCostSample(
+            fixed_cost=outside + excess,
+            outside_entry_step=outside,
+            step_excess=excess,
+            language_step_seconds=language_step_seconds,
+            plan_seconds=max(0.0, (plan_end - created_at).total_seconds()),
+            queue_seconds=max(0.0, (shard_start - plan_end).total_seconds()),
+            shard_to_entry_seconds=max(0.0, (entry_start - shard_start).total_seconds()),
+            after_entry_seconds=max(0.0, (shard_end - entry_end).total_seconds() - language_step_seconds),
+            results_seconds=max(0.0, (results_end - shard_end).total_seconds()) if results_end is not None else 0.0,
+            verdict_seconds=max(0.0, (verdict_end - (results_end or shard_end)).total_seconds()),
+        ),
+    )
+
+
 @dataclass
 class RepositoryMetrics:
     repository: str
     has_workflow: bool = True
+    error: str | None = None
     verdict_runs: int = 0
+    non_verdict_runs: int = 0
     within_3m_count: int = 0
     durations: list[float] = field(default_factory=list)
     no_tests_durations: list[float] = field(default_factory=list)
     fallbacks: dict[str, int] = field(default_factory=dict)
     unknown_input_parts: set[str] = field(default_factory=set)
+    fixed_cost_samples: list[FixedCostSample] = field(default_factory=list)
+    non_shard_decided_runs: int = 0
+    fixed_cost_unmatched_runs: int = 0
 
     @property
     def within_3m_share(self) -> float | None:
@@ -246,14 +465,45 @@ class RepositoryMetrics:
     def no_tests_median_seconds(self) -> float | None:
         return float(statistics.median(self.no_tests_durations)) if self.no_tests_durations else None
 
-    def document(self) -> dict:
+    @property
+    def fixed_cost_p95(self) -> FixedCostSample | None:
+        if not self.fixed_cost_samples:
+            return None
+        ordered = sorted(self.fixed_cost_samples, key=lambda sample: sample.fixed_cost)
+        index = math.ceil(FIXED_COST_QUANTILE * len(ordered)) - 1
+        return ordered[index]
+
+    @property
+    def language_step_p95_seconds(self) -> float | None:
+        if not self.fixed_cost_samples:
+            return None
+        ordered = sorted(sample.language_step_seconds for sample in self.fixed_cost_samples)
+        index = math.ceil(FIXED_COST_QUANTILE * len(ordered)) - 1
+        return ordered[index]
+
+    def document(self, assumed_fixed_cost: float) -> dict:
+        sample = self.fixed_cost_p95
+        language_step_p95 = self.language_step_p95_seconds
         return {
             "has_workflow": self.has_workflow,
+            "error": self.error,
             "verdict_runs": self.verdict_runs,
+            "non_verdict_runs": self.non_verdict_runs,
             "within_3m_count": self.within_3m_count,
             "within_3m_share": self.within_3m_share,
             "no_tests_runs": len(self.no_tests_durations),
             "no_tests_median_seconds": self.no_tests_median_seconds,
+            "fixed_cost": {
+                "assumed_seconds": assumed_fixed_cost,
+                "runs": len(self.fixed_cost_samples),
+                "non_shard_decided_runs": self.non_shard_decided_runs,
+                "unmatched_runs": self.fixed_cost_unmatched_runs,
+                "p95_seconds": round(sample.fixed_cost, 1) if sample is not None else None,
+                "outside_entry_step_seconds": round(sample.outside_entry_step, 1) if sample is not None else None,
+                "step_excess_seconds": round(sample.step_excess, 1) if sample is not None else None,
+                "language_step_p95_seconds": round(language_step_p95, 1) if language_step_p95 is not None else None,
+                "phases": sample.phases_document() if sample is not None else None,
+            },
             "fallbacks": dict(sorted(self.fallbacks.items())),
             "unknown_input_parts": sorted(self.unknown_input_parts),
         }
@@ -262,21 +512,20 @@ class RepositoryMetrics:
 def measure_repository(api: Api, repository: str, workflow: str, cutoff: datetime.datetime, now: datetime.datetime) -> RepositoryMetrics:
     metrics = RepositoryMetrics(repository=repository)
     since = cutoff.strftime("%Y-%m-%d")
+    created_query = urllib.parse.quote(f">={since}", safe="")
     runs = api.pages(
-        f"repos/{repository}/actions/workflows/{urllib.parse.quote(workflow)}/runs?created=>={since}",
+        f"repos/{repository}/actions/workflows/{urllib.parse.quote(workflow)}/runs?created={created_query}",
         "workflow_runs",
         allow_missing=True,
     )
     if runs is None:
         metrics.has_workflow = False
         return metrics
+    if len(runs) >= CREATED_SEARCH_CAP:
+        raise MeasurementError(
+            f"workflow runs listing for {workflow} reached GitHub's {CREATED_SEARCH_CAP}-result cap under created=>={since}"
+        )
     for run in runs:
-        if run.get("status") != "completed":
-            continue
-        if run.get("conclusion") == "cancelled":
-            continue
-        if int(run.get("run_attempt") or 1) > 1:
-            continue
         if run.get("event") in MANUAL_EVENTS:
             continue
         created_raw = run.get("created_at")
@@ -288,11 +537,29 @@ def measure_repository(api: Api, repository: str, workflow: str, cutoff: datetim
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
-        jobs = api.pages(f"repos/{repository}/actions/runs/{run_id}/jobs", "jobs", allow_missing=True)
+        attempt = int(run.get("run_attempt") or 1)
+        if attempt > 1:
+            attempt_path = f"repos/{repository}/actions/runs/{run_id}/attempts/1"
+            attempt_status, attempt_doc = api.request_json("GET", attempt_path)
+            if attempt_status == 404 or not isinstance(attempt_doc, dict):
+                raise MeasurementError(f"GET {attempt_path}: expected attempt 1 object (HTTP {attempt_status})")
+            if attempt_doc.get("status") != "completed":
+                continue
+            if attempt_doc.get("conclusion") == "cancelled":
+                continue
+            jobs = api.pages(f"{attempt_path}/jobs", "jobs", allow_missing=False)
+        else:
+            if run.get("status") != "completed":
+                continue
+            if run.get("conclusion") == "cancelled":
+                continue
+            jobs = api.pages(f"repos/{repository}/actions/runs/{run_id}/jobs", "jobs", allow_missing=True)
         if not jobs:
+            metrics.non_verdict_runs += 1
             continue
         verdict = verdict_job(jobs)
         if verdict is None:
+            metrics.non_verdict_runs += 1
             continue
         completed_at = moment(str(verdict["completed_at"]))
         duration = max(0.0, (completed_at - created_at).total_seconds())
@@ -300,13 +567,20 @@ def measure_repository(api: Api, repository: str, workflow: str, cutoff: datetim
         metrics.durations.append(duration)
         if duration <= THREE_MINUTE_SECONDS:
             metrics.within_3m_count += 1
-        plan = read_plan_artifact(api, repository, run_id)
+        plan = read_plan_artifact(api, repository, run_id, max_created_at=completed_at if attempt > 1 else None)
         if plan is not None:
             if plan_selects_no_tests(plan):
                 metrics.no_tests_durations.append(duration)
             for reason, count in plan_fallbacks(plan).items():
                 metrics.fallbacks[reason] = metrics.fallbacks.get(reason, 0) + count
             metrics.unknown_input_parts.update(plan_unknown_input_parts(plan))
+        outcome, sample = fixed_cost_of_run(created_at, verdict, jobs, plan)
+        if outcome is FixedCostOutcome.SAMPLE and sample is not None:
+            metrics.fixed_cost_samples.append(sample)
+        elif outcome is FixedCostOutcome.NON_SHARD:
+            metrics.non_shard_decided_runs += 1
+        elif outcome is FixedCostOutcome.UNMATCHED:
+            metrics.fixed_cost_unmatched_runs += 1
     return metrics
 
 
@@ -334,27 +608,62 @@ def format_unknown_inputs(parts: set[str]) -> str:
     return ", ".join(f"`{part}`" for part in sorted(parts))
 
 
-def report_markdown(results: list[RepositoryMetrics], window_days: int, cutoff: datetime.datetime, now: datetime.datetime) -> str:
+def format_fixed_cost(item: RepositoryMetrics) -> str:
+    extras: list[str] = []
+    if item.non_shard_decided_runs:
+        extras.append(f"{item.non_shard_decided_runs} non-shard")
+    if item.fixed_cost_unmatched_runs:
+        extras.append(f"{item.fixed_cost_unmatched_runs} unmatched")
+    suffix = f"; {', '.join(extras)}" if extras else ""
+    sample = item.fixed_cost_p95
+    if sample is None:
+        return f"n/a (0 runs{suffix})"
+    language_step_p95 = item.language_step_p95_seconds
+    phases = (
+        f"plan {sample.plan_seconds:.1f}s, queue {sample.queue_seconds:.1f}s, "
+        f"shard->entry {sample.shard_to_entry_seconds:.1f}s, after {sample.after_entry_seconds:.1f}s, "
+        f"results {sample.results_seconds:.1f}s, verdict {sample.verdict_seconds:.1f}s"
+    )
+    lang_text = f"; language step p95 {language_step_p95:.1f}s" if language_step_p95 is not None else ""
+    return (
+        f"{sample.fixed_cost:.1f}s (outside {sample.outside_entry_step:.1f}s + "
+        f"excess {sample.step_excess:+.1f}s; {len(item.fixed_cost_samples)} runs{suffix}{lang_text}; phases: {phases})"
+    )
+
+
+def report_markdown(
+    results: list[RepositoryMetrics],
+    window_days: int,
+    cutoff: datetime.datetime,
+    now: datetime.datetime,
+    assumed_fixed_cost: float,
+    workflow: str = DEFAULT_WORKFLOW,
+) -> str:
     lines = [
         "## CI Goal Measurement",
         "",
-        f"Window: {cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')} to {now.strftime('%Y-%m-%dT%H:%M:%SZ')} ({window_days} days; verdict runs, manual re-runs excluded).",
+        f"Window: {cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')} to {now.strftime('%Y-%m-%dT%H:%M:%SZ')} ({window_days} days; verdict runs, re-run runs counted by first attempt).",
         "",
     ]
     if not results:
         lines.append("No consumer repositories were measured.")
         return "\n".join(lines) + "\n"
     lines += [
-        "| Repository | Verdict runs | Within 3 min (target 99%) | No-tests median (target 1 min) | Fallbacks by reason | Parts with unknown inputs |",
-        "| --- | ---: | --- | --- | --- | --- |",
+        f"| Repository | Verdict runs | Within 3 min (target 99%) | No-tests median (target 1 min) | Fixed cost p95 (assumed {assumed_fixed_cost:.0f}s) | Fallbacks by reason | Parts with unknown inputs |",
+        "| --- | ---: | --- | --- | --- | --- | --- |",
     ]
     for item in results:
+        if item.error is not None:
+            reason = item.error.replace("\n", " ").replace("|", "/")
+            lines.append(f"| `{item.repository}` | n/a | could not be measured: {reason} | n/a | n/a | none | none |")
+            continue
         if not item.has_workflow:
-            lines.append(f"| `{item.repository}` | n/a | no `{DEFAULT_WORKFLOW}` workflow | n/a | none | none |")
+            lines.append(f"| `{item.repository}` | n/a | no `{workflow}` workflow | n/a | n/a | none | none |")
             continue
         lines.append(
             f"| `{item.repository}` | {item.verdict_runs} | {format_share(item.within_3m_share, item.within_3m_count, item.verdict_runs)} "
             f"| {format_median(item.no_tests_median_seconds, len(item.no_tests_durations))} "
+            f"| {format_fixed_cost(item)} "
             f"| {format_fallbacks(item.fallbacks)} | {format_unknown_inputs(item.unknown_input_parts)} |"
         )
     return "\n".join(lines) + "\n"
@@ -367,13 +676,40 @@ class Finding:
     body: str
 
 
-def misses_of(item: RepositoryMetrics, window_days: int) -> list[Finding]:
-    """Return one Finding for each goal target that ``item`` missed."""
-    if not item.has_workflow:
+def misses_of(
+    item: RepositoryMetrics,
+    window_days: int,
+    assumed_fixed_cost: float,
+    workflow: str = DEFAULT_WORKFLOW,
+) -> list[Finding]:
+    """Return one Finding for each goal target or coverage gap that ``item`` reports."""
+    if item.error is not None:
         return []
+    if not item.has_workflow:
+        body = "\n".join([
+            f"`{item.repository}` has the Measurement App installed but has no `{workflow}` workflow.",
+            "",
+            "Install the pipeline caller or remove the Measurement App from this repository.",
+        ])
+        return [Finding(
+            key=f"no-workflow:{item.repository}",
+            title=f"No {workflow} workflow: {item.repository}",
+            body=body,
+        )]
     findings: list[Finding] = []
+    if item.verdict_runs == 0 and item.non_verdict_runs > 0:
+        body = "\n".join([
+            f"`{item.repository}` had {item.non_verdict_runs} completed `{workflow}` run(s) in the last {window_days} days, none of which reached a verdict.",
+            "",
+            "Check whether the verdict job was renamed, skipped, or failed before completing.",
+        ])
+        findings.append(Finding(
+            key=f"no-verdict:{item.repository}",
+            title=f"No verdict reached in {window_days} days: {item.repository}",
+            body=body,
+        ))
     context = [
-        f"Window: rolling {window_days} days (verdict runs, manual re-runs excluded).",
+        f"Window: rolling {window_days} days (verdict runs, re-run runs counted by first attempt).",
         f"Fallbacks by reason: {format_fallbacks(item.fallbacks)}.",
         f"Parts with unknown inputs: {format_unknown_inputs(item.unknown_input_parts)}.",
     ]
@@ -403,6 +739,29 @@ def misses_of(item: RepositoryMetrics, window_days: int) -> list[Finding]:
         findings.append(Finding(
             key=f"miss:{item.repository}:no-tests-median-1m",
             title=f"CI goal missed (no-tests median within 1 minute): {item.repository}",
+            body=body,
+        ))
+    sample = item.fixed_cost_p95
+    if sample is not None and sample.fixed_cost > assumed_fixed_cost:
+        language_step_p95 = item.language_step_p95_seconds
+        body = "\n".join([
+            f"`{item.repository}` exceeded the assumed fixed cost ({assumed_fixed_cost:.0f}s) at p95 over runs decided by a Linux shard with entry files.",
+            "",
+            f"- Measured p95 fixed cost: {sample.fixed_cost:.1f}s ({len(item.fixed_cost_samples)} runs)",
+            f"- Outside entry-file step (excluding Python language step): {sample.outside_entry_step:.1f}s",
+            f"- Entry-file step excess over planned estimate: {sample.step_excess:+.1f}s",
+            f"- Python language step p95: {language_step_p95:.1f}s" if language_step_p95 is not None else "- Python language step p95: n/a",
+            f"- Phases: plan {sample.plan_seconds:.1f}s, queue {sample.queue_seconds:.1f}s, "
+            f"shard start to entry step {sample.shard_to_entry_seconds:.1f}s, "
+            f"after entry step {sample.after_entry_seconds:.1f}s, results {sample.results_seconds:.1f}s, verdict {sample.verdict_seconds:.1f}s",
+            f"- Excluded runs: {item.non_shard_decided_runs} decided by a part, hygiene or Windows; {item.fixed_cost_unmatched_runs} unmatched",
+            f"- Assumed fixed cost: {assumed_fixed_cost:.1f}s",
+            "",
+            *context,
+        ])
+        findings.append(Finding(
+            key=f"miss:{item.repository}:fixed-cost",
+            title=f"CI fixed cost above assumed {assumed_fixed_cost:.0f}s: {item.repository}",
             body=body,
         ))
     return findings
@@ -456,12 +815,18 @@ def run_measure(options: argparse.Namespace) -> int:
             results.append(measure_repository(api, repository, options.workflow, cutoff, now))
         except MeasurementError as error:
             failed = True
+            results.append(RepositoryMetrics(repository=repository, error=str(error)))
             print(f"::error::{repository}: {error}", file=sys.stderr)
-    findings = [finding for item in results for finding in misses_of(item, options.window_days)]
+    assumed_fixed_cost = assumed_fixed_cost_seconds()
+    findings = [
+        finding
+        for item in results
+        for finding in misses_of(item, options.window_days, assumed_fixed_cost, workflow=options.workflow)
+    ]
     opened: list[str] = []
     if options.own_repository and not options.local:
         opened = report_findings(Api(options.api_url, token("GITHUB_TOKEN")), options.own_repository, findings)
-    markdown = report_markdown(results, options.window_days, cutoff, now)
+    markdown = report_markdown(results, options.window_days, cutoff, now, assumed_fixed_cost, workflow=options.workflow)
     if opened:
         markdown += "\n" + "\n".join(f"- {line}" for line in opened) + "\n"
     print(markdown, end="")
@@ -473,7 +838,7 @@ def run_measure(options: argparse.Namespace) -> int:
             "window_days": options.window_days,
             "cutoff": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "repositories": {item.repository: item.document() for item in results},
+            "repositories": {item.repository: item.document(assumed_fixed_cost) for item in results},
         }
         destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     return 1 if failed else 0

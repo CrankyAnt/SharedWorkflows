@@ -491,6 +491,25 @@ class UnitDecisionPlanTests(PipelineFixture):
         self.assertIn("| `pipeline:tests/test_pipeline_verdict.py` | no (taken over) | reuses the passed result of run 7 |", outcome.summary)
         self.assertIn("| `sync` | no | no read changed |", outcome.summary)
 
+    def test_the_plan_copies_each_shard_s_number_and_estimate_into_ci_plan_json(self) -> None:
+        self.commit({CONFIGURATION: "version: 1\nparts:\n  suite-selection:\n    suites: tests/suites.json\n"})
+        units_file = self.write_units({
+            "run": True,
+            "reused": False,
+            "reason": "2 Linux shards",
+            "units": {"pipeline:tests/test_pipeline_plan.py": {"run": True, "reason": "changed"}},
+            "shards": [
+                {"shard": 1, "estimate": 42.5, "entries": [{"suite": "pipeline", "entry": "tests/test_pipeline_plan.py"}]},
+                {"shard": 2, "estimate": 18.0},
+            ],
+        })
+        destination = self.directory / "ci-plan.json"
+        outcome = self.plan("--unit-decisions", units_file, "--output", str(destination))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        expected = [{"shard": 1, "estimate": 42.5}, {"shard": 2, "estimate": 18.0}]
+        self.assertEqual(expected, outcome.plan["shards"])
+        self.assertEqual(expected, json.loads(destination.read_text(encoding="utf-8"))["shards"])
+
     def test_the_plan_counts_its_own_fallbacks_by_reason_beside_those_of_the_suite_selection_and_prints_them(self) -> None:
         configuration = ("version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    paths: [ci/]\n"
                          "  dotnet-test:\n    projects:\n      - sdk-version: \"10.0.x\"\n        project: tests/App.Tests.csproj\n    paths: [tests/]\n"
