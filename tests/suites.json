@@ -75,7 +75,7 @@
         "tests/test_ci_policy_hygiene_validate.py": 0.36,
         "tests/test_ci_policy_measurement.py": 2.87,
         "tests/test_ci_policy_off_path_runners.py": 0.22,
-        "tests/test_ci_policy_pipeline.py": 2.12,
+        "tests/test_ci_policy_pipeline.py": 1.42,
         "tests/test_ci_policy_pipeline_parts.py": 1.37,
         "tests/test_ci_policy_publication.py": 0.31,
         "tests/test_ci_policy_publication_document.py": 0.32,
@@ -597,6 +597,7 @@
           ".github/workflows/sync.yml",
           ".github/workflows/update-ci-pins.yml",
           ".github/workflows/update-publication-spec.yml",
+          "actions/pipeline/plan.py",
           "actions/pipeline/schema/v1/parts/additions.json",
           "actions/pipeline/schema/v1/parts/custom.json",
           "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
@@ -610,6 +611,8 @@
           "actions/pipeline/schema/v1/parts/repository-hygiene.json",
           "actions/pipeline/schema/v1/parts/suite-selection.json",
           "actions/pipeline/schema/v1/setups.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/promote_v1.py",
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_pipeline.py"
@@ -1552,6 +1555,10 @@
           "kind": "any"
         },
         {
+          "path": "actions/pipeline",
+          "kind": "directory"
+        },
+        {
           "path": "actions/pipeline/consumer-kit",
           "kind": "any"
         },
@@ -1714,6 +1721,10 @@
         {
           "path": "actions/repository-hygiene",
           "kind": "any"
+        },
+        {
+          "path": "actions/repository-hygiene",
+          "kind": "directory"
         },
         {
           "path": "actions/repository-hygiene/consumer-kit",
@@ -3753,7 +3764,31 @@
             "kind": "any"
           },
           {
+            "path": "actions/pipeline",
+            "kind": "directory"
+          },
+          {
             "path": "actions/pipeline/schema/v1/parts",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene/dependabot_coverage.so",
             "kind": "any"
           },
           {
@@ -5192,6 +5227,7 @@
         ],
         "tests/test_ci_policy_pipeline.py": [
           ".",
+          "actions/repository-hygiene",
           "tests"
         ],
         "tests/test_ci_policy_pipeline_parts.py": [
@@ -8419,7 +8455,7 @@
         "tests/test_suite_selection_recording_full.py": 47.31,
         "tests/test_suite_selection_recording_lookups.py": 1.07,
         "tests/test_suite_selection_recording_pathspecs.py": 5.37,
-        "tests/test_suite_selection_reuse.py": 36.58,
+        "tests/test_suite_selection_reuse.py": 71.04,
         "tests/test_suite_selection_workflow.py": 2.22,
         "tests/test_suite_selection_workflow_reader.py": 0.24
       },
@@ -9530,6 +9566,8 @@
           "tests/test_suite_selection_recording_setups.py"
         ],
         "tests/test_suite_selection_reuse.py": [
+          ".github/workflows/pipeline.yml",
+          ".github/workflows/suite-jobs.yml",
           "actions/dotnet-test/action.yml",
           "actions/dotnet-test/dotnet_test.py",
           "actions/node-test/action.yml",
@@ -17717,7 +17755,8 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_pipeline_automation_invocations.py": 3.15
+        "tests/test_pipeline_automation_invocations.py": 3.15,
+        "tests/test_pipeline_workflow.py": 9.94
       },
       "entry_selection": true,
       "paths": [
@@ -18753,6 +18792,10 @@
         {
           "path": "tests/workflow_commands.so",
           "kind": "any"
+        },
+        {
+          "path": "x",
+          "kind": "directory"
         }
       ],
       "entry_existence_reads": {
@@ -20342,6 +20385,10 @@
             "kind": "any"
           },
           {
+            "path": "actions/pipeline/schema/v1",
+            "kind": "directory"
+          },
+          {
             "path": "actions/repository-hygiene",
             "kind": "directory"
           },
@@ -20524,6 +20571,10 @@
           {
             "path": "tests/workflow_commands.so",
             "kind": "any"
+          },
+          {
+            "path": "x",
+            "kind": "directory"
           }
         ]
       },
@@ -20632,6 +20683,17 @@
       },
       "entry_module_lookups": {
         "tests/test_pipeline_automation_invocations.py": {
+          ".": [
+            "tests"
+          ],
+          "actions/pipeline": [
+            "tests"
+          ],
+          "actions/repository-hygiene": [
+            "tests"
+          ]
+        },
+        "tests/test_pipeline_workflow.py": {
           ".": [
             "tests"
           ],
