@@ -1853,5 +1853,46 @@ class MeasurementSpecReviewFixTests(MeasurementFixture):
         self.assertTrue(store_b.is_file())
 
 
+class MeasurementCoveragePrecisionTests(MeasurementFixture):
+    NO_TESTS_PLAN = {
+        "version": 1,
+        "parts": {
+            "repository-hygiene": {"run": True, "reason": "always runs"},
+            "python-test": {"run": False, "reason": "no changed path matches its paths"},
+        },
+        "departures": [],
+    }
+
+    def test_a_reference_time_with_microseconds_lists_the_window_and_reports_coverage_complete_on_both_runs(self) -> None:
+        consumer = self.stand_in.repository(CONSUMER)
+        # 4 minutes is a miss of both targets, so a finding is due once coverage is complete.
+        consumer.add_run("2026-03-30T10:00:00Z", verdict_completed_at="2026-03-30T10:04:00Z", plan=self.NO_TESTS_PLAN)
+        store_path = self.directory / "store.json"
+        # The reference time carries microseconds, as the default --now does; the store keeps whole seconds.
+        now = "2026-04-01T12:00:00.250000Z"
+
+        first = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--store-out", str(store_path), "--now", now)
+        self.assertEqual(0, first.status, first.stderr)
+        assert first.report is not None
+        self.assertTrue(first.report["repositories"][CONSUMER]["coverage"]["complete"], first.report["repositories"][CONSUMER]["coverage"])
+        self.assertTrue(any(CONSUMER in issue["title"] for issue in self.management.issues), [i["title"] for i in self.management.issues])
+
+        # A second run that reads the first run's store must also see complete coverage.
+        second = self.run_measurement(
+            "measure",
+            "--own-repository",
+            MANAGEMENT,
+            "--store-in",
+            str(store_path),
+            "--store-out",
+            str(store_path),
+            "--now",
+            "2026-04-01T12:00:01.750000Z",
+        )
+        self.assertEqual(0, second.status, second.stderr)
+        assert second.report is not None
+        self.assertTrue(second.report["repositories"][CONSUMER]["coverage"]["complete"], second.report["repositories"][CONSUMER]["coverage"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1511,7 +1511,8 @@ class _MeasureSession:
 
 def run_measure(options: argparse.Namespace) -> int:
     start_monotonic = time.monotonic()
-    now: datetime.datetime = options.now
+    # The store keeps whole seconds (format_moment), so the window must not carry microseconds.
+    now: datetime.datetime = options.now.replace(microsecond=0)
     window = MeasurementWindow(
         cutoff=now - datetime.timedelta(days=options.window_days),
         now=now,
@@ -1639,12 +1640,13 @@ def run_measure(options: argparse.Namespace) -> int:
 
 def run_report(options: argparse.Namespace) -> int:
     store, store_info = load_store_from_file(Path(options.store))
+    # The store keeps whole seconds (format_moment), so the window must not carry microseconds.
     if options.now is not None:
-        now = options.now
+        now = options.now.replace(microsecond=0)
     elif store.get("generated_at"):
         now = moment(str(store["generated_at"]))
     else:
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
     if options.window_days <= 0 or options.window_days > DEFAULT_RETENTION_DAYS:
         raise SetupError(f"--window-days must be between 1 and {DEFAULT_RETENTION_DAYS}")
     window = MeasurementWindow(
