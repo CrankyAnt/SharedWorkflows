@@ -98,6 +98,7 @@ class MeasuredRepository:
         self.repo_artifacts: list[dict] = []
         self.artifact_zips: dict[int, bytes] = {}
         self.issues: list[dict] = []
+        self.issue_comments: dict[int, list[dict]] = {}
         self._next_run = 1000
         self._next_artifact = 5000
 
@@ -303,6 +304,8 @@ class MeasurementStandIn:
     def __init__(self) -> None:
         self.repositories: dict[str, MeasuredRepository] = {}
         self.installed: list[str] = []
+        self.installation_total_count: int | None = None
+        self.now = NOW
         self.writes: list[Write] = []
         self.requests: list[tuple[str, str, str]] = []
         self.refused: dict[str, int] = {}
@@ -340,6 +343,9 @@ class MeasurementStandIn:
             def do_POST(self) -> None:
                 self.answer("POST")
 
+            def do_PATCH(self) -> None:
+                self.answer("PATCH")
+
             def log_message(self, *arguments) -> None:
                 pass
 
@@ -372,7 +378,8 @@ class MeasurementStandIn:
             page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
             names = self.installed[(page - 1) * size:page * size]
             items = [{"full_name": self.repositories[n].full_name, "default_branch": self.repositories[n].default_branch, "archived": self.repositories[n].archived} for n in names]
-            return self._json(200, {"total_count": len(self.installed), "repositories": items})
+            total = len(self.installed) if self.installation_total_count is None else self.installation_total_count
+            return self._json(200, {"total_count": total, "repositories": items})
         match = re.fullmatch(r"/repos/([^/]+/[^/]+)(?:/(.*))?", path)
         repo = self.repositories.get(match.group(1)) if match else None
         if repo is None:
@@ -451,7 +458,8 @@ class MeasurementStandIn:
             return 200, "application/zip", repo.artifact_zips[artifact_id], {}
         if rest == "issues":
             if method == "POST":
-                issue = repo.issue(body["title"], body.get("body", ""))
+                issue = repo.issue(body["title"], body.get("body", ""), updated_at=self.now)
+                issue["user"] = {"login": "github-actions[bot]" if token == RUN_TOKEN else OWNER}
                 return self._json(201, issue)
             found = [i for i in repo.issues if query.get("state", "open") in ("all", i["state"])]
             if "since" in query:
@@ -464,6 +472,26 @@ class MeasurementStandIn:
                 found = filtered
             page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
             return self._json(200, found[(page - 1) * size:page * size])
+        issue_match = re.fullmatch(r"issues/(\d+)(/comments)?", rest)
+        if issue_match:
+            number = int(issue_match.group(1))
+            issue = next((item for item in repo.issues if item["number"] == number), None)
+            if issue is None:
+                return self._json(404, {"message": "Not Found"})
+            if issue_match.group(2):
+                if method == "POST":
+                    comments = repo.issue_comments.setdefault(number, [])
+                    comment = {"id": len(comments) + 1, "body": body["body"], "created_at": self.now,
+                               "user": {"login": "github-actions[bot]" if token == RUN_TOKEN else OWNER}}
+                    comments.append(comment)
+                    return self._json(201, comment)
+                page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
+                return self._json(200, repo.issue_comments.get(number, [])[(page - 1) * size:page * size])
+            if method == "PATCH":
+                if "state" in body and body["state"] != issue["state"]:
+                    issue["closed_at"] = self.now if body["state"] == "closed" else None
+                issue.update(body, updated_at=self.now)
+            return self._json(200, issue)
         return self._json(404, {"message": "Not Found"})
 
     @staticmethod
@@ -503,7 +531,7 @@ class MeasurementFixture(unittest.TestCase):
                 f.unlink()
         subcommand = arguments[0] if arguments else ""
         argv = [*arguments, "--summary", str(summary_file)]
-        if subcommand in ("measure", "failure"):
+        if subcommand in ("measure", "failure", "success"):
             argv += ["--api-url", self.stand_in.url]
         if subcommand in ("measure", "report"):
             argv += ["--json-output", str(report_file)]

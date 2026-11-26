@@ -9,7 +9,7 @@ import unittest
 from tests.consumer_checks_fixtures import SHARED, SYNC_BRANCH, WORKFLOWS
 from tests.pipeline_fixtures import CONFIGURATION
 from tests.sync_fixtures import (APP_TOKEN, CONSUMER, MANAGEMENT, MERGE_SETTINGS, NOW, OWNER_TOKEN, RULESET, RUN_TOKEN, SyncFixture,
-                                 expected_ruleset)
+                                 expected_ruleset, template)
 
 CI = f"{WORKFLOWS}/ci.yml"
 
@@ -146,6 +146,10 @@ class _ManagementFixture(SyncFixture):
     def titles(self) -> list[str]:
         return [issue["title"] for issue in self.management.issues]
 
+    def closure_comments(self, issue: dict) -> list[str]:
+        path = f"/repos/{MANAGEMENT}/issues/{issue['number']}/comments"
+        return [write.body["body"] for write in self.api.writes if write.path == path and write.method == "POST"]
+
 
 class IssueTests(_ManagementFixture):
     """A run with ``--own-repository`` opens its issues in that repository with the token of the run."""
@@ -199,6 +203,33 @@ class IssueTests(_ManagementFixture):
         self.assertIn("A part for release notes", self.management.issues[0]["body"])
         self.assertEqual([], self.api.writes_to(CONSUMER))
 
+    def test_request_finding_stays_open_until_the_sync_reads_the_closed_request(self) -> None:
+        consumer = self.consumer()
+        request = consumer.issue("A part for release notes", labels=("shared-ci",))
+        self.assertEqual(0, self.scheduled().status)
+        finding = self.management.issues[0]
+
+        request["labels"] = []
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("open", finding["state"])
+
+        request["state"] = "closed"
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("closed", finding["state"])
+        issue_path = f"/repos/{MANAGEMENT}/issues/{finding['number']}"
+        comments = [write for write in self.api.writes if write.path == f"{issue_path}/comments"]
+        self.assertEqual(1, len(comments))
+        self.assertEqual(RUN_TOKEN, comments[0].token)
+        self.assertIn(f"{CONSUMER}#{request['number']}", comments[0].body["body"])
+        self.assertIn("closed", comments[0].body["body"])
+
+        request["state"] = "open"
+        request["labels"] = [{"name": "shared-ci"}]
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual([finding], self.management.issues)
+        self.assertEqual("closed", finding["state"])
+        self.assertEqual(comments, [write for write in self.api.writes if write.path == f"{issue_path}/comments"])
+
     def test_a_settings_difference_gets_one_issue_that_lists_the_differences(self) -> None:
         self.consumer().settings["allow_rebase_merge"] = True
         self.scheduled()
@@ -218,14 +249,23 @@ class IssueTests(_ManagementFixture):
         self.assertEqual(3, len(self.management.issues))
 
     def test_a_closed_issue_of_a_request_or_a_pull_request_stays_closed_and_a_settings_difference_is_reported_again(self) -> None:
-        consumer = self.consumer()
+        consumer = self.consumer({CI: "name: other\n"})
         consumer.settings["allow_rebase_merge"] = True
-        consumer.issue("A part for release notes", labels=("shared-ci",))
-        self.scheduled()
+        request = consumer.issue("A part for release notes", labels=("shared-ci",))
+        consumer.refs[f"heads/{SYNC_BRANCH}"] = consumer.refs["heads/main"]
+        pull = consumer.pull_request(SYNC_BRANCH, "2026-03-09T12:00:00Z")
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual(3, len(self.management.issues))
         for issue in self.management.issues:
             issue["state"] = "closed"
-        self.scheduled()
-        self.assertEqual([f"Settings differ: {CONSUMER}", f"Request for shared CI: {CONSUMER}#101", f"Settings differ: {CONSUMER}"], self.titles())
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual([
+            f"Settings differ: {CONSUMER}",
+            f"Request for shared CI: {CONSUMER}#{request['number']}",
+            f"Sync pull request not merged after six hours: {CONSUMER}#{pull['number']}",
+            f"Settings differ: {CONSUMER}",
+        ], self.titles())
+        self.assertEqual(["closed", "closed", "closed", "open"], [issue["state"] for issue in self.management.issues])
 
     def test_a_settings_difference_that_changed_gets_a_new_issue(self) -> None:
         consumer = self.consumer()
@@ -234,6 +274,78 @@ class IssueTests(_ManagementFixture):
         consumer.settings["allow_merge_commit"] = False
         self.scheduled()
         self.assertEqual(2, len(self.management.issues))
+        old, current = self.management.issues
+        self.assertEqual("closed", old["state"])
+        self.assertEqual([f"Superseded by #{current['number']}"], self.closure_comments(old))
+        self.assertEqual("open", current["state"])
+
+        consumer.settings["allow_merge_commit"] = True
+        consumer.settings["allow_rebase_merge"] = False
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("closed", current["state"])
+        self.assertEqual([f"The settings of {CONSUMER} match again."], self.closure_comments(current))
+
+    def test_no_changes_and_an_unreadable_pull_request_do_not_confirm_closure(self) -> None:
+        consumer = self.consumer({CI: "name: other\n"})
+        consumer.refs[f"heads/{SYNC_BRANCH}"] = consumer.refs["heads/main"]
+        pull = consumer.pull_request(SYNC_BRANCH, "2026-03-09T12:00:00Z")
+        self.assertEqual(0, self.scheduled().status)
+        finding = self.management.issues[0]
+        consumer.push({CI: template(CI)})
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("open", finding["state"])
+
+        pull.update(state="closed", merged=True)
+        path = f"/repos/{CONSUMER}/pulls/{pull['number']}"
+        for status in (404, 500):
+            self.api.refused[path] = status
+            self.assertEqual(0, self.scheduled().status)
+            self.assertEqual("open", finding["state"])
+        del self.api.refused[path]
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("closed", finding["state"])
+        self.assertEqual([f"The sync pull request {CONSUMER}#{pull['number']} merged."], self.closure_comments(finding))
+        self.assertIn(("GET", path, APP_TOKEN), self.api.requests)
+
+        pull.update(state="open", merged=False)
+        consumer.push({CI: "name: other\n"})
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual([finding], self.management.issues)
+
+    def test_a_sync_pull_request_closed_without_merging_retires_its_finding(self) -> None:
+        consumer = self.consumer({CI: "name: other\n"})
+        consumer.refs[f"heads/{SYNC_BRANCH}"] = consumer.refs["heads/main"]
+        pull = consumer.pull_request(SYNC_BRANCH, "2026-03-09T12:00:00Z")
+        self.assertEqual(0, self.scheduled().status)
+        finding = self.management.issues[0]
+
+        pull["state"] = "closed"
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("closed", finding["state"])
+        self.assertEqual([f"The sync pull request {CONSUMER}#{pull['number']} is closed."], self.closure_comments(finding))
+
+    def test_a_late_sync_failure_and_a_skipped_settings_check_leave_existing_settings_open(self) -> None:
+        consumer = self.consumer()
+        consumer.settings["allow_rebase_merge"] = True
+        self.assertEqual(0, self.scheduled().status)
+        finding = self.management.issues[0]
+
+        consumer.settings["allow_rebase_merge"] = False
+        consumer.push({CONFIGURATION: None})
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("open", finding["state"])
+
+        consumer.push({CONFIGURATION: "version: 1\n", CI: "name: other\n"})
+        self.api.refused[f"/repos/{CONSUMER}/git/trees"] = 500
+        failed = self.scheduled()
+        self.assertEqual(1, failed.status, failed.stderr)
+        self.assertIn("/git/trees", failed.summary)
+        self.assertEqual("open", finding["state"])
+        self.assertEqual([], self.closure_comments(finding))
+
+        self.api.refused.clear()
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("closed", finding["state"])
 
     def test_the_findings_are_found_again_beyond_the_first_page_of_issues(self) -> None:
         self.consumer().settings["allow_rebase_merge"] = True
@@ -256,6 +368,81 @@ class IssueTests(_ManagementFixture):
         self.run_sync("failure", "--own-repository", MANAGEMENT, "--run-url", run)
         self.assertEqual(2, len(self.management.issues))
 
+    def test_a_successful_workflow_closes_only_the_sync_failure_issue_once(self) -> None:
+        self.consumer()
+        run = "https://github.example/example-owner/management/actions/runs/5"
+        self.assertEqual(0, self.run_sync("failure", "--own-repository", MANAGEMENT, "--run-url", run).status)
+        finding = self.management.issues[0]
+        measurement = self.management.issue("Measurement failure", "<!-- measurement-finding: failure -->")
+        pull_request = self.management.issue("Sync reference", "<!-- sync-finding: failure -->", pull_request=True)
+        for issue in (measurement, pull_request):
+            issue["user"] = {"login": "github-actions[bot]"}
+        others = [
+            measurement,
+            pull_request,
+            self.management.issue("An issue quoting the marker", "<!-- sync-finding: failure -->"),
+            self.management.issue("An unrelated issue"),
+        ]
+        self.api.refused[f"/repos/{CONSUMER}/rulesets"] = 500
+        self.assertEqual(1, self.scheduled().status)
+        self.assertEqual("open", finding["state"])
+        self.assertEqual([], self.closure_comments(finding))
+
+        self.api.refused.clear()
+        self.assertEqual(0, self.scheduled().status)
+        for _ in range(2):
+            self.assertEqual(0, self.run_sync("success", "--own-repository", MANAGEMENT).status)
+        self.assertEqual("closed", finding["state"])
+        self.assertEqual(["A later run of the sync succeeded."], self.closure_comments(finding))
+        self.assertTrue(all(issue["state"] == "open" and not self.closure_comments(issue) for issue in others))
+
+    def test_archived_and_removed_repositories_retire_findings_but_a_partial_listing_does_not(self) -> None:
+        archived = self.consumer()
+        removed = self.consumer(name=f"{CONSUMER}-removed")
+        for repository in (archived, removed):
+            repository.issue("A part for release notes", labels=("shared-ci",))
+            repository.settings["allow_rebase_merge"] = True
+        self.assertEqual(0, self.scheduled().status)
+        archived_findings, removed_findings = self.management.issues[:2], self.management.issues[2:]
+        self.assertEqual((2, 2), (len(archived_findings), len(removed_findings)))
+
+        archived.archived = True
+        self.api.installed.remove(removed.full_name)
+        self.api.installation_total_count = 2
+        self.assertEqual(0, self.scheduled().status)
+        for issue in archived_findings:
+            self.assertEqual("closed", issue["state"])
+            self.assertEqual([f"The repository {archived.full_name} is archived."], self.closure_comments(issue))
+        for issue in removed_findings:
+            self.assertEqual("open", issue["state"])
+            self.assertEqual([], self.closure_comments(issue))
+
+        self.api.installation_total_count = None
+        self.assertEqual(0, self.scheduled().status)
+        for issue in removed_findings:
+            self.assertEqual("closed", issue["state"])
+            self.assertEqual([f"The repository {removed.full_name} is no longer installed for the sync App."], self.closure_comments(issue))
+
+    def test_a_failed_close_retries_without_a_second_comment(self) -> None:
+        consumer = self.consumer()
+        request = consumer.issue("A part for release notes", labels=("shared-ci",))
+        self.assertEqual(0, self.scheduled().status)
+        finding = self.management.issues[0]
+        request["state"] = "closed"
+
+        def refuse_close(method: str, path: str) -> None:
+            if method == "POST" and path.endswith("/comments"):
+                self.api.refused[path.removesuffix("/comments")] = 500
+
+        self.api.on_request = refuse_close
+        self.assertEqual(1, self.scheduled().status)
+        self.assertEqual("open", finding["state"])
+        self.api.on_request = None
+        self.api.refused.clear()
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("closed", finding["state"])
+        self.assertEqual([f"The shared CI request {CONSUMER}#{request['number']} is closed."], self.closure_comments(finding))
+
     def test_the_issues_of_the_other_repositories_are_opened_when_one_repository_fails(self) -> None:
         self.consumer({CI: "name: other\n"})
         self.consumer(name=f"{CONSUMER}-two").settings["allow_rebase_merge"] = True
@@ -274,6 +461,27 @@ class WorkflowInspectionTests(_ManagementFixture):
     """The sync inspects direct workflow files under ``.github/workflows/`` on every reached repository's default
     branch, reports findings without editing or removing non-fixed workflows, and opens one deduplicated issue per
     repository and finding set."""
+
+    def test_workflow_findings_close_after_replacement_and_recovery(self) -> None:
+        first_path = f"{WORKFLOWS}/first.yml"
+        second_path = f"{WORKFLOWS}/second.yml"
+        consumer = self.consumer({first_path: "on: push\n"})
+        self.assertEqual(0, self.scheduled().status)
+        first = self.management.issues[0]
+        older = self.management.issue("An earlier workflow finding", f"<!-- sync-finding: workflows:{CONSUMER}:000000000000 -->")
+        older["user"] = {"login": "github-actions[bot]"}
+        consumer.push({first_path: None, second_path: "on: push\n"})
+        self.assertEqual(0, self.scheduled().status)
+        current = self.management.issues[2]
+        for issue in (first, older):
+            self.assertEqual("closed", issue["state"])
+            self.assertEqual([f"Superseded by #{current['number']}"], self.closure_comments(issue))
+        self.assertEqual("open", current["state"])
+
+        consumer.push({second_path: None})
+        self.assertEqual(0, self.scheduled().status)
+        self.assertEqual("closed", current["state"])
+        self.assertEqual([f"The workflows of {CONSUMER} match again."], self.closure_comments(current))
 
     def test_unwanted_workflows_are_reported_in_scheduled_and_local_modes_without_editing_them_and_deduplicated_as_one_issue(self) -> None:
         unregistered = f"{WORKFLOWS}/stray.yml"

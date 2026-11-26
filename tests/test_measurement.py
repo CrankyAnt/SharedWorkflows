@@ -280,6 +280,28 @@ class MeasurementMissIssueTests(MeasurementFixture):
         self.assertEqual(0, third.status, third.stderr)
         self.assertEqual(3, len(self.management.issues))
 
+        open_issues = [issue for issue in self.management.issues if issue["state"] == "open"]
+        within_3m = next(issue for issue in open_issues if "3 minutes" in issue["title"])
+        no_tests = next(issue for issue in open_issues if "1 minute" in issue["title"])
+        next_window = ("--own-repository", MANAGEMENT, "--now", "2026-04-20T12:00:00Z")
+        empty = self.run_measurement("measure", *next_window)
+        self.assertEqual(0, empty.status, empty.stderr)
+        self.assertEqual("open", within_3m["state"])
+        self.assertEqual("open", no_tests["state"])
+
+        consumer.add_run("2026-04-18T10:00:00Z", verdict_completed_at="2026-04-18T10:02:59Z")
+        only_verdict = self.run_measurement("measure", *next_window)
+        self.assertEqual(0, only_verdict.status, only_verdict.stderr)
+        self.assertEqual("closed", within_3m["state"])
+        self.assertIn("99% of verdict runs", only_verdict.summary)
+        self.assertEqual("open", no_tests["state"])
+
+        consumer.add_run("2026-04-19T10:00:00Z", verdict_completed_at="2026-04-19T10:01:00Z", plan=self.NO_TESTS_PLAN)
+        recovered = self.run_measurement("measure", *next_window)
+        self.assertEqual(0, recovered.status, recovered.stderr)
+        self.assertEqual("closed", no_tests["state"])
+        self.assertIn("1-minute no-tests median target", recovered.summary)
+
     def test_failure_subcommand_opens_one_issue_while_open(self) -> None:
         first = self.run_measurement("failure", "--own-repository", MANAGEMENT, "--run-url", "https://github.example/runs/42")
         self.assertEqual(0, first.status, first.stderr)
@@ -288,6 +310,40 @@ class MeasurementMissIssueTests(MeasurementFixture):
         second = self.run_measurement("failure", "--own-repository", MANAGEMENT, "--run-url", "https://github.example/runs/43")
         self.assertEqual(0, second.status, second.stderr)
         self.assertEqual(1, len(self.management.issues))
+
+    def test_only_the_success_command_closes_the_failure_finding(self) -> None:
+        failed = self.run_measurement("failure", "--own-repository", MANAGEMENT, "--run-url", "https://github.example/runs/42")
+        self.assertEqual(0, failed.status, failed.stderr)
+        issue = self.management.issues[0]
+        unrelated = self.management.issue("Sync failure", "<!-- sync-finding: failure -->")
+
+        measured = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, measured.status, measured.stderr)
+        self.assertEqual("open", issue["state"])
+
+        issue_path = f"/repos/{MANAGEMENT}/issues/{issue['number']}"
+        self.stand_in.on_request = lambda method, path, query: (
+            self.stand_in._json(500, {"message": "Issue could not be closed"})
+            if method == "PATCH" and path == issue_path else None
+        )
+        success_command = ("success", "--own-repository", MANAGEMENT, "--api-url", self.stand_in.url)
+        failed_closure = self.run_measurement(*success_command)
+        self.assertEqual(1, failed_closure.status, failed_closure.stderr)
+        self.assertEqual("open", issue["state"])
+
+        self.stand_in.on_request = None
+        recovered = self.run_measurement(*success_command)
+        self.assertEqual(0, recovered.status, recovered.stderr)
+        self.assertEqual("closed", issue["state"])
+        self.assertEqual("open", unrelated["state"])
+        self.assertIn("measurement run succeeded", recovered.summary)
+        comments = [write for write in self.stand_in.writes if write.path == f"{issue_path}/comments"]
+        self.assertEqual(1, len(comments))
+
+        writes = list(self.stand_in.writes)
+        retry = self.run_measurement(*success_command)
+        self.assertEqual(0, retry.status, retry.stderr)
+        self.assertEqual(writes, self.stand_in.writes)
 
     def test_local_mode_measures_named_repositories_without_opening_issues(self) -> None:
         consumer = self.stand_in.repository(CONSUMER, installed=False)
@@ -312,6 +368,53 @@ class MeasurementCoverageAndCapTests(MeasurementFixture):
         second = self.run_measurement("measure", "--own-repository", MANAGEMENT)
         self.assertEqual(0, second.status, second.stderr)
         self.assertEqual(1, len(self.management.issues))
+        issue = self.management.issues[0]
+        self.assertEqual("open", issue["state"])
+
+        consumer = self.stand_in.repositories[CONSUMER]
+        consumer.has_workflow = True
+        consumer.add_run("2026-03-31T10:00:00Z", verdict_completed_at="2026-03-31T10:00:35Z")
+        partial = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--request-budget", "2")
+        self.assertEqual(0, partial.status, partial.stderr)
+        assert partial.report is not None
+        self.assertFalse(partial.report["repositories"][CONSUMER]["coverage"]["complete"])
+        self.assertEqual("open", issue["state"])
+
+        workflow_path = f"/repos/{CONSUMER}/actions/workflows/ci.yml/runs"
+        self.stand_in.refused[workflow_path] = 500
+        errored = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(1, errored.status, errored.stderr)
+        self.assertEqual("open", issue["state"])
+        del self.stand_in.refused[workflow_path]
+
+        consumer.archived = True
+        skipped = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, skipped.status, skipped.stderr)
+        self.assertEqual("open", issue["state"])
+        consumer.archived = False
+
+        recovered = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, recovered.status, recovered.stderr)
+        self.assertEqual("closed", issue["state"])
+        issue_path = f"/repos/{MANAGEMENT}/issues/{issue['number']}"
+        comments = [write for write in self.stand_in.writes if write.path == f"{issue_path}/comments"]
+        self.assertEqual(1, len(comments))
+        self.assertIn("`ci.yml`", comments[0].body["body"])
+        self.assertIn("exists again", comments[0].body["body"])
+
+        writes = list(self.stand_in.writes)
+        retry = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, retry.status, retry.stderr)
+        self.assertEqual(writes, self.stand_in.writes)
+
+        consumer.has_workflow = False
+        recurred = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--now", "2026-04-06T12:00:00Z")
+        self.assertEqual(0, recurred.status, recurred.stderr)
+        self.assertEqual(writes, self.stand_in.writes)
+        after_cooldown = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--now", "2026-04-09T12:00:00Z")
+        self.assertEqual(0, after_cooldown.status, after_cooldown.stderr)
+        self.assertEqual(2, len(self.management.issues))
+        self.assertEqual("open", self.management.issues[-1]["state"])
 
     def test_custom_workflow_option_is_named_consistently_in_no_workflow_report_row_and_finding(self) -> None:
         self.stand_in.repository(CONSUMER, has_workflow=False)
@@ -338,6 +441,49 @@ class MeasurementCoverageAndCapTests(MeasurementFixture):
         self.assertIn(CONSUMER, self.management.issues[0]["title"])
         self.assertIn("verdict", self.management.issues[0]["title"].lower())
         self.assertFalse(any(OTHER in issue["title"] for issue in self.management.issues))
+        issue = self.management.issues[0]
+
+        # The old runs have left the new window. Without any verdict there is no evidence of recovery.
+        quiet = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--now", "2026-04-24T12:00:00Z")
+        self.assertEqual(0, quiet.status, quiet.stderr)
+        self.assertEqual("open", issue["state"])
+
+        broken.add_run("2026-04-22T10:00:00Z", verdict_completed_at="2026-04-22T10:00:50Z")
+        recovered = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--now", "2026-04-24T12:00:00Z")
+        self.assertEqual(0, recovered.status, recovered.stderr)
+        self.assertEqual("closed", issue["state"])
+        self.assertIn("reached a verdict", recovered.summary)
+
+    def test_only_a_complete_installation_listing_closes_findings_for_a_removed_repository(self) -> None:
+        self.stand_in.repository(CONSUMER, has_workflow=False)
+        initial = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, initial.status, initial.stderr)
+        issue = self.management.issues[0]
+        body = issue["body"]
+        sync_issue = self.management.issue("Sync finding", f"<!-- sync-finding: request:{CONSUMER}:1 -->")
+        unknown_issue = self.management.issue("Unknown kind", f"<!-- measurement-finding: miss:{CONSUMER}:unknown -->")
+        pull_request = self.management.issue("A pull request quotes the marker", body)
+        pull_request["pull_request"] = {"url": "https://github.example/pulls/1"}
+        for authored_by_actions in (sync_issue, unknown_issue, pull_request):
+            authored_by_actions["user"] = {"login": "github-actions[bot]"}
+        human_issue = self.management.issue("A human issue quotes the marker", body)
+        human_issue["user"] = {"login": "CrankyAnt"}
+        unrelated = self.management.issue("Unrelated issue")
+        outside_management = self.stand_in.repositories[CONSUMER].issue("A consumer issue quotes the marker", body)
+
+        self.stand_in.installed.remove(CONSUMER)
+        self.stand_in.installation_total_count = 1
+        incomplete = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, incomplete.status, incomplete.stderr)
+        self.assertEqual("open", issue["state"])
+
+        self.stand_in.installation_total_count = None
+        removed = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, removed.status, removed.stderr)
+        self.assertEqual("closed", issue["state"])
+        self.assertIn("no longer installed", removed.summary)
+        for unaffected in (sync_issue, unknown_issue, pull_request, human_issue, unrelated, outside_management):
+            self.assertEqual("open", unaffected["state"], unaffected["title"])
 
     def test_repository_that_raises_an_error_gets_a_report_row_with_the_reason(self) -> None:
         self.stand_in.repository(CONSUMER)
@@ -693,6 +839,37 @@ class MeasurementFixedCostTests(MeasurementFixture):
         second = self.run_measurement("measure", "--own-repository", MANAGEMENT)
         self.assertEqual(0, second.status, second.stderr)
         self.assertEqual(1, len([issue for issue in self.management.issues if "language step" in issue["title"].lower()]))
+
+        fixed_issue = self.management.issue("Earlier fixed-cost finding", f"<!-- measurement-finding: miss:{CONSUMER}:fixed-cost -->")
+        fixed_issue["user"] = {"login": "github-actions[bot]"}
+        next_window = ("--own-repository", MANAGEMENT, "--now", "2026-04-20T12:00:00Z")
+        consumer.add_run("2026-04-18T10:00:00Z", verdict_completed_at="2026-04-18T10:01:00Z")
+        no_samples = self.run_measurement("measure", *next_window)
+        self.assertEqual(0, no_samples.status, no_samples.stderr)
+        self.assertEqual("open", lang_issues[0]["state"])
+        self.assertEqual("open", fixed_issue["state"])
+
+        consumer.add_run(
+            "2026-04-19T10:00:00Z",
+            plan_completed_at="2026-04-19T10:00:15Z",
+            verdict_completed_at="2026-04-19T10:01:30Z",
+            plan={"version": 1, "units": {"a": {"run": True}}, "shards": [{"shard": 1, "estimate": 30.0}]},
+            extra_jobs=[self._shard_job(
+                1,
+                started_at="2026-04-19T10:00:18Z",
+                entry_started_at="2026-04-19T10:00:30Z",
+                entry_completed_at="2026-04-19T10:01:05Z",
+                completed_at="2026-04-19T10:01:20Z",
+                lang_step=("success", "2026-04-19T10:01:10Z", "2026-04-19T10:01:15Z"),
+            )],
+        )
+        recovered = self.run_measurement("measure", *next_window)
+        self.assertEqual(0, recovered.status, recovered.stderr)
+        self.assertEqual("closed", lang_issues[0]["state"])
+        self.assertEqual("closed", fixed_issue["state"])
+        self.assertEqual(2, len(self.management.issues))
+        self.assertIn("within its allowance again", recovered.summary)
+        self.assertIn("within the assumed fixed cost again", recovered.summary)
 
 
 class MeasurementIncrementalStoreTests(MeasurementFixture):

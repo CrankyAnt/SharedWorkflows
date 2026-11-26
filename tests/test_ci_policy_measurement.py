@@ -71,15 +71,17 @@ class MeasurementWorkflowContractTests(unittest.TestCase):
             token["with"],
         )
 
-    def test_the_workflow_invokes_measurement_py_measure_uploads_the_store_and_runs_failure(self) -> None:
+    def test_the_workflow_measures_uploads_the_store_and_reports_the_outcome(self) -> None:
         invocations = script_invocations(WORKFLOW, "measurement.py")
-        self.assertEqual(2, len(invocations))
+        self.assertEqual(3, len(invocations))
         measure_options = measurement_program.parser().parse_args(invocations[0])
         self.assertEqual("measure", measure_options.command)
         self.assertFalse(measure_options.local)
         self.assertEqual(measurement_program.MEASUREMENT_STORE_FILENAME, measure_options.store_out)
         self.assertEqual(measurement_program.DEFAULT_MAX_RPS, measure_options.max_rps)
-        failure_options = measurement_program.parser().parse_args(invocations[1])
+        success_options = measurement_program.parser().parse_args(invocations[1])
+        self.assertEqual("success", success_options.command)
+        failure_options = measurement_program.parser().parse_args(invocations[2])
         self.assertEqual("failure", failure_options.command)
         upload_step = next(step for step in self.job["steps"] if str(step.get("uses", "")).startswith(UPLOAD_ACTION))
         self.assertEqual(
@@ -90,6 +92,11 @@ class MeasurementWorkflowContractTests(unittest.TestCase):
         self.assertEqual(measurement_program.MEASUREMENT_STORE_FILENAME, upload_step["with"]["path"])
         self.assertEqual(30, int(upload_step["with"]["retention-days"]))
         self.assertEqual("error", upload_step["with"]["if-no-files-found"])
+        success_step = self.job["steps"][-2]
+        self.assertLess(self.job["steps"].index(upload_step), self.job["steps"].index(success_step))
+        self.assertEqual("${{ success() }}", success_step["if"])
+        self.assertEqual("${{ github.token }}", success_step["env"]["GITHUB_TOKEN"])
+        self.assertNotIn("GH_TOKEN", success_step["env"])
         failure_step = self.job["steps"][-1]
         self.assertEqual("${{ failure() || cancelled() }}", failure_step["if"])
 

@@ -5,6 +5,7 @@
     python3 sync.py sync    --local --repository OWNER/NAME [--repository ...] [common options]
     python3 sync.py adopt   --repository OWNER/NAME [--adoption FILE] [common options]
     python3 sync.py failure --own-repository OWNER/NAME --run-url URL [--api-url URL] [--summary FILE]
+    python3 sync.py success --own-repository OWNER/NAME [--api-url URL] [--summary FILE]
 
     common options: [--api-url URL] [--kit DIR] [--schemas DIR] [--ruleset FILE] [--merge-settings FILE]
                     [--summary FILE] [--now TIME]
@@ -23,7 +24,8 @@ repositories of that installation, which it asks GitHub for. A settings differen
 that is still open six hours after it was opened, each open issue with the label ``shared-ci`` in a repository it
 reaches, each repository whose settings differ, and each repository with unwanted workflow findings. An issue is found
 again by a marker in its body: a pull request and a request get one issue ever, while settings differences and unwanted
-workflows get none while an issue with the same findings is open.
+workflows get none while an issue with the same findings is open. The sync comments and closes its issues when it
+confirms recovery, replaces the finding, or confirms the repository is archived or no longer installed.
 
 With ``--local`` the sync runs with the owner's own token in ``GH_TOKEN`` on the repositories that ``--repository``
 names, and corrects each settings difference as well. Non-fixed workflow files are never removed or edited.
@@ -35,7 +37,7 @@ the pipeline leaves the repository, and its part is switched on with the inputs 
 command reports everything it could not derive, in its output and in the pull request's body, and requests no
 auto-merge.
 
-``failure`` opens the issue for a failed run, unless one is open.
+``failure`` opens the issue for a failed run, unless one is open. ``success`` closes it after the workflow's work succeeds.
 
 A repository without a configuration file has not adopted the pipeline: ``sync`` says so, still inspects its
 ``.github/workflows/`` for retired shared workflow calls, uncallable workflows and unreadable YAML, and makes no other
@@ -82,7 +84,10 @@ SYNC_TITLE = "chore: sync the fixed files with their templates"
 ADOPTION_TITLE = "chore: adopt the shared pipeline"
 UNMERGED_AFTER = datetime.timedelta(hours=6)
 MARKER = "<!-- sync-finding: {key} -->"
-MARKER_PATTERN = re.compile(r"<!-- sync-finding: (\S+) -->")
+MARKER_PATTERN = re.compile(r"^<!-- sync-finding: (\S+) -->\r?$", re.MULTILINE)
+WORKFLOW_BOT = "github-actions[bot]"
+REFERENCE_KEY = re.compile(r"(request|pull-request):([\w.-]+/[\w.-]+)#([1-9][0-9]*)", re.ASCII)
+CHECK_KEY = re.compile(r"(workflows|settings):([\w.-]+/[\w.-]+):([0-9a-f]{12})", re.ASCII)
 API_TIMEOUT = 30
 PAGE = 100
 GLOB = re.compile(r"[*?\[]")
@@ -135,18 +140,38 @@ class Api:
             raise SyncError(f"{method} {path}: GitHub does not know this address, or the token may not use it")
         return document
 
-    def pages(self, path: str, key: str | None = None) -> list[dict]:
-        """Every item of a listing, read page by page; ``key`` names the list in a document that is a mapping."""
+    def pages(self, path: str) -> list[dict]:
+        """Every item of a list, read page by page."""
         items: list[dict] = []
         page = 1
         while True:
-            document = self.get(f"{path}{'&' if '?' in path else '?'}per_page={PAGE}&page={page}")
-            found = document.get(key) if key and isinstance(document, dict) else document
+            found = self.get(f"{path}{'&' if '?' in path else '?'}per_page={PAGE}&page={page}")
             if not isinstance(found, list):
                 raise SyncError(f"GET {path}: expected a list")
             items += [item for item in found if isinstance(item, dict)]
             if len(found) < PAGE:
                 return items
+            page += 1
+
+    def installation_repositories(self) -> tuple[dict[str, dict], bool]:
+        """Read the installation, verifying completeness before using absence as evidence."""
+        installed: dict[str, dict] = {}
+        totals = []
+        page = 1
+        while True:
+            document = self.get(f"installation/repositories?per_page={PAGE}&page={page}")
+            if not isinstance(document, dict) or not isinstance(document.get("repositories"), list):
+                raise SyncError("GET installation/repositories: expected a repository listing")
+            totals.append(document.get("total_count"))
+            items = document["repositories"]
+            for item in items:
+                name = item.get("full_name") if isinstance(item, dict) else None
+                if not isinstance(name, str) or not re.fullmatch(r"[\w.-]+/[\w.-]+", name, re.ASCII):
+                    raise SyncError("GET installation/repositories: expected full repository names")
+                installed[name.casefold()] = item
+            if len(items) < PAGE:
+                complete = all(type(total) is int and total == len(installed) for total in totals)
+                return installed, complete
             page += 1
 
     def file(self, repository: str, path: str, ref: str) -> bytes | None:
@@ -255,6 +280,9 @@ class Finding:
 class Report:
     lines: list[str] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
+    completed: dict[str, set[str]] = field(default_factory=dict)
+    archived: set[str] = field(default_factory=set)
+    installed: set[str] | None = None
     failed: bool = False
 
     def section(self, repository: str, lines: list[str]) -> None:
@@ -523,10 +551,14 @@ def merge_differences(held: dict, expected: dict) -> dict[str, str]:
 
 def find_ruleset(api: Api, repository: str, expected: dict) -> dict | None:
     listed = api.get(f"repos/{repository}/rulesets")
-    for item in listed if isinstance(listed, list) else []:
+    if not isinstance(listed, list):
+        raise SyncError("the repository's rulesets could not be read")
+    for item in listed:
         if isinstance(item, dict) and item.get("name") == expected["name"] and item.get("target") == expected.get("target"):
             ruleset = api.get(f"repos/{repository}/rulesets/{item['id']}")
-            return ruleset if isinstance(ruleset, dict) else None
+            if not isinstance(ruleset, dict):
+                raise SyncError(f"the ruleset `{expected['name']}` could not be read")
+            return ruleset
     return None
 
 
@@ -601,7 +633,8 @@ def sync_repository(api: Api, repository: str, templates: Templates, options: ar
     held = api.get(f"repos/{repository}")
     if not isinstance(held, dict):
         raise SyncError("the repository could not be read")
-    if held.get("archived"):
+    if held.get("archived") is True:
+        report.archived.add(repository.casefold())
         return
     default = held.get("default_branch") or "main"
     paths = [plan.CONFIGURATION, *templates.fixed, DEPENDABOT_FILE, DEPENDABOT_OTHER_NAME]
@@ -611,6 +644,7 @@ def sync_repository(api: Api, repository: str, templates: Templates, options: ar
         lines = [f"`{repository}` holds no `{plan.CONFIGURATION}`: it has not adopted the pipeline. `sync.py adopt` makes its adoption pull request."]
         _record_workflow_findings(repository, snapshot.workflows, templates, options, report, lines, adopted=False)
         report.section(repository, lines)
+        report.completed[repository.casefold()] = {"workflows"}
         return
     lines = []
     differences, corrected = settings(api, repository, held, templates, correct=options.local)
@@ -650,30 +684,105 @@ def sync_repository(api: Api, repository: str, templates: Templates, options: ar
             if refusal:
                 lines.append(f"For that pull request auto-merge could not be enabled: {refusal}")
     report.section(repository, lines)
+    report.completed[repository.casefold()] = {"workflows", "settings"} if registered is not None else {"settings"}
 
 
 # --- issues in the run's own repository -----------------------------------------------------------------------------
 
 
-def report_findings(api: Api, repository: str, findings: list[Finding]) -> list[str]:
-    """Open one issue per finding that has none yet; the lines of the issues that were opened."""
-    if not findings:
-        return []
+def close_finding(api: Api, path: str, issue: dict, reason: str) -> str:
+    number = issue["number"]
+    address = f"{path}/{number}"
+    comments = api.pages(f"{address}/comments")
+    if not any(comment.get("body") == reason and (comment.get("user") or {}).get("login") == WORKFLOW_BOT for comment in comments):
+        api.send("POST", f"{address}/comments", {"body": reason})
+    api.send("PATCH", address, {"state": "closed", "state_reason": "completed"})
+    return f"Closed the issue #{number}. {reason}"
+
+
+def reference_recovery(api: Api, kind: str, repository: str, number: str) -> str | None:
+    endpoint = "issues" if kind == "request" else "pulls"
+    try:
+        held = api.get(f"repos/{repository}/{endpoint}/{number}")
+    except SyncError:
+        # An unreadable reference does not confirm that the finding has cleared.
+        return None
+    if not isinstance(held, dict) or held.get("number") != int(number):
+        return None
+    reference = f"{repository}#{number}"
+    if kind == "request" and held.get("state") == "closed" and "pull_request" not in held:
+        return f"The shared CI request {reference} is closed."
+    if kind == "pull-request":
+        if held.get("merged") is True:
+            return f"The sync pull request {reference} merged."
+        if held.get("state") == "closed":
+            return f"The sync pull request {reference} is closed."
+    return None
+
+
+def finding_recovery(api: Api, key: str, report: Report, current_checks: dict[tuple[str, str], int], own_repository: str) -> str | None:
+    reference = REFERENCE_KEY.fullmatch(key)
+    match = reference or CHECK_KEY.fullmatch(key)
+    if match is None:
+        return None
+    kind, repository, detail = match.groups()
+    name = repository.casefold()
+    if name == own_repository.casefold():
+        return None
+    if name in report.archived:
+        return f"The repository {repository} is archived."
+    if report.installed is not None and name not in report.installed:
+        return f"The repository {repository} is no longer installed for the sync App."
+    if name not in report.completed:
+        return None
+    if reference:
+        return reference_recovery(api, kind, repository, detail)
+    if kind in report.completed[name]:
+        current = current_checks.get((kind, name))
+        return f"Superseded by #{current}" if current is not None else f"The {kind} of {repository} match again."
+    return None
+
+
+def report_findings(api: Api, repository: str, findings: list[Finding], *, consumer_api: Api | None = None, report: Report | None = None,
+                    succeeded: bool = False) -> list[str]:
+    """Open missing finding issues and reconcile findings that the sync can confirm have cleared."""
+    path = f"repos/{repository}/issues"
     ever: set[str] = set()
-    still_open: set[str] = set()
-    for issue in api.pages(f"repos/{repository}/issues?state=all"):
+    still_open: dict[str, list[dict]] = {}
+    for issue in api.pages(f"{path}?state=all"):
+        if "pull_request" in issue or (issue.get("user") or {}).get("login") != WORKFLOW_BOT:
+            continue
         keys = MARKER_PATTERN.findall(issue.get("body") or "")
-        ever.update(keys)
+        if len(keys) != 1:
+            continue
+        key = keys[0]
+        ever.add(key)
         if issue.get("state") == "open":
-            still_open.update(keys)
+            still_open.setdefault(key, []).append(issue)
     lines = []
     for finding in findings:
         if finding.key in (ever if finding.ever else still_open):
             continue
-        issue = api.send("POST", f"repos/{repository}/issues", {"title": finding.title, "body": f"{finding.body}\n\n{MARKER.format(key=finding.key)}\n"})
+        issue = api.send("POST", path, {"title": finding.title, "body": f"{finding.body}\n\n{MARKER.format(key=finding.key)}\n"})
         ever.add(finding.key)
-        still_open.add(finding.key)
+        still_open[finding.key] = [issue]
         lines.append(f"Opened the issue #{issue.get('number')}: {finding.title}")
+    if consumer_api is not None and report is not None:
+        current_keys = {finding.key.casefold() for finding in findings}
+        current_checks = {}
+        for finding in findings:
+            match = CHECK_KEY.fullmatch(finding.key)
+            if match:
+                kind, name, _ = match.groups()
+                current_checks[kind, name.casefold()] = still_open[finding.key][0]["number"]
+        for key, issues in still_open.items():
+            if key.casefold() in current_keys:
+                continue
+            reason = finding_recovery(consumer_api, key, report, current_checks, repository)
+            if reason:
+                lines.extend(close_finding(api, path, issue, reason) for issue in issues)
+    if succeeded:
+        lines.extend(close_finding(api, path, issue, "A later run of the sync succeeded.") for issue in still_open.get("failure", []))
     return lines
 
 
@@ -690,6 +799,7 @@ def token(name: str) -> str:
 def run_sync(options: argparse.Namespace) -> int:
     templates = read_templates(options)
     api = Api(options.api_url, token("GH_TOKEN"))
+    report = Report()
     if options.local:
         if not options.repository:
             raise SetupError("the local mode names its repositories with --repository")
@@ -697,13 +807,15 @@ def run_sync(options: argparse.Namespace) -> int:
     else:
         if options.repository:
             raise SetupError("without --local the repositories come from the App's installation; --repository belongs to the local mode")
-        repositories = [item["full_name"] for item in api.pages("installation/repositories", "repositories") if not item.get("archived")]
+        installation, complete = api.installation_repositories()
+        report.installed = set(installation) if complete else None
+        report.archived = {name for name, item in installation.items() if item.get("archived") is True}
+        repositories = [item["full_name"] for name, item in installation.items() if name not in report.archived]
     if templates.shared in repositories:
         where = "--repository names" if options.local else "the App is installed on"
         raise SyncError(f"{where} the repository of the shared parts, which holds the templates and is never synced")
-    report = Report()
     for repository in repositories:
-        if repository == options.own_repository:
+        if repository.casefold() == options.own_repository.casefold():
             continue
         try:
             sync_repository(api, repository, templates, options, report)
@@ -712,8 +824,9 @@ def run_sync(options: argparse.Namespace) -> int:
             report.section(repository, [f"`{repository}` could not be synced: {error}"])
     lines = report.lines
     if options.own_repository:
-        opened = report_findings(Api(options.api_url, token("GITHUB_TOKEN")), options.own_repository, report.findings)
-        lines += [*[f"- {line}" for line in opened], ""] if opened else []
+        issues = report_findings(Api(options.api_url, token("GITHUB_TOKEN")), options.own_repository, report.findings,
+                                 consumer_api=None if options.local else api, report=report)
+        lines += [*[f"- {line}" for line in issues], ""] if issues else []
     publish(options, "Sync", lines or ["Every repository that the sync reached matches the templates."])
     return 1 if report.failed else 0
 
@@ -722,6 +835,13 @@ def run_failure(options: argparse.Namespace) -> int:
     body = f"The run {options.run_url} of the sync failed. Its log says which repository could not be synced and why."
     opened = report_findings(Api(options.api_url, token("GITHUB_TOKEN")), options.own_repository, [Finding("failure", "The sync failed", body, ever=False)])
     publish(options, "Sync failure", [f"- {line}" for line in opened] or ["An issue for a failed run is already open."])
+    return 0
+
+
+def run_success(options: argparse.Namespace) -> int:
+    closed = report_findings(Api(options.api_url, token("GITHUB_TOKEN")), options.own_repository, [], succeeded=True)
+    if closed:
+        publish(options, "Sync recovery", [f"- {line}" for line in closed])
     return 0
 
 
@@ -915,13 +1035,16 @@ def parser() -> argparse.ArgumentParser:
     commands = main_parser.add_subparsers(dest="command", required=True)
     for name, text in (("sync", "compare every repository with the templates, open pull requests and report or correct settings"),
                        ("adopt", "make the adoption pull request of one repository, in the local mode"),
-                       ("failure", "open the issue for a failed run")):
+                       ("failure", "open the issue for a failed run"),
+                       ("success", "close the failure issue after a successful run")):
         command = commands.add_parser(name, help=text)
         command.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
         command.add_argument("--summary", help="the file that receives the Markdown summary")
-        command.add_argument("--own-repository", default="", help="the repository of the run, as OWNER/NAME: it is not synced and receives the issues")
+        command.add_argument("--own-repository", default="", required=name == "success",
+                             help="the repository of the run, as OWNER/NAME: it is not synced and receives the issues")
         if name == "failure":
             command.add_argument("--run-url", required=True, help="the address of the failed run")
+        if name in {"failure", "success"}:
             continue
         command.add_argument("--kit", default=str(KIT), help="the consumer kit with the templates and their record")
         command.add_argument("--schemas", default=str(plan.SCHEMAS), help="the schema folder of the configuration file")
@@ -940,7 +1063,7 @@ def main(argv: list[str] | None = None) -> int:
     if options.command != "sync":
         options.local = True
     try:
-        return {"sync": run_sync, "adopt": run_adopt, "failure": run_failure}[options.command](options)
+        return {"sync": run_sync, "adopt": run_adopt, "failure": run_failure, "success": run_success}[options.command](options)
     except SetupError as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2

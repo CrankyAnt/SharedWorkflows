@@ -42,6 +42,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
         run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/sync.py" sync --own-repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Close the failure issue after a successful run
+        if: ${{ success() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/sync.py" success --own-repository "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY"
       - name: Open an issue for a failed run
         if: ${{ failure() }}
         env:
