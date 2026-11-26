@@ -9,5 +9,6 @@
   "suite-selection-linux": 10,
   "suite-selection-windows": 15,
   "suite-selection-results": 5,
+  "wait-for-code": 40,
   "verdict": 5
 }

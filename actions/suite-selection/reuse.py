@@ -217,7 +217,7 @@ def write_tested_state(root: Path, pull_request: int, run_id: int, run_attempt: 
     return state
 
 
-def _read_tested_state_artifact(api: Api, run_id: int, pull_request: int, head: str) -> tuple[dict | None, str | None, str]:
+def read_tested_state_artifact(api: Api, run_id: int, pull_request: int, head: str) -> tuple[dict | None, str | None, str]:
     """Download and validate the ``tested-state`` artifact of ``run_id``.
     Returns ``(state, fallback_reason, detail)``."""
     listed = api.json(f"actions/runs/{run_id}/artifacts?name={TESTED_STATE_ARTIFACT}")
@@ -291,7 +291,7 @@ def lookup(root: Path, api: Api, workflow: str, sha: str, before: str | None = N
         state: dict | None = None
         last_reason = ""
         for item in runs:
-            candidate_state, state_fb, detail = _read_tested_state_artifact(api, item["id"], number, head)
+            candidate_state, state_fb, detail = read_tested_state_artifact(api, item["id"], number, head)
             if candidate_state is not None:
                 chosen_run, state = item["id"], candidate_state
                 break

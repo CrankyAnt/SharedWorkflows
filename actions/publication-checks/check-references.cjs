@@ -71,13 +71,11 @@ async function currentPullRequest(event) {
 }
 
 // Every text the check reads, with the name its positions are reported under.
-function texts(base, head, { title, body }) {
+function commitTexts(base, head) {
   const result = [];
   for (const commit of git("rev-list", "--reverse", `${base}..${head}`).split("\n").filter(Boolean)) {
     result.push({ place: `commit ${commit}`, text: git("log", "-1", "--format=%B", commit) });
   }
-  result.push({ place: "pull request title", text: title ?? "" });
-  result.push({ place: "pull request body", text: body ?? "" });
   return result;
 }
 
@@ -182,7 +180,9 @@ async function publicRepositories(owner) {
 }
 
 async function main() {
-  const [base, head] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const mode = args[0]?.startsWith("--") ? args.shift() : undefined;
+  const [base, head] = args;
   const owner = process.env.GITHUB_REPOSITORY_OWNER ?? "";
   if (!owner) throw new Error("GITHUB_REPOSITORY_OWNER names no owner");
   const event = pullRequestEvent();
@@ -191,15 +191,18 @@ async function main() {
     console.log("Skipping the reference check: this repository is private, so its texts are not public.");
     return 0;
   }
-  let pullRequest;
-  try {
-    pullRequest = await currentPullRequest(event);
-  } catch (error) {
-    if (!(error instanceof UnreadablePullRequest)) throw error;
-    console.error(`the pull request's current title and body cannot be read: ${error.message}. The check cannot read the texts it checks; run it again.`);
-    return 1;
+  const sources = mode === "--pull-request-text" ? [] : commitTexts(base, head);
+  if (mode !== "--commits") {
+    try {
+      const { title, body } = await currentPullRequest(event);
+      sources.push({ place: "pull request title", text: title }, { place: "pull request body", text: body ?? "" });
+    } catch (error) {
+      if (!(error instanceof UnreadablePullRequest)) throw error;
+      console.error(`the pull request's current title and body cannot be read: ${error.message}. The check cannot read the texts it checks; run it again.`);
+      return 1;
+    }
   }
-  const found = references(owner, texts(base, head, pullRequest));
+  const found = references(owner, sources);
   if (found.length === 0) {
     console.log("No reference to a repository of the owner.");
     return 0;

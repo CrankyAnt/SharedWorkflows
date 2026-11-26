@@ -2,7 +2,7 @@
 
 ## Goal
 
-CI gives every proposed change and every change on the default branch a trustworthy verdict, fast. Trustworthy: green only when every gating check would pass if it ran, apart from the accepted risks under Reuse. Fast: from trigger to verdict, over a rolling four weeks of runs that reach a verdict, manual re-runs excluded, 99% finish within 3 minutes and half of those that select no tests within 1 minute; speed before billed minutes. No run does avoidable work: work that cannot change the verdict, work done twice, or work Reuse lets it take over. Checks not specific to one product are shared. This keeps holding as repositories grow.
+CI gives every proposed change and every change on the default branch a trustworthy verdict, fast. Trustworthy: green only when every gating check would pass if it ran, apart from the accepted risks under Reuse. Fast: from trigger to verdict, over a rolling four weeks of runs that reach a verdict, manual re-runs and pull request edits excluded, 99% finish within 3 minutes and half of those that select no tests within 1 minute; speed before billed minutes. No run does avoidable work: work that cannot change the verdict, work done twice, or work Reuse lets it take over. Checks not specific to one product are shared. This keeps holding as repositories grow.
 
 ## Principles
 
@@ -40,7 +40,7 @@ This repository calls its own shared workflows and shared steps by local path, `
 - Python tests: [Python tests](../maintaining.md#python-tests), tested through `python-verify` and `python-test` in the pipeline on the fixture project.
 - Pipeline: [Pipeline](../maintaining.md#pipeline), which runs repository hygiene, the fixture parts, the suite selection and the suite jobs of [Job layout](../maintaining.md#job-layout); [The automation workflow](../maintaining.md#the-automation-workflow), which runs Dependabot auto-merge, issue-title normalisation, additions and the full recording's suite jobs.
 
-The pipeline caller `ci.yml` also runs on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event) and on `edited` pull requests (running only the title and reference checks).
+The pipeline caller `ci.yml` also runs on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event) and on `edited` pull requests. An edit checks the title and description and waits for the code verdict of the same head.
 
 The verdict of the pipeline, `ci / verdict`, carries the result of the suites, the hygiene check and the other parts. The one check to require in a ruleset on the default branch is `ci / verdict`; [Change a check name](../maintaining.md#change-a-check-name) changes it, and a change to the ruleset is a question to the user.
 

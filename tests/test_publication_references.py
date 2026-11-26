@@ -99,6 +99,7 @@ class PublicationReferenceTests(PublicationFixture):
 
     def _check(self, api: PublicRepositoryList, title: str = "feat: add a check", body: str | None = "", repository: dict | None = None,
                event_title: str = "feat: the title when the run started", event_body: str | None = "The body when the run started.",
+               mode: str | None = None,
                **extra: str) -> subprocess.CompletedProcess[str]:
         """Run the check on a pull request whose title and body are ``title`` and ``body`` now, and whose event still
         holds ``event_title`` and ``event_body``."""
@@ -112,7 +113,25 @@ class PublicationReferenceTests(PublicationFixture):
             environment.pop(name, None)
         environment.update(GITHUB_API_URL=api.url, GITHUB_REPOSITORY_OWNER=OWNER, GITHUB_REPOSITORY=REPOSITORY, GITHUB_EVENT_PATH=str(event))
         environment.update(extra)
-        return subprocess.run(["node", str(CHECKER), self.base, "HEAD"], capture_output=True, text=True, env=environment, cwd=self.repository)
+        arguments = [self.base, "HEAD"] if mode != "--pull-request-text" else []
+        if mode:
+            arguments.insert(0, mode)
+        return subprocess.run(["node", str(CHECKER), *arguments], capture_output=True, text=True, env=environment, cwd=self.repository)
+
+    def test_the_edit_check_reads_only_the_pull_request_text_and_the_commit_check_reads_only_commits(self) -> None:
+        api = self._list(["PublicTool"])
+        self._commit(self.repository, f"fix: follow {OWNER}/HiddenCommit")
+
+        edit = self._check(api, body=f"See {OWNER}/HiddenBody", mode="--pull-request-text")
+        self.assertEqual(1, edit.returncode)
+        self.assertIn(f"pull request body, line 1, column 5: {NOT_PUBLIC}", edit.stderr)
+        self.assertNotIn("commit ", edit.stderr)
+
+        api.requests.clear()
+        code = self._check(api, body=f"See {OWNER}/HiddenBody", mode="--commits")
+        self.assertEqual(1, code.returncode)
+        self.assertIn(f"commit {self._head(self.repository)}, line 1, column 13: {NOT_PUBLIC}", code.stderr)
+        self.assertEqual([], api.requests_of(PULL_PATH))
 
     def test_a_commit_message_that_references_a_repository_outside_the_public_list_fails_by_position(self) -> None:
         api = self._list(["PublicTool"])
