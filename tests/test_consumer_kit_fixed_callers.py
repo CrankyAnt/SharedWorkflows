@@ -43,7 +43,7 @@ class FixedCallerTemplatesTest(unittest.TestCase):
 
     def test_the_read_caller_gives_the_check_ci_verdict_with_read_rights_only(self) -> None:
         _, caller = read_yaml(KIT / "ci.yml")
-        self.assertEqual({"pull_request": None, "push": {"branches": ["main"]}, "repository_dispatch": {"types": ["dependabot-merged"]}}, caller["on"])
+        self.assertEqual({"pull_request": {"types": ["opened", "synchronize", "reopened", "edited"]}, "push": {"branches": ["main"]}, "repository_dispatch": {"types": ["dependabot-merged"]}}, caller["on"])
         self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, caller["jobs"]["ci"]["permissions"])
 
     def test_this_repository_s_own_caller_differs_from_the_template_only_in_the_local_path(self) -> None:
@@ -69,9 +69,10 @@ class FixedCallerReadmeTest(unittest.TestCase):
                 self.assertIn(f"`.github/workflows/{template}`", self.readme)
         self.assertIn("byte for byte", self.readme)
 
-    def test_the_readme_says_that_a_corrected_title_needs_a_re_run(self) -> None:
-        self.assertIn("`ci.yml` does not start on `edited`", self.readme)
-        self.assertIn("re-run", self.readme)
+    def test_the_readme_says_that_an_edited_title_runs_only_title_and_description_checks(self) -> None:
+        self.assertIn("`ci.yml` starts on `edited`", self.readme)
+        self.assertIn("cancels no code run", self.readme)
+        self.assertIn("takes over the code results of the same head", self.readme)
 
     def test_the_readme_names_the_one_required_check_and_the_month_of_the_previous_version(self) -> None:
         self.assertIn("`ci / verdict`", self.readme)

@@ -50,10 +50,11 @@ class HygieneCoreTests(unittest.TestCase):
     def test_gitleaks_scans_every_reachable_commit_of_the_full_history_on_every_event(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("        with:\n          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}\n          fetch-depth: 0\n", workflow)
-        self.assertRegex(workflow, r"(?m)^      - name: Gitleaks over all reachable history\n        if: \$\{\{ !cancelled\(\) && steps\.install\.outcome == 'success' \}\}\n(?:        env:\n(?:          .*\n)+)?        run: .*hygiene\.py\" gitleaks ")
+        self.assertRegex(workflow, r"(?m)^      - name: Gitleaks over added commits\n        id: gitleaks\n        if: \$\{\{ !cancelled\(\) && steps\.install-gitleaks\.outcome == 'success' \}\}\n(?:        env:\n(?:          .*\n)+)?        run: \|\n(?:          .*\n)+?          .*hygiene\.py\" gitleaks ")
         self.assertIn('tools="--tool gitleaks"', workflow)
         hygiene = (REPOSITORY_ROOT / "actions" / "repository-hygiene" / "hygiene.py").read_text(encoding="utf-8")
-        self.assertIn('"git", "--log-opts=--all"', hygiene)
+        self.assertIn('f"--log-opts={log_opts}"', hygiene)
+        self.assertIn('log_opts = "--all"', hygiene)
 
     def test_on_a_dispatch_run_the_check_of_its_payload_commit_runs_first_after_the_checkout_and_gates_every_check(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -62,37 +63,39 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertEqual("Check that the dispatched commit is on the default branch", names[checkout + 1])
         self.assertIn("      - name: Check that the dispatched commit is on the default branch\n"
                       "        id: dispatch\n"
-                      "        if: github.event_name == 'repository_dispatch' && github.event.client_payload.sha\n"
+                      "        if: github.event_name == 'repository_dispatch'\n"
                       "        env:\n"
                       "          SELECTION_PATH: ${{ steps.selection.outputs.path }}\n"
                       "          PAYLOAD: ${{ github.event.client_payload.sha }}\n"
                       "          BRANCH: ${{ github.event.repository.default_branch }}\n"
                       '        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" check-dispatch '
                       '--root . --sha "$PAYLOAD" --branch "$BRANCH"\n', workflow)
-        selection = (REPOSITORY_ROOT / ".github" / "workflows" / "suite-selection.yml").read_text(encoding="utf-8")
+        pipeline = (REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml").read_text(encoding="utf-8")
         check = next(line for line in workflow.splitlines() if 'suite_selection.py" check-dispatch' in line)
-        self.assertIn(check.replace("$SELECTION_PATH/", "$RESOURCE_PATH/"), selection.splitlines(), "both workflows run the same check")
+        self.assertIn(check.strip(), [line.strip() for line in pipeline.splitlines()], "both workflows run the same check")
         # A step that runs after an earlier failure either runs only on a pull request, waits for a step that a failed
-        # check skips, or is the tool installation, which every tool check waits for. On a dispatch run with a payload it
-        # needs a passed check, so neither a failed check nor a failed checkout, which skips the check, runs a tool check.
+        # check skips, or is a per-tool installation, which its own tool check waits for. On a dispatch run it needs a
+        # passed dispatch check, so neither a failed check nor a failed checkout runs any tool check.
         for condition in re.findall(r"(?m)^        if: \$\{\{ !cancelled\(\) && (.*) \}\}$", workflow):
             with self.subTest(condition=condition):
-                self.assertRegex(condition, r"^(?:github\.event_name == 'pull_request'|steps\.(?:author-decision|commitlint|changes|install|dispatch)\.|\(steps\.dispatch\.)")
+                self.assertRegex(condition, r"^(?:github\.event_name == 'pull_request'|steps\.(?:author-decision|commitlint|changes|install-[a-z]+|dispatch)\.|\(steps\.dispatch\.)")
         self.assertNotIn("        if: ${{ !cancelled() }}\n", workflow)
-        self.assertIn("      - name: Install the pinned tools and verify their checksums\n        id: install\n"
-                      "        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}\n", workflow)
+        self.assertIn("      - name: Install Gitleaks\n        id: install-gitleaks\n"
+                      "        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') }}\n", workflow)
 
     def test_on_a_push_the_push_lookup_follows_the_dispatch_check_and_the_decision_reads_it(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         names = step_names(workflow)
         checkout = next(index for index, name in enumerate(names) if name.startswith("actions/checkout@"))
-        self.assertEqual("Look up the tested tree of the pushed commit's pull request", names[checkout + 2])
+        self.assertEqual("Restore the default-branch record", names[checkout + 2])
+        self.assertEqual("Look up the tested tree of the pushed commit's pull request", names[checkout + 3])
         self.assertTrue(all(name.startswith("Load ") for name in names[:checkout]), "only resource loads precede the checkout")
         self.assertIn("        if: github.event_name == 'push' || github.event_name == 'repository_dispatch'\n", workflow)
         self.assertIn("uses: $/actions/suite-selection", workflow)
-        selection = (REPOSITORY_ROOT / ".github" / "workflows" / "suite-selection.yml").read_text(encoding="utf-8")
-        lookup = next(line for line in workflow.splitlines() if 'suite_selection.py" lookup' in line)
-        self.assertIn(lookup.replace("$SELECTION_PATH/", "$RESOURCE_PATH/"), selection.splitlines(), "the hygiene job runs the selection's own lookup command")
+        pipeline = (REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml").read_text(encoding="utf-8")
+        lookup = next(line for line in workflow.splitlines() if 'suite_selection.py" lookup' in line).strip().removeprefix("run: ")
+        pipeline_lookup = next(line for line in pipeline.splitlines() if 'suite_selection.py" lookup' in line).strip()
+        self.assertIn(lookup, pipeline_lookup, "the hygiene job runs the selection's own lookup command")
         self.assertIn("SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.sha }}", workflow)
         self.assertIn('push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;', workflow)
 
@@ -107,7 +110,9 @@ class HygieneCoreTests(unittest.TestCase):
             self.assertIn(f'--outcome "{check}=${check.upper()}"', workflow)
         names = step_names(workflow)
         self.assertEqual(["Record the passed checks for an edit of the pull request", "Store the passed checks in the pull request's cache"], names[-2:])
-        self.assertEqual(2, workflow.count("        if: ${{ !cancelled() && github.event_name == 'pull_request' }}\n"), "a cancelled run stores nothing")
+        _, document = read_workflow(WORKFLOW)
+        for step in document["jobs"]["hygiene"]["steps"][-2:]:
+            self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' }}", step.get("if"), "a cancelled run stores nothing")
         self.assertIn("          key: hygiene-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}\n", workflow)
 
     def test_an_edited_run_runs_gitleaks_and_the_convention_checks_again(self) -> None:
@@ -116,16 +121,16 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertEqual(["Restore the passed checks of the pull request"], [step["name"] for step in steps if "edited" in str(step.get("if", ""))])
         # Each condition reads only the event name, the author decision and earlier step outcomes, so an edited pull request runs the step.
         for name, condition in (
-            ("Decide whether the PR author skips the convention checks", "github.event_name == 'pull_request'"),
-            ("Load the convention checks from this workflow revision", "steps.author-decision.outputs.skip == 'false'"),
-            ("actions/setup-node", "steps.author-decision.outputs.skip == 'false'"),
+            ("Decide whether the PR author skips the convention checks", "${{ !cancelled() && github.event_name == 'pull_request' }}"),
+            ("Load the convention checks from this workflow revision", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
+            ("actions/setup-node", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Check the pull request branch", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Install the locked commitlint toolchain", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
             ("Check every pull request commit", "${{ !cancelled() && steps.commitlint.outcome == 'success' }}"),
             ("Check the pull request title", "${{ !cancelled() && steps.commitlint.outcome == 'success' }}"),
             ("Check the references to repositories of the owner", "${{ !cancelled() && steps.author-decision.outputs.skip == 'false' }}"),
-            ("Install the pinned tools and verify their checksums", "${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}"),
-            ("Gitleaks over all reachable history", "${{ !cancelled() && steps.install.outcome == 'success' }}"),
+            ("Install Gitleaks", "${{ !cancelled() && (steps.dispatch.outcome == 'success' || github.event_name != 'repository_dispatch') }}"),
+            ("Gitleaks over added commits", "${{ !cancelled() && steps.install-gitleaks.outcome == 'success' }}"),
         ):
             with self.subTest(step=name):
                 step = next((step for step in steps if step.get("name", str(step.get("uses", "")).split("@")[0]) == name), None)
@@ -134,7 +139,7 @@ class HygieneCoreTests(unittest.TestCase):
 
     def test_on_a_pull_request_the_job_runs_the_convention_checks_on_the_pinned_node(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("      - name: Decide whether the PR author skips the convention checks\n        id: author-decision\n        if: github.event_name == 'pull_request'\n", workflow)
+        self.assertIn("      - name: Decide whether the PR author skips the convention checks\n        id: author-decision\n        if: ${{ !cancelled() && github.event_name == 'pull_request' }}\n", workflow)
         self.assertIn("PR_AUTHOR: ${{ github.event.pull_request.user.login }}", workflow)
         self.assertNotIn("github.actor", workflow)
         self.assertIn("uses: $/actions/publication-checks", workflow)
@@ -168,14 +173,14 @@ class HygieneCoreTests(unittest.TestCase):
 
     def test_the_hygiene_workflow_runs_each_check_only_when_the_change_can_affect_it(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertRegex(workflow, r'(?m)^        id: changes\n(?:        env:\n(?:          .*\n)+)?        run: \|\n(?:          .*\n)*?          .*hygiene\.py" changes "\$@" .* --github-output "\$GITHUB_OUTPUT" --summary "\$GITHUB_STEP_SUMMARY"$')
+        self.assertRegex(workflow, r'(?m)^        id: changes\n        if: \$\{\{ !cancelled\(\) && \(steps\.dispatch\.outcome == \'success\' \|\| github\.event_name != \'repository_dispatch\'\) \}\}\n(?:        env:\n(?:          .*\n)+)?        run: \|\n(?:          .*\n)*?          .*hygiene\.py" changes "\$@" .* --github-output "\$GITHUB_OUTPUT" --summary "\$GITHUB_STEP_SUMMARY"$')
         self.assertIn('*) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;', workflow)
         for selector in ("step:resources", "key:outputs.path.value", "key:runs.using"):
             self.assertIn(f'--definition "actions/repository-hygiene/action.yml#{selector}"', workflow)
         for flag, step, field in (("packages", "coverage", "coverage-exclude"), ("markdown", "links", "link-exclude")):
             self.assertIn(f'--{flag}-definition ".github/workflows/repository-hygiene.yml#step:{step}"', workflow)
-            for definition in ("repository-hygiene.yml", "repository-hygiene-caller.yml"):
-                self.assertIn(f'--{flag}-definition ".github/workflows/{definition}#{field}"', workflow)
+            self.assertIn(f'--{flag}-definition ".github/workflows/repository-hygiene.yml#{field}"', workflow)
+            self.assertNotIn("repository-hygiene-caller.yml", workflow)
         self.assertIn("BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}", workflow)
         self.assertIn("HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}", workflow)
         self.assertIn("COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}", workflow)
@@ -183,16 +188,16 @@ class HygieneCoreTests(unittest.TestCase):
         self.assertIn('if [ "$ZIZMOR" = "true" ]; then tools="$tools --tool zizmor"; fi', workflow)
         self.assertIn('if [ "$REUSE" = "true" ]; then tools="$tools --tool reuse"; fi', workflow)
         self.assertNotIn("setup-python", workflow, "the pinned reuse installs into a virtual environment of the job's own python3")
-        self.assertIn("id: install\n        if: ${{ !cancelled() && (steps.dispatch.outcome == 'success' || !(github.event_name == 'repository_dispatch' && github.event.client_payload.sha)) }}", workflow)
         for check in ("Dependabot coverage", "Relative links"):
-            self.assertLess(workflow.index(f"- name: {check}"), workflow.index("- name: Install the pinned tools"))
+            self.assertLess(workflow.index(f"- name: {check}"), workflow.index("- name: Install actionlint and ShellCheck"))
         for check in ("actionlint", "zizmor", "reuse"):
-            self.assertRegex(workflow, rf"(?m)^        id: {check}\n        if: \$\{{\{{ !cancelled\(\) && steps\.install\.outcome == 'success' && steps\.changes\.outputs\.{check} == 'true' \}}\}}\n(?:        env:\n(?:          .*\n)+)?        run: .*hygiene\.py\" {check} ")
+            self.assertRegex(workflow, rf"(?m)^        id: install-{check}\n        if: \$\{{\{{ !cancelled\(\) && \(steps\.dispatch\.outcome == 'success' \|\| github\.event_name != 'repository_dispatch'\) && steps\.changes\.outputs\.{check} == 'true' \}}\}}\n")
+            self.assertRegex(workflow, rf"(?m)^        id: {check}\n        if: \$\{{\{{ !cancelled\(\) && steps\.install-{check}\.outcome == 'success' && steps\.changes\.outputs\.{check} == 'true' \}}\}}\n(?:        env:\n(?:          .*\n)+)?        run: (?:\|\n(?:          .*\n)+?          )?.*hygiene\.py\" {check} ")
         self.assertRegex(workflow, r"(?m)^        if: \$\{\{ !cancelled\(\) && steps\.changes\.outputs\.packages == 'true' \}\}\n(?:        env:\n(?:          .*\n)+)?        run: .*hygiene\.py\" coverage ")
         self.assertRegex(workflow, r"(?m)^        if: \$\{\{ !cancelled\(\) && steps\.changes\.outputs\.markdown == 'true' \}\}\n(?:        env:\n(?:          .*\n)+)?        run: .*hygiene\.py\" links ")
         self.assertNotIn("paths:", workflow)
         self.assertNotIn("paths-ignore:", workflow)
-        self.assertEqual(9, workflow.count('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/'))
+        self.assertEqual(13, workflow.count('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/'))
 
 
 if __name__ == "__main__":

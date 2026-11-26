@@ -9,15 +9,13 @@ import re
 import sys
 import unittest
 
-from tests.ci_policy_support import (REPOSITORY_ROOT, action_pin_pattern, condition_holds, entry_pathspecs, expression_value, flow_items,
+from tests.ci_policy_support import (REPOSITORY_ROOT, action_pin_pattern, entry_pathspecs, expression_value, flow_items,
                                      passed_list_steps, read_workflow, tracked_files)
 
 WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
 SUITE_JOBS = WORKFLOWS / "suite-jobs.yml"
 PIPELINE = WORKFLOWS / "pipeline.yml"
 AUTOMATION = WORKFLOWS / "automation.yml"
-SELECTION = WORKFLOWS / "suite-selection.yml"
-VERDICT = WORKFLOWS / "suite-verdict.yml"
 SUITES = REPOSITORY_ROOT / "tests" / "suites.json"
 LOCAL_CALL = "$/.github/workflows/suite-jobs.yml"
 DISPATCHED_REF = "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}"
@@ -54,9 +52,12 @@ class SuiteJobsWorkflowTests(unittest.TestCase):
         self.assertEqual(["workflow_call"], list(self.workflow["on"]))
         inputs = self.workflow["on"]["workflow_call"]["inputs"]
         self.assertEqual({"suites": ("string", "true"), "shards": ("string", "false"), "windows": ("string", "false"), "jobs": ("string", "true"),
-                          "language-steps": ("string", "false"), "shared-digest": ("string", "false"), "full": ("boolean", "false")},
+                          "language-steps": ("string", "false"), "shared-digests": ("string", "false"), "full": ("boolean", "false"),
+                          "linux-timeout-minutes": ("number", "false"), "windows-timeout-minutes": ("number", "false")},
                          {name: (value["type"], value["required"]) for name, value in inputs.items()})
         self.assertEqual("false", inputs["full"]["default"])
+        self.assertEqual("20", str(inputs["linux-timeout-minutes"]["default"]))
+        self.assertEqual("30", str(inputs["windows-timeout-minutes"]["default"]))
         self.assertNotIn("secrets", self.text)
         self.assertNotIn("pull_request_target", self.text)
 
@@ -70,6 +71,8 @@ class SuiteJobsWorkflowTests(unittest.TestCase):
         self.assertNotIn("strategy", windows, "the Windows job has no shards")
         self.assertNotIn("needs", linux)
         self.assertNotIn("needs", windows)
+        self.assertEqual("${{ inputs.linux-timeout-minutes }}", linux.get("timeout-minutes"))
+        self.assertEqual("${{ inputs.windows-timeout-minutes }}", windows.get("timeout-minutes"))
 
     def test_the_runner_label_and_the_fetch_depth_of_each_job_come_from_the_suite_list(self) -> None:
         for name, job in self.jobs.items():
@@ -163,7 +166,7 @@ class RecordedJobTests(unittest.TestCase):
     def test_the_recording_step_checks_the_digest_that_select_took(self) -> None:
         for job in JOBS:
             step = self.jobs[job]["steps"][self.order(job)["recording"]]
-            self.assertEqual({"id": "recording", "uses": "$/actions/recording", "with": {"digest": "${{ inputs.shared-digest }}"}}, step, job)
+            self.assertEqual({"id": "recording", "uses": "$/actions/recording", "with": {"digests": "${{ inputs.shared-digests }}"}}, step, job)
 
     def test_each_tool_is_installed_only_for_a_job_whose_setups_name_it_with_the_version_of_the_suite_list_outside_the_recording(self) -> None:
         for job, forms in JOBS.items():
@@ -191,7 +194,10 @@ class RecordedJobTests(unittest.TestCase):
                 self.assertEqual("Run the setups under the recording and provide what every setup gives", recorded["name"])
                 for step, phase in ((before, "before"), (recorded, "recorded")):
                     self.assertIn(f"{forms['command']} setups {forms['suites']} --phase {phase} ", step["run"])
-                    self.assertNotIn("if", step, "the command runs the setups that the job names, also when it names none")
+                    if job == "linux":
+                        self.assertEqual("matrix.shard.entries[0] != null", step.get("if"), "an empty shard skips setups and recording")
+                    else:
+                        self.assertNotIn("if", step, "the command runs the setups that the job names, also when it names none")
                     self.assertIn("setup-options.txt", step["run"], "both phases take the same setups and tools")
                 self.assertEqual("${{ steps.python.outputs.python-path }}", before["env"]["PYTHON_PATH"])
                 for tool in TOOLS:
@@ -248,13 +254,36 @@ class RecordedJobTests(unittest.TestCase):
     def test_a_shard_runs_its_entry_files_two_at_a_time_each_traced_and_the_windows_job_one_after_another(self) -> None:
         linux = self.jobs["linux"]["steps"][self.order("linux")["entries"]]["run"]
         self.assertIn("jq -c '.entries | to_entries[] | .value + {index: .key}' <<<\"$SHARD\" | xargs -d '\\n' -r -n 1 -P 2 bash -c 'run_entry \"$1\"' _", linux)
-        self.assertIn('exec --entry "$entry" --suites "$SUITES" --suite "$suite" -- "${command[@]}" "$entry"', linux)
+        self.assertIn('exec --entry "$entry" --suites "$SUITES" --suite "$suite" "${timeout_args[@]}" -- "${command[@]}" "$entry"', linux)
         windows = self.jobs["windows"]["steps"][self.order("windows")["entries"]]["run"]
         self.assertIn("foreach ($item in $job.entries)", windows)
-        self.assertIn("exec --entry $item.entry --suites $env:SUITES --suite $item.suite -- @command $item.entry", windows)
+        self.assertIn("exec --entry $item.entry --suites $env:SUITES --suite $item.suite @timeoutArgs -- @command $item.entry", windows)
         self.assertEqual({"SHARD": "${{ toJSON(matrix.shard) }}", "SUITES": "${{ inputs.suites }}"}, self.jobs["linux"]["env"])
         self.assertEqual({"WINDOWS": "${{ inputs.windows }}", "SUITES": "${{ inputs.suites }}",
                           "TOOLS": "${{ inputs.windows != '' && toJSON(fromJSON(inputs.windows).tools) || '{}' }}"}, self.jobs["windows"]["env"])
+
+    def test_an_empty_shard_records_nothing_and_every_python_command_uses_the_cache_prefix(self) -> None:
+        linux_steps = self.jobs["linux"]["steps"]
+        order = self.order("linux")
+        for key in ("before", "start", "recorded", "entries"):
+            self.assertEqual("matrix.shard.entries[0] != null", linux_steps[order[key]].get("if"), f"linux {key} must skip empty shard")
+        for job in JOBS:
+            for step in self.jobs[job]["steps"]:
+                text = str(step.get("run", ""))
+                if "recording.py" in text or "install_tools.py" in text:
+                    env = step.get("env") or {}
+                    self.assertTrue(
+                        "PYTHONPYCACHEPREFIX" in text or "PYTHONPYCACHEPREFIX" in env,
+                        f"{job} step {step.get('name')!r} must set PYTHONPYCACHEPREFIX",
+                    )
+
+    def test_the_windows_job_ensures_the_passed_list_exists_after_a_setup_failure(self) -> None:
+        steps = self.jobs["windows"]["steps"]
+        after = [step for step in steps[self.order("windows")["check"] + 1:] if "steps.check." in str(step.get("if", ""))]
+        self.assertEqual(["List the entry files that passed", "keep", "Upload the entry files that passed"],
+                         [step.get("id") or step["name"] for step in after])
+        self.assertIn("passed.json", after[0]["run"])
+        self.assertIn("Test-Path", after[0]["run"])
 
     def test_the_step_that_runs_the_entry_files_sets_no_variable_for_them(self) -> None:
         # The entry files get the job's environment before its setups; a variable of this step reaches only exec.
@@ -307,6 +336,11 @@ class RecordedJobTests(unittest.TestCase):
                 self.assertEqual([name for name in names if name != "keep"], passed_list_steps(plain, "success", ""), "a passed check uploads every pass")
                 self.assertEqual(names, passed_list_steps(plain, "failure", "additions"), "a check with additions uploads the kept passes")
                 self.assertEqual([], passed_list_steps(plain, "failure", ""), "after a recording error the job uploads no passed list")
+                self.assertEqual([name for name in names if name != "keep"],
+                                 passed_list_steps(plain, "success", "", event_name="push", ref_name="main"),
+                                 "a passed default-branch push uploads its passes for the default-branch record")
+                self.assertEqual([], passed_list_steps(plain, "success", "", event_name="push", ref_name="topic"),
+                                 "a non-default branch push uploads nothing")
 
 
 class UnrecordedInputRolesTests(unittest.TestCase):
@@ -341,6 +375,8 @@ class UnrecordedInputRolesTests(unittest.TestCase):
                 with self.subTest(job=name, step=step.get("name") or step.get("uses")):
                     if "language-steps" in str(step.get("if") or ""):
                         self.assertEqual(("language", frozenset({"python"})), (role, value))
+                    elif ".pinned" in str(step.get("if") or ""):
+                        self.assertEqual(("setups", frozenset({"gitleaks"})), (role, value))
                     elif role == "result":
                         self.assertTrue("suite-results" in str(step.get("run", "")) or "upload-artifact" in str(step.get("uses", "")),
                                         "a step after the entry files that is no recording step only stores or reports results")
@@ -362,86 +398,124 @@ class UnrecordedInputRolesTests(unittest.TestCase):
 
 
 class PipelinePartTests(unittest.TestCase):
-    """The part `suite-selection` of the pipeline: the selection, the call of the suite jobs and the store of the results."""
+    """The part `suite-selection` of the pipeline: the selection runs in `plan`, followed by the suite jobs and the store of the results."""
 
     def setUp(self) -> None:
         self.text, workflow = read_workflow(PIPELINE)
         self.jobs = workflow["jobs"]
         self.inputs = read_workflow(SUITE_JOBS)[1]["on"]["workflow_call"]["inputs"]
 
-    def test_the_selection_job_runs_the_steps_of_the_shared_selection_workflow_on_the_configured_suite_list(self) -> None:
-        shared = read_workflow(SELECTION)[1]["jobs"]["select"]
-        ours = self.jobs[PART]
-        self.assertEqual([step_key(step) for step in shared["steps"]], [step_key(step) for step in ours["steps"]])
-        for theirs, step in zip(shared["steps"], ours["steps"]):
-            with self.subTest(step=step_key(step)):
-                if step_key(step) == SELECT_STEP:
-                    self.assertEqual(f"${{{{ {PLANNED}.config.suites }}}}", step["env"]["SUITES"])
-                    self.assertEqual(f"${{{{ join({PLANNED}.config['language-steps'] || fromJSON('[]'), ' ') }}}}", step["env"]["LANGUAGE_STEPS"])
-                    self.assertEqual(f"${{{{ join({PLANNED}.config['pinned-tools'] || fromJSON('[]'), ' ') }}}}", step["env"]["PINNED_TOOLS"])
-                    self.assertEqual(set(theirs["env"]) - {"RUNNER_LABELS", "SETUP_VERSIONS"} | {"PINNED_TOOLS"}, set(step["env"]),
-                                     "the runner labels and the setups are data of the suite list, and the pinned tools a setting of the part")
-                    pinned = '\n          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$RESOURCE_PATH/../repository-hygiene/pins.json"; done'
-                    self.assertEqual(1, self.text.count(pinned), "select takes the pinned tools with the pins file of this revision")
-                    without = re.sub(r"\n +for (?:label|version) in [^\n]+", "", theirs["run"])
-                    ours_run = step["run"].replace(pinned.replace("\n          ", "\n"), "")
-                    self.assertNotEqual(ours_run, step["run"])
-                    self.assertEqual(re.sub(r"\s+", " ", without).replace("pull_request) set", "pull_request) set").strip(),
-                                     re.sub(r"\s+", " ", ours_run).replace(" ;; *)", " ;; *)").strip())
-                else:
-                    self.assertEqual(theirs, step, "a step of the selection is equal in both workflows")
-        self.assertEqual(shared["permissions"], ours["permissions"])
-        self.assertEqual(shared["runs-on"], ours["runs-on"])
+    def test_the_plan_job_runs_the_selection_steps_on_the_configured_suite_list(self) -> None:
+        plan_steps = {step_key(step): step for step in self.jobs["plan"]["steps"]}
+        self.assertNotIn(PART, self.jobs, "suite-selection runs in plan, not in a separate job")
+        for expected_step in (
+            "Load the scripts of the suite selection from this workflow revision",
+            "Load the shared recording step from this workflow revision",
+            "Check that the dispatched commit is on the default branch",
+            "Restore the default-branch record",
+            "Look up the tested tree of the pushed commit's pull request",
+            "Take the shared CI digests",
+            "Look up the shared CI digests from the default-branch record",
+            "Restore the passed results of the pull request",
+            SELECT_STEP,
+            "Record the tested state of the pull request",
+            "Upload the tested state of the pull request",
+        ):
+            self.assertIn(expected_step, plan_steps, f"selection step {expected_step!r} runs in plan")
+        select = plan_steps[SELECT_STEP]
+        initial = "fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection']"
+        self.assertEqual(f"${{{{ {initial}.config.suites }}}}", select["env"]["SUITES"])
+        self.assertEqual(f"${{{{ join({initial}.config['language-steps'] || fromJSON('[]'), ' ') }}}}", select["env"]["LANGUAGE_STEPS"])
+        self.assertEqual(f"${{{{ join({initial}.config['pinned-tools'] || fromJSON('[]'), ' ') }}}}", select["env"]["PINNED_TOOLS"])
+        pinned = '\n          for tool in $PINNED_TOOLS; do set -- "$@" --pinned-tool "$tool" --pins "$HYGIENE_PATH/pins.json"; done'
+        self.assertEqual(1, self.text.count(pinned), "select takes the pinned tools with the pins file of this revision")
+        self.assertIn('--unit-decisions "$RUNNER_TEMP/unit-decisions.json"', select["run"])
 
-    def test_the_selection_job_gives_the_outputs_of_select_and_the_jobs_of_the_suite_list(self) -> None:
-        shared = read_workflow(SELECTION)[1]["jobs"]["select"]["outputs"]
-        self.assertEqual({**shared, "jobs": "${{ steps.select.outputs.jobs }}"}, self.jobs[PART]["outputs"])
+    def test_the_plan_job_gives_the_outputs_of_select_and_the_jobs_of_the_suite_list(self) -> None:
+        expected_outputs = {
+            "suites": "${{ steps.select.outputs.suites }}",
+            "shards": "${{ steps.select.outputs.shards }}",
+            "windows": "${{ steps.select.outputs.windows }}",
+            "language-steps": "${{ steps.select.outputs.language-steps }}",
+            "units": "${{ steps.select.outputs.units }}",
+            "reused": "${{ steps.select.outputs.reused }}",
+            "selection": "${{ steps.select.outcome }}",
+            "shared-digests": "${{ steps.digest.outputs.shared-digests }}",
+            "identical": "${{ steps.select.outputs.identical }}",
+            "jobs": "${{ steps.select.outputs.jobs }}",
+        }
+        for key, value in expected_outputs.items():
+            self.assertEqual(value, self.jobs["plan"]["outputs"].get(key), key)
 
     def test_the_suite_jobs_run_when_the_selection_selects_an_entry_file_or_a_language_step(self) -> None:
         job = self.jobs[f"{PART}-jobs"]
         self.assertEqual(LOCAL_CALL, job["uses"])
-        self.assertEqual(["plan", PART], needed(job))
+        self.assertEqual(["plan"], needed(job))
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertNotIn("secrets", job)
-        for shards, windows, runs in (("", "", False), ("[]", "", False), ('[{"shard":1}]', "", True), ("", '{"entries":[]}', True), ("[]", "x", True)):
-            with self.subTest(shards=shards, windows=windows):
-                context = {"needs": {PART: {"outputs": {"shards": shards, "windows": windows}}}}
-                self.assertEqual(runs, bool(expression_value(job["if"].replace(f"needs.{PART}", "needs.selection"), {"needs": {"selection": context["needs"][PART]}})))
+        # A failed light check in plan skips them not: they run unless cancelled whenever the plan wrote its plan.
+        self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
+        condition = job["if"].replace("!cancelled() && ", "", 1)
+        for plan in ("written", ""):
+            for shards, windows, runs in (("", "", False), ("[]", "", False), ('[{"shard":1}]', "", True), ("", '{"entries":[]}', True), ("[]", "x", True)):
+                with self.subTest(plan=plan, shards=shards, windows=windows):
+                    context = {"needs": {"plan": {"result": "failure", "outputs": {"plan": plan, "shards": shards, "windows": windows}}}}
+                    self.assertEqual(runs and bool(plan), bool(expression_value(condition, context)))
 
     def test_the_suite_jobs_get_exactly_the_inputs_that_the_workflow_declares_from_the_selection_and_the_configuration(self) -> None:
         passed = self.jobs[f"{PART}-jobs"]["with"]
         self.assertEqual(set(self.inputs) - {"full"}, set(passed), "the mode stays the default: no full recording")
         self.assertEqual(f"${{{{ {PLANNED}.config.suites }}}}", passed["suites"])
-        for name in ("shards", "windows", "jobs", "language-steps", "shared-digest"):
-            self.assertEqual(f"${{{{ needs.{PART}.outputs.{name} }}}}", passed[name])
+        for name in ("shards", "windows", "jobs", "language-steps", "shared-digests"):
+            self.assertEqual(f"${{{{ needs.plan.outputs.{name} }}}}", passed[name])
+        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-linux'] }}", passed["linux-timeout-minutes"])
+        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan).timeouts['suite-selection-windows'] }}", passed["windows-timeout-minutes"])
 
-    def test_a_newer_head_of_a_pull_request_cancels_the_suite_jobs_in_a_group_of_their_own(self) -> None:
-        selection, jobs = self.jobs[PART]["concurrency"], self.jobs[f"{PART}-jobs"]["concurrency"]
-        self.assertEqual(f"{selection['group']}-jobs", jobs["group"], "two jobs of one run never share a group")
-        self.assertEqual(selection["cancel-in-progress"], jobs["cancel-in-progress"])
+    def test_suite_jobs_rely_on_workflow_level_concurrency(self) -> None:
+        self.assertNotIn("concurrency", self.jobs["plan"])
+        self.assertNotIn("concurrency", self.jobs[f"{PART}-jobs"])
 
     def test_the_results_job_stores_the_passed_results_of_a_pull_request_run_that_was_not_cancelled(self) -> None:
         job = self.jobs[f"{PART}-results"]
-        self.assertEqual([PART, f"{PART}-jobs"], needed(job))
+        self.assertEqual(["plan", f"{PART}-jobs"], needed(job))
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertEqual("ubuntu-slim", job["runs-on"])
-        condition = job["if"].replace(f"needs.{PART}.result", "needs.select.result")
-        for event, result, runs in (("pull_request", "success", True), ("push", "success", False), ("pull_request", "failure", False),
-                                    ("pull_request", "skipped", False), ("repository_dispatch", "success", False)):
-            with self.subTest(event=event, result=result):
-                self.assertEqual(runs, condition_holds(condition, {"github.event_name": event, "needs.select.result": result}))
+        for event, result, plan, units, reused, runs in (
+            ("pull_request", "success", "written", '{"k":1}', "", True),
+            ("pull_request", "success", "written", "", '{"k":1}', True),
+            ("pull_request", "failure", "written", '{"k":1}', "", True),
+            ("pull_request", "failure", "", '{"k":1}', "", False),
+            ("pull_request", "skipped", "", '{"k":1}', "", False),
+            ("pull_request", "success", "written", "", "", False),
+            ("push", "success", "written", '{"k":1}', "", False),
+            ("repository_dispatch", "success", "written", '{"k":1}', "", False),
+        ):
+            with self.subTest(event=event, result=result, plan=plan, units=units, reused=reused):
+                context = {"github": {"event_name": event}, "needs": {"plan": {"result": result, "outputs": {"plan": plan, "units": units, "reused": reused}}}}
+                self.assertEqual(runs, bool(expression_value(job["if"].replace("!cancelled() && ", ""), context)))
         self.assertIn("!cancelled()", job["if"], "the passes of a run with a failed suite job are stored; those of a cancelled run are not")
-        shared = {step_key(step): step for step in read_workflow(VERDICT)[1]["jobs"]["validation"]["steps"]}
         names = [step_key(step) for step in job["steps"]]
-        self.assertEqual([name for name in shared if name != "Decide the verdict from the selection and the results of the called jobs"], names)
+        self.assertEqual([
+            "Load the scripts of the suite selection from this workflow revision",
+            "Download the entry files that passed in the run",
+            "Download the additions of the run",
+            "Find the additions of the run",
+            "Download the entry times of the run",
+            "actions/checkout",
+            "Write the record of the passed results",
+            "Store the passed results in the pull request's cache",
+        ], names)
         store = job["steps"][names.index("Write the record of the passed results")]
         self.assertEqual("${{ toJSON(needs) }}", store["env"]["NEEDS"])
-        self.assertIn(f"--selection-job {PART} ", store["run"])
-        self.assertEqual(shared["Store the passed results in the pull request's cache"]["with"], job["steps"][-1]["with"])
+        self.assertIn("--selection-job plan ", store["run"])
+        self.assertEqual({
+            "path": "${{ runner.temp }}/suite-results/record.json",
+            "key": "suite-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}",
+        }, job["steps"][-1]["with"])
         self.assertEqual("steps.store.outputs.stored == 'true'", job["steps"][-1]["if"])
 
-    def test_the_verdict_fails_on_a_failed_selection_suite_job_or_store(self) -> None:
-        self.assertLessEqual({PART, f"{PART}-jobs", f"{PART}-results"}, set(needed(self.jobs["verdict"])))
+    def test_the_verdict_fails_on_a_failed_plan_suite_job_or_store(self) -> None:
+        self.assertLessEqual({"plan", f"{PART}-jobs", f"{PART}-results"}, set(needed(self.jobs["verdict"])))
 
 
 class FullRecordingCallTests(unittest.TestCase):
@@ -455,7 +529,7 @@ class FullRecordingCallTests(unittest.TestCase):
         job = self.jobs["full-recording-jobs"]
         self.assertEqual(LOCAL_CALL, job["uses"])
         self.assertEqual("full-recording", job["needs"])
-        self.assertEqual("needs.full-recording.outputs.run == 'true'", job["if"])
+        self.assertNotIn("if", job, "full-recording itself starts only when the plan selects it")
         self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertNotIn("secrets", job, "the jobs that run the repository's code get no key")
         self.assertEqual({"suites": "${{ needs.full-recording.outputs.suites }}", "shards": "${{ needs.full-recording.outputs.shards }}",
@@ -483,11 +557,31 @@ class FormerLayoutTests(unittest.TestCase):
     def test_this_repository_holds_no_validation_workflow_of_its_own(self) -> None:
         callers = {path.name: path.read_text(encoding="utf-8") for path in sorted(WORKFLOWS.glob("*.yml"))}
         self.assertNotIn("validate.yml", callers)
+        self.assertNotIn("suite-selection.yml", callers, "the legacy suite-selection workflow is retired")
+        self.assertNotIn("suite-verdict.yml", callers, "the legacy suite-verdict workflow is retired")
         using = sorted(name for name, text in callers.items() if "exec --entry" in text or "suite-selection.yml" in text.replace("name: Suite selection", ""))
         self.assertEqual(["suite-jobs.yml"], [name for name in using if "exec --entry" in callers[name]], "only the shared suite jobs run entry files")
         self.assertEqual([], [name for name in using if "/suite-selection.yml" in callers[name]], "no workflow of this repository calls the selection workflow")
         self.assertEqual([".github/workflows/pipeline.yml", ".github/workflows/automation.yml"],
                          [f".github/workflows/{name}" for name in ("pipeline.yml", "automation.yml") if LOCAL_CALL in callers[name]])
+
+    def test_the_suite_list_names_no_deleted_workflow(self) -> None:
+        suite_list = json.loads(SUITES.read_text(encoding="utf-8"))
+        existing = {f".github/workflows/{path.name}" for path in WORKFLOWS.glob("*.yml")}
+        stale: set[str] = set()
+        for suite in suite_list["suites"]:
+            for key in ("paths", "extra_paths", "directory_memberships"):
+                for item in suite.get(key, ()):
+                    base = item.removesuffix("/**")
+                    if base.startswith(".github/workflows/") and base.endswith((".yml", ".yaml")) and base not in existing:
+                        stale.add(base)
+            for key in ("entry_paths", "entry_extra_paths", "entry_directory_memberships"):
+                for items in suite.get(key, {}).values():
+                    for item in items:
+                        base = item.removesuffix("/**")
+                        if base.startswith(".github/workflows/") and base.endswith((".yml", ".yaml")) and base not in existing:
+                            stale.add(base)
+        self.assertEqual([], sorted(stale), "the suite list names deleted workflows")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ an input that cannot be read.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -92,10 +93,7 @@ def decision(changed: list[str] | None) -> tuple[bool, str]:
         return True, "the changed files could not be determined"
     if not changed:
         return True, "no file changed"
-    other = next((path for path in changed if not path.lower().endswith(".md")), None)
-    if other is not None:
-        return True, f"`{other}` is no Markdown file"
-    return False, "every changed file ends in `.md`"
+    return True, f"{len(changed)} file{'' if len(changed) == 1 else 's'} changed; inputs are unknown"
 
 
 def decide(root: Path, base: str | None, head: str | None, compare: str, lookup: Path | None, output: Path | None, summary: Path | None) -> int:
@@ -151,6 +149,34 @@ def show(command: list[str]) -> None:
 def run_command(command: list[str], root: Path) -> int:
     show(command)
     return subprocess.run(command, cwd=root, check=False).returncode
+
+
+LOCK_AND_MANIFEST_FILES = ("pyproject.toml", "setup.py", "setup.cfg", "uv.lock", "poetry.lock", "pdm.lock", "Pipfile.lock")
+
+
+def cache_key(root: Path, value: str) -> str:
+    """Deterministic pip cache key for ``root`` and ``value``, hashed over Python minor version and dependency/lock files."""
+    files: set[Path] = set()
+    for name in LOCK_AND_MANIFEST_FILES:
+        candidate = root / name
+        if candidate.is_file():
+            files.add(candidate.resolve())
+    for candidate in root.glob("requirements*.txt"):
+        if candidate.is_file():
+            files.add(candidate.resolve())
+    if value.endswith(".txt"):
+        candidate = (root / value).resolve()
+        if candidate.is_file() and candidate.is_relative_to(root):
+            files.add(candidate)
+    hasher = hashlib.sha256()
+    py_minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    hasher.update(f"python={py_minor}\ninstall={value}\n".encode("utf-8"))
+    for path in sorted(files):
+        rel = path.relative_to(root).as_posix()
+        hasher.update(f"file={rel}\n".encode("utf-8"))
+        hasher.update(path.read_bytes())
+        hasher.update(b"\n")
+    return f"pip-py{py_minor}-{hasher.hexdigest()[:16]}"
 
 
 def install(root: Path, value: str) -> int:
@@ -248,6 +274,10 @@ def build_parser() -> argparse.ArgumentParser:
     installing = commands.add_parser("install", help="install the project's dependencies with pip")
     installing.add_argument("--root", required=True, help="the project's directory")
     installing.add_argument("--install", default="", help="a requirements file ending in .txt, or an extra of the project; empty installs nothing")
+    keying = commands.add_parser("cache-key", help="print the dependency cache key for the project")
+    keying.add_argument("--root", required=True, help="the project's directory")
+    keying.add_argument("--install", default="", help="a requirements file ending in .txt, or an extra of the project; empty installs nothing")
+    keying.add_argument("--github-output", type=Path, help="append the output key to this file")
     testing = commands.add_parser("test", help="run the project's tests with pytest or unittest")
     testing.add_argument("--root", required=True, help="the project's directory")
     return parser
@@ -275,6 +305,13 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if options.command == "install":
             return install(root.resolve(), options.install)
+        if options.command == "cache-key":
+            key = cache_key(root.resolve(), options.install)
+            print(key)
+            if options.github_output is not None:
+                with options.github_output.open("a", encoding="utf-8") as handle:
+                    handle.write(f"key={key}\n")
+            return 0
         return test(root.resolve(), options.root)
     except ProjectError as problem:
         print(f"error: {problem}", file=sys.stderr)

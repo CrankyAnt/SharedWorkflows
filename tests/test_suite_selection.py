@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -58,7 +59,7 @@ class SuiteListTests(unittest.TestCase):
             ({"always": [], "suites": [{"name": "a", "entries": ["x.py"],
                                         "extra_directory_memberships": [""]}]}, "(a): extra_directory_memberships[1]"),
             ({"always": [], "suites": [{"name": "a", "entries": ["x.py"], "paths": []}] * 2}, "duplicate suite name a"),
-            ({"suites": []}, "the keys always and suites, and optionally jobs, setups and module_lookups"),
+            ({"suites": []}, "the keys always and suites, and optionally entry_durations_version, jobs, setups and module_lookups"),
             ({"always": [], "suites": [], "module_lookups": {"tests": "helper"}}, "module_lookups (tests)"),
             ({"always": [], "suites": [{"name": "a", "entries": ["x.py"], "entry_lookup_directories": {"x.py": ["tests"]}}]},
              "entry_lookup_directories needs entry_selection"),
@@ -598,16 +599,22 @@ class GlobEntrySelectionTests(FixtureRepositoryTests):
         selection = suite_selection.every_suite(suite_list, "test")
         self.assertEqual(selection.decisions[0].entries, ("tests/test_a.py", "tests/test_b.py", "tests/test_new.py"))
         units = suite_selection.reuse_units(selection, suite_list, reuse.Tree(files, suite_selection.matches), {}, {}, ignore_content={})
-        self.assertEqual([unit.entries for unit in units], [("tests/test_a.py",), ("tests/test_b.py",)],
-                         "the file without a list has unknown inputs, so it gets no reuse key")
+        self.assertEqual([(unit.entries, unit.unlisted) for unit in units],
+                         [(("tests/test_a.py",), False), (("tests/test_b.py",), False), (("tests/test_new.py",), True)],
+                         "the file without a list is emitted as unlisted so store --additions can key it after it passes")
+        after, running, reused = suite_selection.apply_reuse(selection, units, {unit.key: 100 for unit in units})
+        self.assertEqual(after.decisions[0].entries, ("tests/test_new.py",),
+                         "an unlisted file is never looked up or reused even if its sentinel key were present in the record")
+        self.assertEqual(len(reused), 2)
+        self.assertEqual([unit["entries"] for unit in running.values()], [["tests/test_new.py"]])
 
-    def test_the_estimate_of_a_file_that_no_entry_names_any_more_does_not_count_toward_the_mean(self) -> None:
+    def test_the_estimate_of_a_file_that_no_entry_names_any_more_is_dropped_and_unmeasured_entries_stay_none(self) -> None:
         document = json.loads(json.dumps(self.SUITES))
         document["suites"][0]["entry_durations"] = {"tests/test_a.py": 2.0, "old/test_gone.py": 98.0}
         tracked = {"tests/test_a.py", "tests/test_b.py"}
         suite_list = suite_selection.resolve_entries(suite_selection.parse_suite_list(json.dumps(document)), tracked)
         units = suite_selection.selected_units(suite_selection.every_suite(suite_list, "test"), suite_list, "linux")
-        self.assertEqual([(entry, estimate) for _, entry, estimate in units], [("tests/test_a.py", 2.0), ("tests/test_b.py", 2.0)])
+        self.assertEqual([(entry, estimate) for _, entry, estimate in units], [("tests/test_a.py", 2.0), ("tests/test_b.py", None)])
 
     def test_a_list_keyed_by_the_pattern_itself_is_the_list_of_no_matched_file(self) -> None:
         # Such a hand-written key loads; no recording writes it. Every matched file then has no list of its own.
@@ -1181,15 +1188,23 @@ class ShardTests(unittest.TestCase):
         suite.update(extra)
         return suite
 
-    def outputs(self, suites: list[dict], *arguments: str) -> dict[str, str]:
+    def run_select(self, suites: list[dict], *arguments: str, github_actions: bool = False) -> tuple[dict[str, str], str, str]:
         write(self.root, "suites.json", json.dumps({"always": [], "suites": suites}))
         output = self.root / "outputs.txt"
+        summary = self.root / "summary.md"
         output.unlink(missing_ok=True)
-        with redirect_stdout(io.StringIO()):
+        summary.unlink(missing_ok=True)
+        printed = io.StringIO()
+        environment = {"GITHUB_ACTIONS": "true"} if github_actions else {}
+        with mock.patch.dict(os.environ, environment), redirect_stdout(printed):
             code = suite_selection.main(["select", "--root", str(self.root), "--suites", str(self.root / "suites.json"),
-                                         "--json-output", str(output), *arguments])
+                                         "--json-output", str(output), "--summary", str(summary), *arguments])
         self.assertEqual(code, 0)
-        return dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+        outputs = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+        return outputs, printed.getvalue(), summary.read_text(encoding="utf-8")
+
+    def outputs(self, suites: list[dict], *arguments: str) -> dict[str, str]:
+        return self.run_select(suites, *arguments)[0]
 
     def shards(self, suites: list[dict], *arguments: str) -> list[dict]:
         return json.loads(self.outputs(suites, *(arguments or ("--changed-file", "src/app.py")))["shards"])
@@ -1198,42 +1213,98 @@ class ShardTests(unittest.TestCase):
     def layout(shards: list[dict]) -> list[tuple[float, list[str]]]:
         return [(shard["estimate"], [item["entry"].removeprefix("checks/test_").removesuffix(".py") for item in shard["entries"]]) for shard in shards]
 
-    def test_the_fewest_shards_keep_each_shard_s_two_worker_time_under_120_s_assigned_greedily_by_estimate(self) -> None:
-        # One shard would take 180 s on its two workers (100 + 50 + 30 against 70 + 60 + 40 after greedy assignment).
-        # Greedy by estimate over two shards: 100, 70, 60 to the second, 50 to the first, 40 to the second, 30 to the first.
-        shards = self.shards([self.suite("unit", {"a": 100, "b": 70, "c": 60, "d": 50, "e": 40, "f": 30})])
-        self.assertEqual(self.layout(shards), [(100, ["a", "d", "f"]), (100, ["b", "c", "e"])])
+    def test_the_fewest_shards_keep_each_shard_s_two_worker_time_within_the_bound_assigned_longest_first(self) -> None:
+        # SHARD_BOUND is 90 s (180 s goal minus 90 s fixed cost).
+        # Entries 70, 50, 45, 35, 30, 20: one shard takes 130 s on two workers, two shards fit within 90 s.
+        # Greedy longest-first over two shards: 70 -> s1, 50 -> s2, 45 -> s2, 35 -> s1, 30 -> s2, 20 -> s1.
+        shards = self.shards([self.suite("unit", {"a": 70, "b": 50, "c": 45, "d": 35, "e": 30, "f": 20})])
+        self.assertEqual(self.layout(shards), [(70, ["a", "d", "f"]), (75, ["b", "c", "e"])])
         self.assertEqual([shard["shard"] for shard in shards], [1, 2])
-        self.assertEqual(shards[0]["entries"][0], {"suite": "unit", "entry": "checks/test_a.py", "command": ["python", "-m", "unittest"]})
+        self.assertEqual(shards[0]["entries"][0], {"suite": "unit", "entry": "checks/test_a.py", "command": ["python", "-m", "unittest"], "timeout": 210})
         self.assertEqual(shards[0]["setups"], ["python"])
 
-    def test_work_that_fits_two_workers_under_the_bound_stays_in_one_shard(self) -> None:
-        shards = self.shards([self.suite("unit", {"a": 60, "b": 50, "c": 50, "d": 59})])
-        self.assertEqual(self.layout(shards), [(110, ["a", "d", "b", "c"])])
+    def test_work_that_fits_two_workers_within_the_bound_stays_in_one_shard(self) -> None:
+        shards = self.shards([self.suite("unit", {"a": 45, "b": 40, "c": 40, "d": 45})])
+        self.assertEqual(self.layout(shards), [(85, ["a", "d", "b", "c"])])
 
-    def test_an_entry_file_over_the_bound_gets_a_shard_of_its_own(self) -> None:
-        shards = self.shards([self.suite("unit", {"a": 130, "b": 50, "c": 40})])
-        self.assertEqual(self.layout(shards), [(130, ["a"]), (50, ["b", "c"])])
+    def test_an_entry_file_over_the_bound_gets_a_shard_of_its_own_and_is_reported_as_a_departure(self) -> None:
+        outputs, printed, summary = self.run_select(
+            [self.suite("unit", {"a": 130, "b": 50, "c": 40})], "--changed-file", "src/app.py", github_actions=True)
+        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(130, ["a"]), (50, ["b", "c"])])
+        self.assertIn("Departure: shard 1 exceeds the 90 s bound (130.0 s)", printed)
+        self.assertIn("::warning::Departure: shard 1 exceeds the 90 s bound (130.0 s)", printed)
+        self.assertIn("### Departures", summary)
+        self.assertIn("| Shard | Over-bound departure |", summary)
+        self.assertIn("| `shard 1` | exceeds the 90 s bound (130.0 s) |", summary)
 
-    def test_an_entry_file_without_an_estimate_counts_with_the_mean_of_the_stored_estimates(self) -> None:
-        # With b at the mean of 100, one shard would take 200 s; with b at 0 it would fit in one shard. On a tie the
-        # first shard takes the entry file.
-        shards = self.shards([self.suite("unit", {"a": 100, "b": None}), self.suite("other", {"c": 100})])
-        self.assertEqual(self.layout(shards), [(100, ["a", "c"]), (100, ["b"])])
+    def test_an_entry_file_without_a_measured_duration_packs_under_the_assumed_estimate_without_changing_timeout_or_estimate(self) -> None:
+        # Assumed estimate is 60 s (180 s floor / 3): 60, 40 and 30 s take 70 s on two workers, so one shard under 90 s.
+        # Reported estimate counts measured entries only (40 s), and the unmeasured entry keeps its 180 s floor timeout.
+        shards = self.shards([self.suite("unit", {"a": 40, "b": None}), self.suite("other", {"c": 30})])
+        self.assertEqual(self.layout(shards), [(40, ["b", "a", "c"])])
+        by_entry = {item["entry"]: item for item in shards[0]["entries"]}
+        self.assertEqual(by_entry["checks/test_b.py"]["timeout"], 180)
+        self.assertEqual(by_entry["checks/test_a.py"]["timeout"], 180)
 
-    def test_an_entry_file_without_an_estimate_counts_with_the_mean_of_its_operating_system(self) -> None:
-        # Linux stores 100 and 50 s, Windows 300 s: the Linux mean is 75 s, where the mean over both would be 150 s.
+    def test_unmeasured_entry_files_pack_under_the_assumed_estimate_while_windows_stays_unsharded(self) -> None:
         windows = self.suite("windows", {}, entries=["checks/test_a.py", "checks/test_b.py"], os="windows", paths=["docs/**"],
                              entry_durations={"checks/test_a.py": 300})
-        outputs = self.outputs([self.suite("unit", {"a": 100, "b": 50, "c": None}, paths=["docs/**"]), windows],
+        outputs = self.outputs([self.suite("unit", {"a": 40, "b": None, "c": None}, paths=["docs/**"]), windows],
                                "--changed-file", "docs/guide.md")
-        # c at 75 s fits beside b; at 150 s it would take a shard of its own.
-        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(100, ["a"]), (75, ["c", "b"])])
-        self.assertEqual(json.loads(outputs["windows"])["estimate"], 600, "checks/test_b.py counts at the Windows mean of 300 s")
+        # Packing weights 60, 60 and 40 s take 100 s in one shard (> 90 s), so two shards: [b, a] (60 s) and [c] (60 s).
+        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(40, ["b", "a"]), (0, ["c"])])
+        self.assertEqual(json.loads(outputs["windows"])["estimate"], 300, "Windows is not sharded and sums its measured estimates")
 
-    def test_without_any_stored_estimate_every_selected_entry_file_shares_one_shard(self) -> None:
+    def test_unmeasured_entry_files_pack_two_per_shard_on_normal_runs_and_six_on_full_recordings(self) -> None:
         shards = self.shards([self.suite("unit", {"a": None, "b": None, "c": None})])
-        self.assertEqual(self.layout(shards), [(0, ["a", "b", "c"])])
+        self.assertEqual(self.layout(shards), [(0, ["a", "c"]), (0, ["b"])])
+        # Full recording uses 100 s assumed estimate (300 s floor / 3) under the 300 s full bound: 6 fit in one shard, 7 split into 2.
+        full_shards = json.loads(self.outputs([self.suite("unit", {name: None for name in "abcdefg"})], "--full")["shards"])
+        self.assertEqual(self.layout(full_shards), [(0, ["a", "c", "e", "g"]), (0, ["b", "d", "f"])])
+        self.assertTrue(all(item["timeout"] == 300 for shard in full_shards for item in shard["entries"]))
+
+    def test_linux_shards_stop_at_the_cap_spread_remaining_entries_and_report_over_bound_shards_as_departures(self) -> None:
+        entries = [f"checks/test_u{index:02d}.py" for index in range(45)]
+        for entry in entries:
+            write(self.root, entry)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "add entries")
+        outputs, printed, summary = self.run_select(
+            [self.suite("unit", {}, entries=entries)], "--changed-file", "src/app.py", github_actions=True)
+        shards = json.loads(outputs["shards"])
+        self.assertEqual(len(shards), suite_selection.MAX_LINUX_SHARDS)
+        self.assertEqual(sorted(item["entry"] for shard in shards for item in shard["entries"]), entries)
+        sizes = sorted(len(shard["entries"]) for shard in shards)
+        self.assertEqual(sizes, [2] * 15 + [3] * 5)
+        self.assertEqual(printed.count("::warning::Departure: shard "), 5)
+        self.assertIn("### Departures", summary)
+        self.assertIn("| Shard | Over-bound departure |", summary)
+
+    def test_a_running_language_step_uses_the_least_loaded_measured_shard_as_shard_1_and_reserves_its_allowance(self) -> None:
+        # 80 + 15 s language-step allowance exceeds 90 s, so [80, 10] splits and puts [10] in shard 1.
+        shards = self.shards([self.suite("unit", {"a": 80, "b": 10})], "--changed-file", "src/app.py", "--language-step", "python")
+        self.assertEqual(self.layout(shards), [(10, ["b"]), (80, ["a"])])
+        # With an entry over the bound, the lighter measured shard [50, 40] becomes shard 1 so the language step does not stack onto 130 s.
+        shards = self.shards([self.suite("unit", {"a": 130, "b": 50, "c": 40})], "--changed-file", "src/app.py", "--language-step", "python")
+        self.assertEqual(self.layout(shards), [(50, ["b", "c"]), (130, ["a"])])
+        # A shard with unmeasured entries only ([c, d], weight 60 s) is not ranked ahead of a measured shard ([b, e], weight 65 s).
+        shards = self.shards([self.suite("unit", {"a": 70, "b": 65, "c": None, "d": None, "e": None})],
+                             "--changed-file", "src/app.py", "--language-step", "python")
+        self.assertEqual(self.layout(shards), [(65, ["b", "e"]), (70, ["a"]), (0, ["c", "d"])])
+        # When every shard is unmeasured, shard 1 falls back to ranking all shards.
+        shards = self.shards([self.suite("unit", {"a": None, "b": None, "c": None})],
+                             "--changed-file", "src/app.py", "--language-step", "python")
+        self.assertEqual(self.layout(shards), [(0, ["a", "c"]), (0, ["b"])])
+        # When splitting cannot reduce the minimum shard below bound - allowance, [80, 80] stays in one shard and reports a departure.
+        outputs, printed, summary = self.run_select(
+            [self.suite("unit", {"a": 80, "b": 80})], "--changed-file", "src/app.py", "--language-step", "python")
+        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(80, ["a", "b"])])
+        self.assertIn("Departure: shard 1 exceeds the 90 s bound (80.0 s + 15 s language step = 95.0 s)", printed)
+        self.assertIn("| `shard 1` | exceeds the 90 s bound (80.0 s + 15 s language step = 95.0 s) |", summary)
+        # When the language step is skipped, the allowance does not apply and [80, 10] stays in one shard.
+        shards = self.shards([self.suite("unit", {"a": 80, "b": 10}, paths=["docs/**"])],
+                             "--changed-file", "docs/guide.md", "--language-step", "python")
+        self.assertEqual(self.layout(shards), [(80, ["a", "b"])])
 
     def test_only_selected_entry_files_are_sharded_with_the_setups_their_suites_and_entries_need(self) -> None:
         per_entry = self.suite("per-entry", {"a": 10, "b": 10}, entry_selection=True, setups=["python"],
@@ -1250,7 +1321,7 @@ class ShardTests(unittest.TestCase):
         linux = self.suite("unit", {"a": 10})
         outputs = self.outputs([linux, windows], "--changed-file", "docs/guide.md")
         self.assertEqual(json.loads(outputs["windows"]), {"estimate": 80, "setups": ["python"], "entries": [
-            {"suite": "windows", "entry": "checks/test_win.py", "command": ["python", "-m", "unittest"]}]})
+            {"suite": "windows", "entry": "checks/test_win.py", "command": ["python", "-m", "unittest"], "timeout": 240}]})
         self.assertEqual(json.loads(outputs["shards"]), [], "no Linux suite is selected")
         outputs = self.outputs([linux, windows], "--changed-file", "src/app.py")
         self.assertEqual(outputs["windows"], "", "no Windows entry file is selected, so the Windows job has nothing to start")
@@ -1279,20 +1350,19 @@ class ShardTests(unittest.TestCase):
         outputs = self.outputs(suites, "--changed-file", "src/app.py", "--language-step", "python")
         self.assertEqual(self.layout(json.loads(outputs["shards"])), [(10, ["a"])], "the step runs in the first shard of the selected suites")
 
-    def test_the_full_recording_runs_every_entry_file_in_shards_under_300_s_of_wide_traced_time(self) -> None:
-        # Stored estimates are mid-set seconds; the full recording counts them at 1.65 times under the wide set.
-        # 100, 80, 60 and 50 s become 165, 132, 99 and 82.5 s: 247.5 s on two workers, so one shard, where a
-        # pull-request run of the same entry files needs two shards under its 120 s bound.
-        suites = [self.suite("unit", {"a": 100, "b": 80}, paths=["docs/**"]), self.suite("other", {"c": 60, "d": 50}, paths=["docs/**"])]
+    def test_the_full_recording_runs_every_entry_file_in_shards_under_300_s_of_entry_time(self) -> None:
+        # Full recording uses the same entry-time scale: 150, 120, 100 and 80 s take 230 s on two
+        # workers, so one shard under the 300 s full-recording bound, where a normal run needs more shards under 90 s.
+        suites = [self.suite("unit", {"a": 150, "b": 120}, paths=["docs/**"]), self.suite("other", {"c": 100, "d": 80}, paths=["docs/**"])]
         outputs = self.outputs(suites, "--full")
-        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(247.5, ["a", "b", "c", "d"])])
+        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(230, ["a", "b", "c", "d"])])
         self.assertEqual(json.loads(outputs["suites"]), {"unit": "run", "other": "run"})
-        self.assertEqual(len(self.shards(suites, "--changed-file", "docs/guide.md")), 2)
+        self.assertEqual(len(self.shards(suites, "--changed-file", "docs/guide.md")), 4)
 
     def test_the_full_recording_splits_work_over_300_s_of_wide_traced_time(self) -> None:
-        # 150, 100 and 90 s become 247.5, 165 and 148.5 s: one shard would take 313.5 s on its two workers.
-        shards = json.loads(self.outputs([self.suite("unit", {"a": 150, "b": 100, "c": 90})], "--full")["shards"])
-        self.assertEqual(self.layout(shards), [(247.5, ["a"]), (165, ["b", "c"])])
+        # 250, 180 and 150 s take 330 s on two workers, exceeding the 300 s full-recording bound.
+        shards = json.loads(self.outputs([self.suite("unit", {"a": 250, "b": 180, "c": 150})], "--full")["shards"])
+        self.assertEqual(self.layout(shards), [(250, ["a"]), (180, ["b", "c"])])
 
     def test_the_full_recording_lists_every_windows_entry_file(self) -> None:
         windows = self.suite("windows", {}, entries=["checks/test_win.py"], os="windows", paths=["docs/**"],
@@ -1302,7 +1372,7 @@ class ShardTests(unittest.TestCase):
         outputs = self.outputs([per_entry, windows], "--full")
         self.assertEqual([item["entry"] for item in json.loads(outputs["windows"])["entries"]], ["checks/test_win.py"])
         self.assertEqual(json.loads(outputs["windows"])["estimate"], 80, "the Windows job records under its one ETW session")
-        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(16.5, ["a", "b"])])
+        self.assertEqual(self.layout(json.loads(outputs["shards"])), [(10, ["a", "b"])])
 
     def test_the_full_recording_takes_no_changed_files(self) -> None:
         write(self.root, "suites.json", json.dumps({"always": [], "suites": [self.suite("unit", {"a": 10})]}))
@@ -2040,77 +2110,6 @@ class IgnoreRuleSelectionTests(unittest.TestCase):
         self.assertEqual({"reads": "skip", "each": "skip"}, self.committed()[0])
 
 
-class VerdictTests(unittest.TestCase):
-    """The verdict command on fixture needs JSON."""
-
-    def setUp(self) -> None:
-        self.temporary = temporary_support.Directory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-
-    def verdict(self, needs: object) -> tuple[int, str, str, str]:
-        path = self.root / "needs.json"
-        path.write_text(needs if isinstance(needs, str) else json.dumps(needs), encoding="utf-8")
-        summary = self.root / "summary.md"
-        summary.write_text("", encoding="utf-8")
-        output, error = io.StringIO(), io.StringIO()
-        with redirect_stdout(output), mock.patch("sys.stderr", error):
-            code = suite_selection.main(["verdict", "--needs", str(path), "--summary", str(summary)])
-        return code, output.getvalue(), summary.read_text(encoding="utf-8"), error.getvalue()
-
-    @staticmethod
-    def needs(select: str = "success", **jobs: str) -> dict:
-        context = {"select": {"result": select, "outputs": {"suites": json.dumps({"unit": "run", "scripts": "skip"})}}}
-        context.update({name: {"result": result, "outputs": {}} for name, result in jobs.items()})
-        return context
-
-    def test_the_verdict_passes_when_select_succeeded_and_every_other_job_succeeded_or_was_skipped(self) -> None:
-        code, printed, markdown, _ = self.verdict(self.needs(unit="success", scripts="skipped"))
-        self.assertEqual(code, 0, printed)
-        self.assertIn("Verdict: passed", printed)
-        self.assertIn("**Passed.**", markdown)
-        self.assertIn("| `unit` | run |", markdown)
-        self.assertIn("| `scripts` | skip |", markdown)
-        self.assertIn("| `select` | success |", markdown)
-        self.assertIn("| `scripts` | skipped |", markdown)
-        code, _, markdown, _ = self.verdict(self.needs())
-        self.assertEqual(code, 0, "a selection that skipped every suite passes")
-        self.assertIn("**Passed.**", markdown)
-
-    def test_the_verdict_fails_when_select_did_not_succeed(self) -> None:
-        for result in ("failure", "cancelled", "skipped"):
-            with self.subTest(result=result):
-                code, printed, markdown, _ = self.verdict(self.needs(select=result, unit="skipped"))
-                self.assertEqual(code, 1)
-                self.assertIn(f"Verdict: failed: `select` ended {result}", printed)
-                self.assertIn(f"**Failed.** `select` ended {result}.", markdown)
-        code, printed, _, _ = self.verdict({"unit": {"result": "success", "outputs": {}}})
-        self.assertEqual(code, 1)
-        self.assertIn("the needs context has no `select` job", printed)
-
-    def test_the_verdict_fails_when_a_called_job_ended_failure_or_cancelled(self) -> None:
-        code, printed, markdown, _ = self.verdict(self.needs(unit="failure", scripts="cancelled", docs="success"))
-        self.assertEqual(code, 1)
-        self.assertIn("Verdict: failed: `unit` ended failure; `scripts` ended cancelled", printed)
-        self.assertIn("**Failed.** `unit` ended failure; `scripts` ended cancelled.", markdown)
-        self.assertIn("| `docs` | success |", markdown)
-
-    def test_a_missing_or_invalid_selection_output_is_noted_without_changing_the_rule(self) -> None:
-        needs = self.needs(unit="success")
-        needs["select"]["outputs"] = {}
-        code, printed, markdown, _ = self.verdict(needs)
-        self.assertEqual(code, 0)
-        self.assertIn("the `select` job has no `suites` output to list", markdown)
-        self.assertIn("the `select` job has no `suites` output to list", printed)
-
-    def test_an_unreadable_needs_context_exits_2(self) -> None:
-        for text in ("{not json", "[]", json.dumps({"select": "success"})):
-            with self.subTest(text=text):
-                code, _, _, error = self.verdict(text)
-                self.assertEqual(code, 2)
-                self.assertIn("the needs context", error)
-
-
 RECORDED_VALIDATE = """\
 name: Validate
 
@@ -2386,7 +2385,7 @@ class UnrecordedInputTests(UnrecordedFixture):
             "estimate": lambda suites, _: suites["lib"]["entry_durations"].update({"checks/test_a.py": 9.0}),
             "addition to a path list": lambda suites, _: suites["lib"]["entry_paths"]["checks/test_a.py"].append("src/new.py"),
             "addition to the extra reads": lambda suites, _: suites["docs"].update(extra_paths=["guides/**"]),
-            "every-suite patterns": lambda suites, document: document.update(always=["config/other.txt"]),
+            "addition to the every-suite patterns": lambda suites, document: document["always"].append("config/other.txt"),
         }
         for label, change in changes.items():
             with self.subTest(change=label):
@@ -2430,7 +2429,7 @@ class UnrecordedInputTests(UnrecordedFixture):
 
         changes = {
             "an addition to a path list": (lambda suites, _: suites["lib"]["entry_paths"]["checks/test_b.py"].append("src/new.py"), readers),
-            "the every-suite patterns": (lambda suites, document: document.update(always=["config/other.txt"]), readers),
+            "addition to the every-suite patterns": (lambda suites, document: document["always"].append("config/other.txt"), readers),
             "a command": (lambda suites, _: suites["win"].update(command=["python", "-m", "pytest"]), readers | {"checks/test_win.py"}),
         }
         for label, (change, expected) in changes.items():
@@ -2462,6 +2461,7 @@ class UnrecordedInputTests(UnrecordedFixture):
     def test_two_suite_list_texts_differ_only_in_estimates_when_both_parse_and_differ_in_nothing_else(self) -> None:
         before = json.dumps(RECORDED_SUITES, indent=2) + "\n"
         estimate = json.loads(before)
+        estimate["entry_durations_version"] = suite_selection.ENTRY_DURATIONS_VERSION
         estimate["suites"][0]["entry_durations"]["checks/test_a.py"] = 2.0
         after = json.dumps(estimate) + "\n"
         self.assertTrue(suite_selection.differs_in_estimates_only(before, after))
@@ -2697,13 +2697,14 @@ class RecordingModulesTests(unittest.TestCase):
     def assertLoadsOnlyTheSet(self, ran) -> None:
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         loaded = self.fixture.loaded()
-        self.assertIn(next(path for path in self.allowed if path.endswith("/suite_selection.py")), loaded)
+        self.assertIn(next(path for path in self.allowed if path.endswith("/suite_list.py")), loaded)
         self.assertLessEqual(loaded, self.allowed, "a module outside the set that recording_modules.py names")
 
     def test_the_set_holds_the_modules_that_recording_py_loads_and_not_those_that_only_select_imports(self) -> None:
         names = {path.rsplit("/", 1)[-1] for path in self.allowed}
-        self.assertLessEqual({"recording.py", "suite_selection.py", "ci_definition.py", "revisions.py", "recording_modules.py"}, names)
-        self.assertFalse({"reuse.py", "unrecorded.py"} & names, "select, the lookup and the store import them inside their functions")
+        self.assertLessEqual({"recording.py", "suite_list.py", "recording_modules.py"}, names)
+        self.assertFalse({"suite_selection.py", "ci_definition.py", "revisions.py", "reuse.py", "unrecorded.py"} & names,
+                         "selection code is not loaded by the recording step")
 
     def test_digest_loads_only_the_set(self) -> None:
         self.assertLoadsOnlyTheSet(self.fixture.run("digest"))

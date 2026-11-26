@@ -51,10 +51,11 @@ PARTS = {
     PYTHON_VERIFY: Part(shared_steps=["actions/python-tests", "actions/python-language-step"],
                         name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=False,
                         fixture_folder="working-directory",
-                        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
-    PYTHON_TEST: Part(shared_steps=["actions/python-tests"],
+                        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
+    PYTHON_TEST: Part(shared_steps=["actions/python-tests", "actions/python-language-step"],
                       name="${{ matrix.project['working-directory'] || '.' }}, ${{ matrix.project['python-version'] }}", runner_label=True,
-                      fixture_folder="working-directory", paths=["tests/fixtures/python_tests/", "actions/python-tests/"]),
+                      fixture_folder="working-directory",
+                      paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
     DOTNET_TEST: Part(shared_steps=["actions/dotnet-test"], name="${{ matrix.project['project'] }}", runner_label=True,
                       fixture_folder="project", paths=["tests/fixtures/dotnet_test/", "tests/fixtures/dotnet_console/", "actions/dotnet-test/"]),
     NODE_TEST: Part(shared_steps=["actions/node-test", "actions/node-test"], name="${{ matrix.project['working-directory'] }}", runner_label=True,
@@ -121,11 +122,11 @@ class PartJobTests(unittest.TestCase):
             with self.subTest(part=part):
                 self.assertEqual({"contents": "read"}, self.jobs[part]["permissions"])
                 section = self.section(part)
-                lines = [line.strip() for line in section.splitlines() if CACHE_WORD.search(line)]
-                self.assertEqual(list(entry.cache_lines), lines, "the only cache settings of a job switch a cache off")
-                section = "\n".join(line for line in section.splitlines() if line.strip() not in entry.cache_lines)
-                for forbidden in ("secrets.", "github.token", "GITHUB_TOKEN", "inputs.", "vars.", "actions/cache", "cache:", "cache-mode", "PIP_CACHE_DIR"):
+                for forbidden in ("secrets.", "github.token", "GITHUB_TOKEN", "inputs.", "vars.", "cache-mode"):
                     self.assertNotIn(forbidden, section)
+                caches = [step for step in self.steps(part) if str(step.get("uses", "")).startswith("actions/cache@")]
+                self.assertEqual(1, len(caches), "each part restores a dependency cache keyed by its pin or lock hash")
+                self.assertTrue(caches[0]["with"].get("key"), "the cache is keyed")
                 checkouts = [step for step in self.steps(part) if str(step.get("uses", "")).startswith("actions/checkout@")]
                 self.assertEqual(1, len(checkouts))
                 self.assertEqual({"ref": "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}", "persist-credentials": "false"}, {key: str(item) for key, item in checkouts[0]["with"].items()},
@@ -160,19 +161,20 @@ class PartJobTests(unittest.TestCase):
                 runner = f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}" if entry.runner_label else "ubuntu-26.04"
                 self.assertEqual(runner, self.jobs[part]["runs-on"], "a part that takes runner-label runs there, any other on ubuntu-26.04")
 
-    def test_the_jobs_of_two_projects_of_one_part_do_not_share_a_concurrency_group(self) -> None:
+    def test_project_part_jobs_rely_on_workflow_level_concurrency(self) -> None:
         for part in PARTS:
             with self.subTest(part=part):
-                self.assertEqual(f"${{{{ fromJSON(needs.plan.outputs.concurrency || '{{}}')['{part}'].group }}}}-${{{{ strategy.job-index }}}}",
-                                 self.jobs[part]["concurrency"]["group"])
+                self.assertNotIn("concurrency", self.jobs[part])
 
     def test_python_verify_installs_the_configured_python_and_dependencies_and_runs_the_language_step_from_the_working_directory(self) -> None:
         job = self.jobs[PYTHON_VERIFY]
         self.assertEqual("ubuntu-26.04", job["runs-on"])
-        resources, checkout, setup, install, language = self.steps(PYTHON_VERIFY)
+        resources, checkout, setup, pip_key, pip_cache, install, language = self.steps(PYTHON_VERIFY)
         self.assertEqual("resources", resources["id"])
         self.assertRegex(setup["uses"], r"^actions/setup-python@[0-9a-f]{40}$")
         self.assertEqual({"python-version": f"${{{{ {value('python-version')} }}}}"}, setup["with"])
+        self.assertEqual("pip-key", pip_key["id"])
+        self.assertRegex(pip_cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual(f"${{{{ {value('working-directory')} || '.' }}}}", install["env"]["WORKING_DIRECTORY"])
         self.assertEqual(f"${{{{ {value('install')} }}}}", install["env"]["INSTALL"])
         self.assertIn('python3 "$RESOURCE_PATH/python_tests.py" install --root "$WORKING_DIRECTORY" --install="$INSTALL"', install["run"])
@@ -184,24 +186,28 @@ class PartJobTests(unittest.TestCase):
         job = self.jobs[PYTHON_TEST]
         self.assertEqual(f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}", job["runs-on"])
         self.assertEqual({"run": {"shell": "bash"}}, job["defaults"], "Windows runs the same commands")
-        resources, checkout, setup, install, tests = self.steps(PYTHON_TEST)
+        resources, checkout, setup, pip_key, pip_cache, install, language, tests = self.steps(PYTHON_TEST)
         self.assertEqual({"python-version": f"${{{{ {value('python-version')} }}}}"}, setup["with"])
+        self.assertEqual("pip-key", pip_key["id"])
+        self.assertRegex(pip_cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         for step in (install, tests):
             self.assertEqual("${{ runner.os == 'Windows' && 'python' || 'python3' }}", step["env"]["PYTHON"])
             self.assertEqual(f"${{{{ {value('working-directory')} || '.' }}}}", step["env"]["WORKING_DIRECTORY"])
             self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/python_tests.py" ', step["run"])
         self.assertEqual(f"${{{{ {value('install')} }}}}", install["env"]["INSTALL"])
         self.assertIn('install --root "$WORKING_DIRECTORY" --install="$INSTALL"', install["run"])
+        self.assertEqual("$/actions/python-language-step", language["uses"])
+        self.assertIn("matrix.project['verify'] == true", language["if"], "combined python-verify projects run in the same job after one install")
         self.assertIn('test --root "$WORKING_DIRECTORY"', tests["run"])
-        self.assertNotIn("if", tests, "a failed installation skips the tests")
-        self.assertNotIn("python-language-step", self.section(PYTHON_TEST), "the language checks are the part python-verify")
+        self.assertIn("steps.install.outcome == 'success'", tests["if"], "a failed installation skips the tests, a failed language step does not")
 
     def test_dotnet_test_installs_the_configured_sdk_and_builds_and_tests_the_configured_project_on_the_configured_runner(self) -> None:
         job = self.jobs[DOTNET_TEST]
         self.assertEqual(f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}", job["runs-on"])
-        checkout, setup, step = self.steps(DOTNET_TEST)
+        checkout, setup, cache, step = self.steps(DOTNET_TEST)
         self.assertRegex(setup["uses"], r"^actions/setup-dotnet@[0-9a-f]{40}$")
         self.assertEqual({"dotnet-version": f"${{{{ {value('sdk-version')} }}}}"}, setup["with"])
+        self.assertRegex(cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual("$/actions/dotnet-test", step["uses"])
         self.assertEqual({"project": f"${{{{ {value('project')} }}}}", "console-runner": f"${{{{ {value('console-runner')} == true }}}}"}, step["with"],
                          "each item's own console-runner reaches the step, false for an item that states none")
@@ -209,13 +215,14 @@ class PartJobTests(unittest.TestCase):
     def test_node_test_checks_the_project_installs_the_node_of_its_nvmrc_and_runs_the_npm_commands_on_the_configured_runner(self) -> None:
         job = self.jobs[NODE_TEST]
         self.assertEqual(f"${{{{ {value('runner-label')} || 'ubuntu-26.04' }}}}", job["runs-on"])
-        checkout, check, setup, step = self.steps(NODE_TEST)
+        checkout, check, setup, cache, step = self.steps(NODE_TEST)
         directory = f"${{{{ {value('working-directory')} }}}}"
         self.assertEqual("$/actions/node-test", check["uses"])
         self.assertEqual({"command": "check", "working-directory": directory}, check["with"], "a missing .nvmrc fails before setup-node reads it")
         self.assertRegex(setup["uses"], r"^actions/setup-node@[0-9a-f]{40}$")
         self.assertEqual({"node-version-file": f"{directory}/.nvmrc", "package-manager-cache": "false"}, {key: str(item).lower() if isinstance(item, bool) else str(item) for key, item in setup["with"].items()},
-                         "the Node version of the project's .nvmrc, and no cache")
+                         "the Node version of the project's .nvmrc")
+        self.assertRegex(cache["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual("$/actions/node-test", step["uses"])
         self.assertEqual({"command": "test", "working-directory": directory}, step["with"])
         self.assertNotIn("if", step, "a failed check or setup skips the npm commands")
@@ -230,11 +237,6 @@ class PartJobTests(unittest.TestCase):
 
 
 CONFIGURATION = REPOSITORY_ROOT / ".github" / "ci-config.yml"
-# The paths that every fixture part names besides its fixture and its part folders: the plan program and the schema, the
-# pipeline and this repository's caller of it.
-COMMON_PATHS = ["actions/pipeline/", ".github/workflows/pipeline.yml", ".github/workflows/ci.yml"]
-# A part folder that a shared step's own run block reaches beside its own folder, such as the pins of repository-hygiene.
-SIBLING_FOLDER = re.compile(r"\$RESOURCE_PATH/\.\./([\w.-]+)/")
 
 
 def fixture_folders(part: str, settings: dict) -> list[str]:
@@ -249,51 +251,52 @@ def fixture_folders(part: str, settings: dict) -> list[str]:
 
 
 def loaded_part_folders(job: dict) -> list[str]:
-    """The part folders that a job loads through `$/`, with each folder that the loaded step's run block reaches beside it."""
+    """The part folders that a job loads through `$/`."""
     folders = []
     for step in job["steps"]:
         uses = str(step.get("uses", ""))
         if uses.startswith("$/actions/"):
             folders.append(uses[2:].rstrip("/") + "/")
-            text = (REPOSITORY_ROOT / uses[2:] / "action.yml").read_text(encoding="utf-8")
-            folders += [f"actions/{sibling}/" for sibling in SIBLING_FOLDER.findall(text)]
     return list(dict.fromkeys(folders))
 
 
 def missing_paths(part: str, settings: dict, job: dict) -> list[str]:
     """Each path that a change can reach the part's job through and that the part's `paths` do not cover, named with the part."""
     paths = [str(item) for item in settings.get("paths", [])]
-    required = list(dict.fromkeys(fixture_folders(part, settings) + loaded_part_folders(job) + COMMON_PATHS))
+    required = list(dict.fromkeys(fixture_folders(part, settings) + loaded_part_folders(job)))
     return [f"{part}: paths lack {path}" for path in required
             if not any(entry == path or (entry.endswith("/") and path.startswith(entry)) for entry in paths)]
 
 
 class FixturePartPathsTests(unittest.TestCase):
-    """This repository's configuration file runs each project part on its fixture only for a change that can reach it, so
-    its `paths` must name every path through which a change reaches the part's job."""
+    """This repository's configuration file runs each project part on its fixture only for a change to its fixture or
+    its own part code; shared pipeline and pin inputs come from plan.py."""
 
     def setUp(self) -> None:
         self.parts = ci_definition().read_yaml(CONFIGURATION.read_text(encoding="utf-8"), str(CONFIGURATION))["parts"]
         self.jobs = read_workflow(PIPELINE)[1]["jobs"]
 
     def test_the_configuration_file_states_paths_for_each_fixture_part(self) -> None:
-        for part in PARTS:
+        for part in ("custom", *PARTS):
             with self.subTest(part=part):
                 self.assertTrue(self.parts[part].get("paths"), f"{part} states no paths")
 
-    def test_the_paths_of_each_fixture_part_name_its_fixture_its_part_folders_the_plan_and_the_pipeline(self) -> None:
-        for part in PARTS:
+    def test_the_paths_of_each_fixture_part_select_only_its_fixture_and_its_own_part_code(self) -> None:
+        self.assertEqual(["tests/fixtures/custom/"], self.parts["custom"]["paths"])
+        for part, entry in PARTS.items():
             with self.subTest(part=part):
                 self.assertEqual([], missing_paths(part, self.parts[part], self.jobs[part]))
+                self.assertEqual(sorted(entry.paths), sorted(self.parts[part]["paths"]),
+                                 f"{part} paths should cover only its fixture and its own part code")
 
     def test_a_missing_path_is_named_with_its_part(self) -> None:
-        for part, path in [(part, path) for part, entry in PARTS.items() for path in [*entry.paths, *COMMON_PATHS]]:
+        for part, path in [(part, path) for part, entry in PARTS.items() for path in entry.paths]:
             with self.subTest(part=part, path=path):
                 settings = {**self.parts[part], "paths": [item for item in self.parts[part]["paths"] if item != path]}
                 self.assertEqual([f"{part}: paths lack {path}"], missing_paths(part, settings, self.jobs[part]))
 
     def test_a_folder_that_holds_a_required_path_covers_it(self) -> None:
-        settings = {**self.parts[PYTHON_TEST], "paths": ["tests/", "actions/", ".github/workflows/"]}
+        settings = {**self.parts[PYTHON_TEST], "paths": ["tests/", "actions/"]}
         self.assertEqual([], missing_paths(PYTHON_TEST, settings, self.jobs[PYTHON_TEST]))
 
 

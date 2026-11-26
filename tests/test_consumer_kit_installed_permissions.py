@@ -1,16 +1,16 @@
-"""The installed callers preserve template permissions."""
+"""The caller template grants the permissions its shared workflow requires."""
 
 from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tests.ci_policy_support import read_workflow
 from tests.consumer_kit_support import read_yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 HYGIENE_KIT = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "consumer-kit"
 
 OWN_WORKFLOWS = REPOSITORY_ROOT / ".github" / "workflows"
-OWN_CALLERS = ("dependabot-auto-merge-caller.yml", "repository-hygiene-caller.yml")
 CALLER_TEMPLATES = {"repository-hygiene.yml": HYGIENE_KIT}
 
 
@@ -20,26 +20,13 @@ def template_job(template: str) -> dict:
     return job
 
 
-def local_path_callers() -> dict[str, dict]:
-    """Each job of this repository's own callers that calls a workflow by local path, keyed by the called path."""
-    callers: dict[str, dict] = {}
-    for name in OWN_CALLERS:
-        path = OWN_WORKFLOWS / name
-        _, workflow = read_yaml(path)
-        for job in workflow["jobs"].values():
-            uses = job.get("uses", "")
-            if uses.startswith("$/.github/workflows/"):
-                callers[uses.removeprefix("$/")] = job
-    return callers
-
-
-class LocalPathInstalledFormTest(unittest.TestCase):
-    def test_a_local_path_caller_with_the_template_rights_calls_each_shared_workflow(self) -> None:
-        callers = local_path_callers()
+class TemplatePermissionsTest(unittest.TestCase):
+    def test_each_caller_template_grants_the_rights_of_its_shared_workflow(self) -> None:
         for template in CALLER_TEMPLATES:
             with self.subTest(template=template):
-                self.assertIn(f".github/workflows/{template}", callers)
-                self.assertEqual(template_job(template)["permissions"], callers[f".github/workflows/{template}"]["permissions"])
+                _, shared = read_workflow(OWN_WORKFLOWS / template)
+                (shared_job,) = shared["jobs"].values()
+                self.assertEqual(shared_job["permissions"], template_job(template)["permissions"])
 
 
 if __name__ == "__main__":

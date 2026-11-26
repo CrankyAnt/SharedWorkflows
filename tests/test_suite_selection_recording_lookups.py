@@ -96,6 +96,32 @@ class LookupReportTests(unittest.TestCase):
         self.assertEqual((0, "1\n", ""), (ran.returncode, ran.stdout, ran.stderr))
         self.assertEqual([], [path for path in self.root.rglob("*.tsv")])
 
+    def test_concurrent_lookups_from_many_threads_keep_every_line(self) -> None:
+        code = textwrap.dedent("""\
+            import importlib.machinery, os, threading
+            finder = importlib.machinery.FileFinder(os.path.abspath("lib"), (importlib.machinery.SourceFileLoader, [".py"]))
+            threads = 8
+            rounds = 40
+            barrier = threading.Barrier(threads)
+
+            def worker(worker_id):
+                barrier.wait()
+                for index in range(rounds):
+                    finder.find_spec(f"concurrent_absent_{worker_id}_{index}")
+
+            workers = [threading.Thread(target=worker, args=(worker_id,)) for worker_id in range(threads)]
+            for thread in workers:
+                thread.start()
+            for thread in workers:
+                thread.join()
+            """)
+        ran, lines = self.run_python("-c", code)
+        self.assertEqual((0, ""), (ran.returncode, ran.stderr))
+        lib = self.real("lib")
+        seen = {line[2] for line in lines if line[:2] == ["lookup", lib] and line[3:] == ["absent"]}
+        expected = {f"concurrent_absent_{worker_id}_{index}" for worker_id in range(8) for index in range(40)}
+        self.assertEqual(expected, seen)
+
 
 if __name__ == "__main__":
     unittest.main()

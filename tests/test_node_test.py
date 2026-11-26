@@ -124,11 +124,19 @@ class InstallBuildAndTestTests(NodeTestFixture):
     def test_it_installs_the_npm_of_package_manager_checks_its_version_and_then_runs_ci_build_and_test_in_that_order(self) -> None:
         completed = self.run_script()
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertEqual(["node --version", "install --global npm@11.6.2", "--version", "ci", "run build", "test"], self.commands())
+        self.assertEqual(["node --version", "--version", "install --global npm@11.6.2", "--version", "ci", "run build", "test"], self.commands())
         self.assertIn("npm 11.6.2, the packageManager of web/shop/package.json", completed.stdout)
         for line in ("+ npm install --global npm@11.6.2", "+ npm ci", "+ npm run build", "+ npm test"):
             self.assertIn(line, completed.stdout)
         self.assertIn("stand-in output of npm test", completed.stdout, "the output of the commands reaches the job's log")
+
+    def test_when_installed_npm_already_matches_package_manager_it_skips_reinstalling(self) -> None:
+        self.write_project(manifest(packageManager=f"npm@{BUNDLED}"))
+        completed = self.run_script()
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(["node --version", "--version", "ci", "run build", "test"], self.commands())
+        self.assertNotIn("install --global", completed.stdout)
+        self.assertIn(f"npm {BUNDLED}, the packageManager of {PROJECT}/package.json", completed.stdout)
 
     def test_without_package_manager_it_keeps_the_npm_of_the_installed_node(self) -> None:
         self.write_project(manifest())
@@ -141,7 +149,7 @@ class InstallBuildAndTestTests(NodeTestFixture):
         self.write_project(manifest(packageManager="npm@11.6.2", scripts={"test": "node --test", "lint": "eslint ."}))
         completed = self.run_script()
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertEqual(["node --version", "install --global npm@11.6.2", "--version", "ci", "test"], self.commands())
+        self.assertEqual(["node --version", "--version", "install --global npm@11.6.2", "--version", "ci", "test"], self.commands())
         self.assertNotIn("run build", completed.stdout)
 
     def test_a_project_at_the_repository_root_runs_from_the_root(self) -> None:
@@ -183,32 +191,32 @@ class InstallBuildAndTestTests(NodeTestFixture):
         self.write_project(manifest(packageManager=f"npm@11.6.2+{HASH}"))
         completed = self.run_script()
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertEqual(["node --version", "install --global npm@11.6.2", "--version", "ci", "run build", "test"], self.commands())
+        self.assertEqual(["node --version", "--version", "install --global npm@11.6.2", "--version", "ci", "run build", "test"], self.commands())
         self.assertIn(f"npm 11.6.2, the packageManager of {PROJECT}/package.json; its hash {HASH} is not verified", completed.stdout)
 
     def test_a_failing_test_fails_the_script(self) -> None:
         completed = self.run_script(test=1)
         self.assertEqual(1, completed.returncode)
-        self.assertEqual(["node --version", "install --global npm@11.6.2", "--version", "ci", "run build", "test"], self.commands())
+        self.assertEqual(["node --version", "--version", "install --global npm@11.6.2", "--version", "ci", "run build", "test"], self.commands())
         self.assertIn(f"::error title=node-test::the tests of {PROJECT} failed", completed.stderr)
 
     def test_a_failed_build_fails_the_script_and_runs_no_test(self) -> None:
         completed = self.run_script(build=1)
         self.assertEqual(1, completed.returncode)
-        self.assertEqual(["node --version", "install --global npm@11.6.2", "--version", "ci", "run build"], self.commands())
+        self.assertEqual(["node --version", "--version", "install --global npm@11.6.2", "--version", "ci", "run build"], self.commands())
         self.assertIn(f"::error title=node-test::the script build of {PROJECT} failed", completed.stderr)
 
     def test_a_failed_npm_ci_fails_the_script_and_names_the_lockfile(self) -> None:
         completed = self.run_script(ci=1)
         self.assertEqual(1, completed.returncode)
-        self.assertEqual(["node --version", "install --global npm@11.6.2", "--version", "ci"], self.commands())
+        self.assertEqual(["node --version", "--version", "install --global npm@11.6.2", "--version", "ci"], self.commands())
         self.assertIn(f"::error title=node-test::npm ci failed in {PROJECT}; a missing package-lock.json, or one that does not match package.json, fails it too",
                       completed.stderr)
 
     def test_a_failed_installation_of_npm_fails_the_script_before_npm_ci(self) -> None:
         completed = self.run_script(install=1)
         self.assertEqual(1, completed.returncode)
-        self.assertEqual(["node --version", "install --global npm@11.6.2"], self.commands())
+        self.assertEqual(["node --version", "--version", "install --global npm@11.6.2"], self.commands())
         self.assertIn(f"::error title=node-test::the installation of npm 11.6.2, the packageManager of {PROJECT}/package.json, failed", completed.stderr)
 
     def test_an_npm_that_reports_another_version_after_the_installation_fails_the_script_before_npm_ci(self) -> None:
@@ -217,7 +225,7 @@ class InstallBuildAndTestTests(NodeTestFixture):
                 self.log.unlink(missing_ok=True)
                 completed = self.run_script(reported=reported)
                 self.assertEqual(1, completed.returncode)
-                self.assertEqual(["node --version", "install --global npm@11.6.2", "--version"], self.commands())
+                self.assertEqual(["node --version", "--version", "install --global npm@11.6.2", "--version"], self.commands())
                 self.assertIn(f"::error title=node-test::npm --version reports {shown} after the installation of npm 11.6.2", completed.stderr)
 
     def test_an_npm_version_that_fails_counts_as_no_version(self) -> None:
@@ -290,7 +298,7 @@ class ProjectErrorTests(NodeTestFixture):
                                                "state npm@<major>.<minor>.<patch>, or no packageManager for the npm of the installed Node")
 
     def test_a_package_json_without_a_test_script_fails(self) -> None:
-        for scripts in ({"build": "tsc"}, {}, None, ["test"]):
+        for scripts in ({"build": "tsc"}, {}, None, ["test"], {"test": ""}, {"test": "   "}, {"test": None}, {"test": 123}):
             with self.subTest(scripts=scripts):
                 document = manifest(scripts=scripts) if scripts is not None else {"name": "shop"}
                 self.write_project(document)

@@ -5,9 +5,10 @@ pipeline, the previous version included, lets every job of the pipeline start.""
 from __future__ import annotations
 
 import json
+import re
 import unittest
 
-from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, read_workflow, tracked_files, workflow_triggers
+from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, expression_value, read_workflow, tracked_files, workflow_triggers
 
 KIT = "actions/pipeline/consumer-kit"
 RECORD = REPOSITORY_ROOT / KIT / "fixed-callers.json"
@@ -20,12 +21,13 @@ CLASSES = {
     "ci.yml": {"class": "read", "events": {"pull_request", "push", "repository_dispatch"}, "calls": "pipeline.yml"},
     "automation.yml": {"class": "write", "events": {"workflow_run", "schedule", "workflow_dispatch", "issues"}, "calls": "automation.yml"},
     "release.yml": {"class": "release", "events": {"push", "workflow_dispatch"}, "calls": "release.yml",
-                    "rights": {"attestations": "write", "contents": "write", "id-token": "write"}},
+                    "rights": {"attestations": "write", "checks": "read", "contents": "write", "id-token": "write"},
+                    "previous_rights": {"attestations": "write", "contents": "write", "id-token": "write"}},
 }
 LEVELS = {"none": 0, "read": 1, "write": 2}
 
 
-def caller_problems(name: str, text: str) -> list[str]:
+def caller_problems(name: str, text: str, *, allow_previous: bool = False) -> list[str]:
     """Each way the text of a fixed caller breaks the rules of its trigger class."""
     rules = CLASSES[name]
     problems = []
@@ -57,9 +59,11 @@ def caller_problems(name: str, text: str) -> list[str]:
         elif rules["class"] == "read":
             problems += [f"{name}: the job {job_name} holds {scope}: {level} in the read class"
                          for scope, level in job["permissions"].items() if level != "read"]
-        elif "rights" in rules and job["permissions"] != rules["rights"]:
-            rights = ", ".join(f"{scope}: {level}" for scope, level in rules["rights"].items())
-            problems.append(f"{name}: the job {job_name} does not hold exactly {rights}")
+        elif "rights" in rules:
+            allowed = (rules["rights"], rules["previous_rights"]) if allow_previous and "previous_rights" in rules else (rules["rights"],)
+            if job["permissions"] not in allowed:
+                rights = ", ".join(f"{scope}: {level}" for scope, level in rules["rights"].items())
+                problems.append(f"{name}: the job {job_name} does not hold exactly {rights}")
     return problems
 
 
@@ -103,7 +107,7 @@ class TemplateTests(unittest.TestCase):
     def test_every_previous_version_follows_the_rules_of_its_trigger_class(self) -> None:
         for name, text in previous_versions().items():
             with self.subTest(previous=name):
-                self.assertEqual([], caller_problems(name, text))
+                self.assertEqual([], caller_problems(name, text, allow_previous=True))
 
     def test_the_record_names_only_fixed_files_whose_previous_version_is_tracked_and_differs_from_the_template(self) -> None:
         record = json.loads(RECORD.read_text(encoding="utf-8"))
@@ -118,8 +122,44 @@ class TemplateTests(unittest.TestCase):
 
     def test_the_read_caller_runs_on_pull_requests_pushes_to_main_and_the_dispatch_after_a_dependabot_merge(self) -> None:
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "ci.yml")
-        self.assertEqual({"pull_request": None, "push": {"branches": "[main]"}, "repository_dispatch": {"types": "[dependabot-merged]"}}, caller["on"])
+        self.assertEqual({"pull_request": {"types": "[opened, synchronize, reopened, edited]"}, "push": {"branches": "[main]"}, "repository_dispatch": {"types": "[dependabot-merged]"}}, caller["on"])
         self.assertEqual({"actions": "read", "contents": "read", "issues": "read", "pull-requests": "read"}, caller["jobs"]["ci"]["permissions"])
+
+    def test_both_fixed_pipeline_callers_group_pull_requests_never_cancel_pushes_dispatches_or_edits(self) -> None:
+        def evaluate(template: str, context: dict) -> str:
+            return re.sub(r"\$\{\{\s*(.+?)\s*\}\}", lambda match: str(expression_value(match[1], context)), template)
+
+        for label, path in (("template", REPOSITORY_ROOT / KIT / "ci.yml"), ("own", REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml")):
+            with self.subTest(caller=label):
+                _, caller = read_workflow(path)
+                concurrency = caller.get("concurrency")
+                self.assertIsInstance(concurrency, dict, f"{label} ci.yml must define workflow-level concurrency")
+                group_expr, cancel_expr = str(concurrency["group"]), str(concurrency["cancel-in-progress"])
+                for action in ("opened", "synchronize", "reopened"):
+                    pr12_a = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "700",
+                                         "event": {"action": action, "pull_request": {"number": 12}}}}
+                    pr12_b = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "701",
+                                         "event": {"action": action, "pull_request": {"number": 12}}}}
+                    pr13 = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "702",
+                                       "event": {"action": action, "pull_request": {"number": 13}}}}
+                    self.assertEqual(evaluate(group_expr, pr12_a), evaluate(group_expr, pr12_b))
+                    self.assertNotEqual(evaluate(group_expr, pr12_a), evaluate(group_expr, pr13))
+                    self.assertTrue(expression_value(cancel_expr, pr12_a), f"a newer {action} cancels the older run")
+                edited_a = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "703",
+                                       "event": {"action": "edited", "pull_request": {"number": 12}}}}
+                edited_b = {"github": {"workflow": "CI", "event_name": "pull_request", "run_id": "704",
+                                       "event": {"action": "edited", "pull_request": {"number": 12}}}}
+                self.assertNotEqual(evaluate(group_expr, pr12_a), evaluate(group_expr, edited_a),
+                                    "an edited run must not share a group with a code run of the same pull request")
+                self.assertNotEqual(evaluate(group_expr, edited_a), evaluate(group_expr, edited_b),
+                                    "each edited run gets a group of its own")
+                self.assertFalse(expression_value(cancel_expr, edited_a), "an edited title or description cancels no code run")
+                for event in ("push", "repository_dispatch"):
+                    run_a = {"github": {"workflow": "CI", "event_name": event, "run_id": "800", "event": {}}}
+                    run_b = {"github": {"workflow": "CI", "event_name": event, "run_id": "801", "event": {}}}
+                    self.assertNotEqual(evaluate(group_expr, run_a), evaluate(group_expr, run_b), f"{event} gets its own group")
+                    self.assertNotEqual(evaluate(group_expr, run_a), evaluate(group_expr, pr12_a))
+                    self.assertFalse(expression_value(cancel_expr, run_a), f"{event} is never cancelled")
 
     def test_the_write_caller_runs_on_the_automation_events_and_only_on_opened_issues(self) -> None:
         text, caller = read_workflow(REPOSITORY_ROOT / KIT / "automation.yml")
@@ -131,7 +171,7 @@ class TemplateTests(unittest.TestCase):
     def test_the_release_caller_runs_on_tag_pushes_only_and_by_hand(self) -> None:
         _, caller = read_workflow(REPOSITORY_ROOT / KIT / "release.yml")
         self.assertEqual({"push": {"tags": '["**"]'}, "workflow_dispatch": None}, caller["on"])
-        self.assertEqual({"attestations": "write", "contents": "write", "id-token": "write"}, caller["jobs"]["release"]["permissions"])
+        self.assertEqual({"attestations": "write", "checks": "read", "contents": "write", "id-token": "write"}, caller["jobs"]["release"]["permissions"])
         self.assertNotIn("secrets", caller["jobs"]["release"])
 
     def test_a_caller_that_breaks_a_rule_is_named(self) -> None:
@@ -150,9 +190,9 @@ class TemplateTests(unittest.TestCase):
             ("release.yml", self.templates["release.yml"].replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  schedule:\n    - cron: \"0 0 * * *\"\n"),
              ["release.yml starts on schedule, which is outside the release class"]),
             ("release.yml", self.templates["release.yml"].replace("      id-token: write\n", ""),
-             ["release.yml: the job release does not hold exactly attestations: write, contents: write, id-token: write"]),
+             ["release.yml: the job release does not hold exactly attestations: write, checks: read, contents: write, id-token: write"]),
             ("release.yml", self.templates["release.yml"].replace("      contents: write\n", "      contents: write\n      packages: write\n"),
-             ["release.yml: the job release does not hold exactly attestations: write, contents: write, id-token: write"]),
+             ["release.yml: the job release does not hold exactly attestations: write, checks: read, contents: write, id-token: write"]),
         )
         for name, text, problems in cases:
             with self.subTest(problems=problems):
@@ -189,7 +229,7 @@ class ReachTests(unittest.TestCase):
 
     def test_a_previous_version_that_keeps_a_job_of_the_pipeline_from_starting_is_named(self) -> None:
         older = ci_definition().read_yaml(self.template.replace("      issues: read\n", ""), "an invented older version")
-        self.assertEqual(["the job repository-hygiene needs issues: read, which the caller does not grant"], reach_problems(older, self.pipeline))
+        self.assertEqual(["the job plan needs issues: read, which the caller does not grant"], reach_problems(older, self.pipeline))
         without_push = ci_definition().read_yaml(self.template.replace("  push:\n    branches: [main]\n", ""), "an invented older version")
         self.assertEqual(["the caller does not run on push"], reach_problems(without_push, self.pipeline))
         without_dispatch = ci_definition().read_yaml(self.template.replace("  repository_dispatch:\n    types: [dependabot-merged]\n", ""), "an invented older version")

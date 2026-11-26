@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -50,6 +51,17 @@ class ChangeDecisionTests(unittest.TestCase):
                 self.assertIn("| Relative links | no |", summary)
                 self.assertIn("| Gitleaks | yes | every event |", summary)
 
+    def test_a_file_whose_name_only_ends_with_action_yml_does_not_select_workflow_linters(self) -> None:
+        base = self.base
+        for relative in ("foo-action.yml", "docs/my-action.yaml"):
+            with self.subTest(changed=relative):
+                head = self.commit({relative: "x: 1\n"})
+                decisions, _, _ = self.decide(base, head, all_checks=True)
+                base = head
+                self.assertEqual("false", decisions["workflows"])
+                self.assertEqual("false", decisions["actionlint"])
+                self.assertEqual("false", decisions["zizmor"])
+
     def test_a_dependabot_merged_dispatch_decides_as_a_push_from_the_merge_s_first_parent(self) -> None:
         git(self.repo, "switch", "-q", "-c", "dependabot")
         self.commit({"web/package.json": "{}\n"})
@@ -64,6 +76,28 @@ class ChangeDecisionTests(unittest.TestCase):
         every_check, _, _ = self.decide("", merged, all_checks=True)
         self.assertEqual({"true"}, {value for name, value in every_check.items() if name != "reuse"}, "without a SHA the base is empty and every check runs")
         self.assertEqual("false", every_check["reuse"], "the fixture has no REUSE.toml")
+
+    def test_missing_push_lookup_or_shared_lookup_falls_back_to_every_check_and_counts_fallback(self) -> None:
+        head = self.commit({"src/app.py": "print(2)\n"})
+        missing = self.root / "missing.json"
+        for label, args, expected_reason in (
+            ("missing push lookup", ("--lookup", str(missing)), "hygiene-unreadable-push-lookup"),
+            ("missing shared lookup", ("--base", self.base, "--head", head, "--compare", "direct", "--shared-lookup", str(missing)),
+             "hygiene-unreadable-shared-digests"),
+        ):
+            with self.subTest(case=label):
+                output, summary, fallbacks = self.root / "output.txt", self.root / "summary.md", self.root / "fallbacks.json"
+                output.write_text("", encoding="utf-8")
+                summary.write_text("", encoding="utf-8")
+                fallbacks.unlink(missing_ok=True)
+                result = hygiene("changes", self.repo, *args, "--fallbacks", str(fallbacks),
+                                 "--github-output", str(output), "--summary", str(summary))
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                decisions = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+                for check in ("actionlint", "zizmor", "packages", "markdown"):
+                    self.assertEqual("true", decisions[check], f"{label} must select {check}")
+                recorded = json.loads(fallbacks.read_text(encoding="utf-8"))
+                self.assertGreaterEqual(recorded.get(expected_reason, 0), 1, recorded)
 
     def test_a_package_file_or_dependabot_change_runs_the_coverage_check(self) -> None:
         base = self.base
@@ -531,6 +565,78 @@ class ReuseSelectionTests(unittest.TestCase):
                 self.assertEqual("true", decision, stdout)
                 self.assertIn(f"`{relative}` is the REUSE assignment or a licence text", stdout)
                 base = head
+
+    def test_a_change_to_a_nested_reuse_toml_or_a_dot_license_file_selects_reuse(self) -> None:
+        spdx = "SPDX"
+        base = self.repository("nested", {"sub/REUSE.toml": "version = 1\n", "src/data.bin": "x\n", "src/data.bin.license": f"{spdx}-License-Identifier: MIT\n"})
+        for relative, content in (("sub/REUSE.toml", "version = 1\n# updated\n"), ("src/data.bin.license", f"{spdx}-License-Identifier: Apache-2.0\n")):
+            with self.subTest(changed=relative):
+                head = self.commit({relative: content})
+                decision, stdout, _ = self.reuse(base, head)
+                self.assertEqual("true", decision, stdout)
+                base = head
+
+    def test_a_change_to_an_spdx_or_reuse_tag_in_an_existing_file_selects_reuse(self) -> None:
+        spdx, reuse = "SPDX", "REUSE"
+        initial = f"# {spdx}-FileCopyrightText: 2025 Fixture\n# {spdx}-License-Identifier: MIT\nprint(1)\n"
+        base = self.repository("tags", {"REUSE.toml": "version = 1\n", "src/app.py": initial})
+        code_only = self.commit({"src/app.py": initial.replace("print(1)", "print(2)")})
+        self.assertEqual("false", self.reuse(base, code_only)[0], "untouched SPDX header with code-only edit does not select REUSE")
+        for label, updated in (
+            ("copyright", initial.replace("2025", "2026")),
+            ("license", initial.replace("MIT", "Apache-2.0")),
+            ("ignore", initial + f"# {reuse}-IgnoreStart\n# ignored\n# {reuse}-IgnoreEnd\n"),
+            ("snippet", initial + f"# {spdx}-SnippetBegin\n# {spdx}-SnippetEnd\n"),
+        ):
+            with self.subTest(tag=label):
+                head = self.commit({"src/app.py": updated})
+                decision, stdout, _ = self.reuse(code_only, head)
+                self.assertEqual("true", decision, stdout)
+                self.assertIn("`src/app.py` changed an SPDX or REUSE tag", stdout)
+                git(self.repo, "reset", "--quiet", "--hard", code_only)
+
+    def test_a_change_to_the_pinned_reuse_version_selects_reuse_in_a_consumer(self) -> None:
+        base = self.licensed()
+        head = self.commit({"src/app.py": "print(3)\n"})
+        pins = self.root / "pins.json"
+        pins.write_text(json.dumps({"python": {"reuse": {"version": "6.3.0"}}}), encoding="utf-8")
+        marker = self.root / "reuse-marker.json"
+        marker.write_text(json.dumps({"version": "6.3.0"}), encoding="utf-8")
+        self.assertEqual("false", self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker))[0])
+        marker.write_text(json.dumps({"version": "6.2.0"}), encoding="utf-8")
+        decision, stdout, _ = self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker))
+        self.assertEqual("true", decision, stdout)
+        self.assertIn("pinned REUSE version", stdout)
+        marker.unlink()
+        self.assertEqual("true", self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker))[0])
+        unlicensed_base = self.repository("unlicensed-pin", {"src/app.py": "print(1)\n"})
+        unlicensed_head = self.commit({"src/app.py": "print(2)\n"})
+        self.assertEqual("false", self.reuse(unlicensed_base, unlicensed_head, "--pins", str(pins), "--reuse-marker", str(marker))[0])
+
+    def test_a_missing_or_unreadable_reuse_marker_is_a_counted_fallback_and_another_version_is_not(self) -> None:
+        base = self.licensed()
+        head = self.commit({"src/app.py": "print(3)\n"})
+        pins = self.root / "pins.json"
+        pins.write_text(json.dumps({"python": {"reuse": {"version": "6.3.0"}}}), encoding="utf-8")
+        marker = self.root / "reuse-marker.json"
+        counted = self.root / "hygiene-fallbacks.json"
+        notice = "::notice title=ci-fallback::hygiene-unreadable-reuse-marker: "
+        for label, content in (("missing", None), ("unreadable", "{not json"), ("without a version", "{}")):
+            with self.subTest(marker=label):
+                if content is None:
+                    marker.unlink(missing_ok=True)
+                else:
+                    marker.write_text(content, encoding="utf-8")
+                decision, stdout, _ = self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker), "--fallbacks", str(counted))
+                self.assertEqual("true", decision, stdout)
+                self.assertIn(notice, stdout)
+                self.assertEqual({"hygiene-unreadable-reuse-marker": 1}, json.loads(counted.read_text(encoding="utf-8")))
+        for label, version in (("another version", "6.2.0"), ("the current version", "6.3.0")):
+            with self.subTest(marker=label):
+                marker.write_text(json.dumps({"version": version}), encoding="utf-8")
+                _, stdout, _ = self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker), "--fallbacks", str(counted))
+                self.assertNotIn(notice, stdout, "a REUSE run because the pinned version changed is the rule")
+                self.assertEqual({}, json.loads(counted.read_text(encoding="utf-8")))
 
     def test_a_content_change_to_an_existing_file_does_not_select_reuse(self) -> None:
         base = self.licensed()

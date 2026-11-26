@@ -94,6 +94,35 @@ class FileDifferenceTests(SyncFixture):
         self.assertEqual(1, len(consumer.pulls))
         self.assertIn("auto-merge could not be enabled: Auto merge is not allowed for this repository", synced.summary)
 
+    def test_one_sync_run_reads_each_consumer_s_files_from_one_snapshot(self) -> None:
+        consumer = self.consumer({CONFIGURATION: STATED, DEPENDABOT: GENERATED})
+        pushed = False
+
+        def push_mid_sync(method: str, path: str) -> None:
+            nonlocal pushed
+            if not pushed and (path.startswith(f"/repos/{CONSUMER}/contents/") or (method == "POST" and path == "/graphql")):
+                pushed = True
+                consumer.push({DEPENDABOT: GENERATED.replace("weekly", "daily")})
+
+        self.api.on_request = push_mid_sync
+        synced = self.run_sync()
+        self.assertEqual(0, synced.status, synced.stderr)
+        self.assertTrue(pushed)
+        self.assertEqual([], consumer.pulls)
+
+    def test_a_sync_run_makes_fewer_api_calls_for_matching_and_differing_consumers(self) -> None:
+        self.consumer()
+        self.api.repository(MANAGEMENT, {"README.md": "The management repository.\n"}, installed=False)
+        synced = self.run_sync("sync", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, synced.status, synced.stderr)
+        self.assertEqual(5, len(self.api.requests))
+        self.api.requests.clear()
+        self.consumer({CI: "name: other\n"}, name=OTHER)
+        synced = self.run_sync("sync", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, synced.status, synced.stderr)
+        # 1 installation/repositories + 4 for matching consumer + 10 for differing consumer = 15 total.
+        self.assertEqual(15, len(self.api.requests))
+
 
 class RepositoryChoicesTests(SyncFixture):
     """A template of the CI guide that ends with the heading ``## Repository choices`` is compared up to and
@@ -216,7 +245,7 @@ class ReachTests(SyncFixture):
     def test_a_repository_that_github_refuses_fails_the_run_after_the_others_were_synced(self) -> None:
         self.consumer({CI: "name: other\n"})
         behind = self.consumer({CI: "name: other\n"}, name=OTHER)
-        self.api.refused[f"/repos/{CONSUMER}/contents"] = 500
+        self.api.refused[f"/repos/{CONSUMER}/rulesets"] = 500
         synced = self.run_sync()
         self.assertEqual(1, synced.status)
         self.assertEqual(1, len(behind.pulls))

@@ -68,6 +68,15 @@
           "properties": {
             "suites": {
               "$ref": "#/$defs/file"
+            },
+            "updater-paths": {
+              "description": "Additional path prefixes or files that a commit of the updater App may change while the pull request stays automatic.",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative-path"
+              }
             }
           }
         },
@@ -434,6 +443,7 @@
     "setups": {
       "description": "The setups that a job installs, in the listed order, before it runs code of the repository; a later setup of the same tool is the one that its command names. An empty list installs nothing. Invented example: [\"dotnet-10\", \"python-3.14\"].",
       "type": "array",
+      "maxItems": 6,
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/setup"

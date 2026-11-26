@@ -141,6 +141,8 @@ class WindowsWorkFolderRemovalTests(WorkFolderRemovalCases, unittest.TestCase):
 class LiveEtwClassificationTests(ClassificationRules, unittest.TestCase):
     """The classification rules on a live ETW recording of the Windows fixture."""
 
+    case_insensitive_ignore = True
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.fixture = cls.record()
@@ -206,10 +208,11 @@ class ConcurrentEtwAttributionTests(unittest.TestCase):
 
 # A pytest-shaped collection: the entry file lists tests/ and stats each other test file there, as CPython's is_dir,
 # is_file and os.stat make it on Windows, without opening it. tests/test_read.py also opens tests/test_b.py and
-# data/attributes.txt for their attributes only, as CPython's CreateFileW fallback of a stat does, with share mode 0 and
-# backup semantics, reads tests/test_b.py, and opens data/read.txt for reading with share mode 0, which is a content
-# open. A CreateFileW open always reaches the file system as a create; CPython's GetFileInformationByName may not, as
-# on the hosted runner, where a stat of a file then leaves no line at all.
+# data/attributes.txt for their attributes only with FILE_FLAG_OPEN_REPARSE_POINT (as CPython's CreateFileW fallback
+# of a stat does), reads tests/test_b.py, opens data/exclusive.txt for reading with share mode 0 and backup semantics
+# without FILE_FLAG_OPEN_REPARSE_POINT (a content open, not a stat), and opens data/read.txt for reading with share
+# mode 0 (also a content open). A CreateFileW open always reaches the file system as a create; CPython's
+# GetFileInformationByName may not, as on the hosted runner, where a stat of a file then leaves no line at all.
 SIBLING_STATS = """\
     import os
     from pathlib import Path
@@ -233,14 +236,15 @@ SIBLING_READ = SIBLING_STATS + """\
         kernel.CloseHandle(handle)
 
     for path in ("tests/test_b.py", "data/attributes.txt"):
-        create(path, 0x80, 0x02000000)  # FILE_READ_ATTRIBUTES, backup semantics
+        create(path, 0x80, 0x02200000)  # FILE_READ_ATTRIBUTES, backup semantics + open reparse point
     print(Path("tests/test_b.py").read_text())
+    create("data/exclusive.txt", 0x80000000, 0x02000000)  # GENERIC_READ, share mode 0, backup semantics alone
     create("data/read.txt", 0x80000000, 0x80)  # GENERIC_READ, normal
     """
 
 STAT_ENTRIES = ["tests/test_stat.py", "tests/test_read.py"]
 STAT_FILES = {"tests/test_stat.py": SIBLING_STATS, "tests/test_read.py": SIBLING_READ, "tests/test_b.py": "B = 1\n", "tests/test_c.py": "",
-              "tests/test_d.py": "", "data/attributes.txt": "", "data/read.txt": ""}
+              "tests/test_d.py": "", "data/attributes.txt": "", "data/exclusive.txt": "", "data/read.txt": ""}
 
 
 @requires_etw
@@ -270,7 +274,7 @@ class LiveEtwStatOnlyTests(unittest.TestCase):
 
     def test_a_sibling_whose_content_the_entry_file_reads_is_a_content_read_and_the_stat_only_siblings_stay_no_reads(self) -> None:
         reads = self.fixture.reads_of("tests/test_read.py")
-        self.assertEqual(["data/read.txt", "tests/test_b.py", "tests/test_read.py"], reads["paths"])
+        self.assertEqual(["data/exclusive.txt", "data/read.txt", "tests/test_b.py", "tests/test_read.py"], reads["paths"])
         self.assertIn("tests", reads["directory_memberships"])
         self.assertEqual([], [read for read in reads["existence_reads"] if read["path"].startswith("tests/")], reads["existence_reads"])
         # The attribute-only open outside a held directory stays an existence read.
@@ -280,10 +284,76 @@ class LiveEtwStatOnlyTests(unittest.TestCase):
         # os.stat: an attribute-only open, or no line where the stat reaches the file system without a create.
         self.assertLessEqual(self.operations("tests/test_c.py"), {"openattr"})
         self.assertEqual({"openattr"}, self.operations("data/attributes.txt"))  # the CreateFileW fallback of a stat
+        self.assertEqual({"open"}, self.operations("data/exclusive.txt"))  # share mode 0 with backup semantics alone stays open
         self.assertEqual({"open"}, self.operations("data/read.txt"))  # a read open with share mode 0
         self.assertEqual({"openattr", "open"}, self.operations("tests/test_b.py"))  # a stat and a content read: both lines
         self.assertIn("opendir", self.operations("tests"))  # the listing's open of the directory
-        self.assertNotIn("open", self.operations("tests"))
+        # Path("tests").is_dir() opens tests with share mode 0 and backup semantics alone (no FILE_OPEN_REPARSE_POINT),
+        # so the consumer keeps it as open rather than downgrading share mode 0; classify still treats it as a directory.
+        self.assertNotIn("tests", self.fixture.reads_of("tests/test_stat.py")["paths"])
+
+
+LIVE_NOT_A_DIRECTORY = """\
+    try:
+        open("data/file.txt/child").close()
+    except OSError:
+        pass
+    """
+
+LIVE_WRITES = """\
+    import os, tempfile
+    from pathlib import Path
+    (Path(tempfile.gettempdir()) / "temp-ok.txt").write_text("ok", encoding="utf-8")
+    (Path(os.environ["GRANTED_DIR"]) / "granted-ok.txt").write_text("ok", encoding="utf-8")
+    Path("leaked.txt").write_text("leaked", encoding="utf-8")
+    (Path(os.environ["OUTSIDE_DIR"]) / "outside-leaked.txt").write_text("leaked", encoding="utf-8")
+    fd = os.open("data/existing.txt", os.O_RDWR | os.O_CREAT)
+    os.read(fd, 16)
+    os.close(fd)
+    """
+
+
+@requires_etw
+class LiveEtwNotADirectoryAndWriteTests(unittest.TestCase):
+    """Live ETW recording of STATUS_NOT_A_DIRECTORY opens and Windows write departures."""
+
+    def test_a_not_a_directory_open_is_classified_as_an_absent_path(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/notdir.py": LIVE_NOT_A_DIRECTORY, "data/file.txt": "file\n"},
+                                   [suite("notdir", ["tests/notdir.py"], entry_selection=True, paths=[], setups=["python"],
+                                          entry_paths={"tests/notdir.py": []})])
+        run_entries(fixture, ["tests/notdir.py"])
+        checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        reads = fixture.reads_of("tests/notdir.py")
+        self.assertIn({"path": "data/file.txt/child", "kind": "any"}, reads["existence_reads"])
+
+    def test_a_windows_test_write_outside_its_setups_grants_is_reported_as_a_departure(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/write.py": LIVE_WRITES, "data/existing.txt": "keep\n"},
+                                   [suite("writes", ["tests/write.py"], entry_selection=True, paths=[], setups=["python", "writer"],
+                                          entry_paths={"tests/write.py": []})])
+        granted = fixture.base / "granted"
+        outside = fixture.base / "outside"
+        granted.mkdir()
+        outside.mkdir()
+        started = fixture.start(full=True)
+        self.assertEqual(0, started.returncode, started.stdout + started.stderr)
+        fixture.set_up_python()
+        provided = fixture.provide("writer", "--write", str(granted), "--variable", f"GRANTED_DIR={granted}",
+                                   "--variable", f"OUTSIDE_DIR={outside}")
+        self.assertEqual(0, provided.returncode, provided.stderr)
+        ran = fixture.exec_entry("tests/write.py", *entry_command("tests/write.py", "python"))
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertIn("Departure:", checked.stdout)
+        self.assertIn("`leaked.txt`", checked.stdout)
+        self.assertIn("`data/existing.txt`", checked.stdout)
+        self.assertIn(f"`{outside.as_posix()}/outside-leaked.txt`", checked.stdout)
+        self.assertNotIn("temp-ok.txt", checked.stdout)
+        self.assertNotIn("granted-ok.txt", checked.stdout)
+        reads = fixture.reads_of("tests/write.py")
+        self.assertIn("data/existing.txt", reads["paths"])
+        self.assertNotIn("leaked.txt", reads["paths"])
 
 
 def recording_sessions() -> set[str]:

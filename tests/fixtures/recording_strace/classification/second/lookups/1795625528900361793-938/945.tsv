@@ -1,0 +1,26 @@
+suffixes	.cpython-313-x86_64-linux-gnu.so	.abi3.so	.so	.py	.pyc
+lookup	${BASE}/python/lib/python3.13/site-packages	sitecustomize	absent
+list	945	${BASE}/repo/tests
+lookup	${BASE}/repo/tests	subprocess	absent
+lookup	${BASE}/repo/tests	locale	absent
+lookup	${BASE}/repo/tests	re	absent
+lookup	${BASE}/repo/tests	enum	absent
+lookup	${BASE}/repo/tests	functools	absent
+lookup	${BASE}/repo/tests	collections	absent
+lookup	${BASE}/repo/tests	keyword	absent
+lookup	${BASE}/repo/tests	operator	absent
+lookup	${BASE}/repo/tests	reprlib	absent
+lookup	${BASE}/repo/tests	types	absent
+lookup	${BASE}/repo/tests	copyreg	absent
+lookup	${BASE}/repo/tests	signal	absent
+lookup	${BASE}/repo/tests	threading	absent
+lookup	${BASE}/repo/tests	warnings	absent
+lookup	${BASE}/repo/tests	_weakrefset	absent
+lookup	${BASE}/repo/tests	contextlib	absent
+lookup	${BASE}/repo/tests	fcntl	absent
+lookup	${BASE}/repo/tests	msvcrt	absent
+lookup	${BASE}/python/lib/python3.13/site-packages	msvcrt	absent
+lookup	${BASE}/repo/tests	_posixsubprocess	absent
+lookup	${BASE}/repo/tests	select	absent
+lookup	${BASE}/repo/tests	selectors	absent
+lookup	${BASE}/repo/tests	math	absent

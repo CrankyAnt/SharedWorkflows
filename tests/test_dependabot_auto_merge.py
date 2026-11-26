@@ -27,7 +27,7 @@ URL = "https://github.com/CrankyAnt/Fixture/pull/7"
 HEAD = "a" * 40
 MERGED = "b" * 40
 BRANCH = "dependabot/npm_and_yarn/lodash-1.0.1"
-REQUIRED_CHECKS = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "hygiene / hygiene"}], "strict_required_status_checks_policy": False}}]
+REQUIRED_CHECKS = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "ci / verdict"}], "strict_required_status_checks_policy": False}}]
 SIGNED_OFF = "\n\nSigned-off-by: dependabot[bot] <support@github.com>"
 UPDATER = "crankyant-publication-checks[bot]"
 THIS_REPOSITORY = "CrankyAnt/SharedWorkflows"
@@ -35,7 +35,7 @@ FIRST = "d" * 40
 REBUILD = "chore: rebuild the ETW consumer"
 CONSUMER_BUILD = "actions/recording/etw-consumer/build/"
 REBUILT = [f"{CONSUMER_BUILD}EtwConsumer.dll", f"{CONSUMER_BUILD}EtwConsumer.deps.json", "tests/suites.json"]
-OWN_SCOPE = auto_merge.updater_scope(THIS_REPOSITORY, None)
+OWN_SCOPE = auto_merge.updater_scope("tests/suites.json", (CONSUMER_BUILD,))
 CONSUMER_SUITES = ".github/suites.json"
 APPLIED = "chore: apply the recorded additions of run 4242\n\n[dependabot skip]"
 
@@ -94,7 +94,8 @@ class MetadataTests(unittest.TestCase):
 
     def test_an_entry_without_update_type_takes_the_type_from_its_versions(self) -> None:
         for previous, new, expected in (("3.1.8", "3.1.9", PATCH), ("1.2.3", "1.3.0", MINOR), ("1.2.3", "2.0.0", MAJOR), ("v1.2", "v1.3", MINOR),
-                                        ("6", "7", MAJOR), ("1", "1.1", MINOR), ("1.2", "1.2.5", PATCH), ("1.0.0", "1.0.0", "")):
+                                        ("6", "7", MAJOR), ("1", "1.1", MINOR), ("1.2", "1.2.5", PATCH), ("1.0.0", "1.0.0", ""),
+                                        ("v1.0.0", "1.0.0", ""), ("1.0.0-dev1", "1.0.0-dev2", PATCH)):
             with self.subTest(previous=previous, new=new):
                 text = message("- dependency-name: lodash", intro=f"Bumps [lodash](https://github.com/lodash/lodash) from {previous} to {new}.")
                 self.assertEqual((dependency("lodash", expected),), read(text))
@@ -227,6 +228,12 @@ class DecisionTests(unittest.TestCase):
                 self.assertEqual("manual", decision.outcome)
                 self.assertIn(f"commit `0000000` is authored by {shown}, not by `dependabot[bot]`", decision.reason)
 
+    def test_the_auto_merge_module_names_no_path_or_name_of_this_repository(self) -> None:
+        source = Path(auto_merge.__file__).read_text(encoding="utf-8")
+        for forbidden in ("SharedWorkflows", "etw-consumer", "tests/suites.json"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+
     def test_a_rebuild_by_the_updater_app_of_only_the_consumer_build_and_the_suite_list_is_automatic(self) -> None:
         commits = [commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)]
         for files in (REBUILT, ["tests/suites.json"], [f"{CONSUMER_BUILD}EtwConsumer.dll"]):
@@ -241,7 +248,7 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(outside=outside):
                 decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: [*REBUILT, outside]}, OWN_SCOPE)
                 self.assertEqual("manual", decision.outcome)
-                self.assertIn(f"commit `aaaaaaa` by `{UPDATER}` changes `{outside}`, outside the ETW consumer's build and the suite list", decision.reason)
+                self.assertIn(f"commit `aaaaaaa` by `{UPDATER}` changes `{outside}`, outside the suite list `tests/suites.json` and the configured updater paths", decision.reason)
         decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {}, OWN_SCOPE)
         self.assertEqual("manual", decision.outcome)
         self.assertIn(f"the changed files of commit `aaaaaaa` by `{UPDATER}` were not read", decision.reason)
@@ -256,29 +263,29 @@ class DecisionTests(unittest.TestCase):
         commits = [commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)]
         for suite_list in (CONSUMER_SUITES, "ci/suites.json"):
             with self.subTest(suite_list=suite_list):
-                scope = auto_merge.updater_scope(REPOSITORY, suite_list)
+                scope = auto_merge.updater_scope(suite_list)
                 decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: [suite_list]}, scope)
                 self.assertEqual("automatic", decision.outcome, decision.reason)
                 self.assertIn(f"or by `{UPDATER}` within the suite list `{suite_list}`", decision.reason)
 
     def test_in_a_consumer_an_updater_app_commit_that_changes_any_other_file_is_manual_and_names_the_file(self) -> None:
         commits = [commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)]
-        scope = auto_merge.updater_scope(REPOSITORY, CONSUMER_SUITES)
+        scope = auto_merge.updater_scope(CONSUMER_SUITES)
         for outside in ("tests/suites.json", f"{CONSUMER_BUILD}EtwConsumer.dll", ".github/workflows/validation.yml", ".github/suites.json.bak"):
             with self.subTest(outside=outside):
                 decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: [CONSUMER_SUITES, outside]}, scope)
                 self.assertEqual("manual", decision.outcome)
                 self.assertIn(f"commit `aaaaaaa` by `{UPDATER}` changes `{outside}`, outside the suite list `{CONSUMER_SUITES}`", decision.reason)
 
-    def test_this_repository_keeps_its_exceptions_when_it_passes_a_suite_list(self) -> None:
+    def test_a_scope_combines_the_suite_list_with_configured_updater_paths(self) -> None:
         commits = [commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)]
-        scope = auto_merge.updater_scope(THIS_REPOSITORY, CONSUMER_SUITES)
-        for files in (REBUILT, [CONSUMER_SUITES]):
+        scope = auto_merge.updater_scope(CONSUMER_SUITES, (CONSUMER_BUILD,))
+        for files in ([f"{CONSUMER_BUILD}EtwConsumer.dll", CONSUMER_SUITES], [CONSUMER_SUITES]):
             with self.subTest(files=files):
                 decision = auto_merge.decide((dependency("lodash", PATCH),), commits, REQUIRED_CHECKS, {HEAD: files}, scope)
                 self.assertEqual("automatic", decision.outcome, decision.reason)
-        self.assertIsNone(auto_merge.updater_scope(REPOSITORY, None))
-        self.assertIsNone(auto_merge.updater_scope(REPOSITORY, ""))
+        self.assertIsNone(auto_merge.updater_scope(None))
+        self.assertIsNone(auto_merge.updater_scope(""))
 
     def test_another_app_s_commit_with_the_rebuild_s_files_is_manual(self) -> None:
         commits = [commit(sha=FIRST), commit("other-app[bot]", REBUILD, sha=HEAD)]
@@ -293,11 +300,12 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("has `version-update:semver-major`, not a patch or minor update", decision.reason)
 
     def test_without_a_ruleset_that_requires_a_check_a_qualifying_pull_request_is_blocked_naming_the_ruleset(self) -> None:
-        for rules in ([], [{"type": "deletion", "parameters": {}}], [{"type": "required_status_checks", "parameters": {"required_status_checks": []}}]):
+        for rules in ([], [{"type": "deletion", "parameters": {}}], [{"type": "required_status_checks", "parameters": {"required_status_checks": []}}],
+                      [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "hygiene / hygiene"}]}}]):
             with self.subTest(rules=rules):
                 decision = auto_merge.decide((dependency("lodash", PATCH),), [commit()], rules)
                 self.assertEqual("blocked", decision.outcome)
-                self.assertIn("no active ruleset rule on the base branch requires a status check", decision.reason)
+                self.assertIn("`ci / verdict`", decision.reason)
 
     def test_a_manual_pull_request_stays_manual_whatever_the_ruleset_is(self) -> None:
         for rules in ([], REQUIRED_CHECKS):
@@ -317,7 +325,9 @@ class FakeGitHub:
 
     def __init__(self, *, pull_request: dict | None = None, commits: list[dict] | None = None, rules: list[dict] | None = None,
                  failures: tuple[str, ...] = (), merge_errors: list[auto_merge.GitHubError] | None = None, listed: list[dict] | None = None,
-                 files: dict[str, list[str]] | None = None) -> None:
+                 files: dict[str, list[str]] | None = None, dispatch_errors: list[auto_merge.GitHubError] | None = None,
+                 dispatch_runs_sequence: list[list[dict]] | None = None,
+                 dispatch_runs_error: auto_merge.GitHubError | None = None) -> None:
         self.pull = pull() if pull_request is None else pull_request
         self.listed = [self.pull] if listed is None else listed
         self.commit_list = [commit()] if commits is None else commits
@@ -325,6 +335,10 @@ class FakeGitHub:
         self.rules = REQUIRED_CHECKS if rules is None else rules
         self.failures = failures
         self.merge_errors = list(merge_errors or [])
+        self.dispatch_errors = list(dispatch_errors or [])
+        self.dispatch_runs_sequence = list(dispatch_runs_sequence) if dispatch_runs_sequence is not None else None
+        self.dispatch_runs_error = dispatch_runs_error
+        self.dispatched_shas: list[str] = []
         self.calls: list[tuple] = []
 
     def _record(self, *call: object) -> None:
@@ -366,6 +380,17 @@ class FakeGitHub:
 
     def dispatch(self, repository: str, event_type: str, sha: str) -> None:
         self._record("dispatch", repository, event_type, sha)
+        if self.dispatch_errors:
+            raise self.dispatch_errors.pop(0)
+        self.dispatched_shas.append(sha)
+
+    def dispatch_runs(self, repository: str, sha: str) -> list[dict]:
+        self._record("dispatch_runs", repository, sha)
+        if self.dispatch_runs_error is not None:
+            raise self.dispatch_runs_error
+        if self.dispatch_runs_sequence is not None:
+            return self.dispatch_runs_sequence.pop(0) if self.dispatch_runs_sequence else []
+        return [{"id": 1, "head_sha": sha}] if sha in self.dispatched_shas else []
 
 
 def mutations(github: FakeGitHub) -> list[tuple]:
@@ -432,7 +457,7 @@ class PullRequestRunTests(unittest.TestCase):
         result = auto_merge.run_pull_request(github, REPOSITORY, 7)
         self.assertEqual(1, result.exit_code)
         self.assertEqual([], mutations(github))
-        self.assertIn("no active ruleset rule on the base branch requires a status check", result.summary)
+        self.assertIn("no active ruleset rule on the base branch requires `ci / verdict`", result.summary)
         self.assertIn("**Action:** nothing enabled and nothing merged; the user settles the ruleset first.", result.summary)
         github = FakeGitHub(rules=[], pull_request=pull(auto_merge_state={"merge_method": "squash"}))
         result = auto_merge.run_pull_request(github, REPOSITORY, 7)
@@ -485,12 +510,12 @@ class PullRequestRunTests(unittest.TestCase):
         self.assertIn("**Action:** nothing to disable; the pull request is left to the user.", result.summary)
 
 
-    def test_a_rebuilt_head_in_this_repository_is_decided_automatic_and_still_gets_no_auto_merge(self) -> None:
+    def test_a_rebuilt_head_with_configured_updater_paths_is_decided_automatic_and_still_gets_no_auto_merge(self) -> None:
         for files, outcome in ((REBUILT, "automatic"), ([*REBUILT, "README.md"], "manual")):
             with self.subTest(outcome=outcome):
                 github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)], files={HEAD: files},
                                     pull_request=pull(auto_merge_state={"merge_method": "squash"}))
-                result = auto_merge.run_pull_request(github, THIS_REPOSITORY, 7)
+                result = auto_merge.run_pull_request(github, THIS_REPOSITORY, 7, "tests/suites.json", (CONSUMER_BUILD,))
                 self.assertEqual((outcome, 0), (result.decision.outcome, result.exit_code), result.summary)
                 self.assertEqual([("disable_auto_merge", URL)], mutations(github))
 
@@ -513,7 +538,7 @@ class WorkflowRunTests(unittest.TestCase):
         self.assertEqual(0, result.exit_code, result.summary)
         self.assertEqual([("merge", REPOSITORY, 7, HEAD, "squash"), ("dispatch", REPOSITORY, "dependabot-merged", MERGED)], mutations(github))
         self.assertEqual(("open_pull_requests", REPOSITORY, f"CrankyAnt:{BRANCH}"), github.calls[0])
-        self.assertIn(f"**Action:** merged `aaaaaaa` with the squash method as `{MERGED}` and sent `dependabot-merged` with that commit.", result.summary)
+        self.assertIn(f"**Action:** merged `aaaaaaa` with the squash method as `{MERGED}`, sent `dependabot-merged` and confirmed a `repository_dispatch` run for `{MERGED}`.", result.summary)
 
     def test_a_pending_or_failed_required_check_refuses_the_merge_and_the_run_succeeds_without_a_dispatch(self) -> None:
         for text in ("Repository rule violations found\\n\\nRequired status check \\\"validate\\\" is expected.", "Required status check \\\"hygiene / hygiene\\\" is failing."):
@@ -524,6 +549,16 @@ class WorkflowRunTests(unittest.TestCase):
                 self.assertEqual(["merge"], [call[0] for call in mutations(github)])
                 self.assertIn("GitHub refused the merge: a required check is pending or failed (", result.summary)
                 self.assertIn("Required status check", result.summary)
+
+    def test_a_draft_or_conflict_405_refuses_the_merge_and_the_run_succeeds_without_a_dispatch(self) -> None:
+        for text, expected in (("Pull Request is still a draft", "the pull request is a draft"),
+                               ("Pull Request is not mergeable", "the pull request is not mergeable")):
+            with self.subTest(text=text):
+                github = FakeGitHub(merge_errors=[refused(405, text)])
+                result = merge_run(github)
+                self.assertEqual(0, result.exit_code, result.summary)
+                self.assertEqual(["merge"], [call[0] for call in mutations(github)])
+                self.assertIn(f"GitHub refused the merge: {expected}", result.summary)
 
     def test_a_head_that_moved_refuses_the_merge_and_the_run_succeeds_without_a_dispatch(self) -> None:
         github = FakeGitHub(merge_errors=[refused(409, "Head branch was modified. Review and try the merge again.")])
@@ -562,7 +597,8 @@ class WorkflowRunTests(unittest.TestCase):
                                  (FakeGitHub(commits=[commit(text="chore(deps): bump lodash" + SIGNED_OFF)]), "has no `updated-dependencies` block"),
                                  (FakeGitHub(commits=[commit(text=message("dependency-name: lodash"))]), "is not a `key: value` pair of a dependency entry")):
             with self.subTest(fragment=fragment):
-                result = merge_run(github)
+                with mock.patch.object(auto_merge.time, "sleep"):
+                    result = merge_run(github)
                 self.assertEqual(1, result.exit_code)
                 self.assertEqual("error", result.decision.outcome)
                 self.assertIn(fragment, result.summary)
@@ -575,7 +611,8 @@ class WorkflowRunTests(unittest.TestCase):
                                   'the merge request failed: gh: Resource not accessible by integration (HTTP 403) {"message": "Resource not accessible by integration", "status": "403"}'),
                                  (FakeGitHub(failures=("dispatch",)), f"merged `aaaaaaa` with the squash method as `{MERGED}`, but the `dependabot-merged` dispatch failed: dispatch failed: HTTP 500")):
             with self.subTest(fragment=fragment):
-                result = merge_run(github)
+                with mock.patch.object(auto_merge.time, "sleep"):
+                    result = merge_run(github)
                 self.assertEqual(1, result.exit_code, result.summary)
                 self.assertEqual("error", result.decision.outcome)
                 self.assertIn(fragment, result.summary)
@@ -584,9 +621,9 @@ class WorkflowRunTests(unittest.TestCase):
         result = merge_run(github)
         self.assertEqual(1, result.exit_code, "a refusal that cannot be checked against the pull request fails")
 
-    def test_a_head_that_the_updater_app_rebuilt_in_this_repository_merges_after_reading_only_the_app_commit_s_files(self) -> None:
-        def rebuilt_run(github: FakeGitHub, repository: str = THIS_REPOSITORY) -> auto_merge.Result:
-            (result,) = auto_merge.run_workflow_run(github, repository, BRANCH)
+    def test_a_head_with_configured_updater_paths_merges_after_reading_only_the_app_commit_s_files(self) -> None:
+        def rebuilt_run(github: FakeGitHub, repository: str = THIS_REPOSITORY, updater_paths: tuple[str, ...] = (CONSUMER_BUILD,)) -> auto_merge.Result:
+            (result,) = auto_merge.run_workflow_run(github, repository, BRANCH, "tests/suites.json" if updater_paths else None, updater_paths=updater_paths)
             return result
 
         github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)], files={HEAD: REBUILT})
@@ -603,8 +640,8 @@ class WorkflowRunTests(unittest.TestCase):
         self.assertEqual(("error", 1), (result.decision.outcome, result.exit_code))
         self.assertEqual([], mutations(github))
         github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)], files={HEAD: REBUILT})
-        result = rebuilt_run(github, REPOSITORY)
-        self.assertEqual("manual", result.decision.outcome, "another repository accepts no App commit")
+        result = rebuilt_run(github, REPOSITORY, ())
+        self.assertEqual("manual", result.decision.outcome, "a repository without configured updater paths accepts no App commit")
         self.assertEqual([], [call for call in github.calls if call[0] in ("commit_files", "merge", "dispatch")])
 
     def test_a_head_that_the_updater_app_applied_additions_to_in_a_consumer_that_passes_its_suite_list_merges(self) -> None:
@@ -638,6 +675,41 @@ class WorkflowRunTests(unittest.TestCase):
         result = merge_run(github)
         self.assertEqual(1, result.exit_code)
         self.assertIn("the open pull requests could not be read", result.summary)
+
+    def test_a_transient_dispatch_failure_is_retried_and_confirmed(self) -> None:
+        github = FakeGitHub(dispatch_errors=[refused(502, "Bad Gateway")])
+        with mock.patch.object(auto_merge.time, "sleep"):
+            result = merge_run(github)
+        self.assertEqual(0, result.exit_code, result.summary)
+        self.assertEqual(2, sum(1 for call in mutations(github) if call[0] == "dispatch"))
+        self.assertIn(f"confirmed a `repository_dispatch` run for `{MERGED}`", result.summary)
+
+    def test_a_dispatch_whose_run_did_not_start_is_dispatched_again_and_permanent_failure_states_the_manual_remedy(self) -> None:
+        github = FakeGitHub(dispatch_runs_sequence=[[], [], [], [{"id": 99, "head_sha": MERGED}]])
+        with mock.patch.object(auto_merge.time, "sleep"):
+            result = merge_run(github)
+        self.assertEqual(0, result.exit_code, result.summary)
+        self.assertEqual(2, sum(1 for call in mutations(github) if call[0] == "dispatch"))
+
+        github = FakeGitHub(dispatch_runs_sequence=[])
+        with mock.patch.object(auto_merge.time, "sleep"):
+            result = merge_run(github)
+        self.assertEqual(1, result.exit_code, result.summary)
+        self.assertIn(f"gh api --method POST repos/{REPOSITORY}/dispatches -f event_type=dependabot-merged -f client_payload[sha]={MERGED}", result.summary)
+
+        github = FakeGitHub(dispatch_errors=[refused(403, "Resource not accessible")])
+        with mock.patch.object(auto_merge.time, "sleep"):
+            result = merge_run(github)
+        self.assertEqual(1, result.exit_code, result.summary)
+        self.assertEqual(1, sum(1 for call in mutations(github) if call[0] == "dispatch"), "permanent 403 is not retried")
+        self.assertIn(f"gh api --method POST repos/{REPOSITORY}/dispatches -f event_type=dependabot-merged -f client_payload[sha]={MERGED}", result.summary)
+
+    def test_a_refused_run_lookup_after_a_succeeded_merge_and_dispatch_reports_unconfirmed_start_without_failing(self) -> None:
+        github = FakeGitHub(dispatch_runs_error=refused(403, "Resource not accessible by integration"))
+        result = merge_run(github)
+        self.assertEqual(0, result.exit_code, result.summary)
+        self.assertIn("start was not confirmed", result.summary)
+        self.assertIn(f"gh api --method POST repos/{REPOSITORY}/dispatches -f event_type=dependabot-merged -f client_payload[sha]={MERGED}", result.summary)
 
 
 ENABLED = {"merge_method": "squash"}
@@ -676,11 +748,16 @@ class WorkflowRunDisableTests(unittest.TestCase):
         self.assertEqual([], mutations(github))
         self.assertIn("**Action:** nothing to disable; nothing merged and nothing dispatched.", result.summary)
 
-    def test_an_automatic_decision_merges_and_disables_nothing(self) -> None:
+    def test_an_automatic_decision_disables_auto_merge_before_attempting_the_merge(self) -> None:
         github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED))
         result = disabling_run(github)
         self.assertEqual(0, result.exit_code, result.summary)
-        self.assertEqual(["merge", "dispatch"], [call[0] for call in mutations(github)])
+        self.assertEqual(["disable_auto_merge", "merge", "dispatch"], [call[0] for call in mutations(github)])
+        pending = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED),
+                             merge_errors=[refused(405, "Required status check \\\"ci / verdict\\\" is expected.")])
+        result = disabling_run(pending)
+        self.assertEqual(0, result.exit_code, result.summary)
+        self.assertEqual(["disable_auto_merge", "merge"], [call[0] for call in mutations(pending)])
 
     def test_without_the_request_to_disable_a_completed_run_leaves_the_auto_merge_as_it_is(self) -> None:
         github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(sha=FIRST), commit("someone", "fix: adjust")])
@@ -715,6 +792,7 @@ class CommandLineTests(unittest.TestCase):
             f"repos/{REPOSITORY}/rules/branches/main": '[]',
             f"repos/{REPOSITORY}/rules/branches/release%2Fv1%202": "[]",
             f"repos/{REPOSITORY}/pulls/7/merge": f'{{"sha": "{MERGED}", "merged": true}}',
+            f"repos/{REPOSITORY}/actions/runs": f'{{"workflow_runs": [{{"id": 1, "head_sha": "{MERGED}"}}]}}',
             f"repos/{REPOSITORY}/commits/{HEAD}": '[{"files": [{"filename": "tests/suites.json"}, {"filename": "b/new.dll", "previous_filename": "b/old.dll"}]}, '
                                                   '{"files": [{"filename": "b/x.dll"}]}]',
         }
@@ -737,6 +815,7 @@ class CommandLineTests(unittest.TestCase):
             client.disable_auto_merge("u")
             self.assertEqual(MERGED, client.merge(REPOSITORY, 7, HEAD, "squash")["sha"])
             client.dispatch(REPOSITORY, "dependabot-merged", MERGED)
+            self.assertEqual([{"id": 1, "head_sha": MERGED}], client.dispatch_runs(REPOSITORY, MERGED))
         self.assertEqual([
             ["gh-fixture", "api", f"repos/{REPOSITORY}/pulls/7"],
             ["gh-fixture", "api", "--method", "GET", f"repos/{REPOSITORY}/pulls", "-f", "state=open", "-f", f"head=CrankyAnt:{BRANCH}"],
@@ -747,6 +826,7 @@ class CommandLineTests(unittest.TestCase):
             ["gh-fixture", "pr", "merge", "--disable-auto", "u"],
             ["gh-fixture", "api", "--method", "PUT", f"repos/{REPOSITORY}/pulls/7/merge", "-f", "merge_method=squash", "-f", f"sha={HEAD}"],
             ["gh-fixture", "api", "--method", "POST", f"repos/{REPOSITORY}/dispatches", "-f", "event_type=dependabot-merged", "-f", f"client_payload[sha]={MERGED}"],
+            ["gh-fixture", "api", "--method", "GET", f"repos/{REPOSITORY}/actions/runs", "-f", "event=repository_dispatch", "-f", f"head_sha={MERGED}"],
         ], issued)
 
     def test_a_failed_gh_call_carries_the_http_status_and_the_response(self) -> None:

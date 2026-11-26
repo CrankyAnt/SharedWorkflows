@@ -3,9 +3,9 @@
 They are ``recording.py`` and the modules it reaches through imports: the module-level imports of each module it
 loads, and the imports inside the functions of ``recording.py`` itself. An import inside a function of another
 module counts only when the recording step calls that function, which a test of the recording step's commands
-guards; ``suite_selection.py`` imports ``reuse`` and ``unrecorded`` only inside the functions of ``select``, the
-lookup and the store. These modules are the files of the shared digest that ``recording.py digest`` takes, and
-a change to one of them runs every entry file of the jobs that use the recording step, as "Unrecorded inputs" in
+guards; ``recording.py`` imports ``suite_list`` rather than ``suite_selection``, so changes to selection code do not
+enter the platform digests. These modules enter the platform digests that ``recording.py digest`` takes, and a change
+to one of them runs every entry file of the jobs that use the recording step, as "Unrecorded inputs" in
 ``docs/maintaining.md`` states.
 
 Paths are strings with ``/`` separators, so that the same function reads a checkout's files and a revision's.

@@ -12,6 +12,7 @@ import sys
 import unittest
 from pathlib import Path, PureWindowsPath
 
+from tests import temporary_support
 from tests.recording_fixtures import (ETW_RECORDINGS, ROOT, STRACE_RECORDINGS, RecordingFixture, copy_recording, copy_strace_recording,
                                       load_recording, requires_posix_paths, suite)
 
@@ -515,10 +516,12 @@ class ClassificationRules:
         self.assertNotIn("cache.txt", reads["paths"])
         self.assertNotIn("build/out.bin", self.existence("tests/ignored.py"))
 
-    def test_only_the_tracked_gitignore_files_of_the_checked_commit_decide_matched_case_sensitively(self) -> None:
+    case_insensitive_ignore: bool = False
+
+    def test_only_the_tracked_gitignore_files_of_the_checked_commit_decide(self) -> None:
         # listed/ matches the directory that the recording lists, absent.txt/ no directory, and Missing-Tool and
-        # ABSENT-IN-COPY.TXT nothing under case-sensitive matching. The local settings, an untracked .gitignore file and an
-        # uncommitted edit of the tracked one match the rest.
+        # ABSENT-IN-COPY.TXT match only under Windows case-insensitive matching. The local settings, an untracked
+        # .gitignore file and an uncommitted edit of the tracked one never take part.
         files = {path: text for path, text in self.files().items() if path != "listed/one.txt"}
         fixture = self.recorded({**files, ".gitignore": DATA[".gitignore"] + "listed/\nabsent.txt/\nMissing-Tool\nABSENT-IN-COPY.TXT\n"})
         fixture.git("config", "core.ignoreCase", "true")
@@ -530,13 +533,18 @@ class ClassificationRules:
         (fixture.root / "lib" / ".gitignore").write_text("absent-in-copy.txt\n", encoding="utf-8")
         with (fixture.root / ".gitignore").open("a", encoding="utf-8") as handle:
             handle.write("absent.txt\n")
-        local = {"tests/stats.py": "absent.txt", "tests/commands.py": "missing-tool", "tests/copy.py": "lib/absent-in-copy.txt"}
+        kept = {"tests/stats.py": "absent.txt"}
+        folded = {"tests/commands.py": "missing-tool", "tests/copy.py": "lib/absent-in-copy.txt"}
+        expected_probes = kept if self.case_insensitive_ignore else {**kept, **folded}
 
         checked = fixture.check()
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
         reads = classified_lists(fixture)
-        for entry, path in local.items():
+        for entry, path in expected_probes.items():
             self.assert_probe(reads[entry], path)
+        if self.case_insensitive_ignore:
+            for entry, path in folded.items():
+                self.assertNotIn(path, {read["path"] for read in reads[entry]["existence_reads"]})
         self.assertNotIn("listed", reads["tests/imports.py"]["directory_memberships"])
         self.assertNotIn("cache.txt", reads["tests/ignored.py"]["paths"])
 
@@ -546,7 +554,7 @@ class ClassificationRules:
         checked = fixture.check()
         self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
         added = fixture.additions()["suites"][0]["entries"]
-        for entry, path in local.items():
+        for entry, path in expected_probes.items():
             self.assert_probe(added[entry], path)
         self.assertNotIn("cache.txt", added["tests/ignored.py"]["paths"])
 
@@ -600,9 +608,9 @@ class ClassificationRules:
         self.assertEqual(["tests/git_names.py"], reads["paths"])
 
     def test_git_cat_file_of_full_object_ids_reads_the_tracked_paths_that_hold_each_object(self) -> None:
-        # A blob that two paths hold, a tree with a ^{tree} suffix, and a blob that no tracked path holds; the Python
-        # process's reads of the Git directory's configuration and HEAD stay dropped.
-        self.assertEqual(["held/**", "held/also-one.txt", "held/one.txt", "tests/git_objects.py"], self.reads("tests/git_objects.py")["paths"])
+        # A blob that two paths hold, a tree with a ^{tree} suffix, an unheld blob id, and a Python read of .git/HEAD:
+        # the held ids record their tracked paths, while the unheld id and the non-git .git/HEAD read fall back to **.
+        self.assertEqual(["**", "held/**", "held/also-one.txt", "held/one.txt", "tests/git_objects.py"], self.reads("tests/git_objects.py")["paths"])
 
     def test_git_cat_file_of_the_checked_commits_id_reads_every_tracked_path(self) -> None:
         self.assertEqual(["**", "tests/git_commit.py"], self.reads("tests/git_commit.py")["paths"])
@@ -747,6 +755,8 @@ class StoredStraceClassificationTests(ClassificationRules, unittest.TestCase):
 class RecordedEventFileClassificationTests(ClassificationRules, unittest.TestCase):
     """The same rules on the neutral event files of two ETW recordings of the Windows fixture on a hosted runner."""
 
+    case_insensitive_ignore = True
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.fixture = classification_fixture(cls.addClassCleanup, WINDOWS_FILES)
@@ -784,9 +794,9 @@ class RecordedEventFileClassificationTests(ClassificationRules, unittest.TestCas
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
         return fixture
 
-    def test_a_directory_on_the_checking_machines_disk_is_no_directory_that_the_recording_shows(self) -> None:
-        # Without the opens of data\, the recording shows data only through an enumeration of its literal name, which
-        # names no directory, so data/ does not match it although data is a directory where check runs.
+    def test_an_untracked_ignored_directory_hit_by_stat_matches_a_directory_only_gitignore_rule(self) -> None:
+        # Without the opens of data\, the recording hits data only through a literal-name enumeration (stat); because
+        # data is an untracked directory in the checkout, data/ in .gitignore matches and drops it.
         files = {path: text for path, text in WINDOWS_FILES.items() if path != "data/stat.txt"}
         fixture = self.recorded({**files, ".gitignore": DATA[".gitignore"] + "data/\n"})
         (fixture.root / "data").mkdir()
@@ -795,7 +805,7 @@ class RecordedEventFileClassificationTests(ClassificationRules, unittest.TestCas
         checked = fixture.check()
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
         existence = {read["path"]: read["kind"] for read in fixture.reads_of("tests/stats.py")["existence_reads"]}
-        self.assertEqual("directory", existence.get("data"), existence)
+        self.assertNotIn("data", existence)
 
     def second(self) -> dict:
         other = classification_fixture(self.addCleanup, WINDOWS_FILES)
@@ -935,6 +945,176 @@ class StatOnlyClassificationTests(unittest.TestCase):
         self.assertEqual([{"path": "absent.txt/pyvenv.cfg", "kind": "any"}, {"path": "data", "kind": "directory"},
                           {"path": "lib/missing.py", "kind": "any"}], reads["existence_reads"])
         self.assertEqual(["."], reads["directory_memberships"])
+
+    def test_a_worker_threads_import_listing_is_credited_to_that_thread_and_hides_no_main_thread_listing(self) -> None:
+        # Process 1000's worker thread 1002 imports from lib/; the main thread 1000 lists lib/ itself.
+        recording = self.recording
+        directory = Path(self.enterContext(temporary_support.Directory()))
+        (directory / "1000.tsv").write_text(f"suffixes\t.py\nlist\t1002\t{self.ROOT}/lib\n", encoding="utf-8")
+        lookups = recording.read_lookups(directory, recording.normalize)
+        events = [self.event("list", "lib", pid="1000"), self.event("list", "lib", pid="1002")]
+        unit = recording.UnitRecording(events, None, self.project, self.ROOT, lookups)
+        reads = recording.unit_reads(unit, recording.Start("python3", self.ROOT, ())).document()
+        self.assertEqual(["lib"], reads["directory_memberships"])
+        # When only the worker thread lists lib/ for its import, no directory membership is recorded.
+        worker_only = recording.UnitRecording([self.event("list", "lib", pid="1002")], None, self.project, self.ROOT, lookups)
+        self.assertEqual([], recording.unit_reads(worker_only, recording.Start("python3", self.ROOT, ())).document()["directory_memberships"])
+
+    def test_an_open_through_a_symlink_records_both_the_link_and_its_target(self) -> None:
+        recording = self.recording
+        trace = Path(self.enterContext(temporary_support.Directory())) / "link.strace"
+        trace.write_text(
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "link.txt", O_RDONLY|O_CLOEXEC) = 3<{self.ROOT}/data/keep.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "data/keep.txt", O_RDONLY|O_CLOEXEC) = 4<{self.ROOT}/data/keep.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "pipe_read", O_RDONLY) = 5<pipe:[12345]>\n',
+            encoding="utf-8",
+        )
+        events = recording.parse_trace(trace, (self.ROOT,), self.ROOT)
+        reads = [(event.kind, event.path) for event in events]
+        self.assertEqual([
+            ("read", f"{self.ROOT}/link.txt"),
+            ("read", f"{self.ROOT}/data/keep.txt"),
+            ("read", f"{self.ROOT}/data/keep.txt"),
+            ("read", f"{self.ROOT}/pipe_read"),
+        ], reads)
+
+    def test_write_opens_are_recorded_and_rdwr_without_trunc_also_records_a_read(self) -> None:
+        recording = self.recording
+        trace = Path(self.enterContext(temporary_support.Directory())) / "writes.strace"
+        trace.write_text(
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "out.txt", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<{self.ROOT}/out.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "data/keep.txt", O_RDWR|O_CREAT, 0666) = 4<{self.ROOT}/data/keep.txt>\n'
+            f'100 openat(AT_FDCWD<{self.ROOT}>, "trunc.txt", O_RDWR|O_TRUNC) = 5<{self.ROOT}/trunc.txt>\n',
+            encoding="utf-8",
+        )
+        events = recording.parse_trace(trace, (self.ROOT,), self.ROOT)
+        self.assertEqual([
+            ("write", f"{self.ROOT}/out.txt"),
+            ("write", f"{self.ROOT}/data/keep.txt"),
+            ("read", f"{self.ROOT}/data/keep.txt"),
+            ("write", f"{self.ROOT}/trunc.txt"),
+        ], [(event.kind, event.path) for event in events])
+
+    def test_a_git_revision_and_path_argument_adds_no_existence_read_and_still_reads_every_tracked_path(self) -> None:
+        recording = self.recording
+        project = replace_git_dirs(self.project, (f"{self.ROOT}/.git",))
+        rev_arg = "0123456789abcdef:docs/guides/runs/run-outcomes.md"
+        events = [
+            recording.Event(OTHER, "git", "exec", "/usr/bin/git", self.ROOT, ("git", "show", rev_arg)),
+            recording.Event(OTHER, "git", "absent", f"{self.ROOT}/{rev_arg}", self.ROOT),
+            recording.Event(OTHER, "git", "read", f"{self.ROOT}/.git/HEAD", self.ROOT),
+            # A bare revision without a colon still stays an existence read, and a non-git probe with a colon stays too.
+            recording.Event("21", "git", "exec", "/usr/bin/git", self.ROOT, ("git", "rev-parse", "HEAD")),
+            recording.Event("21", "git", "absent", f"{self.ROOT}/HEAD", self.ROOT),
+            recording.Event("21", "git", "read", f"{self.ROOT}/.git/HEAD", self.ROOT),
+            recording.Event(PYTHON, "python3", "absent", f"{self.ROOT}/notes:draft.txt", self.ROOT),
+        ]
+        unit = recording.UnitRecording(events, None, project, self.ROOT)
+        reads = recording.unit_reads(unit, recording.Start("python3", self.ROOT, ())).document()
+        self.assertIn("**", reads["paths"])
+        existence = {read["path"]: read["kind"] for read in reads["existence_reads"]}
+        self.assertNotIn(rev_arg, existence)
+        self.assertEqual("any", existence.get("HEAD"))
+        self.assertEqual("any", existence.get("notes:draft.txt"))
+
+    def test_derived_existence_reads_respect_gitignore_and_skip_dotnet_option_values(self) -> None:
+        recording = self.recording
+        fixture = RecordingFixture(self.addCleanup, {
+            **SIBLING_FILES,
+            ".gitignore": "*.so\n*.pyd\nNuGet.Config\n",
+            "app/App.csproj": "<Project />\n",
+            "out/keep.txt": "",
+        }, [suite("a", ["tests/test_a.py"], paths=[])], stand_in=False)
+        project = recording.checkout(fixture.root)
+        # preceding_modules generates lib/helper.so and lib/helper.pyd; .gitignore drops both while keeping lib/helper.
+        lookups = recording.Lookups(frozenset({PYTHON}), {}, (
+            recording.FoundModule(f"{self.ROOT}/lib", "helper", f"{self.ROOT}/lib/helper.py", (".so", ".pyd", ".py")),
+        ))
+        events = [
+            recording.Event(OTHER, "dotnet", "exec", "/usr/bin/dotnet", self.ROOT,
+                            ("dotnet", "test", "--results-directory", "out", "--project", "app/App.csproj")),
+            recording.Event(OTHER, "dotnet", "read", f"{self.ROOT}/app/App.csproj", self.ROOT),
+        ]
+        unit = recording.UnitRecording(events, None, project, self.ROOT, lookups)
+        reads = recording.unit_reads(unit, recording.Start("python3", self.ROOT, ())).document()
+        existence = {read["path"]: read["kind"] for read in reads["existence_reads"]}
+        self.assertEqual("directory", existence.get("lib/helper"))
+        self.assertNotIn("lib/helper.so", existence)
+        self.assertNotIn("lib/helper.pyd", existence)
+        self.assertNotIn("NuGet.Config", existence)
+        self.assertNotIn("app/NuGet.Config", existence)
+        self.assertIn("app/Directory.Build.props", existence)
+        # out was the value of --results-directory, not an argument anchor.
+        self.assertNotIn("out/Directory.Build.props", existence)
+        self.assertNotIn("out/Directory.Solution.props", existence)
+
+    def test_untracked_ignored_directory_and_windows_case_folding_in_gitignore(self) -> None:
+        recording = self.recording
+        fixture = RecordingFixture(self.addCleanup, {
+            **SIBLING_FILES,
+            ".gitignore": "ignored_dir/\nMixedCase.txt\n",
+        }, [suite("a", ["tests/test_a.py"], paths=[])], stand_in=False)
+        (fixture.root / "ignored_dir").mkdir()
+        project = recording.checkout(fixture.root)
+        events = [
+            recording.Event(OTHER, "tool", "stat", f"{self.ROOT}/ignored_dir", self.ROOT),
+            recording.Event(OTHER, "tool", "absent", f"{self.ROOT}/mixedcase.txt", self.ROOT),
+        ]
+        unit = recording.UnitRecording(events, None, project, self.ROOT)
+        linux_existence = {read["path"]: read["kind"] for read in recording.unit_reads(unit, recording.Start("tool", self.ROOT, ()), fold=False).document()["existence_reads"]}
+        windows_existence = {read["path"]: read["kind"] for read in recording.unit_reads(unit, recording.Start("tool", self.ROOT, ()), fold=True).document()["existence_reads"]}
+        self.assertNotIn("ignored_dir", linux_existence)
+        self.assertNotIn("ignored_dir", windows_existence)
+        self.assertEqual("any", linux_existence.get("mixedcase.txt"))
+        self.assertNotIn("mixedcase.txt", windows_existence)
+
+    def test_non_git_readers_of_git_state_and_unheld_cat_file_ids_fall_back_to_every_path(self) -> None:
+        recording = self.recording
+        fixture = RecordingFixture(self.addCleanup, {**SIBLING_FILES, **HELD_FILES}, [suite("a", ["tests/test_a.py"], paths=[])], stand_in=False)
+        project = replace_git_dirs(recording.checkout(fixture.root), (f"{self.ROOT}/.git",))
+        # Non-git process reading .git/HEAD falls back to **; reading only .git/config does not.
+        head_events = [recording.Event(PYTHON, "python3", "read", f"{self.ROOT}/.git/HEAD", self.ROOT)]
+        config_events = [recording.Event(PYTHON, "python3", "read", f"{self.ROOT}/.git/config", self.ROOT)]
+        self.assertIn("**", recording.unit_reads(recording.UnitRecording(head_events, None, project, self.ROOT), recording.Start("python3", self.ROOT, ())).paths)
+        self.assertNotIn("**", recording.unit_reads(recording.UnitRecording(config_events, None, project, self.ROOT), recording.Start("python3", self.ROOT, ())).paths)
+        # git cat-file of a held object id stays narrow; an unheld id falls back to **.
+        held_only = [
+            recording.Event(OTHER, "git", "exec", "/usr/bin/git", self.ROOT, ("git", "cat-file", "blob", ONE_BLOB_ID)),
+            recording.Event(OTHER, "git", "read", f"{self.ROOT}/.git/objects/{ONE_BLOB_ID[:2]}/{ONE_BLOB_ID[2:]}", self.ROOT),
+        ]
+        unheld = [
+            recording.Event(OTHER, "git", "exec", "/usr/bin/git", self.ROOT, ("git", "cat-file", "-e", UNHELD_BLOB_ID)),
+            recording.Event(OTHER, "git", "read", f"{self.ROOT}/.git/objects/pack/pack.idx", self.ROOT),
+        ]
+        held_reads = recording.unit_reads(recording.UnitRecording(held_only, None, project, self.ROOT), recording.Start("python3", self.ROOT, ())).paths
+        unheld_reads = recording.unit_reads(recording.UnitRecording(unheld, None, project, self.ROOT), recording.Start("python3", self.ROOT, ())).paths
+        self.assertEqual({"held/also-one.txt", "held/one.txt"}, held_reads)
+        self.assertIn("**", unheld_reads)
+
+    def test_stored_covers_existence_soundness_and_linear_scaling(self) -> None:
+        recording = self.recording
+        # Parent membership covers kind="any", not kind="directory"; src/** covers src for kind="directory" and src/a for kind="any", not src for kind="any".
+        with_root_membership = recording.Stored(patterns=(), memberships=(".",), existence=(), tracked=frozenset({"data/keep.txt"}))
+        self.assertTrue(with_root_membership.covers_existence("top.txt", "any"))
+        self.assertFalse(with_root_membership.covers_existence("data", "directory"))
+        with_tree_pattern = recording.Stored(patterns=("src/**",), memberships=(), existence=(), tracked=frozenset({"data/keep.txt"}))
+        self.assertTrue(with_tree_pattern.covers_existence("src", "directory"))
+        self.assertTrue(with_tree_pattern.covers_existence("src/a", "any"))
+        self.assertFalse(with_tree_pattern.covers_existence("src", "any"))
+        # Large lists deduplicate and cover linearly without quadratic blowup.
+        many = [f"pkg/file_{index}.py" for index in range(3000)]
+        joined = recording.add_unique(many, many + ["pkg/new.py"])
+        self.assertEqual(3001, len(joined))
+        large_stored = recording.Stored(patterns=tuple(many), memberships=(), existence=(), tracked=frozenset(many))
+        self.assertTrue(all(large_stored.covers_path(path) for path in many))
+        self.assertTrue(large_stored.covers_existence("pkg", "directory"))
+        self.assertFalse(large_stored.covers_existence("other", "directory"))
+
+
+def replace_git_dirs(project, directories: tuple[str, ...]):
+    from dataclasses import replace
+
+    return replace(project, git_directories=directories)
 
 
 if __name__ == "__main__":

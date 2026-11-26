@@ -1,0 +1,24 @@
+{
+  "unit": "1795631841871989100-39080",
+  "kind": "entry",
+  "name": "tests/git_peeled.py",
+  "suite": null,
+  "command": [
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\python\\Scripts\\python.EXE",
+    "tests/git_peeled.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.182,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631841871989100-39080",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\recording\\work\\1795631841871989100-39080\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\recording\\work\\1795631841871989100-39080\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-d5g2u30w\\repo",
+  "pid": 51544,
+  "launcher": 39080,
+  "recorder": [
+    "etw"
+  ]
+}

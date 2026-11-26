@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pins import PINS_PATH, PinsError, asset_url, dump_pins, load_pins, render, version_key  # noqa: E402
+from pins import PINS_PATH, PinsError, asset_url, dump_pins, load_pins, render, validate_pins, version_key  # noqa: E402
 
 COOLDOWN_DAYS = 7
 RELEASES_URL = "https://api.github.com/repos/{repository}/releases?per_page=50"
@@ -190,24 +190,227 @@ def normalized(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+TARGET_ENVIRONMENTS: tuple[dict[str, str], ...] = tuple(
+    {
+        "os_name": os_name,
+        "sys_platform": sys_platform,
+        "platform_system": platform_system,
+        "platform_machine": platform_machine,
+        "implementation_name": "cpython",
+        "platform_python_implementation": "CPython",
+        "python_version": f"3.{minor}",
+        "python_full_version": f"3.{minor}.0",
+        "implementation_version": f"3.{minor}.0",
+    }
+    for os_name, sys_platform, platform_system, platform_machine in (
+        ("posix", "linux", "Linux", "x86_64"),
+        ("nt", "win32", "Windows", "AMD64"),
+    )
+    for minor in (12, 13, 14)
+)
+
+_MARKER_TOKEN = re.compile(
+    r"""\s*(?:
+        (?P<lparen>\()|
+        (?P<rparen>\))|
+        (?P<op>===|==|!=|<=|>=|<|>|~=|not\s+in\b|in\b)|
+        (?P<bool>and\b|or\b)|
+        (?P<string>'[^']*'|"[^"]*")|
+        (?P<ident>[A-Za-z_][A-Za-z0-9_.]*)
+    )""",
+    re.VERBOSE,
+)
+
+
+def _compare_marker(left: str, op: str, right: str, is_version: bool) -> bool:
+    if op == "in":
+        return left in right
+    if op == "not in":
+        return left not in right
+    if is_version:
+        lv, rv = _marker_version_key(left), _marker_version_key(right)
+        if op in ("==", "==="):
+            return lv == rv
+        if op == "!=":
+            return lv != rv
+        if op == "<":
+            return lv < rv
+        if op == "<=":
+            return lv <= rv
+        if op == ">":
+            return lv > rv
+        if op == ">=":
+            return lv >= rv
+        if op == "~=":
+            return lv >= rv and lv[: max(1, len(rv) - 1)] == rv[: max(1, len(rv) - 1)]
+    if op in ("==", "==="):
+        return left == right
+    if op == "!=":
+        return left != right
+    if op == "<":
+        return left < right
+    if op == "<=":
+        return left <= right
+    if op == ">":
+        return left > right
+    if op == ">=":
+        return left >= right
+    return False
+
+
+def _marker_version_key(value: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"[0-9]+", value)]
+    return tuple(parts) if parts else (0,)
+
+
+def _eval_marker(marker: str, environment: dict[str, str], extras: set[str]) -> bool:
+    """Evaluate a PEP 508 environment marker against ``environment`` and active ``extras``."""
+    tokens = [(match.lastgroup, match.group(0).strip()) for match in _MARKER_TOKEN.finditer(marker)]
+    position = 0
+
+    def parse_or() -> bool:
+        nonlocal position
+        value = parse_and()
+        while position < len(tokens) and tokens[position] == ("bool", "or"):
+            position += 1
+            right = parse_and()
+            value = value or right
+        return value
+
+    def parse_and() -> bool:
+        nonlocal position
+        value = parse_atom()
+        while position < len(tokens) and tokens[position] == ("bool", "and"):
+            position += 1
+            right = parse_atom()
+            value = value and right
+        return value
+
+    def parse_atom() -> bool:
+        nonlocal position
+        if position >= len(tokens):
+            return False
+        if tokens[position][0] == "lparen":
+            position += 1
+            value = parse_or()
+            if position < len(tokens) and tokens[position][0] == "rparen":
+                position += 1
+            return value
+        if position + 2 >= len(tokens):
+            position = len(tokens)
+            return False
+        lhs_kind, lhs_raw = tokens[position]
+        op_kind, op = tokens[position + 1]
+        rhs_kind, rhs_raw = tokens[position + 2]
+        position += 3
+        if op_kind != "op":
+            return False
+        op_norm = re.sub(r"\s+", " ", op)
+        lhs_is_extra = lhs_kind == "ident" and lhs_raw == "extra"
+        rhs_is_extra = rhs_kind == "ident" and rhs_raw == "extra"
+        if lhs_is_extra or rhs_is_extra:
+            other = (rhs_raw if lhs_is_extra else lhs_raw).strip("'\"")
+            matched = normalized(other) in {normalized(item) for item in extras}
+            return not matched if op_norm == "!=" else matched
+        is_version = (lhs_kind == "ident" and "version" in lhs_raw) or (rhs_kind == "ident" and "version" in rhs_raw)
+        left = environment.get(lhs_raw, "") if lhs_kind == "ident" else lhs_raw.strip("'\"")
+        right = environment.get(rhs_raw, "") if rhs_kind == "ident" else rhs_raw.strip("'\"")
+        return _compare_marker(left, op_norm, right, is_version)
+
+    return parse_or()
+
+
+def _parse_requirement_extras(requirements: list[str]) -> dict[str, set[str]]:
+    extras: dict[str, set[str]] = {}
+    for requirement in requirements:
+        head = requirement.split(";", 1)[0].strip()
+        match = re.match(r"^([A-Za-z0-9_.-]+)\[([^\]]+)\]", head)
+        if match:
+            package = normalized(match.group(1))
+            extras.setdefault(package, set()).update(normalized(item.strip()) for item in match.group(2).split(",") if item.strip())
+    return extras
+
+
+def missing_target_requirements(
+    report_items: list[dict],
+    resolved: dict[str, str],
+    requested_extras: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """Requirements from ``report_items`` whose markers match any target platform (linux-x64 or windows-x64) and are not
+    yet in ``resolved``."""
+    requested_extras = requested_extras or {}
+    missing: list[str] = []
+    seen: set[str] = set()
+    for item in report_items:
+        metadata = item.get("metadata") or {}
+        owner = normalized(str(metadata.get("name", "")))
+        owner_extras = requested_extras.get(owner, set())
+        for raw_req in metadata.get("requires_dist") or []:
+            req_part, sep, marker = raw_req.partition(";")
+            req_part = req_part.strip()
+            name_match = re.match(r"^([A-Za-z0-9_.-]+)", req_part)
+            if not name_match:
+                continue
+            dep_name = normalized(name_match.group(1))
+            if dep_name in resolved or dep_name in seen:
+                continue
+            if sep:
+                if not any(_eval_marker(marker.strip(), env, owner_extras) for env in TARGET_ENVIRONMENTS):
+                    continue
+            seen.add(dep_name)
+            missing.append(req_part)
+    return missing
+
+
+def _run_pip_report(python: Path, report_path: Path, requirements: list[str], cutoff: datetime, has_cutoff: bool,
+                    extra_args: list[str] | None = None) -> list[dict]:
+    command = [str(python), "-m", "pip", "install", "--dry-run", "--ignore-installed", "--quiet", "--disable-pip-version-check",
+               "--report", str(report_path)]
+    if has_cutoff:
+        command += ["--uploaded-prior-to", cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")]
+    if extra_args:
+        command += extra_args
+    command += requirements
+    subprocess.run(command, check=True, capture_output=True, text=True)
+    return json.loads(report_path.read_text(encoding="utf-8"))["install"]
+
+
 def pip_resolve(requirements: list[str], cutoff: datetime) -> dict[str, str]:
-    """The packages, by normalized name, that pip in a fresh virtual environment of this interpreter would install."""
+    """The packages, by normalized name, that pip in a fresh virtual environment of this interpreter would install across
+    every target platform (linux-x64 and windows-x64)."""
     with tempfile.TemporaryDirectory() as temporary:
         environment = Path(temporary) / "venv"
+        report_path = Path(temporary) / "report.json"
         try:
             subprocess.run([sys.executable, "-m", "venv", str(environment)], check=True, capture_output=True, text=True)
             python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-            command = [str(python), "-m", "pip", "install", "--dry-run", "--ignore-installed", "--quiet", "--disable-pip-version-check",
-                       "--report", str(Path(temporary) / "report.json"), *requirements]
             help_text = subprocess.run([str(python), "-m", "pip", "install", "--help"], check=True, capture_output=True, text=True).stdout
-            if "--uploaded-prior-to" in help_text:
-                command += ["--uploaded-prior-to", cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")]
-            subprocess.run(command, check=True, capture_output=True, text=True)
+            has_cutoff = "--uploaded-prior-to" in help_text
+            items = _run_pip_report(python, report_path, requirements, cutoff, has_cutoff)
+            resolved = {normalized(item["metadata"]["name"]): item["metadata"]["version"] for item in items}
+            requested_extras = _parse_requirement_extras(requirements)
+            pending_items = list(items)
+            while True:
+                extras_needed = missing_target_requirements(pending_items, resolved, requested_extras)
+                if not extras_needed:
+                    break
+                new_items: list[dict] = []
+                for req in extras_needed:
+                    try:
+                        sub_items = _run_pip_report(python, report_path, [req], cutoff, has_cutoff)
+                    except subprocess.CalledProcessError:
+                        sub_items = _run_pip_report(python, report_path, [req], cutoff, has_cutoff,
+                                                    ["--platform", "win_amd64", "--python-version", "3.12", "--only-binary=:all:"])
+                    for sub in sub_items:
+                        pkg = normalized(sub["metadata"]["name"])
+                        if pkg not in resolved:
+                            resolved[pkg] = sub["metadata"]["version"]
+                            new_items.append(sub)
+                pending_items = new_items
         except (OSError, subprocess.CalledProcessError) as error:
             detail = error.stderr.strip() if isinstance(error, subprocess.CalledProcessError) and error.stderr else str(error)
             raise Unreachable(f"pip could not resolve {' '.join(requirements)}: {detail}") from error
-        report = json.loads((Path(temporary) / "report.json").read_text(encoding="utf-8"))
-    return {normalized(item["metadata"]["name"]): item["metadata"]["version"] for item in report["install"]}
+    return resolved
 
 
 def locked_distribution(filename: str) -> bool:
@@ -373,6 +576,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pins", type=Path, default=PINS_PATH)
     parser.add_argument("--apply", action="store_true", help="write the proposed pins file")
+    parser.add_argument("--write-plan", type=Path, help="write the verified proposed pins and PR body to this JSON file without modifying --pins")
+    parser.add_argument("--apply-plan", type=Path, help="apply a verified plan file written by --write-plan without querying upstreams")
     parser.add_argument("--cooldown-days", type=int, default=COOLDOWN_DAYS, help="minimum release age in days (default: %(default)s)")
     parser.add_argument("--output", type=Path, help="append changed= and failed= lines for GitHub Actions")
     parser.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
@@ -380,9 +585,35 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def apply_plan_file(plan_path: Path, pins_path: Path, pr_body_path: Path | None, output_path: Path | None) -> int:
+    """Validate and apply a plan written by ``--write-plan`` without querying any upstream."""
+    try:
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("pins"), dict) or not isinstance(data.get("pr_body"), str):
+            raise PinsError(f"{plan_path} is not a valid pins plan")
+        validate_pins(data["pins"])
+    except (OSError, json.JSONDecodeError, PinsError) as error:
+        print(f"::error::{error}", file=sys.stderr)
+        if output_path:
+            with output_path.open("a", encoding="utf-8") as handle:
+                handle.write("changed=false\nfailed=true\n")
+        return 1
+    pins_path.write_text(dump_pins(data["pins"]), encoding="utf-8", newline="\n")
+    print(f"wrote {pins_path}")
+    if pr_body_path:
+        pr_body_path.parent.mkdir(parents=True, exist_ok=True)
+        pr_body_path.write_text(data["pr_body"], encoding="utf-8", newline="\n")
+    if output_path:
+        with output_path.open("a", encoding="utf-8") as handle:
+            handle.write("changed=true\nfailed=false\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.apply_plan:
+        return apply_plan_file(arguments.apply_plan, arguments.pins, arguments.pr_body, arguments.output)
     if arguments.cooldown_days < 0:
         parser.error("--cooldown-days must be 0 or more")
     try:
@@ -403,11 +634,15 @@ def main(argv: list[str] | None = None) -> int:
         for failure in result.failures:
             print(f"::error::{failure}", file=sys.stderr)
         return 1
+    pr_body_text = render_pr_body(result, Path(os.path.relpath(arguments.pins.resolve(), Path.cwd())).as_posix()) if result.changed else ""
+    if arguments.write_plan and result.changed:
+        arguments.write_plan.parent.mkdir(parents=True, exist_ok=True)
+        arguments.write_plan.write_text(json.dumps({"pins": result.pins, "pr_body": pr_body_text}, indent=2) + "\n", encoding="utf-8", newline="\n")
     if arguments.apply and result.changed:
         arguments.pins.write_text(dump_pins(result.pins), encoding="utf-8", newline="\n")
         print(f"wrote {arguments.pins}")
     if arguments.pr_body and result.changed:
-        arguments.pr_body.write_text(render_pr_body(result, Path(os.path.relpath(arguments.pins.resolve(), Path.cwd())).as_posix()), encoding="utf-8", newline="\n")
+        arguments.pr_body.write_text(pr_body_text, encoding="utf-8", newline="\n")
     return 0
 
 

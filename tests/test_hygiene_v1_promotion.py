@@ -43,7 +43,7 @@ SURFACE = {
 }
 APP = "pins-updater[bot]"
 OWNER = "CrankyAnt"
-PASSED = {"ci.yml": "success", "repository-hygiene-caller.yml": "success", "python-tests-caller.yml": "success"}
+PASSED = "success"
 
 
 def git(repo: Path, *arguments: str) -> str:
@@ -104,8 +104,8 @@ class Api:
     def tag_object(self, sha: str, target: str, kind: str = "commit") -> None:
         self.responses[promote.TAG_OBJECT_URL.format(repository=self.REPOSITORY, sha=sha)] = {"sha": sha, "tag": "v1", "object": {"sha": target, "type": kind}}
 
-    def runs(self, workflow: str, commit: str, runs: list[dict]) -> None:
-        self.responses[promote.RUNS_URL.format(repository=self.REPOSITORY, workflow=workflow, commit=commit)] = {"total_count": len(runs), "workflow_runs": runs}
+    def check_runs(self, commit: str, runs: list[dict]) -> None:
+        self.responses[promote.CHECK_RUNS_URL.format(repository=self.REPOSITORY, commit=commit)] = {"total_count": len(runs), "check_runs": runs}
 
     def fetch(self, url: str) -> bytes | None:
         self.requests.append(url)
@@ -186,7 +186,7 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(decision.follow)
         self.assertEqual("the changes compared with v1 leave the read class: .github/workflows/hygiene.yml (write class).", decision.reason)
         question = (f"Question: Move v1 from {self.fixture.v1} to {commit}, a promotion that changes the shared-surface files "
-                    ".github/workflows/hygiene.yml (write class)? The move changes the later runs of every caller. Answer yes or no.")
+                    ".github/workflows/hygiene.yml (write class)? The move changes the later runs of every caller. It changes no shared digest. Answer yes or no.")
         self.assertEqual(f"## v1 promotion\n\n`v1` stays at `{self.fixture.v1}`: {decision.reason} A promotion by hand carries this commit.\n\n{question}\n\n"
                          "`prepare` asks the question with the facts of the move:\n\n```text\n"
                          f"python3 actions/repository-hygiene/promote_v1.py prepare --commit {commit}\n```\n", decision.summary())
@@ -197,7 +197,7 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(decision.follow)
         self.assertEqual("the changes compared with v1 leave the read class: ci/kit/caller.yml (template class).", decision.reason)
         self.assertIn("that changes the shared-surface files ci/checks/check.cjs (read class); ci/kit/caller.yml (template class)? "
-                      "The move changes the later runs of every caller. It changes the template class, so right after it the management repository's caller is "
+                      "The move changes the later runs of every caller. It changes no shared digest. It changes the template class, so right after it the management repository's caller is "
                       "replaced when it differs from the caller at the target, and the sync starts. Answer yes or no.",
                       decision.summary())
 
@@ -433,14 +433,13 @@ class PinsExceptionTests(unittest.TestCase):
 
 
 class FollowTests(unittest.TestCase):
-    """Whether ``v1`` follows the commit: the newest push runs on ``main`` of the CI workflows for it, in this repository."""
+    """Whether ``v1`` follows the commit: the completed ``ci / verdict`` check run for it, in this repository."""
 
     COMMIT, OLD = "d" * 40, "a" * 40
 
     def setUp(self) -> None:
         self.api = Api()
-        for workflow in promote.CI_WORKFLOWS:
-            self.api.runs(workflow, self.COMMIT, [{"id": 1, "status": "completed", "conclusion": "success"}])
+        self.api.check_runs(self.COMMIT, [{"id": 1, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 15368}}])
         self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
@@ -451,69 +450,75 @@ class FollowTests(unittest.TestCase):
         self.sleeps.append(seconds)
         self.now += seconds
 
-    def follow(self) -> tuple[str, str, str]:
+    def follow(self, *, expected_code: int = 0) -> tuple[str, str, str]:
         """Run ``await`` through its command line; the output file, the summary and what it printed."""
         output, summary = self.root / "output.txt", self.root / "summary.md"
         for path in (output, summary):
             path.unlink(missing_ok=True)
-        real_wait = promote.wait_for_ci
+        real_wait = promote.wait_for_verdict
 
-        def wait(*arguments, **options) -> dict:
+        def wait(*arguments, **options) -> str | None:
             return real_wait(*arguments, clock=lambda: self.now, sleep=self.sleep, **options)
 
-        with mock.patch.object(promote, "fetch", self.api.fetch), mock.patch.object(promote, "wait_for_ci", wait), contextlib.redirect_stdout(io.StringIO()) as stdout:
+        with mock.patch.object(promote, "fetch", self.api.fetch), mock.patch.object(promote, "wait_for_verdict", wait), contextlib.redirect_stdout(io.StringIO()) as stdout:
             code = promote.main(["await", "--commit", self.COMMIT, "--old", self.OLD, "--repository", Api.REPOSITORY, "--output", str(output), "--summary", str(summary)])
-        self.assertEqual(0, code)
+        self.assertEqual(expected_code, code)
         return output.read_text(encoding="utf-8"), summary.read_text(encoding="utf-8"), stdout.getvalue()
 
     def assert_stays(self, reason: str) -> None:
-        output, summary, _ = self.follow()
+        output, summary, _ = self.follow(expected_code=1)
         self.assertEqual(f"move=false\nold={self.OLD}\nnew={self.COMMIT}\n", output)
         self.assertEqual(f"## v1 promotion\n\n`v1` stays at `{self.OLD}`: {reason} A manual promotion is needed for this commit.\n", summary)
 
-    def test_v1_follows_once_each_ci_run_on_main_concluded_success_and_no_other_repository_is_read(self) -> None:
+    def test_v1_follows_once_the_verdict_concluded_success_and_no_other_repository_is_read(self) -> None:
         output, summary, printed = self.follow()
         self.assertEqual(f"move=true\nold={self.OLD}\nnew={self.COMMIT}\n", output)
-        self.assertEqual(f"## v1 promotion\n\n`v1` moves from `{self.OLD}` to `{self.COMMIT}`: the CI of this commit on main passed.\n", summary)
+        self.assertEqual(f"## v1 promotion\n\n`v1` moves from `{self.OLD}` to `{self.COMMIT}`: the verdict `ci / verdict` of this commit passed.\n", summary)
         self.assertIn(summary, printed)
         self.assertEqual([], self.sleeps)
-        self.assertEqual([promote.RUNS_URL.format(repository=Api.REPOSITORY, workflow=workflow, commit=self.COMMIT) for workflow in promote.CI_WORKFLOWS],
-                         self.api.requests, "the wait reads the push runs on main of the three CI workflows of this repository and nothing else")
+        self.assertEqual([promote.CHECK_RUNS_URL.format(repository=Api.REPOSITORY, commit=self.COMMIT)],
+                         self.api.requests, "the wait reads the verdict check run of this repository and nothing else")
 
-    def test_a_ci_run_that_did_not_pass_keeps_v1_with_the_reason(self) -> None:
-        for workflow in promote.CI_WORKFLOWS:
-            for conclusion in ("failure", "cancelled", "timed_out"):
-                with self.subTest(workflow=workflow, conclusion=conclusion):
-                    self.setUp()
-                    self.api.runs(workflow, self.COMMIT, [{"id": 1, "status": "completed", "conclusion": conclusion}])
-                    self.assert_stays(f"the CI of this commit on main did not pass: {workflow} concluded {conclusion}.")
+    def test_a_verdict_that_did_not_pass_fails_await_and_keeps_v1_with_the_reason(self) -> None:
+        for conclusion in ("failure", "cancelled", "timed_out", "skipped"):
+            with self.subTest(conclusion=conclusion):
+                self.setUp()
+                self.api.check_runs(self.COMMIT, [{"id": 1, "name": "ci / verdict", "status": "completed", "conclusion": conclusion, "app": {"id": 15368}}])
+                self.assert_stays(f"the verdict `ci / verdict` of this commit did not pass: concluded {conclusion}.")
 
-    def test_the_newest_run_decides_when_a_run_was_repeated(self) -> None:
-        self.api.runs("ci.yml", self.COMMIT, [{"id": 1, "status": "completed", "conclusion": "success"}, {"id": 2, "status": "completed", "conclusion": "failure"}])
-        self.assert_stays("the CI of this commit on main did not pass: ci.yml concluded failure.")
+    def test_the_newest_verdict_decides_when_a_run_was_repeated(self) -> None:
+        self.api.check_runs(self.COMMIT, [
+            {"id": 1, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 15368}},
+            {"id": 2, "name": "ci / verdict", "status": "completed", "conclusion": "failure", "app": {"id": 15368}},
+        ])
+        self.assert_stays("the verdict `ci / verdict` of this commit did not pass: concluded failure.")
 
-    def test_a_ci_run_that_has_not_completed_or_does_not_exist_when_the_wait_ends_keeps_v1(self) -> None:
-        for name, runs in (("running", [{"id": 1, "status": "in_progress", "conclusion": None}]), ("no run", [])):
+    def test_a_verdict_from_another_app_is_ignored(self) -> None:
+        self.api.check_runs(self.COMMIT, [{"id": 9, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 99999}}])
+        self.assert_stays("the verdict `ci / verdict` of this commit had not completed when the wait ended.")
+
+    def test_a_verdict_that_has_not_completed_or_does_not_exist_when_the_wait_ends_fails_await_and_keeps_v1(self) -> None:
+        for name, runs in (("running", [{"id": 1, "name": "ci / verdict", "status": "in_progress", "conclusion": None, "app": {"id": 15368}}]), ("no run", [])):
             with self.subTest(name=name):
                 self.now, self.sleeps = 0.0, []
-                self.api.runs("python-tests-caller.yml", self.COMMIT, runs)
-                self.assert_stays("the CI of this commit on main had not completed when the wait ended: python-tests-caller.yml.")
-                self.assertEqual(promote.CI_TIMEOUT - 3 * promote.REQUEST_TIMEOUT, sum(self.sleeps), "a poll reads the three CI workflows")
+                self.api.check_runs(self.COMMIT, runs)
+                self.assert_stays("the verdict `ci / verdict` of this commit had not completed when the wait ended.")
+                self.assertEqual(promote.CI_TIMEOUT - promote.REQUEST_TIMEOUT, sum(self.sleeps), "a poll reads the verdict check run")
 
-    def test_runs_that_could_not_be_read_on_the_last_poll_keep_v1_with_the_reason(self) -> None:
+    def test_runs_that_could_not_be_read_on_the_last_poll_fail_await_and_keep_v1_with_the_reason(self) -> None:
         def unreachable(url: str) -> bytes | None:
             raise urllib.error.URLError("temporary failure in name resolution")
 
         self.api.fetch = unreachable  # type: ignore[method-assign]
-        self.assert_stays("the CI runs of this commit on main could not be read when the wait ended: URLError: <urlopen error temporary failure in name resolution>.")
+        self.assert_stays("the verdict `ci / verdict` of this commit could not be read when the wait ended: URLError: <urlopen error temporary failure in name resolution>.")
 
     def test_runs_that_could_not_be_read_when_the_wait_ended_keep_v1_with_the_error(self) -> None:
-        def unreadable() -> dict:
+        def unreadable() -> str | None:
             raise promote.CiReadError("HTTPError: HTTP Error 502: Bad Gateway")
 
         outcome = promote.follow(self.OLD, self.COMMIT, ci=unreadable)
         self.assertFalse(outcome.move)
-        self.assertEqual("the CI runs of this commit on main could not be read when the wait ended: HTTPError: HTTP Error 502: Bad Gateway.", outcome.reason)
+        self.assertEqual("the verdict `ci / verdict` of this commit could not be read when the wait ended: HTTPError: HTTP Error 502: Bad Gateway.", outcome.reason)
 
 
 class CiWaitTests(unittest.TestCase):
@@ -528,65 +533,57 @@ class CiWaitTests(unittest.TestCase):
         self.sleeps.append(seconds)
         self.now += seconds
 
-    def wait(self, fetcher=None, timeout: float = 600, interval: float = 30, request_timeout: float = 5) -> dict:
-        return promote.wait_for_ci(Api.REPOSITORY, self.COMMIT, fetcher or self.api.fetch, timeout=timeout, interval=interval,
-                                   request_timeout=request_timeout, clock=lambda: self.now, sleep=self.sleep)
+    def wait(self, fetcher=None, timeout: float = 600, interval: float = 30, request_timeout: float = 5) -> str | None:
+        return promote.wait_for_verdict(Api.REPOSITORY, self.COMMIT, fetcher or self.api.fetch, timeout=timeout, interval=interval,
+                                        request_timeout=request_timeout, clock=lambda: self.now, sleep=self.sleep)
 
-    def test_the_newest_push_run_on_main_of_each_workflow_gives_its_conclusion_and_no_job_is_read(self) -> None:
-        # A validation run whose verdict job was skipped for an identical tree concludes success; only the run's conclusion is read.
-        self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}, {"id": 4, "status": "completed", "conclusion": "failure"}])
-        self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 3, "status": "completed", "conclusion": "failure"}, {"id": 8, "status": "completed", "conclusion": "success"}])
-        self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
-        conclusions = self.wait()
-        self.assertEqual(PASSED, conclusions)
-        self.assertIsNone(promote.ci_stay_reason(conclusions))
+    def test_the_newest_verdict_check_run_gives_its_conclusion(self) -> None:
+        self.api.check_runs(self.COMMIT, [
+            {"id": 9, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 15368}},
+            {"id": 4, "name": "ci / verdict", "status": "completed", "conclusion": "failure", "app": {"id": 15368}},
+        ])
+        conclusion = self.wait()
+        self.assertEqual(PASSED, conclusion)
+        self.assertIsNone(promote.verdict_stay_reason(conclusion))
         self.assertEqual([], self.sleeps)
-        self.assertEqual([promote.RUNS_URL.format(repository=Api.REPOSITORY, workflow=workflow, commit=self.COMMIT) for workflow in promote.CI_WORKFLOWS], self.api.requests)
-        for fragment in ["/actions/workflows/{workflow}/runs?", "head_sha={commit}", "event=push", "branch=main"]:
-            self.assertIn(fragment, promote.RUNS_URL)
+        self.assertEqual([promote.CHECK_RUNS_URL.format(repository=Api.REPOSITORY, commit=self.COMMIT)], self.api.requests)
+        for fragment in ["/commits/{commit}/check-runs?", "check_name=ci%20%2F%20verdict"]:
+            self.assertIn(fragment, promote.CHECK_RUNS_URL)
 
-    def test_the_wait_polls_until_every_run_completed(self) -> None:
-        self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
+    def test_the_wait_polls_until_the_verdict_completed(self) -> None:
         polls = iter([
-            ([], [{"id": 8, "status": "in_progress", "conclusion": None}]),
-            ([{"id": 9, "status": "queued", "conclusion": None}], [{"id": 8, "status": "completed", "conclusion": "success"}]),
-            ([{"id": 9, "status": "completed", "conclusion": "success"}], [{"id": 8, "status": "completed", "conclusion": "success"}]),
+            [],
+            [{"id": 9, "name": "ci / verdict", "status": "in_progress", "conclusion": None, "app": {"id": 15368}}],
+            [{"id": 9, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 15368}}],
         ])
 
         def polling_fetch(url: str) -> bytes | None:
-            if "/ci.yml/" in url:
-                validate, hygiene = next(polls)
-                self.api.runs("ci.yml", self.COMMIT, validate)
-                self.api.runs("repository-hygiene-caller.yml", self.COMMIT, hygiene)
+            self.api.check_runs(self.COMMIT, next(polls))
             return self.api.fetch(url)
 
         self.assertEqual(PASSED, self.wait(polling_fetch))
         self.assertEqual([30, 30], self.sleeps)
 
-    def test_a_run_that_concluded_without_success_ends_the_wait_without_waiting_for_the_other(self) -> None:
+    def test_a_verdict_that_concluded_without_success_ends_the_wait_at_once(self) -> None:
         for conclusion in ["failure", "cancelled", "timed_out"]:
             with self.subTest(conclusion=conclusion):
                 self.sleeps.clear()
-                self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
-                self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 8, "status": "completed", "conclusion": conclusion}])
-                conclusions = self.wait()
-                self.assertEqual({"ci.yml": None, "repository-hygiene-caller.yml": conclusion, "python-tests-caller.yml": None}, conclusions)
+                self.api.check_runs(self.COMMIT, [{"id": 8, "name": "ci / verdict", "status": "completed", "conclusion": conclusion, "app": {"id": 15368}}])
+                got = self.wait()
+                self.assertEqual(conclusion, got)
                 self.assertEqual([], self.sleeps)
-                self.assertEqual(f"the CI of this commit on main did not pass: repository-hygiene-caller.yml concluded {conclusion}.", promote.ci_stay_reason(conclusions))
+                self.assertEqual(f"the verdict `ci / verdict` of this commit did not pass: concluded {conclusion}.", promote.verdict_stay_reason(got))
 
-    def test_runs_that_have_not_completed_within_the_bound_stay_unfinished(self) -> None:
-        self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "in_progress", "conclusion": None}])
-        conclusions = self.wait(timeout=95, interval=30, request_timeout=5)
-        self.assertEqual({"ci.yml": None, "repository-hygiene-caller.yml": None, "python-tests-caller.yml": None}, conclusions)
-        self.assertEqual([30, 30, 20], self.sleeps, "the last poll starts when three full request timeouts still end at the bound")
-        self.assertEqual("the CI of this commit on main had not completed when the wait ended: ci.yml, repository-hygiene-caller.yml, python-tests-caller.yml.",
-                         promote.ci_stay_reason(conclusions))
+    def test_a_verdict_that_has_not_completed_within_the_bound_stays_unfinished(self) -> None:
+        self.api.check_runs(self.COMMIT, [{"id": 9, "name": "ci / verdict", "status": "in_progress", "conclusion": None, "app": {"id": 15368}}])
+        conclusion = self.wait(timeout=95, interval=30, request_timeout=5)
+        self.assertIsNone(conclusion)
+        self.assertEqual([30, 30, 30], self.sleeps, "the last poll starts when a full request timeout still ends at the bound")
+        self.assertEqual("the verdict `ci / verdict` of this commit had not completed when the wait ended.", promote.verdict_stay_reason(conclusion))
 
     def test_a_failed_read_counts_as_not_completed_and_polling_goes_on(self) -> None:
         failures = iter([urllib.error.URLError("temporary failure in name resolution"), TimeoutError("timed out")])
-        self.api.runs("ci.yml", self.COMMIT, [{"id": 9, "status": "completed", "conclusion": "success"}])
-        self.api.runs("repository-hygiene-caller.yml", self.COMMIT, [{"id": 8, "status": "completed", "conclusion": "success"}])
-        self.api.runs("python-tests-caller.yml", self.COMMIT, [{"id": 2, "status": "completed", "conclusion": "success"}])
+        self.api.check_runs(self.COMMIT, [{"id": 9, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 15368}}])
 
         def flaky_fetch(url: str) -> bytes | None:
             failure = next(failures, None)
@@ -598,7 +595,7 @@ class CiWaitTests(unittest.TestCase):
         self.assertEqual([30, 30], self.sleeps)
 
     def test_a_read_that_still_fails_on_the_last_poll_names_its_error(self) -> None:
-        error = urllib.error.HTTPError(promote.RUNS_URL, 502, "Bad Gateway", {}, None)  # type: ignore[arg-type]
+        error = urllib.error.HTTPError(promote.CHECK_RUNS_URL, 502, "Bad Gateway", {}, None)  # type: ignore[arg-type]
         self.addCleanup(error.close)
 
         def failing_fetch(url: str) -> bytes | None:
@@ -607,7 +604,7 @@ class CiWaitTests(unittest.TestCase):
         with self.assertRaises(promote.CiReadError) as raised:
             self.wait(failing_fetch, timeout=95, interval=30, request_timeout=5)
         self.assertEqual("HTTPError: HTTP Error 502: Bad Gateway", str(raised.exception))
-        self.assertEqual([30, 30, 20], self.sleeps)
+        self.assertEqual([30, 30, 30], self.sleeps)
 
     def test_the_worst_case_of_the_wait_ends_within_the_await_job_timeout(self) -> None:
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "promote-v1.yml").read_text(encoding="utf-8")
@@ -621,10 +618,10 @@ class CiWaitTests(unittest.TestCase):
                     self.now += promote.REQUEST_TIMEOUT
                     if outcome == "timeout":
                         raise TimeoutError("timed out")
-                    return json.dumps({"workflow_runs": [{"id": 1, "status": "in_progress", "conclusion": None}]}).encode("utf-8")
+                    return json.dumps({"check_runs": [{"id": 1, "name": "ci / verdict", "status": "in_progress", "conclusion": None, "app": {"id": 15368}}]}).encode("utf-8")
 
                 try:
-                    promote.wait_for_ci(Api.REPOSITORY, self.COMMIT, slow_fetch, clock=lambda: self.now, sleep=self.sleep)
+                    promote.wait_for_verdict(Api.REPOSITORY, self.COMMIT, slow_fetch, clock=lambda: self.now, sleep=self.sleep)
                 except promote.CiReadError:
                     self.assertEqual("timeout", outcome)
                 self.assertLessEqual(self.now, promote.CI_TIMEOUT)
@@ -713,7 +710,7 @@ class DeployKeyTests(unittest.TestCase):
     """``--deploy-key`` names the variable that holds the key; every push of the subcommand then goes over SSH with that
     key alone and a pinned host key, and nothing of it outlives the subcommand."""
 
-    PUSHES = {"move": ("move", (True, "moved\n"), ["move", "--old", "a" * 40, "--new", "b" * 40])}
+    PUSHES = {"move": ("move", (True, "moved\n"), ["move", "--repository", Api.REPOSITORY, "--old", "a" * 40, "--new", "b" * 40])}
 
     def setUp(self) -> None:
         self.temporary = temporary_support.Directory()
@@ -722,7 +719,7 @@ class DeployKeyTests(unittest.TestCase):
         self.seen: dict = {}
         self.result: object = None
 
-    def push(self, *_arguments: object) -> object:
+    def push(self, *_arguments: object, **_options: object) -> object:
         """Stands in for the function that pushes, and records what a Git command would find at that moment."""
         command = shlex.split(os.environ["GIT_SSH_COMMAND"])
         key = Path(command[command.index("-i") + 1])
@@ -768,13 +765,13 @@ class DeployKeyTests(unittest.TestCase):
         self.assertNotEqual(first, self.seen["key"])
 
     def test_the_key_file_is_removed_when_the_push_raises(self) -> None:
-        def refuse(*_arguments: object) -> object:
+        def refuse(*_arguments: object, **_options: object) -> object:
             self.push()
             raise OSError("the fixture push broke")
         with mock.patch.dict(os.environ, {"RUNNER_TEMP": str(self.root), KEY_VARIABLE: KEY_TEXT}), mock.patch.object(promote, "move", side_effect=refuse):
             os.environ.pop("GIT_SSH_COMMAND", None)
             with self.assertRaises(OSError):
-                promote.main(["move", "--old", "a" * 40, "--new", "b" * 40, "--deploy-key", KEY_VARIABLE])
+                promote.main(["move", "--repository", Api.REPOSITORY, "--old", "a" * 40, "--new", "b" * 40, "--deploy-key", KEY_VARIABLE])
         self.assertFalse(self.seen["key"].parent.exists())
 
     def test_a_variable_without_a_key_stops_the_subcommand_before_any_push(self) -> None:
@@ -788,12 +785,12 @@ class DeployKeyTests(unittest.TestCase):
                 self.assertEqual(f"move stopped: the environment variable {KEY_VARIABLE} holds no deploy key.\n", self.output.getvalue())
 
     def test_without_the_option_git_keeps_its_own_environment(self) -> None:
-        def moved(*_arguments: object) -> tuple[bool, str]:
+        def moved(*_arguments: object, **_options: object) -> tuple[bool, str]:
             self.seen = {"command": os.environ["GIT_SSH_COMMAND"]}
             return True, "moved\n"
         with mock.patch.dict(os.environ, {"GIT_SSH_COMMAND": "ssh -o Fixture=yes"}), mock.patch.object(promote, "move", side_effect=moved), \
                 contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(0, promote.main(["move", "--old", "a" * 40, "--new", "b" * 40]))
+            self.assertEqual(0, promote.main(["move", "--repository", Api.REPOSITORY, "--old", "a" * 40, "--new", "b" * 40]))
         self.assertEqual("ssh -o Fixture=yes", self.seen["command"])
 
 
@@ -827,11 +824,12 @@ class MoveTests(unittest.TestCase):
         hook.write_text("#!/bin/sh\necho 'fixture rule refuses this push' >&2\nexit 1\n", encoding="utf-8", newline="\n")
         hook.chmod(0o755)
 
-    def move_cli(self, old: str, new: str) -> tuple[int, str, str]:
+    def move_cli(self, old: str, new: str, *, verdict: promote.CiRun | None = None) -> tuple[int, str, str]:
         summary = Path(self.temporary.name) / "summary.md"
-        result = subprocess.run([sys.executable, str(SCRIPT), "move", "--repository-root", str(self.fixture.repo), f"--old={old}", "--new", new, "--summary", str(summary)],
-                                capture_output=True, text=True, check=False)
-        return result.returncode, summary.read_text(encoding="utf-8"), result.stdout + result.stderr
+        run = verdict if verdict is not None else promote.CiRun("completed", "success")
+        with mock.patch.object(promote, "verdict_run", return_value=run), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            code = promote.main(["move", "--repository", Api.REPOSITORY, "--repository-root", str(self.fixture.repo), f"--old={old}", "--new", new, "--summary", str(summary)])
+        return code, summary.read_text(encoding="utf-8"), stdout.getvalue()
 
     def test_an_annotated_tag_is_leased_on_its_tag_object(self) -> None:
         git(self.fixture.repo, "tag", "-f", "-a", "-m", "annotated v1", "v1", self.fixture.v1)
@@ -900,8 +898,8 @@ class MoveTests(unittest.TestCase):
         def unreadable(root: Path, remote: str) -> str:
             raise RuntimeError("git ls-remote failed: network down")
 
-        with mock.patch.object(promote, "remote_object", unreadable):
-            code = promote.main(["move", "--repository-root", str(self.fixture.repo), "--old", self.fixture.v1, "--new", commit, "--summary", str(summary)])
+        with mock.patch.object(promote, "remote_object", unreadable), mock.patch.object(promote, "verdict_run", return_value=promote.CiRun("completed", "success")):
+            code = promote.main(["move", "--repository", Api.REPOSITORY, "--repository-root", str(self.fixture.repo), "--old", self.fixture.v1, "--new", commit, "--summary", str(summary)])
         self.assertEqual(1, code)
         text = summary.read_text(encoding="utf-8")
         self.assertIn(f"The push of `v1` to `{commit}` failed and `refs/tags/v1` could not be read again, so the state of `v1` is unknown.", text)
@@ -910,8 +908,28 @@ class MoveTests(unittest.TestCase):
         self.assertNotIn("rejected", text.partition("```")[0])
         self.assertIn("fixture rule refuses this push", text, "the summary keeps git's error")
 
+    def test_move_rechecks_the_verdict_at_the_tag_write_and_refuses_without_a_passed_verdict(self) -> None:
+        commit = self.fixture.commit("chore: update CI tool pins", {"ci/pins.json": '{"version": "2"}\n'})
+        git(self.fixture.repo, "push", "-q", "origin", "main")
+        for label, verdict, expected in (
+            ("failed verdict", promote.CiRun("completed", "failure"), "did not pass: concluded failure"),
+            ("running verdict", promote.CiRun("in_progress", None), "has not completed (in_progress)"),
+            ("missing verdict", promote.CiRun(None, None), "no `ci / verdict` check run exists"),
+        ):
+            with self.subTest(case=label):
+                code, text, _ = self.move_cli(self.fixture.v1, commit, verdict=verdict)
+                self.assertEqual(1, code)
+                self.assertEqual(self.fixture.v1, self.fixture.remote_v1(), "nothing is pushed when the verdict recheck fails")
+                self.assertIn(expected, text)
+        summary = Path(self.temporary.name) / "summary-unreadable.md"
+        with mock.patch.object(promote, "verdict_run", side_effect=OSError("network down")), contextlib.redirect_stdout(io.StringIO()):
+            code = promote.main(["move", "--repository", Api.REPOSITORY, "--repository-root", str(self.fixture.repo), "--old", self.fixture.v1, "--new", commit, "--summary", str(summary)])
+        self.assertEqual(1, code)
+        self.assertEqual(self.fixture.v1, self.fixture.remote_v1())
+        self.assertIn("could not be read", summary.read_text(encoding="utf-8"))
 
-RAN = {workflow: promote.CiRun("completed", "success") for workflow in promote.CI_WORKFLOWS}
+
+RAN = promote.CiRun("completed", "success")
 CLEAN = promote.ScanResult(True, "no leaks found")
 COMMAND = "python3 actions/repository-hygiene/promote_v1.py promote"
 
@@ -928,13 +946,13 @@ class ManualMove(unittest.TestCase):
         self.surface_file.write_text(json.dumps(SURFACE), encoding="utf-8")
         self.ci_reads: list[str] = []
         self.scans: list[str] = []
-        self.ci_result: dict = dict(RAN)
+        self.ci_result: promote.CiRun = RAN
         self.scan_result = CLEAN
 
     def repository(self, root: Path, remote: str) -> str:
         return Api.REPOSITORY
 
-    def ci(self, repository: str, commit: str) -> dict:
+    def ci(self, repository: str, commit: str) -> promote.CiRun:
         self.ci_reads.append(commit)
         return self.ci_result
 
@@ -943,7 +961,7 @@ class ManualMove(unittest.TestCase):
         return self.scan_result
 
     def run_main(self, *arguments: str) -> tuple[int, str]:
-        patches = [mock.patch.object(promote, "SURFACE_PATH", self.surface_file), mock.patch.object(promote, "github_ci", self.ci),
+        patches = [mock.patch.object(promote, "SURFACE_PATH", self.surface_file), mock.patch.object(promote, "github_verdict", self.ci),
                    mock.patch.object(promote, "gitleaks_scan", self.scan), mock.patch.object(promote, "github_repository", lambda root, remote: self.repository(root, remote))]
         with contextlib.ExitStack() as stack:
             for patch in patches:
@@ -990,7 +1008,7 @@ class PrepareTests(ManualMove):
         self.assertEqual(self.command(self.fixture.v1, target), lines[-1])
         self.assertLess(lines.index(question), len(lines) - 1, "the command follows the question")
         self.assertIn("feat: change the shared workflow", output, "the commits between are reported")
-        self.assertIn("ci.yml: success", output)
+        self.assertIn("ci / verdict: success", output)
         self.assertIn("Gitleaks scan of the tag push: no findings", output)
         self.assertEqual([target], self.ci_reads, "the CI is read once, without waiting")
         self.assertEqual([target], self.scans)
@@ -1074,33 +1092,84 @@ class PrepareTests(ManualMove):
         for status in ["queued", "in_progress"]:
             with self.subTest(status=status):
                 self.ci_reads.clear()
-                self.ci_result = {"ci.yml": promote.CiRun(status, None), "repository-hygiene-caller.yml": promote.CiRun("completed", "success")}
+                self.ci_result = promote.CiRun(status, None)
                 code, output = self.prepare()
-                self.assert_refused(code, output, f"CI is still running: ci.yml has not completed ({status}); run prepare again once it has.")
+                self.assert_refused(code, output, f"CI is still running: `ci / verdict` has not completed ({status}); run prepare again once it has.")
                 self.assertNotIn("did not pass", output, "a running CI is not a failure")
                 self.assertEqual(1, len(self.ci_reads))
 
-    def test_ci_that_did_not_pass_or_has_no_run_is_refused_with_the_workflow_and_its_conclusion(self) -> None:
+    def test_ci_that_did_not_pass_or_has_no_run_is_refused_with_the_verdict_and_its_conclusion(self) -> None:
         self.shared_change()
-        for runs, reason in [
-            ({"ci.yml": promote.CiRun("completed", "failure")}, "the CI of the target on main did not pass: ci.yml concluded failure."),
-            ({"repository-hygiene-caller.yml": promote.CiRun("completed", "cancelled")}, "the CI of the target on main did not pass: repository-hygiene-caller.yml concluded cancelled."),
-            ({"ci.yml": promote.CiRun(None, None)}, "the CI of the target on main did not pass: ci.yml has no push run on main for the target."),
+        for run, reason in [
+            (promote.CiRun("completed", "failure"), "the verdict `ci / verdict` of the target did not pass: concluded failure."),
+            (promote.CiRun("completed", "cancelled"), "the verdict `ci / verdict` of the target did not pass: concluded cancelled."),
+            (promote.CiRun(None, None), "the verdict `ci / verdict` of the target did not pass: no `ci / verdict` check run exists for the target."),
         ]:
             with self.subTest(reason=reason):
-                self.ci_result = {**RAN, **runs}
+                self.ci_result = run
                 code, output = self.prepare()
                 self.assert_refused(code, output, reason)
 
     def test_ci_that_cannot_be_read_is_refused(self) -> None:
         self.shared_change()
 
-        def unreadable(repository: str, commit: str) -> dict:
+        def unreadable(repository: str, commit: str) -> promote.CiRun:
             raise RuntimeError("gh api failed: HTTP 502")
 
         self.ci = unreadable  # type: ignore[method-assign]
         code, output = self.prepare()
-        self.assert_refused(code, output, "the CI runs of the target on main could not be read: gh api failed: HTTP 502")
+        self.assert_refused(code, output, "the verdict `ci / verdict` of the target could not be read: gh api failed: HTTP 502")
+
+    def test_the_promotion_question_states_the_shared_digests_the_move_changes(self) -> None:
+        pins_v1 = json.dumps({"node": {"version": "24.0.0"}, "tools": {"gitleaks": {"version": "8.1.0"}}, "python": {"ruff": {"version": "0.1.0"}}}) + "\n"
+        pipeline_yml = (
+            "name: Pipeline\non: workflow_call\njobs:\n"
+            "  plan:\n    steps:\n"
+            "      - name: Dependabot coverage\n        id: coverage\n        run: coverage\n"
+            "      - name: Relative links\n        id: links\n        run: links\n"
+            "  custom:\n    steps:\n      - run: exit 0\n"
+            "  dotnet-test:\n    steps:\n      - uses: $/actions/dotnet-test\n"
+            "  node-test:\n    steps:\n      - uses: $/actions/node-test\n"
+            "  python-test:\n    steps:\n      - uses: $/actions/python-tests\n"
+            "  python-verify:\n    steps:\n      - uses: $/actions/python-tests\n"
+            "  repository-hygiene:\n    steps:\n      - run: hygiene\n"
+        )
+        self.fixture.v1 = self.fixture.commit("feat: baseline digests", {
+            "ci/pins.json": pins_v1,
+            ".github/workflows/pipeline.yml": pipeline_yml,
+            "actions/pipeline/timeouts.json": json.dumps({"custom": 15, "dotnet-test": 15, "node-test": 15, "python-test": 15, "python-verify": 15}) + "\n",
+            "actions/recording/recording.py": "# rec 1\n",
+            "actions/recording/etw-consumer/Program.cs": "// etw 1\n",
+            "actions/python-language-step/python_language_step.py": "# py 1\n",
+            "actions/python-tests/python_tests.py": "# py tests 1\n",
+            "actions/dotnet-test/dotnet_test.py": "# dotnet 1\n",
+            "actions/node-test/node_test.py": "# node 1\n",
+        })
+        git(self.fixture.repo, "push", "-q", "--force", "origin", "main", f"{self.fixture.v1}:refs/tags/v1")
+        pins_v2 = json.dumps({"node": {"version": "24.0.0"}, "tools": {"gitleaks": {"version": "8.2.0"}}, "python": {"ruff": {"version": "0.2.0"}}}) + "\n"
+        target = self.fixture.commit("feat: bump gitleaks, ruff, etw and dotnet-test", {
+            ".github/workflows/hygiene.yml": "name: hygiene 2\n",
+            "ci/pins.json": pins_v2,
+            "actions/recording/etw-consumer/Program.cs": "// etw 2\n",
+            "actions/dotnet-test/dotnet_test.py": "# dotnet 2\n",
+            "actions/pipeline/release.py": "# release 2\n",
+            "actions/python-tests/consumer-kit/README.md": "# Python tests 2\n",
+        })
+        git(self.fixture.repo, "push", "-q", "origin", "main")
+        code, output = self.prepare()
+        self.assertEqual(0, code, output)
+        expected = "language:python, part:dotnet-test, platform:windows, tool:gitleaks, tool:ruff"
+        self.assertIn(f"Changed shared digests: {expected}", output)
+        question = self.question(output)
+        self.assertIn(f"It changes the shared digests {expected}.", question)
+        self.assertNotIn("platform:linux", question, "a Windows-only change does not move platform:linux")
+        self.assertNotIn("part:node-test", question, "an unchanged part does not move its part digest")
+        self.assertNotIn("part:python-test", question, "a consumer-kit README or another part folder's file moves no part digest")
+        self.assertNotIn("part:custom", question)
+        self.assertNotIn("tool:node", question)
+        decision = promote.decide(self.fixture.repo, target, self.fixture.v1, SURFACE)
+        self.assertFalse(decision.follow)
+        self.assertIn(f"It changes the shared digests {expected}.", decision.question)
 
     def test_a_gitleaks_finding_is_refused(self) -> None:
         self.shared_change()
@@ -1199,6 +1268,21 @@ class PromoteTests(ManualMove):
         self.assertIn("The Gitleaks scan of the tag push reports a finding or could not run; nothing was pushed.", output)
         self.assertIn("leaks found: 1", output)
 
+    def test_promote_rechecks_the_verdict_before_pushing(self) -> None:
+        target = self.shared_change()
+        for label, run, expected in (
+            ("failed", promote.CiRun("completed", "failure"), "did not pass: concluded failure"),
+            ("running", promote.CiRun("in_progress", None), "has not completed (in_progress)"),
+            ("missing", promote.CiRun(None, None), "no `ci / verdict` check run exists"),
+        ):
+            with self.subTest(verdict=label):
+                self.ci_result = run
+                code, output = self.promote_v1(self.fixture.v1, target)
+                self.assertEqual(1, code, output)
+                self.assertEqual(self.fixture.v1, self.fixture.remote_v1())
+                self.assertIn(expected, output)
+                self.assertIn("Nothing was pushed.", output)
+
 
 def blob_of(content: bytes) -> str:
     """The Git blob of a file's content, as the contents API names it under ``sha``."""
@@ -1252,8 +1336,8 @@ class GhStandIn:
             stdout = "".join(f"{name}\n" for name in self.OTHERS)
         elif arguments[:2] == ["api", "graphql"]:
             stdout = json.dumps({"data": {"repository": {"object": {"entries": [{"name": "validation.yml", "type": "blob", "mode": 0o100644}]}}}})
-        elif "/actions/workflows/" in target:
-            stdout = json.dumps({"workflow_runs": [{"id": 1, "status": "completed", "conclusion": "success"}]})
+        elif "/check-runs" in target:
+            stdout = json.dumps({"check_runs": [{"id": 1, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 15368}}]})
         elif "/contents/" in target:
             stdout = self.CALLER
         else:
@@ -1299,7 +1383,7 @@ class OtherRepositoryTests(GhMove):
         for call in self.gh.calls:
             self.assertEqual(["api"], call[:1], "no listing of repositories")
             self.assertNotIn("--method", call, "no request that writes")
-            self.assertTrue(call[-1].startswith(f"repos/{Api.REPOSITORY}/actions/workflows/"), call)
+            self.assertTrue(call[-1].startswith(f"repos/{Api.REPOSITORY}/commits/"), call)
 
     def test_a_promotion_a_rollback_and_the_first_creation_send_no_event_and_ask_nothing_about_another_repository(self) -> None:
         later = self.shared_change()
@@ -1313,7 +1397,8 @@ class OtherRepositoryTests(GhMove):
         code, creation = self.run_script("promote", "--old=", "--new", later)
         self.assertEqual(0, code, creation)
         self.assertIn(f"v1 was created at {later}.", creation)
-        self.assertEqual([], self.gh.calls, "promote calls gh for nothing")
+        self.assertEqual(3, len(self.gh.calls), "promote calls gh only to recheck the verdict of the target commit")
+        self.assert_asked_only_about_this_repository()
         for text in (output, rollback, creation):
             self.assert_names_only_this_repository(text)
             self.assertNotIn("v1-moved", text)
@@ -1322,7 +1407,7 @@ class OtherRepositoryTests(GhMove):
         self.shared_change()
         code, output = self.run_script("prepare")
         self.assertEqual(0, code, output)
-        self.assertEqual(len(promote.CI_WORKFLOWS), len(self.gh.calls))
+        self.assertEqual(1, len(self.gh.calls))
         self.assert_asked_only_about_this_repository()
         self.assert_names_only_this_repository(output)
         question = self.question(output)
@@ -1351,8 +1436,7 @@ class OtherRepositoryTests(GhMove):
         git(self.fixture.repo, "push", "-q", "origin", "main")
         api = Api()
         api.ref(self.fixture.v1, "commit")
-        for workflow in promote.CI_WORKFLOWS:
-            api.runs(workflow, commit, [{"id": 1, "status": "completed", "conclusion": "success"}])
+        api.check_runs(commit, [{"id": 1, "name": "ci / verdict", "status": "completed", "conclusion": "success", "app": {"id": 15368}}])
         files = {name: self.root / name for name in ("tag-output", "output", "decide-summary", "await-output", "await-summary", "move-summary")}
         surface = ["--surface", str(self.surface_file)]
         with mock.patch.object(promote, "fetch", api.fetch):
@@ -1368,8 +1452,8 @@ class OtherRepositoryTests(GhMove):
             code = promote.main(["await", "--commit", commit, "--old", self.fixture.v1, "--repository", Api.REPOSITORY,
                                  "--output", str(files["await-output"]), "--summary", str(files["await-summary"])])
             self.assertEqual(0, code)
-        self.assertEqual(f"move=true\nold={self.fixture.v1}\nnew={commit}\n", files["await-output"].read_text(encoding="utf-8"))
-        code, move_log = self.run_script("move", "--old", self.fixture.v1, "--new", commit, "--summary", str(files["move-summary"]))
+            self.assertEqual(f"move=true\nold={self.fixture.v1}\nnew={commit}\n", files["await-output"].read_text(encoding="utf-8"))
+            code, move_log = self.run_script("move", "--repository", Api.REPOSITORY, "--old", self.fixture.v1, "--new", commit, "--summary", str(files["move-summary"]))
         self.assertEqual(0, code, move_log)
         self.assertEqual(commit, self.fixture.remote_v1())
         self.assertEqual([], self.gh.calls)
@@ -1453,13 +1537,16 @@ class SyncStartTests(GhMove):
         self.assertEqual("template", promote.class_of(promote.CALLER_PATH, surface["classes"]))
         self.assertNotIn("consumer-kit", promote.CALLER_PATH)
 
+    def management_calls(self) -> list[list[str]]:
+        return [call for call in self.gh.calls if "/check-runs" not in call[-1]]
+
     def test_an_equal_caller_is_read_from_main_left_as_it_is_and_the_sync_starts_right_after_the_move(self) -> None:
         self.management()
         target = self.template_change()
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(0, code, output)
-        self.assertEqual([self.READ, self.DISPATCH], self.gh.calls, "one read of the caller on main, no commit, one workflow_dispatch of sync.yml on main")
-        self.assertEqual([target, target], self.moved_at_call, "v1 had moved when the caller was read and when the sync started")
+        self.assertEqual([self.READ, self.DISPATCH], self.management_calls(), "one read of the caller on main, no commit, one workflow_dispatch of sync.yml on main")
+        self.assertEqual([self.fixture.v1, target, target], self.moved_at_call, "verdict is rechecked before v1 moves, then the caller is read and the sync starts")
         self.assertEqual(self.FIRST, self.gh.installed)
         self.assertIn(f"v1 moved from {self.fixture.v1} to {target}.", output)
         self.assertIn("The move changes the template class: the management repository's caller equals the caller at v1 and stays as it is, and the sync was started.", output)
@@ -1471,8 +1558,8 @@ class SyncStartTests(GhMove):
         (self.fixture.repo / self.CALLER_PATH).write_bytes(self.SECOND.replace(b"\n", b"\r\n") + b"# local edit\r\n")
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(0, code, output)
-        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND), self.DISPATCH], self.gh.calls, "read, one write on main under the blob that was read, then the start")
-        self.assertEqual([target] * 3, self.moved_at_call, "v1 had moved before the first request")
+        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND), self.DISPATCH], self.management_calls(), "read, one write on main under the blob that was read, then the start")
+        self.assertEqual([self.fixture.v1, target, target, target], self.moved_at_call, "verdict is rechecked before v1 moves, then the management requests run")
         self.assertEqual(self.SECOND, self.gh.installed)
         self.assertIn("The move changes the template class: the management repository's caller was replaced with the caller at v1, and the sync was started.", output)
 
@@ -1487,7 +1574,7 @@ class SyncStartTests(GhMove):
                 self.assertEqual(promote.caller_blob(self.fixture.repo, old), promote.caller_blob(self.fixture.repo, target), "the caller is the same at both commits")
                 code, output = self.promote_v1(old, target)
                 self.assertEqual(0, code, output)
-                self.assertEqual([self.READ, self.write(held, self.FIRST), self.DISPATCH], self.gh.calls)
+                self.assertEqual([self.READ, self.write(held, self.FIRST), self.DISPATCH], self.management_calls())
                 self.assertEqual(self.FIRST, self.gh.installed)
 
     def test_a_named_repository_without_a_caller_gets_none_and_no_sync_starts(self) -> None:
@@ -1496,7 +1583,7 @@ class SyncStartTests(GhMove):
         target = self.template_change()
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(1, code, output)
-        self.assertEqual([self.READ], self.gh.calls, "a caller is replaced, never created")
+        self.assertEqual([self.READ], self.management_calls(), "a caller is replaced, never created")
         self.assertIsNone(self.gh.installed)
         self.assertIn("the management repository's caller could not be read, so nothing was written and no sync was started", output)
 
@@ -1508,7 +1595,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(later, self.fixture.v1)
         self.assertEqual(0, code, output)
         self.assertEqual(self.fixture.v1, self.fixture.remote_v1())
-        self.assertEqual([self.READ, self.write(self.SECOND, self.FIRST), self.DISPATCH], self.gh.calls)
+        self.assertEqual([self.READ, self.write(self.SECOND, self.FIRST), self.DISPATCH], self.management_calls())
         self.assertEqual(self.FIRST, self.gh.installed, "the caller of the rollback target, not the newer one")
 
     def test_the_first_creation_brings_the_caller_in_line_and_starts_the_sync_too(self) -> None:
@@ -1519,7 +1606,7 @@ class SyncStartTests(GhMove):
         self.assertEqual(0, code, output)
         self.assertIn(f"v1 was created at {later}. The move changes the template class: the management repository's caller was replaced with the caller at v1, "
                       "and the sync was started.", output)
-        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND), self.DISPATCH], self.gh.calls)
+        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND), self.DISPATCH], self.management_calls())
 
     def test_a_move_that_leaves_the_template_class_alone_reads_writes_and_starts_nothing(self) -> None:
         self.management()
@@ -1527,7 +1614,7 @@ class SyncStartTests(GhMove):
         target = self.shared_change()
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(0, code, output)
-        self.assertEqual([], self.gh.calls)
+        self.assertEqual([], self.management_calls())
         self.assertNotIn("sync", output)
         self.assertNotIn("caller", output)
 
@@ -1536,7 +1623,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(0, code, output)
         self.assertEqual(target, self.fixture.remote_v1())
-        self.assertEqual([], self.gh.calls)
+        self.assertEqual([], self.management_calls())
         self.assertIn("The move changes the template class; the sync was not started: this checkout names no management repository "
                       "(`git config --local sharedworkflows.managementRepository <owner>/<name>`).", output)
 
@@ -1545,7 +1632,7 @@ class SyncStartTests(GhMove):
         with mock.patch.object(promote, "moved_files", lambda root, old, new, paths: None):
             code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(1, code, output)
-        self.assertEqual([], self.gh.calls)
+        self.assertEqual([], self.management_calls())
         self.assertIn("Whether the move changes the template class is unknown here and may change the sync caller, but this checkout names no management repository", output)
 
     def test_without_a_named_management_repository_a_promote_that_changes_the_caller_fails_after_the_move(self) -> None:
@@ -1553,7 +1640,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(1, code, output)
         self.assertEqual(target, self.fixture.remote_v1(), "promote was run past prepare, and v1 moved")
-        self.assertEqual([], self.gh.calls)
+        self.assertEqual([], self.management_calls())
         self.assertIn("this checkout names no management repository, so its caller stays behind and no sync was started: name it with "
                       f"`git config --local sharedworkflows.managementRepository <owner>/<name>` and run `{self.recovery}`.", output)
 
@@ -1564,7 +1651,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(1, code, output)
         self.assertEqual(target, self.fixture.remote_v1(), "v1 moved")
-        self.assertEqual([self.READ], self.gh.calls, "no write and no start after a failed read")
+        self.assertEqual([self.READ], self.management_calls(), "no write and no start after a failed read")
         self.assertEqual(self.FIRST, self.gh.installed)
         self.assertIn(f"v1 moved from {self.fixture.v1} to {target}.", output)
         self.assertIn("the management repository's caller could not be read, so nothing was written and no sync was started; "
@@ -1590,7 +1677,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(1, code, output)
         self.assertEqual(target, self.fixture.remote_v1(), "v1 moved")
-        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND)], self.gh.calls, "no start after a failed write")
+        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND)], self.management_calls(), "no start after a failed write")
         self.assertEqual(self.FIRST, self.gh.installed)
         self.assertIn("the management repository's caller differs from the caller at v1 and could not be replaced, so no sync was started; "
                       f"repeat the caller update and the start of the sync with `{self.recovery}`.", output)
@@ -1601,7 +1688,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(self.fixture.v1, self.without_caller)
         self.assertEqual(1, code, output)
         self.assertEqual(self.without_caller, self.fixture.remote_v1(), "the rollback moved v1")
-        self.assertEqual([], self.gh.calls, "no read, no write, no deletion and no start")
+        self.assertEqual([], self.management_calls(), "no read, no write, no deletion and no start")
         self.assertEqual(self.FIRST, self.gh.installed, "the management repository keeps its caller")
         self.assertIn("The move changes the template class: that commit holds no caller at actions/sync/caller.yml, so nothing was written to the management "
                       "repository, its caller stays as it is and no sync was started.", output)
@@ -1613,7 +1700,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(1, code, output)
         self.assertEqual(target, self.fixture.remote_v1(), "v1 moved")
-        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND), self.DISPATCH], self.gh.calls)
+        self.assertEqual([self.READ, self.write(self.FIRST, self.SECOND), self.DISPATCH], self.management_calls())
         self.assertIn(f"v1 moved from {self.fixture.v1} to {target}.", output)
         self.assertIn("the management repository's caller was replaced with the caller at v1, but the start of the sync failed; "
                       f"repeat the caller update and the start of the sync with `{self.recovery}`.", output)
@@ -1626,7 +1713,7 @@ class SyncStartTests(GhMove):
         code, output = self.promote_v1(self.fixture.v1, target)
         self.assertEqual(1, code, output)
         self.assertEqual(newer, self.fixture.remote_v1())
-        self.assertEqual([], self.gh.calls)
+        self.assertEqual([], self.management_calls())
         self.assertEqual(self.FIRST, self.gh.installed)
 
     def test_caller_repeats_the_update_and_the_start_against_the_remote_v1_without_moving_it(self) -> None:
@@ -1683,14 +1770,14 @@ class SyncStartTests(GhMove):
         code, output = self.run_script("caller")
         self.assertEqual(1, code, output)
         self.assertEqual("No remote v1 exists, so no caller was read or written and no sync was started.\n", output)
-        self.assertEqual([], self.gh.calls)
+        self.assertEqual([], self.management_calls())
 
     def test_caller_at_a_v1_without_the_caller_writes_nothing_and_starts_no_sync(self) -> None:
         self.management()
         git(self.fixture.repo, "push", "-q", "--force", "origin", f"{self.without_caller}:refs/tags/v1")
         code, output = self.run_script("caller")
         self.assertEqual(1, code, output)
-        self.assertEqual([], self.gh.calls)
+        self.assertEqual([], self.management_calls())
         self.assertEqual(self.FIRST, self.gh.installed)
         self.assertIn("that commit holds no caller at actions/sync/caller.yml", output)
 
@@ -1702,8 +1789,8 @@ class SyncStartTests(GhMove):
             self.assertEqual(0, code, output)
             code, output = self.run_script("caller")
             self.assertEqual(0, code, output)
-        self.assertEqual(5, len(self.gh.calls), "a read, a write and a start, then a read and a start")
-        self.assertEqual([{"capture_output": True, "text": True, "check": False}] * 5, self.gh.options, "no env and no token reach gh, and its output is captured")
+        self.assertEqual(5, len(self.management_calls()), "a read, a write and a start, then a read and a start")
+        self.assertEqual([{"capture_output": True, "text": True, "check": False}] * 6, self.gh.options, "no env and no token reach gh, and its output is captured")
         for call in self.gh.calls:
             self.assertEqual("api", call[0])
             self.assertFalse([argument for argument in call if "token" in argument.lower() or argument.startswith("Authorization")], call)
@@ -1774,7 +1861,7 @@ class SyncStartTests(GhMove):
         self.assertIn("Caller and sync after the move: the management repository's caller is replaced when it differs from the caller at the target, then the sync starts",
                       output)
         self.assert_names_no_management_repository(output)
-        self.assertEqual(2 * len(promote.CI_WORKFLOWS), len(self.gh.calls), "prepare reads no caller, writes none and starts no sync")
+        self.assertEqual(2, len(self.gh.calls), "prepare reads no caller, writes none and starts no sync")
 
     def test_prepare_of_a_move_outside_the_template_class_names_no_sync_and_no_caller(self) -> None:
         self.shared_change()
@@ -1791,21 +1878,25 @@ class ManualMoveToolTests(unittest.TestCase):
     def completed(self, stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
 
-    def test_the_ci_read_runs_gh_api_once_per_workflow_with_its_own_authentication(self) -> None:
+    def test_the_verdict_read_runs_gh_api_once_with_its_own_authentication(self) -> None:
         commit = "e" * 40
-        body = json.dumps({"workflow_runs": [{"id": 2, "status": "in_progress", "conclusion": None}, {"id": 1, "status": "completed", "conclusion": "failure"}]})
+        body = json.dumps({"check_runs": [
+            {"id": 2, "name": "ci / verdict", "status": "in_progress", "conclusion": None, "app": {"id": 15368}},
+            {"id": 1, "name": "ci / verdict", "status": "completed", "conclusion": "failure", "app": {"id": 15368}},
+        ]})
         with mock.patch.object(promote.subprocess, "run", return_value=self.completed(body)) as run:
-            runs = promote.github_ci(Api.REPOSITORY, commit)
-        self.assertEqual({workflow: promote.CiRun("in_progress", None) for workflow in promote.CI_WORKFLOWS}, runs)
-        expected = [mock.call(["gh", "api", "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2022-11-28",
-                               f"repos/{Api.REPOSITORY}/actions/workflows/{workflow}/runs?head_sha={commit}&event=push&branch=main&per_page=100"],
-                              capture_output=True, text=True, check=False) for workflow in promote.CI_WORKFLOWS]
-        self.assertEqual(expected, run.call_args_list, "no env and no token reach gh")
-        with mock.patch.object(promote.subprocess, "run", return_value=self.completed(json.dumps({"workflow_runs": []}))):
-            self.assertEqual({workflow: promote.CiRun(None, None) for workflow in promote.CI_WORKFLOWS}, promote.github_ci(Api.REPOSITORY, commit))
+            verdict = promote.github_verdict(Api.REPOSITORY, commit)
+        self.assertEqual(promote.CiRun("in_progress", None), verdict)
+        run.assert_called_once_with(
+            ["gh", "api", "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2022-11-28",
+             f"repos/{Api.REPOSITORY}/commits/{commit}/check-runs?check_name=ci%20%2F%20verdict&per_page=100"],
+            capture_output=True, text=True, check=False,
+        )
+        with mock.patch.object(promote.subprocess, "run", return_value=self.completed(json.dumps({"check_runs": []}))):
+            self.assertEqual(promote.CiRun(None, None), promote.github_verdict(Api.REPOSITORY, commit))
         with mock.patch.object(promote.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="", stderr="HTTP 502")):
             with self.assertRaisesRegex(RuntimeError, "HTTP 502"):
-                promote.github_ci(Api.REPOSITORY, commit)
+                promote.github_verdict(Api.REPOSITORY, commit)
 
     def test_the_scan_runs_the_push_gate_command_of_this_repository(self) -> None:
         commit, root = "f" * 40, Path("repo")

@@ -1,7 +1,7 @@
 """Decide whether a Dependabot pull request merges automatically, and merge it once its required checks have passed.
 
-    python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--summary FILE] pull-request --number N
-    python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--summary FILE] workflow-run --head-branch BRANCH [--disable-auto-merge]
+    python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--updater-paths PATHS] [--summary FILE] pull-request --number N
+    python3 auto_merge.py --repository OWNER/NAME [--suites PATH] [--updater-paths PATHS] [--summary FILE] workflow-run --head-branch BRANCH [--disable-auto-merge]
 
 The reusable workflow runs ``pull-request`` on a Dependabot ``pull_request`` event and ``workflow-run`` when a
 workflow that produces a required check completes for a Dependabot pull request. Both read the pull request, its
@@ -12,21 +12,21 @@ must be authored by ``dependabot[bot]``, the commit's signature must be verified
 
 The decision is automatic only when every updated dependency has a patch or minor update type, every GitHub Actions
 dependency belongs to the ``actions`` owner, every commit is authored by ``dependabot[bot]`` or is a commit of the
-updater App within its scope, and an active ruleset rule on the base branch requires at least one status check. The
-App's scope is the suite list that ``--suites`` names, and in this repository also the rebuild of its ETW consumer,
-which changes only the consumer's build and ``tests/suites.json``; in a repository without a scope, a commit of the
-App counts as any other author's. A pull request that fails one of the first three rules
-is manual, and the run succeeds. A pull request that meets them while the base branch has no such rule is blocked,
-and the run fails naming the missing ruleset. Unverified metadata or a failed read is an error, and the run fails
-with the reason.
+updater App within its scope, and an active ruleset rule on the base branch requires ``ci / verdict``. The App's
+scope is the suite list that ``--suites`` names and any paths that ``--updater-paths`` supplies; in a repository
+without a scope, a commit of the App counts as any other author's. A pull request that fails one of the first three
+rules is manual, and the run succeeds. A pull request that meets them while the base branch has no such rule is
+blocked, and the run fails naming the missing ruleset. Unverified metadata or a failed read is an error, and the run
+fails with the reason.
 
 ``pull-request`` enables no auto-merge and disables one that the pull request still has. ``workflow-run`` decides
 again for each open Dependabot pull request of the head branch and, on an automatic decision, requests a squash merge
 bound to the head commit that the decision read. A merge refused because a required check is pending or failed,
-because the head moved, or because the pull request is already merged ends the run successfully. After a merge it
-made itself, it sends one ``repository_dispatch`` event of type ``dependabot-merged`` with the merged commit. With
-``--disable-auto-merge``, for a caller that no pull request event reaches, it also disables the auto-merge that a pull
-request still has when the decision is not automatic, as ``pull-request`` does.
+because the head moved, because the pull request is a draft or has conflicts, or because it is already merged ends the
+run successfully. After a merge it made itself, it sends one ``repository_dispatch`` event of type
+``dependabot-merged`` with the merged commit and confirms that a run for that commit started. With
+``--disable-auto-merge``, for a caller that no pull request event reaches, it also disables any auto-merge that a
+pull request still has before attempting the merge.
 """
 
 from __future__ import annotations
@@ -35,23 +35,24 @@ import argparse
 import json
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from urllib.parse import quote
 
 BOT = "dependabot[bot]"
-# The updater App, which commits applied recording additions to a Dependabot branch, and in this repository also the
-# rebuild of its ETW consumer; the paths that rebuild may change.
+# The updater App, which commits applied recording additions or other configured updater paths to a Dependabot branch.
 UPDATER_APP = "crankyant-publication-checks[bot]"
-UPDATER_REPOSITORY = "CrankyAnt/SharedWorkflows"
-UPDATER_BUILD = "actions/recording/etw-consumer/build/"
-UPDATER_SUITE_LIST = "tests/suites.json"
 AUTOMATIC_UPDATE_TYPES = ("version-update:semver-patch", "version-update:semver-minor")
 ACTIONS_ECOSYSTEM = "github_actions"
 ACTIONS_OWNER = "actions"
 MERGE_METHOD = "squash"
 DISPATCH_EVENT = "dependabot-merged"
+REQUIRED_CHECK = "ci / verdict"
+DISPATCH_ATTEMPTS = 3
+DISPATCH_POLLS = 3
+DISPATCH_DELAY_SECONDS = 2.0
 
 
 class Outcome(StrEnum):
@@ -139,10 +140,14 @@ def parse_block(block: str) -> list[dict[str, str]]:
 
 def calculate_update_type(last_version: str, next_version: str) -> str:
     """The update type that fetch-metadata derives from two versions; empty when a version is missing or both agree."""
-    if not last_version or not next_version or last_version == next_version:
+    if not last_version or not next_version:
         return ""
-    last_parts = last_version.replace("v", "", 1).split(".")
-    next_parts = next_version.replace("v", "", 1).split(".")
+    last_normalized = last_version.removeprefix("v")
+    next_normalized = next_version.removeprefix("v")
+    if last_normalized == next_normalized:
+        return ""
+    last_parts = last_normalized.split(".")
+    next_parts = next_normalized.split(".")
     if last_parts[0] != next_parts[0]:
         return "version-update:semver-major"
     if len(last_parts) < 2 or len(next_parts) < 2 or last_parts[1] != next_parts[1]:
@@ -236,15 +241,20 @@ class UpdaterScope:
         return path in self.files or path.startswith(self.prefixes)
 
 
-def updater_scope(repository: str, suite_list: str | None) -> UpdaterScope | None:
-    """The updater App's scope: the suite list the caller passes, and in this repository also the ETW consumer's
-    rebuild; None where neither applies, so that the App's commits count as any other author's."""
-    if repository == UPDATER_REPOSITORY:
-        return UpdaterScope((UPDATER_BUILD,), frozenset({UPDATER_SUITE_LIST, *([suite_list] if suite_list else [])}),
-                            "the ETW consumer's build and the suite list")
-    if suite_list:
-        return UpdaterScope((), frozenset({suite_list}), f"the suite list `{suite_list}`")
-    return None
+def updater_scope(suite_list: str | None, updater_paths: tuple[str, ...] = ()) -> UpdaterScope | None:
+    """The updater App's scope: the suite list the caller passes and any configured updater paths or prefixes;
+    None where neither applies, so that the App's commits count as any other author's."""
+    prefixes = tuple(path for path in updater_paths if path.endswith("/"))
+    files = frozenset({*([suite_list] if suite_list else []), *(path for path in updater_paths if not path.endswith("/"))})
+    if not prefixes and not files:
+        return None
+    if suite_list and updater_paths:
+        description = f"the suite list `{suite_list}` and the configured updater paths"
+    elif suite_list:
+        description = f"the suite list `{suite_list}`"
+    else:
+        description = "the configured updater paths"
+    return UpdaterScope(prefixes, files, description)
 
 
 def updater_commits(commits: list[dict]) -> list[str]:
@@ -288,11 +298,11 @@ def decide(dependencies: tuple[Dependency, ...], commits: list[dict], rules: lis
     problems = dependency_problems(dependencies) + commit_problems(commits, commit_files, scope)
     if problems:
         return Decision(Outcome.MANUAL, "; ".join(problems) + ".", dependencies)
-    if not required_checks(rules):
-        return Decision(Outcome.BLOCKED, "no active ruleset rule on the base branch requires a status check, so a merge would not wait for any check.", dependencies)
+    if REQUIRED_CHECK not in required_checks(rules):
+        return Decision(Outcome.BLOCKED, f"no active ruleset rule on the base branch requires `{REQUIRED_CHECK}`, so a merge would not wait for the verdict.", dependencies)
     within = f" or by `{UPDATER_APP}` within {scope.description}" if scope is not None else ""
     return Decision(Outcome.AUTOMATIC, f"every update is a patch or minor update, every GitHub Action belongs to `{ACTIONS_OWNER}`, every commit is by `{BOT}`"
-                    f"{within}, and a ruleset requires status checks on the base branch.", dependencies)
+                    f"{within}, and a ruleset requires `{REQUIRED_CHECK}` on the base branch.", dependencies)
 
 
 # --- GitHub ------------------------------------------------------------------------------------------------------
@@ -355,6 +365,11 @@ class GitHub:
     def dispatch(self, repository: str, event_type: str, sha: str) -> None:
         self._run("api", "--method", "POST", f"repos/{repository}/dispatches", "-f", f"event_type={event_type}", "-f", f"client_payload[sha]={sha}")
 
+    def dispatch_runs(self, repository: str, sha: str) -> list[dict]:
+        """The ``repository_dispatch`` workflow runs whose head commit is ``sha``."""
+        payload = self._api("--method", "GET", f"repos/{repository}/actions/runs", "-f", "event=repository_dispatch", "-f", f"head_sha={sha}")
+        return list(payload.get("workflow_runs") or [])
+
 
 @dataclass(frozen=True)
 class Result:
@@ -378,10 +393,11 @@ class Reading:
     head: str  # the head commit the decision read; empty when the commits did not end at the pull request's head
 
 
-def _read_and_decide(github: GitHub, repository: str, pull_request: dict, suite_list: str | None) -> Reading:
+def _read_and_decide(github: GitHub, repository: str, pull_request: dict, suite_list: str | None,
+                     updater_paths: tuple[str, ...] = ()) -> Reading:
     """Read the commits, the metadata and the rules of an already read pull request, and decide."""
     dependencies: tuple[Dependency, ...] = ()
-    scope = updater_scope(repository, suite_list)
+    scope = updater_scope(suite_list, updater_paths)
     try:
         commits = github.commits(repository, int(pull_request["number"]))
         dependencies = read_metadata(pull_request, commits)
@@ -400,14 +416,15 @@ def _disable_if_enabled(github: GitHub, pull_request: dict, rest: str) -> str:
     return f"auto-merge disabled; {rest}"
 
 
-def run_pull_request(github: GitHub, repository: str, number: int, suite_list: str | None = None) -> Result:
+def run_pull_request(github: GitHub, repository: str, number: int, suite_list: str | None = None,
+                     updater_paths: tuple[str, ...] = ()) -> Result:
     """On a pull request event: read the pull request, decide, and disable an auto-merge it still has."""
     try:
         pull_request = github.pull_request(repository, number)
     except GitHubError as error:
         return Result(Decision(Outcome.ERROR, f"the pull request could not be read: {error}"), "nothing; auto-merge could not be read, so it was not changed.")
     url = pull_request["html_url"]
-    decision = _read_and_decide(github, repository, pull_request, suite_list).decision
+    decision = _read_and_decide(github, repository, pull_request, suite_list, updater_paths).decision
     try:
         if decision.outcome in (Outcome.MANUAL, Outcome.ERROR):
             return Result(decision, _disable_if_enabled(github, pull_request, "the pull request is left to the user."))
@@ -435,40 +452,87 @@ def _refusal(github: GitHub, repository: str, number: int, error: GitHubError) -
         return None
     if error.status == 409:
         return f"the head moved after the decision read it ({error.response})."
-    if "status check" in error.response.lower():
+    lowered = error.response.lower()
+    if "status check" in lowered:
         return f"a required check is pending or failed ({error.response})."
+    if "draft" in lowered:
+        return f"the pull request is a draft ({error.response})."
+    if "not mergeable" in lowered or "conflict" in lowered:
+        return f"the pull request is not mergeable ({error.response})."
     return None
 
 
-def _merge(github: GitHub, repository: str, pull_request: dict, suite_list: str | None, disable: bool = False) -> Result:
+def _is_transient(error: GitHubError) -> bool:
+    return error.status is None or error.status >= 500 or error.status == 429
+
+
+def _manual_dispatch_remedy(repository: str, sha: str) -> str:
+    return f"run `gh api --method POST repos/{repository}/dispatches -f event_type={DISPATCH_EVENT} -f client_payload[sha]={sha}`"
+
+
+def _dispatch_and_confirm(github: GitHub, repository: str, sha: str) -> str:
+    """Dispatch ``dependabot-merged`` for ``sha``, confirm a run started, and retry transient failures."""
+    remedy = _manual_dispatch_remedy(repository, sha)
+    for attempt in range(1, DISPATCH_ATTEMPTS + 1):
+        try:
+            github.dispatch(repository, DISPATCH_EVENT, sha)
+        except GitHubError as error:
+            if _is_transient(error) and attempt < DISPATCH_ATTEMPTS:
+                time.sleep(DISPATCH_DELAY_SECONDS)
+                continue
+            raise GitHubError(f"{error}; {remedy}", error.status, error.response) from error
+        for poll in range(1, DISPATCH_POLLS + 1):
+            try:
+                if github.dispatch_runs(repository, sha):
+                    return f"and confirmed a `repository_dispatch` run for `{sha}`"
+            except GitHubError as error:
+                if error.status == 403:
+                    return f"but start was not confirmed ({error}); {remedy}"
+                if not _is_transient(error) or (attempt == DISPATCH_ATTEMPTS and poll == DISPATCH_POLLS):
+                    raise GitHubError(f"{error}; {remedy}", error.status, error.response) from error
+            if poll < DISPATCH_POLLS:
+                time.sleep(DISPATCH_DELAY_SECONDS)
+        if attempt < DISPATCH_ATTEMPTS:
+            time.sleep(DISPATCH_DELAY_SECONDS)
+    raise GitHubError(f"no `repository_dispatch` run started for `{sha}`; {remedy}")
+
+
+def _merge(github: GitHub, repository: str, pull_request: dict, suite_list: str | None, disable: bool = False,
+           updater_paths: tuple[str, ...] = ()) -> Result:
     number = int(pull_request["number"])
-    reading = _read_and_decide(github, repository, pull_request, suite_list)
+    reading = _read_and_decide(github, repository, pull_request, suite_list, updater_paths)
     decision = reading.decision
+    disabled = ""
+    if disable and pull_request.get("auto_merge"):
+        try:
+            github.disable_auto_merge(pull_request["html_url"])
+        except GitHubError as error:
+            return Result(decision.failed(), f"auto-merge could not be disabled: {error}")
+        disabled = "auto-merge disabled; "
     if decision.outcome is not Outcome.AUTOMATIC:
         if not disable:
             return Result(decision, "nothing merged and nothing dispatched.")
-        try:
-            return Result(decision, _disable_if_enabled(github, pull_request, "nothing merged and nothing dispatched."))
-        except GitHubError as error:
-            return Result(decision.failed(), f"auto-merge could not be disabled: {error}")
+        prefix = disabled or "nothing to disable; "
+        return Result(decision, f"{prefix}nothing merged and nothing dispatched.")
     if not reading.head:
-        return Result(decision, "nothing merged and nothing dispatched; the head moved while the decision read the commits.")
+        return Result(decision, f"{disabled}nothing merged and nothing dispatched; the head moved while the decision read the commits.")
     try:
         merged = github.merge(repository, number, reading.head, MERGE_METHOD)
     except GitHubError as error:
         refusal = _refusal(github, repository, number, error)
         if refusal is not None:
-            return Result(decision, f"nothing merged and nothing dispatched; GitHub refused the merge: {refusal}")
-        return Result(decision.failed(), f"the merge request failed: {error}")
+            return Result(decision, f"{disabled}nothing merged and nothing dispatched; GitHub refused the merge: {refusal}")
+        return Result(decision.failed(), f"{disabled}the merge request failed: {error}")
     sha = str(merged.get("sha") or "")
     try:
-        github.dispatch(repository, DISPATCH_EVENT, sha)
+        confirmation = _dispatch_and_confirm(github, repository, sha)
     except GitHubError as error:
-        return Result(decision.failed(), f"merged `{reading.head[:7]}` with the {MERGE_METHOD} method as `{sha}`, but the `{DISPATCH_EVENT}` dispatch failed: {error}")
-    return Result(decision, f"merged `{reading.head[:7]}` with the {MERGE_METHOD} method as `{sha}` and sent `{DISPATCH_EVENT}` with that commit.")
+        return Result(decision.failed(), f"{disabled}merged `{reading.head[:7]}` with the {MERGE_METHOD} method as `{sha}`, but the `{DISPATCH_EVENT}` dispatch failed: {error}")
+    return Result(decision, f"{disabled}merged `{reading.head[:7]}` with the {MERGE_METHOD} method as `{sha}`, sent `{DISPATCH_EVENT}` {confirmation}.")
 
 
-def run_workflow_run(github: GitHub, repository: str, head_branch: str, suite_list: str | None = None, disable: bool = False) -> list[Result]:
+def run_workflow_run(github: GitHub, repository: str, head_branch: str, suite_list: str | None = None, disable: bool = False,
+                     updater_paths: tuple[str, ...] = ()) -> list[Result]:
     """When a required-check workflow completed: decide again for each open Dependabot pull request of the branch, and merge;
     with ``disable``, a pull request that does not merge on its own loses an auto-merge it still has."""
     owner = repository.partition("/")[0]
@@ -479,7 +543,11 @@ def run_workflow_run(github: GitHub, repository: str, head_branch: str, suite_li
     candidates = [pull for pull in pulls if (pull.get("user") or {}).get("login") == BOT]
     if not candidates:
         return [Result(Decision(Outcome.NO_PULL_REQUEST, f"no open pull request by `{BOT}` has the head branch `{head_branch}`."), "nothing merged and nothing dispatched.")]
-    return [_merge(github, repository, pull, suite_list, disable) for pull in candidates]
+    return [_merge(github, repository, pull, suite_list, disable, updater_paths) for pull in candidates]
+
+
+def _parsed_paths(raw: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -487,6 +555,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repository", required=True, help="OWNER/NAME of the repository the pull request belongs to")
     parser.add_argument("--suites", default="", help="the suite list's path, which a commit of the updater App may change; empty for none")
+    parser.add_argument("--updater-paths", default="", help="comma-separated extra paths or prefixes (ending with /) the updater App may change")
     parser.add_argument("--summary", type=Path, help="file to append the run summary to, such as GITHUB_STEP_SUMMARY")
     events = parser.add_subparsers(dest="event", required=True)
     pull_request = events.add_parser("pull-request", help="decide on a pull request event and disable an auto-merge it still has")
@@ -500,10 +569,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     suite_list = arguments.suites or None
+    updater_paths = _parsed_paths(arguments.updater_paths)
     if arguments.event == "pull-request":
-        results = [run_pull_request(GitHub(), arguments.repository, arguments.number, suite_list)]
+        results = [run_pull_request(GitHub(), arguments.repository, arguments.number, suite_list, updater_paths)]
     else:
-        results = run_workflow_run(GitHub(), arguments.repository, arguments.head_branch, suite_list, arguments.disable_auto_merge)
+        results = run_workflow_run(GitHub(), arguments.repository, arguments.head_branch, suite_list, arguments.disable_auto_merge, updater_paths)
     summary = "\n".join(result.summary for result in results)
     print(summary)
     if arguments.summary:

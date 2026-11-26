@@ -16,7 +16,7 @@ Each caller sets `permissions: {}` at the top, holds one job named after its fil
 
 - `ci.yml` is the read caller. Its job `ci` holds `actions: read`, `contents: read`, `issues: read` and `pull-requests: read` and passes no secret. The pipeline's verdict reports as the check `ci / verdict`. The part `dependabot-auto-merge` merges with the workflow's own token, and such a merge starts no push run, so it sends a `repository_dispatch` of type `dependabot-merged` with the merged commit: on it the pipeline runs for that commit as for a push of it, after it checked that the commit is on the default branch.
 - `automation.yml` is the write caller. Its job holds `actions: read`, `contents: write`, `issues: write` and `pull-requests: write` and passes the secret `PUBLICATION_CHECKS_APP_PRIVATE_KEY` under its own name. [The parts of the automation workflow](#the-parts-of-the-automation-workflow) names what it runs.
-- `release.yml` is the release caller. Its job holds `attestations: write`, `contents: write` and `id-token: write` and passes no secret. Without release configuration it publishes nothing, as [The release part](#the-release-part) says.
+- `release.yml` is the release caller. Its job holds `attestations: write`, `checks: read`, `contents: write` and `id-token: write` and passes no secret. Without release configuration it publishes nothing and starts no clone, as [The release part](#the-release-part) says.
 
 No caller starts on `pull_request_target`, and none inherits secrets.
 
@@ -125,9 +125,9 @@ parts:
 | `title` | Optional. The title of the release, in which `{tag}` stands for the tag and `{version}` for the tag without a leading `v`; the tag without it. |
 | `notes` | Optional. A tracked file whose content becomes the release notes, such as `docs/release-notes.md`. It is read at the commit that the tag names, so `script` cannot write it, and it holds UTF-8 text of at most 125000 characters. Without it, the release notes are GitHub's generated list of changes, filtered as below. |
 
-A release tag is an annotated tag with an SSH signature, made with `git tag -s` and `gpg.format` set to `ssh`. A matching tag that is not annotated, carries no signature or carries one of a key that the file on `main` does not hold publishes nothing and fails the run, with the reason in the job summary of the job `plan`.
+A release tag is an annotated tag with an SSH signature, made with `git tag -s` and `gpg.format` set to `ssh`. Its tag object must name the same tag as the ref, and the tagged commit must have a completed, passed `ci / verdict` check run. A matching tag that is not annotated, carries no signature, carries one of a key that the file on `main` does not hold, whose tag object names another tag, or whose commit lacks a passed `ci / verdict` publishes nothing and fails the run, with the reason in the job summary of the job `plan`.
 
-For a tag that passes, the files are collected at the commit that the tag names, their build provenance is attested in a repository that is not private, and the release is created under the tag with the files. A tag that already has a release fails the run and changes nothing, and so does a tag that was moved or removed after its signature was verified: the release is created only while the tag still names the verified commit. Without the part in the configuration file, a pushed tag publishes nothing and the run passes.
+For a tag that passes, the files are collected at the commit that the tag names, their build provenance is attested in a repository that is not private, and the release is created under the tag with the files. A tag that already has a release fails the run and changes nothing, and so does a tag that was moved, replaced or removed after its signature was verified: the release is created only while the tag still names the verified tag object, tag name and commit, and the commit's `ci / verdict` passed. Without the part in the configuration file, or for a tag that matches no pattern of `tags`, the run starts no clone, publishes nothing and passes.
 
 Without `notes`, the body of the release is the list of merged pull requests that GitHub generates for the tag at the verified commit, filtered by the part:
 
@@ -184,7 +184,7 @@ The triage of Shared Workflows collects the open requests and answers each in a 
 
 ## A corrected title
 
-`ci.yml` does not start on `edited`, so correcting a pull request's title or body starts no run. The title check and the reference check read the current title and body from GitHub: after a correction, re-run the failed job.
+`ci.yml` starts on `edited` in a concurrency group of its own, so it cancels no code run of the pull request. An `edited` run runs only the title and description checks (reading the current title and body from GitHub) and takes over the code results of the same head, failures included.
 
 ## The sync App
 

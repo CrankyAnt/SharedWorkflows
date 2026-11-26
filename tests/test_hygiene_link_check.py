@@ -67,6 +67,25 @@ class FixtureTests(unittest.TestCase):
         self.write("README.md", "# Overview\n\nSee the [guide](docs/guide.md) and the [plan](docs/plan.md).\n")
         self.assertEqual(["README.md:3: the link target docs/plan.md does not exist"], self.problems("README.md", "docs/guide.md"))
 
+    def test_a_link_that_leaves_the_repository_fails_even_when_the_host_path_exists(self) -> None:
+        outside = self.root / "outside.txt"
+        outside.write_text("host file\n", encoding="utf-8")
+        repo = self.root / "repo"
+        (repo / "README.md").parent.mkdir(parents=True, exist_ok=True)
+        (repo / "README.md").write_text("[escape](../outside.txt)\n", encoding="utf-8")
+        self.assertEqual(["README.md:1: the link target ../outside.txt leaves the repository"],
+                         link_check.link_problems(repo, ["README.md"]))
+
+    def test_nested_image_links_inside_link_text_are_checked(self) -> None:
+        self.write("README.md", "[![missing](missing.png)](docs/guide.md)\n"
+                   "[![ok](docs/notes.txt)](docs/guide.md)\n"
+                   "[![ref][missing-img]](docs/guide.md)\n\n"
+                   "[missing-img]: gone.png\n")
+        self.assertEqual([
+            "README.md:1: the link target missing.png does not exist",
+            "README.md:3: the link target gone.png does not exist",
+        ], self.problems("README.md"))
+
     def test_a_link_to_a_missing_heading_fails_naming_the_file_the_line_and_the_target(self) -> None:
         self.write("README.md", "# Overview\n\n[steps](docs/guide.md#install-steps)\n\n[nowhere](docs/guide.md#nowhere)\n\n[here](#missing-here)\n")
         self.assertEqual(["README.md:5: the link target docs/guide.md#nowhere names no heading of docs/guide.md",

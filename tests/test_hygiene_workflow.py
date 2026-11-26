@@ -21,18 +21,29 @@ class WorkflowInvocationTests(unittest.TestCase):
         self.assertEqual([tokens[0] for tokens in invocations], ["changes", "coverage", "links", "actionlint", "zizmor", "reuse", "gitleaks", "record"])
         parser = hygiene.build_parser()
         for tokens in invocations:
-            if tokens[0] == "changes":
-                self.assertEqual("$@", tokens[1], "the decision takes the push lookup or the pull request's commits from the case before it")
-                for event in (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--base", "x", "--head", "x", "--compare", "direct", "--results", "x"]):
-                    with self.subTest(step="changes", event=event):
+            if tokens[0] in ("changes", "gitleaks", "reuse"):
+                self.assertEqual("$@", tokens[1], "the step takes event-specific options from the shell block before it")
+                if tokens[0] == "changes":
+                    events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--base", "x", "--head", "x", "--compare", "direct", "--results", "x"])
+                elif tokens[0] == "gitleaks":
+                    events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--lookup", "x", "--record-marker", "x", "--github-output", "x"])
+                else:
+                    events = ([], ["--record-marker", "x", "--github-output", "x"])
+                for event in events:
+                    with self.subTest(step=tokens[0], event=event):
                         parser.parse_args([tokens[0], *event, *tokens[2:]])
                 continue
             with self.subTest(step=tokens[0]):
                 parser.parse_args(tokens)
         install = script_invocations(REPOSITORY_ROOT / ".github" / "workflows" / "repository-hygiene.yml", "install_tools.py")
-        self.assertEqual(len(install), 1)
-        arguments = install_tools.build_parser().parse_args(install[0])
-        self.assertEqual((arguments.platform, arguments.tools), ("linux-x64", ["gitleaks"]), "Gitleaks always; each linter only for its selected inputs")
+        self.assertEqual(len(install), 5)
+        key_args = install_tools.build_parser().parse_args(install[0])
+        self.assertTrue(key_args.print_cache_key)
+        self.assertEqual((key_args.platform, key_args.tools), ("linux-x64", ["gitleaks"]))
+        expected_tools = [["actionlint", "shellcheck"], ["zizmor"], ["reuse"], ["gitleaks"]]
+        for tokens, tools in zip(install[1:], expected_tools, strict=True):
+            arguments = install_tools.build_parser().parse_args(tokens)
+            self.assertEqual((arguments.platform, arguments.tools), ("linux-x64", tools))
 
 
 if __name__ == "__main__":

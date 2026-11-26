@@ -102,6 +102,22 @@ class RegisterCheckTests(ConsumerFixture):
         self.assertEqual(1, checked.status)
         self.assertIn(f"The entry of `{TEMPORARY}` names the request #12, which could not be read: HTTP 403", checked.summary)
 
+    def test_transient_api_errors_are_retried_before_failing(self) -> None:
+        self.api.issue(12, "open")
+        self.api.issue(15, "closed")
+        self.api.statuses = [502, 429]
+        checked = self.check("register")
+        self.assertEqual(0, checked.status, checked.stdout + checked.stderr)
+        self.assertEqual(4, len(self.api.requests), "two retries on #12, then #12 succeeds, then #15")
+
+    def test_repeated_transient_api_errors_fail_after_bounded_retries(self) -> None:
+        self.api.issue(15, "closed")
+        self.api.statuses = [502, 502, 502]
+        checked = self.check("register")
+        self.assertEqual(1, checked.status, checked.stdout + checked.stderr)
+        self.assertIn("HTTP 502", checked.summary)
+        self.assertEqual(4, len(self.api.requests), "three attempts for #12, then one for #15")
+
     def test_a_dependabot_pull_request_and_a_push_get_a_notice(self) -> None:
         for event, author in (("pull_request", "dependabot[bot]"), ("push", "")):
             with self.subTest(event=event):

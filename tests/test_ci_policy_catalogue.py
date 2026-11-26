@@ -169,10 +169,10 @@ class RequestTests(CatalogueFixture):
             with self.subTest(text=text):
                 self.assertIn(text, closing)
 
-    def test_a_corrected_title_needs_a_re_run(self) -> None:
+    def test_a_corrected_title_runs_only_title_and_description_checks(self) -> None:
         route = self.catalogue["routes"]["corrected_title"]
-        self.assertIn("does not start on an edit", route)
-        self.assertIn("re-run", route)
+        self.assertIn("edited", route)
+        self.assertIn("title", route)
 
 
 class PageTests(CatalogueFixture):
@@ -243,7 +243,7 @@ class PageTests(CatalogueFixture):
     def test_an_entry_that_no_consumer_adopts_says_so(self) -> None:
         for name, entry in self.entries.items():
             with self.subTest(entry=name):
-                management = ".github/workflows/sync.yml" in entry["workflows"]
+                management = any(wf in entry["workflows"] for wf in (".github/workflows/sync.yml", ".github/workflows/measurement.yml"))
                 self.assertEqual("management repository" if management else "consumer", entry["audience"])
 
 

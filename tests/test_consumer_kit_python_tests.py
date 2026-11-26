@@ -62,7 +62,7 @@ class PythonTestsReadmeTest(unittest.TestCase):
         for text in ("CrankyAnt/SharedWorkflows/.github/workflows/python-tests.yml@v1", "actions/setup-python", "without a cache",
                      "pip install -r", 'pip install ".[<extra>]"', "python -m pytest", "python -m unittest discover", "[tool.pytest.ini_options]",
                      "pytest.ini", "tox.ini", "[tool:pytest]", "conftest.py", "`[tool.pytest]`", "`pytest.toml`", "`.pytest.toml`", "`.pytest.ini`",
-                     "`3.11` or newer", "`Python tests`, among the workflows that produce a required check", "ends in `.md`", "dependabot-merged", "`tests / tests`",
+                     "`3.11` or newer", "`Python tests`, among the workflows that produce a required check", "Markdown-only change", "dependabot-merged", "`tests / tests`",
                      "pytest is not installed", "finds no tests", "also when the language step failed", "## When a repository adopts it"):
             with self.subTest(text=text):
                 self.assertIn(text, self.readme)
@@ -74,7 +74,7 @@ class PythonTestsReadmeTest(unittest.TestCase):
                 self.assertIn(text, self.readme)
 
     def test_the_readme_excludes_the_suite_selection_leads_to_it_and_gives_one_caller_job_per_test_root(self) -> None:
-        for text in ("either the suite selection or Python tests, never both", "## Moving to the suite selection", "`validation / validation`",
+        for text in ("either the suite selection or Python tests, never both", "## Moving to the suite selection", "`ci / verdict`",
                      "## Several test roots", "one caller job per root", "`tests-parser / tests`",
                      "## When a repository adopted it earlier", "## When `v1` moves"):
             with self.subTest(text=text):

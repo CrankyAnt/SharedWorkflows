@@ -27,19 +27,20 @@ class RecordingActionTests(unittest.TestCase):
         self.assertIn('printf \'path=%s\\n\' "$RESOURCE_PATH" >> "$GITHUB_OUTPUT"', self.steps[0])
 
     def test_a_digest_that_differs_from_the_one_select_took_fails_the_job_before_anything_runs(self) -> None:
-        self.assertRegex(self.text, r'(?m)^  digest:\n    description: .*\n    required: false\n    default: ""$')
+        self.assertRegex(self.text, r'(?m)^  digests:\n    description: .*\n    required: false\n    default: ""$')
         digest = self.steps[1]
         self.assertIn("id: digest", digest)
-        self.assertIn("if: inputs.digest != ''", digest)
-        self.assertIn("DIGEST: ${{ inputs.digest }}", digest)
+        self.assertIn("if: inputs.digests != ''", digest)
+        self.assertIn("DIGESTS: ${{ inputs.digests }}", digest)
         self.assertIn("PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}", digest)
-        self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" digest --expect "$DIGEST"', digest)
+        self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" digest --expect "$DIGESTS"', digest)
 
     def test_check_records_its_status_without_stopping_the_action(self) -> None:
         check = self.steps[2]
         self.assertIn("id: check", check)
         self.assertIn("if: inputs.check == 'true'", check)
-        self.assertIn('"$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" '
+        self.assertIn("ARTIFACT_NAME: ${{ inputs.artifact-name }}", check)
+        self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --artifact-name "$ARTIFACT_NAME" --summary "$GITHUB_STEP_SUMMARY" '
                       '--github-output "$GITHUB_OUTPUT" || status=$?', check)
         self.assertIn("PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}", check)
         self.assertIn("set -uo pipefail", check)
@@ -57,7 +58,7 @@ class RecordingActionTests(unittest.TestCase):
         self.assertRegex(upload, action_pin_pattern("actions/upload-artifact").replace(r"^[ \t]*- uses: ", r"^[ \t]*uses: "))
         self.assertIn("if: inputs.check == 'true' && steps.check.outputs.file != ''", upload)
         self.assertIn("path: ${{ steps.check.outputs.file }}", upload)
-        self.assertIn("name: ${{ inputs.artifact-name }}", upload)
+        self.assertIn("name: ${{ steps.check.outputs.artifact-name }}", upload)
         self.assertIn("if: inputs.check == 'true' && steps.check.outputs.status != '0'", fail)
         self.assertIn('exit "$STATUS"', fail)
         self.assertEqual(7, len(self.steps))

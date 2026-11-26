@@ -165,7 +165,6 @@ class PipelineStepShellTests(unittest.TestCase):
                               "event": {"before": before, "pull_request": pull_request or {}, "client_payload": {"sha": payload} if payload else {}}}}
         ran, produced = self.run_step("plan", "plan", context)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        self.assertIn("concurrency", produced)
         return json.loads(produced["plan"])
 
     def given_history(self) -> tuple[str, str, str]:
@@ -196,12 +195,15 @@ class PipelineStepShellTests(unittest.TestCase):
     # --- the tool installation and the Gitleaks step --------------------------------------------------------------
 
     def install(self, **changes: str) -> subprocess.CompletedProcess[str]:
-        outputs = {"actionlint": "false", "zizmor": "false", "reuse": "false", **changes}
-        ran, _ = self.run_step("repository-hygiene", "install", {"steps": {"resources": self.loaded("repository-hygiene"), "changes": {"outputs": outputs}}})
+        context = {"steps": {"resources": self.loaded("repository-hygiene")}}
+        ran, _ = self.run_step("repository-hygiene", "install-gitleaks", context)
+        for tool in ("actionlint", "zizmor", "reuse"):
+            if ran.returncode == 0 and changes.get(tool) == "true":
+                ran, _ = self.run_step("repository-hygiene", f"install-{tool}", context)
         return ran
 
     def installed(self) -> list[str]:
-        return sorted(path.name for path in (self.runner_temp / "hygiene-tools").iterdir())
+        return sorted(path.name for path in (self.runner_temp / "hygiene-tools").iterdir() if not path.name.startswith(".pin-"))
 
     def test_the_tool_installation_installs_gitleaks_alone_when_no_other_check_runs(self) -> None:
         self.commit({"README.md": "A consumer.\n"})
@@ -219,7 +221,7 @@ class PipelineStepShellTests(unittest.TestCase):
         ran = self.install()
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         context = {"steps": {"resources": self.loaded("repository-hygiene")}}
-        ran, _ = self.run_step("repository-hygiene", "Gitleaks over all reachable history", context)
+        ran, _ = self.run_step("repository-hygiene", "Gitleaks over added commits", context)
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
         return self.tool_log.read_text(encoding="utf-8").splitlines()
 

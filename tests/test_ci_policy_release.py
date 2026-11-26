@@ -20,7 +20,7 @@ PART = "github-release"
 PLAN, FILES = "plan", "github-release-files"
 PART_PLAN = f"fromJSON(needs.plan.outputs.plan).parts['{PART}']"
 RUNS = f"${{{{ {PART_PLAN}.run }}}}"
-PUBLISHING_RIGHTS = {"attestations": "write", "contents": "write", "id-token": "write"}
+PUBLISHING_RIGHTS = {"attestations": "write", "checks": "read", "contents": "write", "id-token": "write"}
 LEVELS = {"none": 0, "read": 1, "write": 2}
 
 
@@ -44,16 +44,17 @@ def cache_problems(workflow: dict) -> list[str]:
 
 
 def secret_problems(text: str, workflow: dict) -> list[str]:
-    """Each way a secret reaches the workflow other than by name, or a token reaches a job other than the publishing one:
-    the workflow declares no secret, so it reads none, and only the last step of the job that publishes holds the run's
-    token."""
+    """Each way a secret reaches the workflow other than by name, or a token reaches the job that runs repository code
+    or a step of the publishing job other than its last step: the workflow declares no secret, so it reads none."""
     problems = []
     if "secrets" in text:
         problems.append("the workflow names secrets, and it declares none that a caller passes by name")
     for name, job in workflow.get("jobs", {}).items():
         for index, step in enumerate(steps_of(job)):
             holds = any(word in json.dumps(step) for word in ("github.token", "GITHUB_TOKEN"))
-            if holds and not (name == PART and index == len(steps_of(job)) - 1):
+            if holds and name == FILES:
+                problems.append(f"{name}: the step {step.get('name') or step.get('uses')} holds the run's token")
+            elif holds and name == PART and index != len(steps_of(job)) - 1:
                 problems.append(f"{name}: the step {step.get('name') or step.get('uses')} holds the run's token")
     return problems
 
@@ -83,22 +84,27 @@ class WorkflowTests(unittest.TestCase):
     def test_without_a_decision_to_publish_only_the_plan_runs(self) -> None:
         self.assertNotIn("if", self.jobs[PLAN])
         self.assertNotIn("needs", self.jobs[PLAN])
-        self.assertEqual({"plan": "${{ steps.plan.outputs.plan }}"}, self.jobs[PLAN]["outputs"])
+        self.assertEqual({"plan": "${{ steps.plan.outputs.plan || steps.preflight.outputs.plan }}"}, self.jobs[PLAN]["outputs"])
         self.assertEqual(([PLAN], RUNS), (needed(self.jobs[FILES]), self.jobs[FILES]["if"]))
         self.assertEqual(([PLAN, FILES], RUNS), (needed(self.jobs[PART]), self.jobs[PART]["if"]),
                          "the publishing job runs on the plan's decision alone, so a failed or skipped earlier job skips it")
         for name in (FILES, PART):
             self.assertNotRegex(self.jobs[name]["if"], r"always\(\)|cancelled\(\)|failure\(\)")
 
-    def test_the_plan_reads_the_tag_of_the_run_and_the_default_branch_from_a_checkout_with_the_full_history(self) -> None:
+    def test_the_plan_decides_before_cloning_and_only_clones_when_a_tag_matches_a_release_part(self) -> None:
         plan = self.jobs[PLAN]
-        self.assertEqual({"contents": "read"}, plan["permissions"])
-        checkout = plan["steps"][1]
+        self.assertEqual({"checks": "read", "contents": "read"}, plan["permissions"])
+        preflight, checkout, step = plan["steps"][1], plan["steps"][2], plan["steps"][3]
+        self.assertEqual("preflight", preflight["id"])
+        self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "GITHUB_TOKEN": "${{ github.token }}",
+                          "REF": "${{ github.ref }}", "SHA": "${{ github.sha }}"}, preflight["env"])
+        self.assertIn('release.py" preflight --ref "$REF" --sha "$SHA" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"', preflight["run"])
         self.assertTrue(str(checkout["uses"]).startswith("actions/checkout@"))
+        self.assertEqual("${{ steps.preflight.outputs.match == 'true' }}", checkout["if"], "no clone starts for a tag that no release part matches")
         self.assertEqual({"fetch-depth": "0", "persist-credentials": "false"}, checkout["with"])
-        step = plan["steps"][-1]
-        self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "REF": "${{ github.ref }}",
-                          "DEFAULT_BRANCH": "${{ github.event.repository.default_branch || 'main' }}"}, step["env"])
+        self.assertEqual("${{ steps.preflight.outputs.match == 'true' }}", step["if"])
+        self.assertEqual({"RESOURCE_PATH": "${{ steps.resources.outputs.path }}", "GITHUB_TOKEN": "${{ github.token }}",
+                          "REF": "${{ github.ref }}", "DEFAULT_BRANCH": "${{ github.event.repository.default_branch || 'main' }}"}, step["env"])
         self.assertIn('release.py" plan --root . --ref "$REF" --default-branch "$DEFAULT_BRANCH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"', step["run"])
         self.assertNotIn("continue-on-error", json.dumps(plan), "a tag without a valid signature fails the run")
 
@@ -130,23 +136,21 @@ class CacheAndSecretTests(unittest.TestCase):
         self.assertEqual([f"{PART} requests cache-mode write"], cache_problems({**self.workflow, "jobs": {**jobs, PART: {**jobs[PART], "cache-mode": "write"}}}))
         self.assertEqual(["the workflow requests cache-mode read"], cache_problems({**self.workflow, "cache-mode": "read"}))
 
-    def test_the_workflow_reads_no_secret_and_only_the_publishing_step_holds_the_run_s_token(self) -> None:
+    def test_the_workflow_reads_no_secret_and_the_files_job_holds_no_token(self) -> None:
         self.assertEqual([], secret_problems(self.text, self.workflow))
         step = self.workflow["jobs"][PART]["steps"][-1]
         self.assertEqual("${{ github.token }}", step["env"]["GITHUB_TOKEN"])
-        self.assertEqual(1, self.text.count("github.token"))
+        self.assertEqual(3, self.text.count("github.token"))
 
-    def test_a_secret_or_a_token_outside_the_publishing_step_is_named(self) -> None:
+    def test_a_secret_or_a_token_in_the_files_job_or_earlier_publishing_step_is_named(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(["the workflow names secrets, and it declares none that a caller passes by name"],
                          secret_problems(self.text.replace("  workflow_call:\n", "  workflow_call:\n    secrets:\n      RELEASE_KEY:\n        required: false\n"), self.workflow))
         self.assertEqual(["the workflow names secrets, and it declares none that a caller passes by name"],
                          secret_problems(self.text + "          KEY: ${{ secrets.RELEASE_KEY }}\n", self.workflow))
-        for name in (PLAN, FILES):
-            with self.subTest(job=name):
-                leaking = {"name": "A step with the token", "run": "gh api user", "env": {"GH_TOKEN": "${{ github.token }}"}}
-                changed = {**self.workflow, "jobs": {**jobs, name: {**jobs[name], "steps": [*jobs[name]["steps"], leaking]}}}
-                self.assertEqual([f"{name}: the step A step with the token holds the run's token"], secret_problems(self.text, changed))
+        leaking = {"name": "A step with the token", "run": "gh api user", "env": {"GH_TOKEN": "${{ github.token }}"}}
+        changed = {**self.workflow, "jobs": {**jobs, FILES: {**jobs[FILES], "steps": [*jobs[FILES]["steps"], leaking]}}}
+        self.assertEqual([f"{FILES}: the step A step with the token holds the run's token"], secret_problems(self.text, changed))
         first = {**jobs[PART]["steps"][1], "with": {"github-token": "${{ github.token }}"}}
         changed = {**self.workflow, "jobs": {**jobs, PART: {**jobs[PART], "steps": [jobs[PART]["steps"][0], first, *jobs[PART]["steps"][2:]]}}}
         self.assertEqual([f"{PART}: the step actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 holds the run's token"], secret_problems(self.text, changed))
@@ -205,8 +209,8 @@ class PublishingJobTests(unittest.TestCase):
 
     def test_only_the_publishing_job_holds_a_writing_right(self) -> None:
         self.assertEqual(PUBLISHING_RIGHTS, self.job["permissions"])
-        for name in (PLAN, FILES):
-            self.assertEqual({"contents": "read"}, self.workflow["jobs"][name]["permissions"])
+        self.assertEqual({"checks": "read", "contents": "read"}, self.workflow["jobs"][PLAN]["permissions"])
+        self.assertEqual({"contents": "read"}, self.workflow["jobs"][FILES]["permissions"])
 
     def test_the_job_runs_no_code_of_the_repository(self) -> None:
         self.assertEqual(["Load the release program from this workflow revision", "actions/download-artifact", "Attest the build provenance of the files",

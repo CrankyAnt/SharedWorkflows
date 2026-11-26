@@ -109,7 +109,7 @@ The shared workflow that the writing fixed caller calls: it runs the shared part
 _Avoid_: Write pipeline, bot workflow
 
 **Plan**:
-The first job of the pipeline, which checks the configuration file against its schema and decides, from the file and the change, which shared parts run and with which values.
+The first job of the pipeline, which checks out the repository once to validate the configuration file against its schema, runs the push lookup, the shared lookup, hygiene change detection, suite selection and the light hygiene checks, and decides per shared part and per selected unit whether it runs and why, turning off every tree-based shared part whose digests equal those the pull request was tested under on a push whose tree already passed on its pull request.
 _Avoid_: Planner, setup job
 
 **Schema fragment**:
@@ -154,9 +154,25 @@ _Avoid_: Lock file, versions file, pins.json
 The GitHub App whose installation token the workflows that propose or push changes use, so that their pull request or push starts CI: the pins updater, the specification updater, the full recording, the additions workflow and the rebuild workflow of the ETW consumer. Only its pins pull request lets `promote-v1.yml` move `v1`.
 _Avoid_: Bot account, publication-checks App
 
-**Shared digest**:
-The SHA-256 over the files of the recording step, at the revision of Shared Workflows that a run uses, and the modules it loads; a consumer runs every suite when it differs from the digest of the last passed run on its base branch. For a pull request whose base is not the default branch, that run is the passed pull-request run that produced the base's tip, or else the last passed run on the default branch from the newest commit of its first-parent line that the base contains. A job's log prints it as `shared CI digest <digest>`, the line that `suite_selection.py shared-lookup` reads, so that line keeps its text.
-_Avoid_: Shared CI digest, recording hash
+**Platform digest**:
+The SHA-256 (`platform:linux` or `platform:windows`) over the files of the recording step for one operating system (leaving the Windows-only ETW consumer files out of `platform:linux`), the modules the recording step loads without the selection code, and `.github/workflows/suite-jobs.yml`. A change to a platform digest reruns only the units of that operating system and changes only their reuse keys.
+_Avoid_: Shared digest, recording hash
+
+**Tool digest**:
+The SHA-256 (`tool:<name>`) over one pinned tool's entry in the pins file and, for tools installed by `install_tools.py`, the installer scripts. A change to a tool digest reruns only the units that state that tool and changes only their reuse keys.
+_Avoid_: Shared digest, pin hash
+
+**Language-step digest**:
+The SHA-256 (`language:<name>`) over what one shared language step runs: its folder without the consumer kit, the installer scripts it imports, and its pinned tool entries in the pins file (such as `ruff` and `mypy` for `language:python`). A change to a language-step digest reruns that language step and the pipeline parts that run it, and changes no test unit's digest.
+_Avoid_: Shared digest, linter hash
+
+**Part digest**:
+The SHA-256 (`part:<name>`) over what one pipeline part's job runs: its shared folder without the consumer kit, its plan-set time limit (`actions/pipeline/timeouts.json`), `actions/pipeline/schema/v1/setups.json` for `part:custom`, and its job in the pipeline workflow with the workflow's lines before its jobs. A change to a part digest reruns only that part.
+_Avoid_: Shared digest, pipeline hash
+
+**Hygiene-check digest**:
+The SHA-256 (`hygiene:<name>`) over what one hygiene check of the pipeline runs: its scripts, the pin entries of its tools in the pins file (ShellCheck included for actionlint), and its job or light-check step in the pipeline workflow with the workflow's lines before its jobs, plus `hygiene:zizmor-policy` over the shared zizmor policy for a consumer without its own zizmor configuration. A change to a hygiene-check digest reruns only that hygiene check.
+_Avoid_: Shared digest, hygiene hash
 
 ### Sync
 
@@ -177,8 +193,18 @@ The GitHub App whose installation token the sync uses in the management reposito
 _Avoid_: Updater App, bot
 
 **Management repository**:
-The private repository that only runs the sync on a schedule and holds the sync App's key.
+The private repository that only runs the sync and the measurement on a schedule and holds the keys of their Apps.
 _Avoid_: Admin repository, control repository, sync repository
+
+### Measurement
+
+**Measurement**:
+The scheduled run in the management repository that reads every consumer's runs and reports, per repository, how far CI meets the goal, opening an issue for each missed target.
+_Avoid_: Metrics run, CI statistics
+
+**Measurement App**:
+The GitHub App whose installation token the measurement uses, which may only read the consumers' runs.
+_Avoid_: Sync App, metrics bot
 
 ### Checks
 
@@ -199,7 +225,7 @@ The name `<caller job> / <shared job>` that the check of a job in a shared workf
 _Avoid_: Status check name, job name
 
 **Verdict**:
-The one check that a repository requires, given by the pipeline as `ci / verdict` or by a validation run: it passes only when the plan or the suite selection succeeded and no shared part or unit it started failed or was cancelled.
+The one check that a repository requires, given by the pipeline as `ci / verdict`: it passes only when the plan succeeded with a valid plan output and every planned check passed or took over a pass. A planned check that fails, ends skipped, times out or never starts makes it red, an unplanned check counts as not run, and a cancelled run gives no verdict.
 _Avoid_: Status check, gate job
 
 **Gating check**:
@@ -216,12 +242,20 @@ _Avoid_: Violation
 The tree that a pull-request run checked out: the head merged with the base at the moment of the run.
 _Avoid_: PR tree, head tree
 
+**Tested state**:
+What a pull-request run keeps of what it tested: its head, the base it was merged with and the tested tree, which the push lookup reads for that pull request's merge.
+_Avoid_: PR record, checkout log
+
+**Default-branch record**:
+What a passed run on the default branch keeps of its passed units, the commit and tree it tested and the digests it ran under; pull requests may take over passes from it and never write it.
+_Avoid_: Main cache, base record
+
 **Dispatch run**:
 A run on the default branch that a `repository_dispatch` event starts and that selects and checks as a push of one commit would: a `dependabot-merged` run on the commit of a Dependabot merge, which Dependabot auto-merge starts in its own repository.
 _Avoid_: Repository dispatch, triggered run
 
 **Push lookup**:
-The step of a push run or a dispatch run that finds the pull-request run that tested the commit it runs on and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection, the hygiene job and Python tests select.
+The step of a push run or a dispatch run that reads the structured tested-state record of the pull-request run that tested the commit it runs on (without reading job logs or walking a fixed commit limit), checks the default-branch record on a `behind` merge to verify whether the landing base has passed, counts any fallback by reason, and names its case, `identical`, `behind`, `pull-request` or `own`, from which the suite selection, the hygiene job and Python tests select.
 _Avoid_: PR lookup, merge lookup
 
 **Landing base**:
@@ -266,9 +300,17 @@ _Avoid_: Install step, prepare step
 A tool whose exact version the pins file holds. The suite jobs give Node.js and Gitleaks as a setup at that version when the configuration file names them under `pinned-tools` of the suite selection.
 _Avoid_: Shared tool, built-in setup
 
+**Entry time**:
+The time one run of an entry file takes under the recording step, which the run measures. Applied additions and the full recording turn it into a duration estimate.
+_Avoid_: Duration, test time
+
 **Duration estimate**:
-The traced test time that one entry file is expected to take, stored in the suite list. Only the full recording renews it, from the corrected value of a clean entry file, and only when that value differs from the stored estimate by more than 25%.
+The entry time stored in the suite list for an entry file. Applied additions (raw entry time, without speed correction) and the full recording (speed-corrected over clean entry files, or raw without speed correction when upgrading the scale version) renew it for each entry file that exited with 0 when absent or differing by more than 25%.
 _Avoid_: Duration, test timing
+
+**Fixed cost**:
+The time from trigger to verdict of a run outside the planned estimate of the shard job that finishes last, excluding the Python language step (whose allowance is reserved separately).
+_Avoid_: Overhead, runner overhead
 
 **Shard**:
 A share of the selected Linux entry files, with the setups they need, sized so that its estimated time stays under a bound; one shard job runs it.
@@ -279,11 +321,11 @@ A job that runs entry files in a validation run or a full recording: on Linux th
 _Avoid_: Runner, worker, test job
 
 **Speed factor**:
-How much slower or faster one shard job ran in a full recording than the duration estimates expect: the median ratio of its clean entry files' measured times to their stored estimates, or 1 when it has no such entry file.
+How much slower or faster one shard job ran in a full recording than the duration estimates expect: the median ratio of its clean entry files' entry times to their stored estimates, or 1 when it has no such entry file.
 _Avoid_: Machine speed, runner speed
 
 **Corrected value**:
-An entry file's traced time in a full recording, brought to the trace set of the duration estimates and divided by the speed factor of its shard job, which is what the full recording compares with the stored duration estimate.
+An entry file's entry time in a full recording divided by the speed factor of its shard job, which is what the full recording compares with the stored duration estimate.
 _Avoid_: Adjusted duration, normalised time
 
 **Entry file**:
@@ -323,15 +365,15 @@ The shared step that records what a job's entry files and setups read, and compa
 _Avoid_: Tracer, recorder
 
 **Full recording**:
-The periodic run that records every entry file of a repository and, for each clean entry file, replaces its stored lists and renews its duration estimate, while every other entry file keeps both; the only run that removes a stored read.
+The periodic run that records every entry file of a repository, replaces the stored lists of each clean entry file, and renews the duration estimate of each entry file that exited with 0, while every other entry file keeps its stored lists or estimate; its close fails visibly and opens no pull request when a shard result is missing, applies complete suites, and reports partly recorded suites whose lists stay.
 _Avoid_: Re-seed, seeding, full trace
 
 **Clean entry file**:
-An entry file that, in a full recording, exited with 0 and whose test report shows no skipped test; only a clean entry file can lose a stored read or get a new duration estimate.
+An entry file that exited with 0 and whose test report in an accepted format (unittest, framed or quiet pytest, or complete TAP) shows no skipped or deselected test; only a clean entry file can replace its stored lists or enter a shard job's speed factor.
 _Avoid_: Passing entry file, green entry file
 
 **Stored lists**:
-The path list, directory memberships, existence reads and lookup directories that the suite list holds for a suite or an entry file, written from recordings.
+The path list, directory memberships, existence reads and lookup directories that the suite list holds for a suite or an entry file, written from recordings; applying a complete pull-request run replaces them for each clean entry file (and for a pooled suite when every entry file ran clean), while an incomplete run only adds to them, and the full recording refreshes every suite periodically.
 _Avoid_: Read lists, path lists (for all of them)
 
 **Addition**:
@@ -339,7 +381,7 @@ A read in a recording that the stored lists do not hold; the recording step repo
 _Avoid_: New read, missing path
 
 **Additions workflow**:
-The shared part of the automation workflow, switched on in a consumer's configuration file and in Shared Workflows itself, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the Updater App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch. In Shared Workflows it leaves a run that the rebuild workflow of the ETW consumer acts on to that workflow, whose commit carries the run's additions.
+The shared part of the automation workflow, switched on in a consumer's configuration file and in Shared Workflows itself, that applies the additions of a validation run to the suite list. After a failed pull-request run it commits the change as the Updater App onto the reporting branch, once per push; when it cannot, it comments with the manual route, a start by hand with the run id, which proposes the change as a pull request onto that branch.
 _Avoid_: Apply workflow, apply-additions.yml
 
 **Rebuild workflow**:

@@ -30,10 +30,14 @@ class PipelineInvocationTests(unittest.TestCase):
         self.invocations = script_invocations(WORKFLOW, "plan.py")
 
     def test_the_pipeline_starts_the_plan_and_then_the_verdict_with_options_that_the_program_accepts(self) -> None:
-        self.assertEqual(["plan", "setting", "setting", "verdict"], [tokens[0] for tokens in self.invocations])
+        self.assertEqual(["plan", "plan", "setting", "setting", "verdict"], [tokens[0] for tokens in self.invocations])
         for tokens in self.invocations:
             with self.subTest(command=tokens[0]):
-                plan_program.parser().parse_args(tokens)
+                if tokens[0] == "plan":
+                    for mode in (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"], ["--lookup", "x", "--unit-decisions", "x"]):
+                        plan_program.parser().parse_args([tokens[0], *mode, *[token for token in tokens[1:] if token != "$@"]])
+                else:
+                    plan_program.parser().parse_args(tokens)
 
     def test_the_hygiene_job_reads_the_two_exclusions_of_repository_hygiene_from_the_checkout(self) -> None:
         settings = [plan_program.parser().parse_args(tokens) for tokens in self.invocations if tokens[0] == "setting"]
@@ -42,10 +46,12 @@ class PipelineInvocationTests(unittest.TestCase):
             self.assertEqual((".", str(plan_program.SCHEMAS)), (options.root, options.schemas), "the setting is read with the schema of the pipeline's own revision")
 
     def test_the_plan_gets_the_change_and_the_run_and_writes_its_outputs_and_its_summary(self) -> None:
-        options = plan_program.parser().parse_args(self.invocations[0])
+        final_plan = [tokens for tokens in self.invocations if tokens[0] == "plan"][-1]
+        options = plan_program.parser().parse_args([final_plan[0], "--base", "x", "--head", "x", "--compare", "direct",
+                                                    *[token for token in final_plan[1:] if token != "$@"]])
         self.assertEqual(".", options.root)
         self.assertEqual(str(plan_program.SCHEMAS), options.schemas, "the pipeline reads the schema of its own revision")
-        for name in ("base", "head", "workflow", "event", "pull_request", "github_output", "summary"):
+        for name in ("base", "head", "workflow", "workflow_ref", "event", "event_action", "pull_request", "github_output", "summary"):
             self.assertEqual("x", getattr(options, name), name)
         text = WORKFLOW.read_text(encoding="utf-8")
         for binding in ("BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}",
@@ -59,6 +65,23 @@ class PipelineInvocationTests(unittest.TestCase):
     def test_the_verdict_gets_the_needs_context_and_writes_its_summary(self) -> None:
         options = plan_program.parser().parse_args(self.invocations[-1])
         self.assertEqual(("x/needs.json", "x"), (options.needs, options.summary))
+
+    def test_an_edited_pull_request_runs_only_title_and_description_checks(self) -> None:
+        _, workflow = read_workflow(WORKFLOW)
+        plan_steps = {step["name"]: step for step in workflow["jobs"]["plan"]["steps"] if "name" in step}
+        hygiene_steps = {step["name"]: step for step in workflow["jobs"]["repository-hygiene"]["steps"] if "name" in step}
+        for name in ("Record the checked-out commit and tree", "Restore the default-branch record",
+                     "Decide which checks the changed files can affect", "Take the shared CI digests",
+                     "Look up the shared CI digests from the default-branch record", "Restore the passed results of the pull request",
+                     "Select the suites the changed files touch", "Record the tested state of the pull request",
+                     "Upload the tested state of the pull request", "Check the pull request branch", "Consumer checks"):
+            self.assertIn("edited", str(plan_steps[name].get("if", "")), f"plan step {name} must skip on edited")
+        self.assertNotIn("edited", str(plan_steps["Check the references to repositories of the owner"].get("if", "")))
+        for name in ("Check every pull request commit", "Compute the hygiene tools cache key", "Restore the cached hygiene tools",
+                     "Install actionlint and ShellCheck", "Install zizmor", "Install REUSE", "Install Gitleaks",
+                     "Restore the default-branch Gitleaks scan marker", "Gitleaks over added commits"):
+            self.assertIn("edited", str(hygiene_steps[name].get("if", "")), f"hygiene step {name} must skip on edited")
+        self.assertNotIn("edited", str(hygiene_steps["Check the pull request title"].get("if", "")))
 
 
 @unittest.skipUnless(sys.platform != "win32" and shutil.which("bash") and shutil.which("python3"), "the plan step runs in Bash with python3 off Windows")
@@ -97,9 +120,9 @@ class PlanStepRunTests(PipelineFixture):
 
 
 class ConsumerCheckInvocationTests(unittest.TestCase):
-    def test_the_hygiene_job_starts_the_three_consumer_checks_with_options_that_the_program_accepts(self) -> None:
+    def test_the_hygiene_job_starts_the_consumer_checks_as_one_command_with_options_that_the_program_accepts(self) -> None:
         invocations = script_invocations(WORKFLOW, "consumer_checks.py")
-        self.assertEqual(["callers", "register", "dependabot"], [tokens[0] for tokens in invocations])
+        self.assertEqual(["all"], [tokens[0] for tokens in invocations])
         for tokens in invocations:
             with self.subTest(command=tokens[0]):
                 options = consumer_checks.parser().parse_args(tokens)
@@ -114,19 +137,36 @@ class HygieneInvocationTests(PipelineFixture):
         self.assertEqual(["changes", "coverage", "links", "actionlint", "zizmor", "reuse", "gitleaks"], [tokens[0] for tokens in invocations])
         parser = hygiene.build_parser()
         for tokens in invocations:
-            events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"]) if tokens[0] == "changes" else ([],)
+            if tokens[0] in ("changes", "gitleaks"):
+                events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"])
+            else:
+                events = ([],)
             for event in events:
                 with self.subTest(step=tokens[0], event=event):
                     parser.parse_args([tokens[0], *event, *[token for token in tokens[1:] if token != "$@"]])
         install = script_invocations(WORKFLOW, "install_tools.py")
-        self.assertEqual(1, len(install))
-        arguments = install_tools.build_parser().parse_args(install[0])
-        self.assertEqual(("linux-x64", ["gitleaks"]), (arguments.platform, arguments.tools))
+        self.assertEqual(5, len(install))
+        key_args = install_tools.build_parser().parse_args(install[0])
+        self.assertTrue(key_args.print_cache_key)
+        self.assertEqual(("linux-x64", ["gitleaks"]), (key_args.platform, key_args.tools))
+        for tokens, tools in zip(install[1:], [["actionlint", "shellcheck"], ["zizmor"], ["reuse"], ["gitleaks"]], strict=True):
+            arguments = install_tools.build_parser().parse_args(tokens)
+            self.assertEqual(("linux-x64", tools), (arguments.platform, arguments.tools))
 
     def decide(self, base: str, head: str) -> dict[str, str]:
         """The decision of the pipeline's hygiene job with the definitions that its step `changes` names."""
         tokens = next(tokens for tokens in script_invocations(WORKFLOW, "hygiene.py") if tokens[0] == "changes")
-        definitions = [token for token in tokens[1:] if token not in ("$@", "x") and not token.startswith("--github-output") and not token.startswith("--summary")]
+        definitions = []
+        skip_next = False
+        for token in tokens[1:]:
+            if skip_next:
+                skip_next = False
+                continue
+            if token in ("--github-output", "--summary", "--pins", "--reuse-marker", "--shared-lookup", "--fallbacks"):
+                skip_next = True
+                continue
+            if token != "$@":
+                definitions.append(token)
         outputs = self.directory / "hygiene-output"
         outputs.unlink(missing_ok=True)
         completed = subprocess.run([sys.executable, str(HYGIENE_FOLDER / "hygiene.py"), "changes", "--root", str(self.repository), "--base", base, "--head", head,
@@ -167,7 +207,7 @@ class ExclusionStepRunTests(PipelineFixture):
     DEPENDABOT = "version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: /\n    schedule:\n      interval: weekly\n"
 
     def run_step(self, step_id: str, pipeline_path: str = str(REPOSITORY_ROOT / "actions" / "pipeline")) -> subprocess.CompletedProcess:
-        step = next(step for step in read_workflow(WORKFLOW)[1]["jobs"]["repository-hygiene"]["steps"] if step.get("id") == step_id)
+        step = next(step for step in read_workflow(WORKFLOW)[1]["jobs"]["plan"]["steps"] if step.get("id") == step_id)
         environment = {**os.environ, "RESOURCE_PATH": str(HYGIENE_FOLDER), "PIPELINE_PATH": pipeline_path,
                        "RUNNER_TEMP": str(self.directory), "GITHUB_STEP_SUMMARY": str(self.directory / "step-summary.md")}
         return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repository, env=environment, capture_output=True, text=True, encoding="utf-8")

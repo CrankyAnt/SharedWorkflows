@@ -140,13 +140,13 @@ class DecideOnAPullRequestTests(DecideFixture):
     def pull_request(self, head: str) -> tuple[subprocess.CompletedProcess[str], dict[str, str], str]:
         return self.decide("--base", self.base, "--head", head, "--compare", "merge-base")
 
-    def test_a_pull_request_whose_changed_files_all_end_in_md_in_any_case_skips_the_tests(self) -> None:
+    def test_a_pull_request_whose_changed_files_all_end_in_md_still_runs_the_tests(self) -> None:
         head = self.commit({"README.md": "# Changed\n", "docs/NOTES.MD": "Notes\n", "CHANGELOG.Md": "Log\n"}, removed=("docs/guide.md",))
         result, values, summary = self.pull_request(head)
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual({"run": "false"}, values)
-        self.assertIn("every changed file ends in `.md`", result.stdout)
-        self.assertIn("every changed file ends in `.md`", summary)
+        self.assertEqual({"run": "true"}, values)
+        self.assertIn("run=true", result.stdout)
+        self.assertIn("The tests run", summary)
 
     def test_a_pull_request_with_any_other_changed_file_runs_the_tests(self) -> None:
         for name, files in (("python", {"app.py": "print(2)\n"}), ("markdown and python", {"README.md": "# Changed\n", "app.py": "print(2)\n"}),
@@ -156,19 +156,19 @@ class DecideOnAPullRequestTests(DecideFixture):
                 result, values, summary = self.pull_request(self.commit(files))
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertEqual({"run": "true"}, values)
-                self.assertIn("is no Markdown file", summary)
+                self.assertIn("The tests run", summary)
 
     def test_a_renamed_file_counts_under_its_old_path(self) -> None:
         result, values, _ = self.pull_request(self.commit({}, renamed=(("app.py", "app.md"),)))
         self.assertEqual({"run": "true"}, values, result.stdout)
-        self.assertIn("`app.py`", result.stdout)
 
     def test_a_pull_request_compares_from_the_merge_base_so_a_newer_base_branch_adds_nothing(self) -> None:
         head = self.commit({"README.md": "# Changed\n"})
         git(self.root, "checkout", "-q", "main")
         newer_base = self.commit({"app.py": "print(3)\n"})
-        _, values, _ = self.decide("--base", newer_base, "--head", head, "--compare", "merge-base")
-        self.assertEqual({"run": "false"}, values)
+        _, values, summary = self.decide("--base", newer_base, "--head", head, "--compare", "merge-base")
+        self.assertEqual({"run": "true"}, values)
+        self.assertIn("1 changed file.", summary)
 
     def test_changed_files_that_cannot_be_determined_or_an_empty_change_run_the_tests(self) -> None:
         head = self.commit({"README.md": "# Changed\n"})
@@ -197,7 +197,7 @@ class DecideOnAPushTests(DecideFixture):
         for case in ("pull-request", "own", "behind"):
             with self.subTest(case=case, change="markdown"):
                 document = {"case": case, "head": markdown, "landing_base": self.base, "tested_base": self.base}
-                self.assertEqual({"run": "false"}, self.decide("--lookup", self.lookup(document))[1])
+                self.assertEqual({"run": "true"}, self.decide("--lookup", self.lookup(document))[1])
         python = self.commit({"app.py": "print(2)\n"})
         for case in ("pull-request", "own", "behind"):
             with self.subTest(case=case, change="python"):
@@ -277,6 +277,19 @@ class InstallTests(Fixture):
                          python_tests.install_command("backend/requirements-dev.txt", python))
         self.assertEqual([str(python), "-m", "pip", "install", "--disable-pip-version-check", ".[test.extras_1]"],
                          python_tests.install_command("test.extras_1", python))
+
+    def test_cache_key_changes_with_lock_or_dependency_file_contents_and_install_value(self) -> None:
+        project = self.project({"pyproject.toml": "[project]\nname = 'a'\ndependencies = ['x==1']\n", "requirements-dev.txt": "pytest==8.0\n"})
+        first = self.interpreter.run("cache-key", "--root", str(project), "--install", "dev")
+        self.assertEqual(0, first.returncode, first.stderr)
+        self.assertTrue(first.stdout.strip().startswith("pip-py"))
+        same = self.interpreter.run("cache-key", "--root", str(project), "--install", "dev")
+        self.assertEqual(first.stdout.strip(), same.stdout.strip())
+        other_install = self.interpreter.run("cache-key", "--root", str(project), "--install", "requirements-dev.txt")
+        self.assertNotEqual(first.stdout.strip(), other_install.stdout.strip())
+        (project / "pyproject.toml").write_text("[project]\nname = 'a'\ndependencies = ['x==2']\n", encoding="utf-8")
+        changed = self.interpreter.run("cache-key", "--root", str(project), "--install", "dev")
+        self.assertNotEqual(first.stdout.strip(), changed.stdout.strip())
 
 
 class PytestConfigurationTests(unittest.TestCase):

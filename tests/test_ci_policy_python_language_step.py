@@ -22,8 +22,11 @@ class PythonLanguageStepActionTests(unittest.TestCase):
     def test_it_runs_the_step_on_the_job_s_python_with_the_shared_pins(self) -> None:
         self.assertEqual("composite", self.action["runs"]["using"])
         steps = self.action["runs"]["steps"]
-        self.assertEqual(1, len(steps))
-        run = steps[0]
+        self.assertEqual(3, len(steps))
+        key_step, cache_step, run = steps
+        self.assertEqual("cache-key", key_step["id"])
+        self.assertIn("--print-cache-key", key_step["run"])
+        self.assertRegex(cache_step["uses"], r"^actions/cache@[0-9a-f]{40}$")
         self.assertEqual("bash", run["shell"])
         self.assertEqual("${{ runner.os == 'Windows' && 'python' || 'python3' }}", run["env"]["PYTHON"])
         self.assertEqual("${{ runner.temp }}/python-language-step-tools", run["env"]["TOOLS"])
@@ -32,12 +35,12 @@ class PythonLanguageStepActionTests(unittest.TestCase):
 
     def test_the_root_is_an_optional_input_that_is_the_repository_root_by_default(self) -> None:
         self.assertEqual(".", self.action["inputs"]["root"]["default"])
-        self.assertEqual("${{ inputs.root }}", self.action["runs"]["steps"][0]["env"]["ROOT"])
+        self.assertEqual("${{ inputs.root }}", self.action["runs"]["steps"][-1]["env"]["ROOT"])
 
     def test_the_format_check_is_an_optional_input_that_is_off_by_default(self) -> None:
         self.assertEqual({"root", "format-check"}, set(self.action["inputs"]))
         self.assertEqual("false", self.action["inputs"]["format-check"]["default"])
-        run = self.action["runs"]["steps"][0]
+        run = self.action["runs"]["steps"][-1]
         self.assertEqual("${{ inputs.format-check }}", run["env"]["FORMAT_CHECK"])
         self.assertIn('if [[ "$FORMAT_CHECK" == true ]]; then options+=(--format-check); fi', run["run"])
 
@@ -61,11 +64,11 @@ class PythonLanguageStepConsumerKitTests(unittest.TestCase):
         entries = {entry["name"]: entry for entry in json.loads(CATALOGUE.read_text(encoding="utf-8"))["parts"]}
         self.assertEqual("actions/python-language-step/consumer-kit", entries["Python language step"]["consumer_kit"])
 
-    def test_the_template_is_one_step_that_calls_the_shared_step_at_v1_for_a_selected_language_step(self) -> None:
+    def test_the_template_is_one_step_that_calls_the_shared_step_at_v1_without_a_condition(self) -> None:
         self.assertEqual(["steps"], list(self.template))
         (step,) = self.template["steps"]
         self.assertEqual("CrankyAnt/SharedWorkflows/actions/python-language-step@v1", step["uses"])
-        self.assertEqual("${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}", step["if"])
+        self.assertNotIn("if", step, "only the shared suite jobs have the input language-steps that the retired condition read")
         self.assertNotIn("with", step, "the format check stays off unless the repository turns it on")
         self.assertNotIn("run", step)
 
@@ -97,7 +100,7 @@ class NoInterpreterInstallTests(unittest.TestCase):
         files = [path for path in (REPOSITORY_ROOT / "actions").rglob("*")
                  if path.suffix in (".yml", ".py", ".sh", ".ps1") and "consumer-kit" not in path.parts]
         files += [path for path in (REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml") if f".github/workflows/{path.name}" in surface]
-        self.assertTrue(any(path.name == "suite-selection.yml" for path in files))
+        self.assertTrue(any(path.name == "pipeline.yml" for path in files))
         install = re.compile(r"actions/setup-python|python-version:|\bpyenv\b|\buv python\b|deadsnakes|apt(?:-get)? install[^\n]*\bpython3?(?:\.\d+)?\b")
         installing = [path.relative_to(REPOSITORY_ROOT).as_posix() for path in files if install.search(path.read_text(encoding="utf-8"))]
         self.assertEqual(INSTALLING, sorted(installing))

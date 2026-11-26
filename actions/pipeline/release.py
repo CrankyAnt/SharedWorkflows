@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Decide whether a run of the release workflow publishes a release, and publish it.
 
-    python3 release.py plan    --ref REF [--root DIR] [--schemas DIR] [--default-branch NAME] [--github-output FILE] [--summary FILE]
-    python3 release.py publish --plan FILE --files DIR [--repository OWNER/NAME] [--api-url URL] [--summary FILE]
+    python3 release.py preflight --ref REF --sha SHA [--schemas DIR] [--repository OWNER/NAME] [--api-url URL] [--github-output FILE] [--summary FILE]
+    python3 release.py plan      --ref REF [--root DIR] [--schemas DIR] [--default-branch NAME] [--repository OWNER/NAME] [--api-url URL] [--github-output FILE] [--summary FILE]
+    python3 release.py publish   --plan FILE --files DIR [--repository OWNER/NAME] [--api-url URL] [--summary FILE]
 
 ``plan`` reads ``.github/ci-config.yml`` of the checkout, which holds the tagged commit, and decides for the part
 ``github-release`` whether the run publishes. It publishes nothing and passes when the run is not for a tag, when the
@@ -72,6 +73,8 @@ import plan  # noqa: E402
 PART = "github-release"
 TAG_PREFIX = "refs/tags/"
 DEFAULT_RUNNER = "ubuntu-26.04"
+VERDICT_CHECK = "ci / verdict"
+GITHUB_ACTIONS_APP_ID = 15368
 API_TIMEOUT = 60
 NOTES_LIMIT = 125000  # the characters that GitHub accepts as the body of a release
 TAG_DEPTH = 8  # how many tag objects a tag may chain before it names its commit
@@ -118,7 +121,44 @@ def quoted(items: list[str]) -> str:
     return plan.and_list([f"`{item}`" for item in items])
 
 
-def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
+def preflight_match(schemas: Path, ref: str, sha: str, repository: str, api_url: str, token: str | None) -> str:
+    """Decide before cloning whether ``ref`` matches a configured release part; returns the matching tag name,
+    raises NoRelease when nothing is published and ReleaseError when the configuration cannot be read or used."""
+    if not ref.startswith(TAG_PREFIX) or len(ref) == len(TAG_PREFIX):
+        raise NoRelease("the run is not for a tag")
+    tag = ref.removeprefix(TAG_PREFIX)
+    if not repository or not sha:
+        raise ReleaseError("the repository or commit SHA is not set, so the configuration file cannot be read before cloning.")
+    repository_url = f"{api_url.rstrip('/')}/repos/{repository}"
+    what = f"reading `{plan.CONFIGURATION}` at `{sha}`"
+    try:
+        status, document = request("GET", f"{repository_url}/contents/{urllib.parse.quote(plan.CONFIGURATION, safe='/')}?{urllib.parse.urlencode({'ref': sha})}", token)
+    except ReleaseError as error:
+        raise ReleaseError(f"{what} failed: {error}.") from error
+    if status == 404:
+        raise NoRelease(f"`{plan.CONFIGURATION}` does not exist")
+    if not isinstance(document, dict) or document.get("type") != "file" or document.get("encoding") != "base64" or not isinstance(document.get("content"), str):
+        raise ReleaseError(f"{what} failed: GitHub's answer holds no content of a file.")
+    try:
+        text = base64.b64decode(document["content"], validate=False).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError) as error:
+        raise ReleaseError(f"{what} failed: `{plan.CONFIGURATION}` is not valid UTF-8.") from error
+    try:
+        configuration, _ = plan.checked_configuration(text, plan.schema_versions(schemas))
+    except plan.PlanError as error:
+        raise ReleaseError(f"`{plan.CONFIGURATION}` cannot be used:\n" + "\n".join(f"- {line}" for line in str(error).splitlines())) from error
+    parts = plan.stated_parts(configuration)
+    if PART not in parts:
+        raise NoRelease(f"`{plan.CONFIGURATION}` does not switch the part `{PART}` on")
+    values = parts[PART]
+    patterns = [plan.pattern_expression(pattern) for pattern in values["tags"]]
+    if not any(expression.fullmatch(tag) for expression in patterns):
+        raise NoRelease(f"the tag `{tag}` matches none of the configured patterns {quoted(values['tags'])}")
+    return tag
+
+
+def make_plan(root: Path, schemas: Path, ref: str, default_branch: str, repository: str = "", api_url: str = "https://api.github.com",
+              token: str | None = None) -> dict:
     """The decision for a run that publishes; NoRelease for a run that is no release and ReleaseError for one that fails."""
     if not ref.startswith(TAG_PREFIX) or len(ref) == len(TAG_PREFIX):
         raise NoRelease("the run is not for a tag")
@@ -130,7 +170,10 @@ def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
     problems = value_problems(values)
     if problems:
         raise ReleaseError(f"`{plan.CONFIGURATION}` cannot be used:\n" + "\n".join(f"- {line}" for line in problems))
-    commit = verified_commit(root, tag, values["allowed-signers"], default_branch)
+    tag_object, commit = verified_tag(root, tag, values["allowed-signers"], default_branch)
+    if not repository:
+        raise ReleaseError(f"the repository is not set, so the verdict `{VERDICT_CHECK}` of commit `{commit}` cannot be checked.")
+    check_verdict(f"{api_url.rstrip('/')}/repos/{repository}", commit, token)
     if "notes" in values:
         tracked_notes(root, commit, values["notes"])
     return {
@@ -138,6 +181,7 @@ def make_plan(root: Path, schemas: Path, ref: str, default_branch: str) -> dict:
         "reason": f"the tag `{tag}` matches {quoted([pattern for pattern, expression in zip(values['tags'], patterns) if expression.fullmatch(tag)][:1])} "
                   "and carries a valid signature of an allowed key",
         "tag": tag,
+        "tag-object": tag_object,
         "commit": commit,
         "title": values.get("title", "{tag}").replace("{tag}", tag).replace("{version}", tag.removeprefix("v")),
         "config": values,
@@ -188,15 +232,29 @@ def value_problems(values: dict) -> list[str]:
     return problems
 
 
-def verified_commit(root: Path, tag: str, signers: str, default_branch: str) -> str:
-    """The commit that the tag names, once its signature is one of a key in the allowed-signers file of the default
-    branch; a ReleaseError says why it is not."""
+def verified_tag(root: Path, tag: str, signers: str, default_branch: str) -> tuple[str, str]:
+    """The verified tag object SHA and the commit it names, once its header names ``tag`` and its signature is one of a
+    key in the allowed-signers file of the default branch; a ReleaseError says why it is not."""
     ref = f"{TAG_PREFIX}{tag}"
     kind = plan.git(root, "cat-file", "-t", ref)
     if kind.returncode != 0:
         raise ReleaseError(f"the checkout holds no tag `{tag}`.")
     if kind.stdout.strip() != "tag":
         raise ReleaseError(f"the tag `{tag}` is not an annotated tag, so it carries no signature.")
+    tag_object_result = plan.git(root, "rev-parse", "--verify", "--quiet", ref)
+    if tag_object_result.returncode != 0 or not tag_object_result.stdout.strip():
+        raise ReleaseError(f"the checkout holds no tag `{tag}`.")
+    tag_object = tag_object_result.stdout.strip()
+    raw_tag = plan.git(root, "cat-file", "tag", tag_object)
+    if raw_tag.returncode != 0:
+        raise ReleaseError(f"the tag object `{tag_object}` of tag `{tag}` could not be read.")
+    header_tag = None
+    for line in raw_tag.stdout.split("\n\n", 1)[0].splitlines():
+        if line.startswith("tag "):
+            header_tag = line.removeprefix("tag ")
+            break
+    if header_tag != tag:
+        raise ReleaseError(f"the tag object `{tag_object}` names the tag `{header_tag or ''}`, not `{tag}`.")
     branch = f"refs/remotes/origin/{default_branch}"
     if plan.git(root, "rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}").returncode != 0:
         raise ReleaseError(f"the checkout holds no default branch `origin/{default_branch}`, whose allowed-signers file decides.")
@@ -206,15 +264,15 @@ def verified_commit(root: Path, tag: str, signers: str, default_branch: str) -> 
     with tempfile.TemporaryDirectory() as directory:
         allowed = Path(directory) / "allowed_signers"
         allowed.write_text(shown.stdout, encoding="utf-8", newline="\n")
-        verified = plan.git(root, "-c", "gpg.format=ssh", "-c", f"gpg.ssh.allowedSignersFile={allowed.as_posix()}", "-c", "gpg.ssh.revocationFile=", "verify-tag", ref)
+        verified = plan.git(root, "-c", "gpg.format=ssh", "-c", f"gpg.ssh.allowedSignersFile={allowed.as_posix()}", "-c", "gpg.ssh.revocationFile=", "verify-tag", tag_object)
     if verified.returncode != 0:
         detail = " ".join(line.strip() for line in (verified.stderr or "").splitlines() if line.strip())
         raise ReleaseError(f"the tag `{tag}` carries no valid signature of a key in `{signers}` on the default branch `{default_branch}`."
                            + (f" Git says: {detail}" if detail else ""))
-    commit = plan.git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    commit = plan.git(root, "rev-parse", "--verify", "--quiet", f"{tag_object}^{{commit}}")
     if commit.returncode != 0:
         raise ReleaseError(f"the tag `{tag}` names no commit.")
-    return commit.stdout.strip()
+    return tag_object, commit.stdout.strip()
 
 
 def notes_text(data: bytes, path: str, commit: str) -> str:
@@ -240,10 +298,32 @@ def append(path: str | None, text: str) -> None:
     plan.append(path, text)
 
 
+def run_preflight(options: argparse.Namespace) -> int:
+    title = "## Release"
+    try:
+        tag = preflight_match(Path(options.schemas), options.ref, options.sha, options.repository, options.api_url, os.environ.get("GITHUB_TOKEN"))
+    except NoRelease as no_release:
+        print(f"Nothing is published: {no_release}.")
+        append(options.github_output, "match=false\nplan=" + json.dumps({"parts": {PART: {"run": False, "reason": str(no_release)}}}, separators=(",", ":")) + "\n")
+        append(options.summary, f"{title}\n\nNothing is published: {no_release}.\n")
+        return 0
+    except ReleaseError as error:
+        print(f"The release failed: {error}")
+        append(options.summary, f"{title}\n\n**Failed.** Nothing is published: {error}\n")
+        return 1
+    except plan.SchemaError as error:
+        print(f"::error::{error}", file=sys.stderr)
+        return 2
+    print(f"The tag {tag} matches the release configuration.")
+    append(options.github_output, "match=true\n")
+    return 0
+
+
 def run_plan(options: argparse.Namespace) -> int:
     title = "## Release"
     try:
-        decision = make_plan(Path(options.root), Path(options.schemas), options.ref, options.default_branch)
+        decision = make_plan(Path(options.root), Path(options.schemas), options.ref, options.default_branch,
+                             options.repository, options.api_url, os.environ.get("GITHUB_TOKEN"))
     except NoRelease as no_release:
         print(f"Nothing is published: {no_release}.")
         append(options.github_output, "plan=" + json.dumps({"parts": {PART: {"run": False, "reason": str(no_release)}}}, separators=(",", ":")) + "\n")
@@ -298,34 +378,59 @@ def step(what: str, method: str, url: str, token: str | None, body: bytes | None
     return document
 
 
-def tag_commit(repository_url: str, tag: str, token: str | None) -> str | None:
-    """The commit that the tag names on GitHub at this moment; None when the repository holds no such tag."""
+def check_verdict(repository_url: str, commit: str, token: str | None) -> None:
+    """Fail unless ``commit`` has a completed, passed ``ci / verdict`` check run from GitHub Actions."""
+    what = f"reading the verdict `{VERDICT_CHECK}` of commit `{commit}`"
+    query = urllib.parse.urlencode({"check_name": VERDICT_CHECK, "per_page": 100})
+    document = step(what, "GET", f"{repository_url}/commits/{commit}/check-runs?{query}", token)
+    runs = document.get("check_runs") if isinstance(document, dict) else None
+    if not isinstance(runs, list):
+        raise ReleaseError(f"{what} failed: GitHub's answer holds no check runs.")
+    matching = [item for item in runs if isinstance(item, dict) and item.get("name") == VERDICT_CHECK
+                and (not isinstance(item.get("app"), dict) or item["app"].get("id") == GITHUB_ACTIONS_APP_ID)]
+    run = max(matching, key=lambda item: item.get("id", 0), default=None)
+    if run is None:
+        raise ReleaseError(f"the commit `{commit}` has no completed `{VERDICT_CHECK}` check run.")
+    if run.get("status") != "completed":
+        raise ReleaseError(f"the `{VERDICT_CHECK}` check run of commit `{commit}` has not completed ({run.get('status')}).")
+    if run.get("conclusion") != "success":
+        raise ReleaseError(f"the `{VERDICT_CHECK}` check run of commit `{commit}` concluded `{run.get('conclusion')}`, not `success`.")
+
+
+def check_tag(repository_url: str, tag: str, tag_object: str, commit: str, token: str | None) -> None:
+    """Fail unless ``refs/tags/<tag>`` still names the verified tag object, whose header names ``tag`` and which peels
+    to ``commit``."""
     what = f"reading the tag `{tag}`"
+    verified = f"the commit `{commit}` whose signature was verified"
+    again = "A run for the tag as it is now verifies its signature again."
     try:
         status, document = request("GET", f"{repository_url}/git/ref/tags/{urllib.parse.quote(tag, safe='/')}", token)
     except ReleaseError as error:
         raise ReleaseError(f"{what} failed: {error}.") from error
     if status == 404:
-        return None
+        raise ReleaseError(f"the tag `{tag}` no longer exists; it named {verified}. {again}")
+    ref_obj = document.get("object") if isinstance(document, dict) else None
+    if not isinstance(ref_obj, dict) or not isinstance(ref_obj.get("sha"), str) or ref_obj.get("type") not in ("commit", "tag"):
+        raise ReleaseError(f"{what} failed: GitHub's answer names no commit.")
+    if ref_obj["type"] != "tag" or ref_obj["sha"] != tag_object:
+        raise ReleaseError(f"the tag `{tag}` moved after its signature was verified: it names {ref_obj['type']} `{ref_obj['sha']}`, "
+                           f"not the verified tag object `{tag_object}`. {again}")
+    tag_doc = step(what, "GET", f"{repository_url}/git/tags/{tag_object}", token)
+    if not isinstance(tag_doc, dict):
+        raise ReleaseError(f"{what} failed: GitHub's answer names no commit.")
+    if tag_doc.get("tag") != tag:
+        raise ReleaseError(f"the tag object `{tag_object}` names the tag `{tag_doc.get('tag') or ''}`, not `{tag}`. {again}")
+    current: object = tag_doc
     for _ in range(TAG_DEPTH):
-        target = document.get("object") if isinstance(document, dict) else None
+        target = current.get("object") if isinstance(current, dict) else None
         if not isinstance(target, dict) or not isinstance(target.get("sha"), str) or target.get("type") not in ("commit", "tag"):
             break
         if target["type"] == "commit":
-            return target["sha"]
-        document = step(what, "GET", f"{repository_url}/git/tags/{target['sha']}", token)
+            if target["sha"] != commit:
+                raise ReleaseError(f"the tag `{tag}` moved after its signature was verified: it names the commit `{target['sha']}`, not {verified}. {again}")
+            return
+        current = step(what, "GET", f"{repository_url}/git/tags/{target['sha']}", token)
     raise ReleaseError(f"{what} failed: GitHub's answer names no commit.")
-
-
-def check_tag(repository_url: str, tag: str, commit: str, token: str | None) -> None:
-    """Fail unless the tag still names the commit whose signature the plan verified."""
-    held = tag_commit(repository_url, tag, token)
-    verified = f"the commit `{commit}` whose signature was verified"
-    again = "A run for the tag as it is now verifies its signature again."
-    if held is None:
-        raise ReleaseError(f"the tag `{tag}` no longer exists; it named {verified}. {again}")
-    if held != commit:
-        raise ReleaseError(f"the tag `{tag}` moved after its signature was verified: it names the commit `{held}`, not {verified}. {again}")
 
 
 def published_notes(repository_url: str, commit: str, path: str, token: str | None) -> str:
@@ -527,7 +632,8 @@ def publish(part: dict, files: Path, repository: str, api_url: str, token: str |
         body = release_body(generated, repository_owner(repository_url, token))
         source = (f"The list of changes starts after the release of the tag `{previous}`." if previous
                   else "The list of changes names no previous release.")
-    check_tag(repository_url, tag, part["commit"], token)
+    check_verdict(repository_url, part["commit"], token)
+    check_tag(repository_url, tag, part["tag-object"], part["commit"], token)
     draft = step(f"creating the release of the tag `{tag}`", "POST", releases, token,
                  json.dumps({"tag_name": tag, "name": part.get("title") or tag, "body": body, "draft": True}).encode("utf-8"))
     if not isinstance(draft, dict) or not isinstance(draft.get("upload_url"), str) or "id" not in draft:
@@ -541,7 +647,7 @@ def publish(part: dict, files: Path, repository: str, api_url: str, token: str |
         raise ReleaseError(f"{error} {kept}") from error
     try:
         # The uploads take time: the tag is read once more, right before the request that publishes.
-        check_tag(repository_url, tag, part["commit"], token)
+        check_tag(repository_url, tag, part["tag-object"], part["commit"], token)
     except ReleaseError as error:
         raise ReleaseError(f"{error} {delete_draft(f'{releases}/{draft_id}', token)}") from error
     try:
@@ -556,7 +662,7 @@ def run_publish(options: argparse.Namespace) -> int:
     try:
         document = json.loads(Path(options.plan).read_text(encoding="utf-8"))
         part = document["parts"][PART]
-        if part.get("run") is not True or not all(isinstance(part.get(key), str) and part[key] for key in ("tag", "commit", "files")):
+        if part.get("run") is not True or not all(isinstance(part.get(key), str) and part[key] for key in ("tag", "tag-object", "commit", "files")):
             raise ValueError("the plan does not publish")
         earlier = part.get("earlier-tags", [])
         if not isinstance(earlier, list) or not all(isinstance(tag, str) and tag for tag in earlier):
@@ -582,11 +688,21 @@ def run_publish(options: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     main_parser = argparse.ArgumentParser(description="Decide whether a run of the release workflow publishes a release, and publish it.")
     commands = main_parser.add_subparsers(dest="command", required=True)
-    planning = commands.add_parser("plan", help="decide from the configuration file, the tag and its signature whether the run publishes")
+    preflighting = commands.add_parser("preflight", help="decide before cloning whether the ref matches a configured release part")
+    preflighting.add_argument("--schemas", default=str(plan.SCHEMAS), help="the schema folder of the configuration file")
+    preflighting.add_argument("--ref", required=True, help="the ref of the run, such as refs/tags/v1.0.0")
+    preflighting.add_argument("--sha", default="", help="the commit SHA at which the configuration file is read")
+    preflighting.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""), help="the repository of the run, as OWNER/NAME")
+    preflighting.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
+    preflighting.add_argument("--github-output", help="the file that receives the match and plan outputs")
+    preflighting.add_argument("--summary", help="the file that receives the Markdown summary")
+    planning = commands.add_parser("plan", help="decide from the configuration file, the tag, its signature and the verdict whether the run publishes")
     planning.add_argument("--root", default=".", help="the repository's checkout, with its full history and its tags")
     planning.add_argument("--schemas", default=str(plan.SCHEMAS), help="the schema folder of the configuration file")
     planning.add_argument("--ref", required=True, help="the ref of the run, such as refs/tags/v1.0.0")
     planning.add_argument("--default-branch", default="main", help="the repository's default branch, which holds the allowed-signers file")
+    planning.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""), help="the repository of the run, as OWNER/NAME")
+    planning.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
     planning.add_argument("--github-output", help="the file that receives the output plan")
     planning.add_argument("--summary", help="the file that receives the Markdown summary")
     publishing = commands.add_parser("publish", help="publish the release of the plan's tag with the collected files")
@@ -600,7 +716,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     options = parser().parse_args(argv)
-    return {"plan": run_plan, "publish": run_publish}[options.command](options)
+    return {"preflight": run_preflight, "plan": run_plan, "publish": run_publish}[options.command](options)
 
 
 if __name__ == "__main__":

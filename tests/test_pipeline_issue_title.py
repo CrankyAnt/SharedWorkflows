@@ -3,6 +3,7 @@ the program gives an opened issue, and the one request it makes to a stand-in fo
 
 from __future__ import annotations
 
+import base64
 import http.server
 import json
 import os
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import threading
 import unittest
+import urllib.parse
 from pathlib import Path
 from tests import temporary_support
 
@@ -196,13 +198,49 @@ class ApplyTests(IssueTitleFixture):
         super().setUp()
         self.requests: list[dict[str, object]] = []
         self.status = 200
+        self.patch_statuses: list[int] = []
+        self.get_statuses: list[int] = []
+        self.live_title: str | None = None
+        self.contents: dict[str, object] = {}
         tests = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - the handler contract of http.server
+                tests.requests.append({"method": "GET", "path": self.path, "authorization": self.headers.get("Authorization")})
+                if tests.get_statuses:
+                    code = tests.get_statuses.pop(0)
+                    if code != 200:
+                        self.send_response(code)
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+                        return
+                parsed = urllib.parse.urlsplit(self.path)
+                if parsed.path.startswith(f"/repos/{REPOSITORY}/contents/"):
+                    rel = urllib.parse.unquote(parsed.path.removeprefix(f"/repos/{REPOSITORY}/contents/"))
+                    entry = tests.contents.get(rel)
+                    if entry is None:
+                        self.send_response(404)
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+                        return
+                    self.send_response(200)
+                    self.end_headers()
+                    if isinstance(entry, list):
+                        self.wfile.write(json.dumps(entry).encode("utf-8"))
+                    else:
+                        encoded = base64.b64encode(str(entry).encode("utf-8")).decode("ascii")
+                        self.wfile.write(json.dumps({"type": "file", "encoding": "base64", "content": encoded}).encode("utf-8"))
+                    return
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"title": tests.live_title}).encode("utf-8"))
+
             def do_PATCH(self) -> None:  # noqa: N802 - the handler contract of http.server
                 length = int(self.headers.get("Content-Length", "0"))
-                tests.requests.append({"path": self.path, "authorization": self.headers.get("Authorization"), "body": json.loads(self.rfile.read(length))})
-                self.send_response(tests.status)
+                tests.requests.append({"method": "PATCH", "path": self.path, "authorization": self.headers.get("Authorization"),
+                                       "body": json.loads(self.rfile.read(length))})
+                code = tests.patch_statuses.pop(0) if tests.patch_statuses else tests.status
+                self.send_response(code)
                 self.end_headers()
                 self.wfile.write(b"{}")
 
@@ -216,18 +254,23 @@ class ApplyTests(IssueTitleFixture):
         self.addCleanup(thread.join, 5)
         self.addCleanup(self.server.shutdown)
 
-    def apply(self, event: dict, token: str | None = "token-for-the-test") -> subprocess.CompletedProcess[str]:
+    def apply(self, event: dict, token: str | None = "token-for-the-test", *extra: str) -> subprocess.CompletedProcess[str]:
+        if self.live_title is None:
+            self.live_title = (event.get("issue") or {}).get("title", "")
         environment = {name: value for name, value in os.environ.items() if name != "GITHUB_TOKEN"}
         if token is not None:
             environment["GITHUB_TOKEN"] = token
         environment["GITHUB_API_URL"] = f"http://127.0.0.1:{self.server.server_port}"
-        return self.run_program(event, "--apply", environment=environment)
+        return self.run_program(event, "--apply", *extra, environment=environment)
 
-    def test_apply_makes_one_request_that_changes_only_the_title_of_the_opened_issue(self) -> None:
+    def patch_requests(self) -> list[dict[str, object]]:
+        return [request for request in self.requests if request["method"] == "PATCH"]
+
+    def test_apply_makes_one_patch_that_changes_only_the_title_of_the_opened_issue(self) -> None:
         result = self.apply(opened_event("Stops early", component="beta", labels=["area:widget"]))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual([{"path": f"/repos/{REPOSITORY}/issues/12", "authorization": "Bearer token-for-the-test", "body": {"title": "[widget: beta] Stops early"}}],
-                         self.requests)
+        self.assertEqual([{"method": "PATCH", "path": f"/repos/{REPOSITORY}/issues/12", "authorization": "Bearer token-for-the-test",
+                           "body": {"title": "[widget: beta] Stops early"}}], self.patch_requests())
 
     def test_apply_makes_no_request_for_a_title_that_stays(self) -> None:
         result = self.apply(opened_event("[widget: beta] Stops early", component="beta", labels=["area:widget"]))
@@ -240,11 +283,46 @@ class ApplyTests(IssueTitleFixture):
         self.assertIn("GITHUB_TOKEN is not set", result.stdout)
         self.assertEqual([], self.requests)
 
-    def test_apply_fails_when_github_refuses_the_request(self) -> None:
+    def test_apply_fails_when_github_refuses_the_request_without_retrying(self) -> None:
         self.status = 403
         result = self.apply(opened_event("Stops early", component="beta", labels=["area:widget"]))
         self.assertEqual(1, result.returncode)
         self.assertIn("failed to update issue title: 403", result.stdout)
+        self.assertEqual(1, len(self.patch_requests()))
+
+    def test_apply_does_not_overwrite_a_title_changed_since_the_event(self) -> None:
+        self.live_title = "Renamed by maintainer"
+        result = self.apply(opened_event("Stops early", component="beta", labels=["area:widget"]))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual([], self.patch_requests())
+        self.assertIn("title changed", result.stdout)
+
+    def test_apply_retries_transient_failures_on_get_and_patch(self) -> None:
+        self.get_statuses = [503, 200]
+        self.patch_statuses = [429, 502, 200]
+        result = self.apply(opened_event("Stops early", component="beta", labels=["area:widget"]))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(2, len([r for r in self.requests if r["method"] == "GET"]))
+        self.assertEqual(3, len(self.patch_requests()))
+
+    def test_ref_reads_only_the_category_file_from_github_without_a_checkout(self) -> None:
+        generic_only = {"product_categories": [], "generic_forms": [{"key": "question", "title_prefix": "[question]", "labels": ["type:question"]}]}
+        self.contents["intake/categories.json"] = json.dumps(generic_only)
+        event = opened_event("Where is this?", labels=["type:question"])
+        self.live_title = "Where is this?"
+        event_path = self.root / "event.json"
+        event_path.write_text(json.dumps(event), encoding="utf-8")
+        environment = {**os.environ, "GITHUB_TOKEN": "token-for-the-test",
+                       "GITHUB_API_URL": f"http://127.0.0.1:{self.server.server_port}",
+                       "PYTHONPYCACHEPREFIX": temporary_support.bytecode_cache()}
+        result = subprocess.run([sys.executable, str(SCRIPT), "--event", str(event_path), "--ref", "abc123",
+                                 "--categories", "intake/categories.json", "--apply"],
+                                cwd=self.root, env=environment, capture_output=True, text=True, encoding="utf-8", check=False)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        content_reads = [r["path"] for r in self.requests if r["method"] == "GET" and "/contents/" in str(r["path"])]
+        self.assertEqual([f"/repos/{REPOSITORY}/contents/intake/categories.json?ref=abc123"], content_reads)
+        self.assertEqual([{"method": "PATCH", "path": f"/repos/{REPOSITORY}/issues/12", "authorization": "Bearer token-for-the-test",
+                           "body": {"title": "[question] Where is this?"}}], self.patch_requests())
 
 
 if __name__ == "__main__":

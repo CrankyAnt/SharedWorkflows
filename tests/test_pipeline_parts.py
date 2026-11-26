@@ -25,8 +25,6 @@ PYTHON_VERIFY = "python-verify"
 PYTHON_TEST = "python-test"
 DOTNET_TEST = "dotnet-test"
 NODE_TEST = "node-test"
-# The paths that each project part names in this repository's configuration file besides its own.
-COMMON_PATHS = [".github/workflows/ci.yml", ".github/workflows/pipeline.yml", "actions/pipeline/"]
 
 
 @dataclass(frozen=True)
@@ -46,7 +44,7 @@ class Part:
     fixture: str
     """The name of the part's fixture folder under tests/fixtures, which no fragment names."""
     paths: list[str]
-    """The paths that the part names in this repository's configuration file besides COMMON_PATHS."""
+    """The paths that the part names in this repository's configuration file."""
 
 
 # The project parts: adding a part to the checks of this file is one entry here.
@@ -56,13 +54,14 @@ PARTS = {
         several=[{"python-version": "3.13", "working-directory": "backend", "install": "dev", "format-check": True},
                  {"python-version": "3.12.4", "working-directory": "tools"}],
         runner_label=False, fixture="python_tests",
-        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
+        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
     PYTHON_TEST: Part(
         settings=["install", "python-version", "runner-label", "working-directory"], required=["python-version"], smallest={"python-version": "3.13"},
         several=[{"python-version": "3.14", "working-directory": "services/api", "install": "requirements-dev.txt", "runner-label": "windows-2025"},
                  {"python-version": "3.14", "working-directory": "services/api", "install": "requirements-dev.txt"},
                  {"python-version": "3.11"}],
-        runner_label=True, fixture="python_tests", paths=["tests/fixtures/python_tests/", "actions/python-tests/"]),
+        runner_label=True, fixture="python_tests",
+        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
     DOTNET_TEST: Part(
         settings=["console-runner", "project", "runner-label", "sdk-version"], required=["project", "sdk-version"], smallest={"sdk-version": "10.0.x", "project": "Shop.sln"},
         several=[{"sdk-version": "10.0.x", "project": "tests/Shop.Tests/Shop.Tests.csproj", "runner-label": "windows-2025"},
@@ -140,7 +139,8 @@ class ProjectListTests(RealSchemaFixture):
             project = entry.smallest
             with self.subTest(part=part):
                 outcome = self.assert_accepted(configuration(part, project))
-                self.assertEqual({"run": True, "reason": "switched on", "config": {"projects": [project]}}, outcome.plan["parts"][part])
+                self.assertEqual({"run": True, "reason": "inputs unknown", "config": {"projects": [project]}}, outcome.plan["parts"][part])
+                self.assertEqual([{"part": part, "reason": "inputs unknown"}], outcome.plan["departures"])
                 for other in PARTS:
                     if other != part:
                         self.assertIs(False, outcome.plan["parts"][other]["run"])
@@ -172,6 +172,61 @@ class ProjectListTests(RealSchemaFixture):
                 self.assertEqual(0, outcome.status, outcome.summary)
                 self.assertIs(runs, outcome.plan["parts"][PYTHON_TEST]["run"])
                 base = head
+
+    def test_matching_python_verify_and_python_test_projects_combine_into_one_install(self) -> None:
+        text = (
+            "version: 1\nparts:\n"
+            f"  {PYTHON_VERIFY}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'backend', 'install': 'dev', 'format-check': True}]})}\n"
+            f"  {PYTHON_TEST}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'backend', 'install': 'dev'}]})}\n"
+        )
+        outcome = self.assert_accepted(text)
+        verify = outcome.plan["parts"][PYTHON_VERIFY]
+        test = outcome.plan["parts"][PYTHON_TEST]
+        self.assertIs(False, verify["run"])
+        self.assertIn("python-test", verify["reason"])
+        self.assertEqual([], verify["config"]["projects"])
+        self.assertIs(True, test["run"])
+        self.assertEqual([{"python-version": "3.14", "working-directory": "backend", "install": "dev", "verify": True, "format-check": True}],
+                         test["config"]["projects"])
+
+    def test_python_verify_without_install_combines_into_matching_python_test(self) -> None:
+        text = (
+            "version: 1\nparts:\n"
+            f"  {PYTHON_VERIFY}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'app', 'format-check': False}]})}\n"
+            f"  {PYTHON_TEST}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'app', 'install': 'dev'}]})}\n"
+        )
+        outcome = self.assert_accepted(text)
+        self.assertIs(False, outcome.plan["parts"][PYTHON_VERIFY]["run"])
+        self.assertEqual([{"python-version": "3.14", "working-directory": "app", "install": "dev", "verify": True, "format-check": False}],
+                         outcome.plan["parts"][PYTHON_TEST]["config"]["projects"])
+
+    def test_unmatched_python_verify_projects_stay_in_python_verify(self) -> None:
+        text = (
+            "version: 1\nparts:\n"
+            f"  {PYTHON_VERIFY}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'backend', 'install': 'dev'}, {'python-version': '3.13', 'working-directory': 'cli'}]})}\n"
+            f"  {PYTHON_TEST}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'backend', 'install': 'dev', 'runner-label': 'windows-2025'}, {'python-version': '3.14', 'working-directory': 'backend', 'install': 'dev'}]})}\n"
+        )
+        outcome = self.assert_accepted(text)
+        verify = outcome.plan["parts"][PYTHON_VERIFY]
+        test = outcome.plan["parts"][PYTHON_TEST]
+        self.assertIs(True, verify["run"])
+        self.assertEqual([{"python-version": "3.13", "working-directory": "cli"}], verify["config"]["projects"])
+        self.assertEqual([
+            {"python-version": "3.14", "working-directory": "backend", "install": "dev", "runner-label": "windows-2025"},
+            {"python-version": "3.14", "working-directory": "backend", "install": "dev", "verify": True, "format-check": False},
+        ], test["config"]["projects"])
+
+    def test_python_verify_does_not_combine_with_windows_only_python_test(self) -> None:
+        text = (
+            "version: 1\nparts:\n"
+            f"  {PYTHON_VERIFY}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'backend', 'install': 'dev'}]})}\n"
+            f"  {PYTHON_TEST}: {json.dumps({'projects': [{'python-version': '3.14', 'working-directory': 'backend', 'install': 'dev', 'runner-label': 'windows-2025'}]})}\n"
+        )
+        outcome = self.assert_accepted(text)
+        self.assertIs(True, outcome.plan["parts"][PYTHON_VERIFY]["run"])
+        self.assertEqual([{"python-version": "3.14", "working-directory": "backend", "install": "dev"}],
+                         outcome.plan["parts"][PYTHON_VERIFY]["config"]["projects"])
+        self.assertNotIn("verify", outcome.plan["parts"][PYTHON_TEST]["config"]["projects"][0])
 
 
 class RejectedProjectTests(RealSchemaFixture):
@@ -321,7 +376,7 @@ class OwnConfigurationTests(unittest.TestCase):
         for part, entry in PARTS.items():
             with self.subTest(part=part):
                 self.assertIn(f"tests/fixtures/{entry.fixture}/", entry.paths)
-                self.assertEqual(sorted([*COMMON_PATHS, *entry.paths]), sorted(self.parts[part]["paths"]))
+                self.assertEqual(sorted(entry.paths), sorted(self.parts[part]["paths"]))
 
 
 class InvocationTests(unittest.TestCase):
@@ -329,12 +384,13 @@ class InvocationTests(unittest.TestCase):
 
     def test_the_python_parts_install_and_test_from_the_working_directory(self) -> None:
         invocations = script_invocations(WORKFLOW, "python_tests.py")
-        self.assertEqual(["install", "test", "install"], [tokens[0] for tokens in invocations], "python-test installs and tests, python-verify installs")
+        self.assertEqual(["cache-key", "install", "test", "cache-key", "install"], [tokens[0] for tokens in invocations],
+                         "python-test keys, installs and tests; python-verify keys and installs")
         for tokens in invocations:
             with self.subTest(command=tokens[0]):
                 options = python_tests.parse_arguments(tokens)
                 self.assertEqual("x", options.root)
-        for tokens in (invocations[0], invocations[2]):
+        for tokens in (invocations[0], invocations[1], invocations[3], invocations[4]):
             self.assertEqual("x", python_tests.parse_arguments(tokens).install, "the value reaches --install with an equals sign, so a leading - stays a value")
 
     def test_the_dotnet_step_hands_the_project_to_its_script_and_the_console_runner_only_for_a_console_test_program(self) -> None:

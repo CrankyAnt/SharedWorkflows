@@ -30,11 +30,13 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 RESOURCES = Path(__file__).resolve().parent
@@ -95,50 +97,392 @@ def zizmor(root: Path, tools: Path | None, persona: str, policy: Path) -> int:
     return run(command + ["."], root)
 
 
-def gitleaks(root: Path, tools: Path | None, config: str, baseline: str) -> int:
-    """Gitleaks over every commit reachable from any ref."""
-    command = [str(executable("gitleaks", tools)), "git", "--log-opts=--all", "--redact", "--no-banner", "--no-color"]
+def _relative_to_root(root: Path, value: str) -> str | None:
+    if not value:
+        return None
+    try:
+        return (root / value).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def _file_sha256(root: Path, value: str) -> str | None:
+    if not value:
+        return None
+    target = Path(value) if Path(value).is_absolute() else root / value
+    if not target.is_file():
+        return None
+    return hashlib.sha256(target.read_bytes()).hexdigest()
+
+
+def _gitleaks_pin_version(pins_path: Path | None) -> str | None:
+    if pins_path is None:
+        return None
+    try:
+        data = json.loads(pins_path.read_text(encoding="utf-8"))
+        version = data["tools"]["gitleaks"]["version"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+    return version if isinstance(version, str) and version else None
+
+
+def _reuse_pin_version(pins_path: Path | None) -> str | None:
+    if pins_path is None:
+        return None
+    try:
+        data = json.loads(pins_path.read_text(encoding="utf-8"))
+        version = data["python"]["reuse"]["version"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+    return version if isinstance(version, str) and version else None
+
+
+def _reuse_marker_matches(marker: Path, version: str | None) -> bool:
+    if version is None:
+        return False
+    try:
+        stored = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(stored, dict) and stored == {"version": version}
+
+
+def _reuse_marker_readable(marker: Path) -> bool:
+    """Whether the default-branch REUSE version marker exists and holds a version: a missing, evicted or unreadable
+    marker is a fallback, a marker of another version is the rule."""
+    try:
+        stored = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(stored, dict) and isinstance(stored.get("version"), str)
+
+
+def _in_repo_pins_path(root: Path) -> str | None:
+    try:
+        folder = RESOURCES.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        folder = HYGIENE_FOLDER if (root / HYGIENE_FOLDER).is_dir() else None
+    if folder is None:
+        return None
+    candidate = f"{folder}/pins.json"
+    return candidate if (root / candidate).is_file() else None
+
+
+def _gitleaks_pin_changed(root: Path, start: str, head: str, pins_rel: str) -> bool:
+    before_lines = git_file(root, start, pins_rel)
+    after_lines = git_file(root, head, pins_rel)
+    if before_lines is None or after_lines is None:
+        return True
+    try:
+        before = json.loads("\n".join(before_lines))["tools"]["gitleaks"]["version"]
+        after = json.loads("\n".join(after_lines))["tools"]["gitleaks"]["version"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return True
+    return before != after
+
+
+def _gitleaks_marker_key(root: Path, config: str, baseline: str, pins: Path | None) -> dict[str, object]:
+    return {
+        "version": _gitleaks_pin_version(pins),
+        "config": config,
+        "config_sha256": _file_sha256(root, config),
+        "baseline": baseline,
+        "baseline_sha256": _file_sha256(root, baseline),
+    }
+
+
+def _marker_matches(marker: Path, key: dict[str, object]) -> bool:
+    if key["version"] is None:
+        return False
+    try:
+        stored = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return stored == key
+
+
+def _commit_exists(root: Path, revision: str) -> bool:
+    return subprocess.run(["git", "rev-parse", "--verify", f"{revision}^{{commit}}"], cwd=root, capture_output=True, text=True, check=False).returncode == 0
+
+
+# The counted reasons of the hygiene fallbacks to running more, each emitted as a notice in the form of the suite
+# selection's ``reuse.fallback_notice``: ``changes`` counts them in the file of ``--fallbacks``, which ``plan.py plan``
+# adds to the plan's fallbacks. A full Gitleaks scan because the configuration, baseline or pin changed is the rule,
+# not a fallback.
+UNREADABLE_PUSH_LOOKUP = "hygiene-unreadable-push-lookup"
+CHANGED_FILES_UNKNOWN = "hygiene-changed-files-unknown"
+GITLEAKS_UNREADABLE_PUSH_LOOKUP = "gitleaks-unreadable-push-lookup"
+GITLEAKS_RANGE_UNKNOWN = "gitleaks-range-unknown"
+UNREADABLE_REUSE_MARKER = "hygiene-unreadable-reuse-marker"
+UNREADABLE_SHARED_DIGESTS = "hygiene-unreadable-shared-digests"
+UNREADABLE_TESTED_DIGESTS = "hygiene-unreadable-tested-digests"
+SHARED_DIGEST_FALLBACK_SUFFIX = "digest could not be compared"
+TESTED_DIGEST_FALLBACK_SUFFIX = "digest could not be compared with the tested digests"
+HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
+# Shared CI hygiene digests checked for each hygiene check when ``--shared-lookup`` is passed.
+CHECK_DIGESTS: dict[str, tuple[str, ...]] = {
+    "actionlint": ("hygiene:actionlint",),
+    "zizmor": ("hygiene:zizmor", "hygiene:zizmor-policy"),
+    "packages": ("hygiene:packages",),
+    "markdown": ("hygiene:markdown",),
+    "reuse": ("hygiene:reuse",),
+}
+
+
+def parse_digests(value: object) -> dict[str, str] | None:
+    """Validate a shared CI digests mapping (non-empty dict of non-empty name to 64-hex SHA-256); None when invalid."""
+    if (not isinstance(value, dict) or not value
+            or not all(isinstance(k, str) and k and isinstance(v, str) and HEX_DIGEST.fullmatch(v) for k, v in value.items())):
+        return None
+    return {k: value[k] for k in sorted(value)}
+
+
+def moved_digest_names(current: dict[str, str], other: dict[str, str]) -> set[str]:
+    """Digest names whose value differs between ``current`` and ``other``; a name absent on either side counts as moved."""
+    return {name for name in set(current) | set(other) if current.get(name) != other.get(name)}
+
+
+def _check_digests(root: Path | None) -> dict[str, tuple[str, ...]]:
+    """The hygiene check digests that apply to ``root``; omits ``hygiene:zizmor-policy`` when ``root`` has its own
+    zizmor configuration."""
+    mapping = dict(CHECK_DIGESTS)
+    if root is not None and any((root / path).is_file() for path in CONSUMER_ZIZMOR_CONFIGS):
+        mapping["zizmor"] = ("hygiene:zizmor",)
+    return mapping
+
+
+@dataclass(frozen=True)
+class HygieneDigestComparison:
+    """Moved hygiene digests for the run and, on a ``behind`` push, also against the default-branch record."""
+    moved: set[str] | None
+    fallback: str | None
+    base_moved: set[str] | None = None
+    base_fallback: str | None = None
+
+
+def _compare_hygiene_digests(shared_lookup: Path, found: dict | None) -> HygieneDigestComparison:
+    """Compare current shared digests with ``tested_digests`` on ``identical``/``behind`` pushes or with ``previous``
+    otherwise; on ``behind``, also compare with ``previous`` so checks selected by the newer base are not skipped when
+    ``v1`` moved between the landing base and the pull request."""
+    try:
+        raw = json.loads(shared_lookup.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return HygieneDigestComparison(None, UNREADABLE_SHARED_DIGESTS)
+    digests = parse_digests(raw.get("digests")) if isinstance(raw, dict) else None
+    if digests is None:
+        return HygieneDigestComparison(None, UNREADABLE_SHARED_DIGESTS)
+    previous = parse_digests(raw.get("previous"))
+    if found is not None and found.get("case") in ("identical", "behind"):
+        tested = parse_digests(found.get("tested_digests"))
+        if tested is None:
+            return HygieneDigestComparison(None, UNREADABLE_TESTED_DIGESTS)
+        moved = moved_digest_names(digests, tested)
+        if found.get("case") == "behind":
+            if previous is None:
+                return HygieneDigestComparison(moved, None, base_moved=None, base_fallback=UNREADABLE_SHARED_DIGESTS)
+            return HygieneDigestComparison(moved, None, base_moved=moved_digest_names(digests, previous), base_fallback=None)
+        return HygieneDigestComparison(moved, None)
+    if previous is None:
+        return HygieneDigestComparison(None, UNREADABLE_SHARED_DIGESTS)
+    return HygieneDigestComparison(moved_digest_names(digests, previous), None)
+
+
+def fallback_notice(reason: str, detail: str) -> str:
+    """The notice of one fallback, in the form of the suite selection's ``reuse.fallback_notice``."""
+    return f"::notice title=ci-fallback::{reason}: {detail}"
+
+
+def _resolve_gitleaks_range(root: Path, base: str, head: str, compare: str, lookup: Path | None) -> tuple[str | None, str | None, str]:
+    if lookup is not None:
+        try:
+            found = read_lookup(lookup)
+        except ValueError as error:
+            return None, None, f"push lookup could not be read: {error}"
+        start = found.get("landing_base") or ""
+        target = found["head"]
+        if not start or ALL_ZERO.match(start) or not target:
+            return None, None, "the push lookup names no landing base"
+    elif base or head:
+        if not base or ALL_ZERO.match(base) or not head:
+            return None, None, "the added commit range could not be determined"
+        if compare == "merge-base":
+            merge_base = subprocess.run(["git", "merge-base", base, head], cwd=root, capture_output=True, text=True, check=False)
+            if merge_base.returncode != 0:
+                return None, None, "the merge base could not be determined"
+            start = merge_base.stdout.strip()
+        else:
+            start = base
+        target = head
+    else:
+        return None, None, "no commit range was given"
+    if not (_commit_exists(root, start) and _commit_exists(root, target)):
+        return None, None, "the commit range is not in the checkout"
+    return start, target, ""
+
+
+def gitleaks_fallback(root: Path, base: str, head: str, compare: str, lookup: Path | None) -> tuple[str, str] | None:
+    """The counted reason and detail of Gitleaks's fallback to a full scan because it cannot read the range of added
+    commits, or None when it can: the push lookup cannot be read, the range cannot be resolved, or the changed files of
+    the range cannot be determined. ``changes`` counts it from the same arguments as the Gitleaks step."""
+    start, target, reason = _resolve_gitleaks_range(root, base, head, compare, lookup)
+    if start is None or target is None:
+        key = GITLEAKS_UNREADABLE_PUSH_LOOKUP if reason.startswith("push lookup could not be read") else GITLEAKS_RANGE_UNKNOWN
+        return key, f"Gitleaks scans the full history: {reason}"
+    if changed_files(root, start, target, "direct") is None:
+        return GITLEAKS_RANGE_UNKNOWN, "Gitleaks scans the full history: the changed files could not be determined"
+    return None
+
+
+def gitleaks(root: Path, tools: Path | None, config: str, baseline: str, base: str = "", head: str = "", compare: str = "direct",
+             lookup: Path | None = None, pins: Path | None = None, marker: Path | None = None, record_marker: Path | None = None,
+             github_output: Path | None = None) -> int:
+    """Gitleaks over the commits a run adds to a ref, or over all reachable history when the configuration, baseline or
+    pinned version changes, or when the default-branch marker is missing or does not match."""
+    start, target, fallback_reason = _resolve_gitleaks_range(root, base, head, compare, lookup)
+    full_scan = False
+    reason = ""
+    if start is None or target is None:
+        full_scan = True
+        reason = fallback_reason
+    else:
+        changed = changed_files(root, start, target, "direct")
+        config_rel = _relative_to_root(root, config)
+        baseline_rel = _relative_to_root(root, baseline)
+        pins_rel = _in_repo_pins_path(root)
+        if changed is None:
+            full_scan, reason = True, "the changed files could not be determined"
+        elif config_rel and config_rel in changed:
+            full_scan, reason = True, f"the Gitleaks configuration `{config_rel}` changed"
+        elif baseline_rel and baseline_rel in changed:
+            full_scan, reason = True, f"the Gitleaks baseline `{baseline_rel}` changed"
+        elif pins_rel and pins_rel in changed and _gitleaks_pin_changed(root, start, target, pins_rel):
+            full_scan, reason = True, "the pinned Gitleaks version changed"
+        elif marker is not None and not _marker_matches(marker, _gitleaks_marker_key(root, config, baseline, pins)):
+            full_scan, reason = True, "the default-branch Gitleaks marker is missing or differs from the current version, configuration or baseline"
+        else:
+            reason = f"scanning added commits {start}..{target}"
+
+    if full_scan:
+        log_opts = "--all"
+        print(f"gitleaks: full history scan ({reason})", flush=True)
+        fallback = gitleaks_fallback(root, base, head, compare, lookup)
+        if fallback is not None:
+            print(fallback_notice(*fallback), flush=True)
+    else:
+        count = subprocess.run(["git", "rev-list", "--count", f"{start}..{target}"], cwd=root, capture_output=True, text=True, check=False)
+        if count.returncode == 0 and count.stdout.strip() == "0":
+            print(f"gitleaks: no added commits in {start}..{target}", flush=True)
+            if github_output is not None:
+                with github_output.open("a", encoding="utf-8") as handle:
+                    handle.write("recorded-marker=false\n")
+            return 0
+        log_opts = f"{start}..{target}"
+        print(f"gitleaks: {reason}", flush=True)
+
+    command = [str(executable("gitleaks", tools)), "git", f"--log-opts={log_opts}", "--redact", "--no-banner", "--no-color"]
     if config:
         command += ["--config", config]
     if baseline:
         command += ["--baseline-path", baseline]
-    return run(command + ["."], root)
+    returncode = run(command + ["."], root)
+    recorded = False
+    if returncode == 0 and full_scan and record_marker is not None:
+        key = _gitleaks_marker_key(root, config, baseline, pins)
+        if key["version"] is not None:
+            record_marker.parent.mkdir(parents=True, exist_ok=True)
+            record_marker.write_text(json.dumps(key, sort_keys=True) + "\n", encoding="utf-8")
+            recorded = True
+    if github_output is not None:
+        with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"recorded-marker={'true' if recorded else 'false'}\n")
+    return returncode
 
 
-def reuse(root: Path, tools: Path | None) -> int:
+def reuse(root: Path, tools: Path | None, pins: Path | None = None, record_marker: Path | None = None, github_output: Path | None = None) -> int:
     """``reuse lint`` over the repository; its report names every file without a copyright and licence assignment."""
-    return run([str(executable("reuse", tools)), "--root", ".", "lint"], root)
+    returncode = run([str(executable("reuse", tools)), "--root", ".", "lint"], root)
+    recorded = False
+    if returncode == 0 and record_marker is not None:
+        version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
+        if version is not None:
+            record_marker.parent.mkdir(parents=True, exist_ok=True)
+            record_marker.write_text(json.dumps({"version": version}, sort_keys=True) + "\n", encoding="utf-8")
+            recorded = True
+    if github_output is not None:
+        with github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"recorded-marker={'true' if recorded else 'false'}\n")
+    return returncode
 
 
 # The files whose change can change what actionlint and zizmor report: workflows, action definitions and the zizmor
 # configuration. zizmor collects action definitions from the whole tree, so the pattern is not limited to .github/.
 ACTIONLINT_CONFIGS = (".github/actionlint.yml", ".github/actionlint.yaml")
-WORKFLOW_PATTERNS = ("*.github/workflows/*", "*action.yml", "*action.yaml", *CONSUMER_ZIZMOR_CONFIGS, *ACTIONLINT_CONFIGS)
+WORKFLOW_PATTERNS = ("*.github/workflows/*", "action.yml", "action.yaml", *CONSUMER_ZIZMOR_CONFIGS, *ACTIONLINT_CONFIGS)
 ALL_ZERO = re.compile(r"^0+$")
+
+
+def _resolve_start(root: Path, base: str, head: str, compare: str) -> str | None:
+    if not base or ALL_ZERO.match(base) or not head:
+        return None
+    if compare == "merge-base":
+        merge_base = subprocess.run(["git", "merge-base", base, head], cwd=root, capture_output=True, text=True, check=False)
+        if merge_base.returncode != 0:
+            return None
+        return merge_base.stdout.strip()
+    return base
 
 
 def changed_files(root: Path, base: str, head: str, compare: str) -> list[str] | None:
     """The files that differ between the commits, as the suite selection reads them, or None when they cannot be read:
     an all-zero or absent previous head, or commits the checkout does not hold. ``compare`` is ``merge-base`` for a
     pull request and ``direct`` for a push. A deleted or renamed file counts under each of its paths."""
-    if not base or ALL_ZERO.match(base) or not head:
+    start = _resolve_start(root, base, head, compare)
+    if start is None:
         return None
-    start = base
-    if compare == "merge-base":
-        merge_base = subprocess.run(["git", "merge-base", base, head], cwd=root, capture_output=True, text=True, check=False)
-        if merge_base.returncode != 0:
-            return None
-        start = merge_base.stdout.strip()
     listing = subprocess.run(["git", "diff", "--name-only", "--no-renames", "-z", start, head], cwd=root, capture_output=True, text=True, check=False)
     if listing.returncode != 0:
         return None
     return sorted({item for item in listing.stdout.split("\0") if item})
 
 
+REUSE_TAG = re.compile(r"\b(?:SPDX|REUSE)-[A-Za-z0-9-]+\b")
+
+
 def added_or_removed_files(root: Path, start: str, head: str) -> set[str]:
     """The files that the change added or removed; a renamed file counts as both, under each of its paths."""
     listing = subprocess.run(["git", "diff", "--name-only", "--no-renames", "--diff-filter=AD", "-z", start, head], cwd=root, capture_output=True, text=True, check=True)
     return {item for item in listing.stdout.split("\0") if item}
+
+
+def reuse_tag_changed_files(root: Path, start: str, head: str) -> set[str]:
+    """Existing files whose diff between ``start`` and ``head`` adds, removes or edits an SPDX or REUSE tag."""
+    diff = subprocess.run(["git", "-c", "core.quotepath=false", "diff", "-U0", "--no-renames", "--no-ext-diff", start, head],
+                          cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+    if diff.returncode != 0:
+        return set()
+    matched: set[str] = set()
+    current: str | None = None
+    for line in diff.stdout.splitlines():
+        if line.startswith("diff --git "):
+            current = None
+        elif line.startswith("+++ b/"):
+            current = line.removeprefix("+++ b/")
+        elif line.startswith("+++ "):
+            current = None
+        elif current is not None and len(line) > 1 and line[0] in "+-" and not line.startswith("--- "):
+            if REUSE_TAG.search(line[1:]):
+                matched.add(current)
+    return matched
+
+
+def has_reuse_config(root: Path | None) -> bool:
+    """Whether ``root`` holds any tracked (or root) ``REUSE.toml``."""
+    if root is None:
+        return False
+    if (root / REUSE_CONFIG).is_file():
+        return True
+    listing = subprocess.run(["git", "ls-files", "-z", "--", REUSE_CONFIG, f"**/{REUSE_CONFIG}"], cwd=root, capture_output=True, text=True, check=False)
+    return listing.returncode == 0 and any(item for item in listing.stdout.split("\0") if item)
 
 
 def matches_any(path: str, patterns: tuple[str, ...]) -> bool:
@@ -311,11 +655,13 @@ def stated_value(lines: list[str] | None, dotted: str) -> object:
     return value
 
 
-def definition_inputs_changed(root: Path, base: str, head: str, definitions: list[str], option: str) -> set[str]:
+def definition_inputs_changed(root: Path, base: str, head: str, definitions: list[str], option: str, changed_paths: set[str] | None = None) -> set[str]:
     """Definitions whose selected data changed between revisions; malformed precise selectors fail explicitly."""
     changed: set[str] = set()
     for definition in definitions:
         path, key = parse_definition(definition, option)
+        if changed_paths is not None and path not in changed_paths:
+            continue
         old_lines, new_lines = git_file(root, base, path), git_file(root, head, path)
         if old_lines == new_lines:
             continue
@@ -413,22 +759,22 @@ def local_action_definitions(root: Path | None) -> set[str]:
     return paths
 
 
-def decide_changes(changed: list[str] | None, definition: list[str], packages_definition: set[str], markdown_definition: set[str], ecosystems: dict[str, list[str]], root: Path | None = None, ignored: set[str] | None = None, added_or_removed: set[str] | None = None) -> dict[str, tuple[bool, str]]:
+def decide_changes(changed: list[str] | None, definition: list[str], packages_definition: set[str], markdown_definition: set[str], ecosystems: dict[str, list[str]], root: Path | None = None, ignored: set[str] | None = None, added_or_removed: set[str] | None = None, reuse_tag_changed: set[str] | None = None) -> dict[str, tuple[bool, str]]:
     """Which checks the change can affect: ``workflows`` (actionlint, zizmor), ``packages`` (Dependabot coverage) and
     ``markdown`` (the link check), each with its reason. A change that cannot be read, or one to the CI definition,
     runs every check; a change to a script of one check (``CHECK_SCRIPTS``) runs that check. A caller definition can
     change ``link-exclude``, so it runs only the link check. The link check also runs for a changed Markdown file and
     for a file that the change removed, since a link to it dies without any Markdown changing; ``root`` is where
-    removal and the scripts' location are read, when given. REUSE runs only in a repository with a ``REUSE.toml`` at
-    ``root``: for a file that ``added_or_removed`` holds (a rename is both) and for a change to ``REUSE.toml`` or
-    ``LICENSES/``."""
-    decisions = _decide_changes(changed, definition, packages_definition, markdown_definition, ecosystems, root, ignored, added_or_removed or set())
-    if root is None or not (root / REUSE_CONFIG).is_file():
+    removal and the scripts' location are read, when given. REUSE runs only in a repository with a ``REUSE.toml``:
+    for a file that ``added_or_removed`` holds (a rename is both), a change to any ``REUSE.toml``, ``LICENSES/``,
+    ``.license`` file, or an SPDX or REUSE tag in an existing file."""
+    decisions = _decide_changes(changed, definition, packages_definition, markdown_definition, ecosystems, root, ignored, added_or_removed or set(), reuse_tag_changed or set())
+    if not has_reuse_config(root):
         decisions["reuse"] = (False, f"the repository has no {REUSE_CONFIG}")
     return decisions
 
 
-def _decide_changes(changed: list[str] | None, definition: list[str], packages_definition: set[str], markdown_definition: set[str], ecosystems: dict[str, list[str]], root: Path | None, ignored: set[str] | None, added_or_removed: set[str]) -> dict[str, tuple[bool, str]]:
+def _decide_changes(changed: list[str] | None, definition: list[str], packages_definition: set[str], markdown_definition: set[str], ecosystems: dict[str, list[str]], root: Path | None, ignored: set[str] | None, added_or_removed: set[str], reuse_tag_changed: set[str]) -> dict[str, tuple[bool, str]]:
     if changed is None:
         reason = "the changed files could not be determined, so every check runs"
         return {name: (True, reason) for name in CHECKS}
@@ -457,10 +803,11 @@ def _decide_changes(changed: list[str] | None, definition: list[str], packages_d
         "actionlint": [([path for path in relevant if path in scripts["actionlint"]], "is a script or an input of actionlint"),
                        ([path for path in relevant if matches_any(path, ("*.github/workflows/*", *ACTIONLINT_CONFIGS)) or path in local_actions], "is a workflow, referenced local action or actionlint configuration")],
         "zizmor": [([path for path in relevant if path in scripts["zizmor"]], "is a script or an input of zizmor"),
-                   ([path for path in relevant if matches_any(path, ("*.github/workflows/*", "*action.yml", "*action.yaml", *CONSUMER_ZIZMOR_CONFIGS))], "is a workflow, an action definition or the zizmor configuration")],
+                   ([path for path in relevant if matches_any(path, ("*.github/workflows/*", "action.yml", "action.yaml", *CONSUMER_ZIZMOR_CONFIGS))], "is a workflow, an action definition or the zizmor configuration")],
         "reuse": [([path for path in changed if path in scripts["reuse"]], "is a script or an input of REUSE"),
-                  ([path for path in changed if path == REUSE_CONFIG or path.startswith("LICENSES/")], "is the REUSE assignment or a licence text"),
-                  ([path for path in changed if path in added_or_removed], "was added, renamed or removed")],
+                  ([path for path in changed if PurePosixPath(path).name == REUSE_CONFIG or path.startswith("LICENSES/") or path.endswith(".license")], "is the REUSE assignment or a licence text"),
+                  ([path for path in changed if path in added_or_removed], "was added, renamed or removed"),
+                  ([path for path in changed if path in reuse_tag_changed], "changed an SPDX or REUSE tag")],
     }
     none = {
         "workflows": "no changed file is a workflow, an action definition or the zizmor configuration",
@@ -481,15 +828,15 @@ def _decide_changes(changed: list[str] | None, definition: list[str], packages_d
 
 def decisions_between(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path) -> tuple[list[str] | None, dict[str, tuple[bool, str]]]:
     """The changed files between ``base`` and ``head`` and the decision of every check over them."""
-    changed = changed_files(root, base, head, compare)
+    start = _resolve_start(root, base, head, compare)
+    changed = None if start is None else changed_files(root, start, head, "direct")
     if changed is None:
         return None, decide_changes(None, definition, set(), set(), dependabot_coverage.load_ecosystems(ecosystems), root)
-    if compare == "merge-base":
-        base = subprocess.run(["git", "merge-base", base, head], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
+    changed_paths = set(changed)
     precise = [value for value in definition if "#" in value]
     global_definitions = [value for value in definition if "#" not in value]
-    global_definitions.extend(definition_inputs_changed(root, base, head, precise, "--definition"))
-    return changed, decide_changes(changed, global_definitions, definition_inputs_changed(root, base, head, packages_definition, "--packages-definition"), definition_inputs_changed(root, base, head, markdown_definition, "--markdown-definition"), dependabot_coverage.load_ecosystems(ecosystems), root, comment_only_paths(root, base, head, changed), added_or_removed_files(root, base, head))
+    global_definitions.extend(definition_inputs_changed(root, start, head, precise, "--definition", changed_paths))
+    return changed, decide_changes(changed, global_definitions, definition_inputs_changed(root, start, head, packages_definition, "--packages-definition", changed_paths), definition_inputs_changed(root, start, head, markdown_definition, "--markdown-definition", changed_paths), dependabot_coverage.load_ecosystems(ecosystems), root, comment_only_paths(root, start, head, changed), added_or_removed_files(root, start, head), reuse_tag_changed_files(root, start, head))
 
 
 LOOKUP_CASES = ("identical", "behind", "pull-request", "own")
@@ -510,13 +857,17 @@ def read_lookup(path: Path) -> dict:
     return found
 
 
-def both_sides(pull_request: dict[str, tuple[bool, str]], main: dict[str, tuple[bool, str]]) -> dict[str, tuple[bool, str]]:
-    """A check runs on a behind push only when the pull request's side and main's side both select it."""
+def both_sides(pull_request: dict[str, tuple[bool, str]], main: dict[str, tuple[bool, str]], *,
+               landing_base_passed: bool = True) -> dict[str, tuple[bool, str]]:
+    """On a behind push whose landing base passed, a check runs only when both sides select it; until the landing base
+    has passed, every check the newer base selects runs so nothing it can affect is taken over."""
     decisions = {}
     for name in CHECKS:
-        (ours, reason), (theirs, _) = pull_request[name], main[name]
+        (ours, reason), (theirs, base_reason) = pull_request[name], main[name]
         if ours and theirs:
             decisions[name] = (True, f"both sides select it: {reason}")
+        elif theirs and not landing_base_passed:
+            decisions[name] = (True, f"the newer base has not passed: {base_reason}")
         elif ours:
             decisions[name] = (False, "only the pull request's side selects it")
         elif theirs:
@@ -530,45 +881,144 @@ def tested_tree(root: Path) -> str:
     return subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
 
 
-def read_results(path: Path, tree: str) -> dict[str, int]:
-    """The passed checks of the record when it holds the same tested tree; nothing otherwise."""
+def read_results(path: Path, tree: str, reuse_version: str | None = None) -> tuple[dict[str, int], bool]:
+    """The passed checks of the record when it holds the same tested tree, and whether the recorded REUSE version
+    differs from ``reuse_version``; nothing when the record is missing, unreadable or for another tree."""
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
+        return {}, False
     if not isinstance(record, dict) or record.get("tree") != tree or not isinstance(record.get("checks"), dict):
-        return {}
-    return {name: run for name, run in record["checks"].items() if name in RECORDED_CHECKS and isinstance(run, int)}
+        return {}, False
+    recorded_reuse = record.get("reuse_version")
+    reuse_version_changed = reuse_version is None or recorded_reuse != reuse_version
+    passed = {name: run for name, run in record["checks"].items() if name in RECORDED_CHECKS and isinstance(run, int)}
+    if reuse_version_changed:
+        passed.pop("reuse", None)
+    return passed, reuse_version_changed and recorded_reuse is not None
 
 
-def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, results: Path | None = None) -> int:
+def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, results: Path | None = None, pins: Path | None = None, reuse_marker: Path | None = None, fallbacks_output: Path | None = None, shared_lookup: Path | None = None) -> int:
     """Write individual check decisions and the compatible ``workflows`` union for the workflow's gates. With
-    ``lookup``, a push decides by its case; with ``results``, a passed check of the same tested tree is reused."""
+    ``lookup``, a push decides by its case; with ``shared_lookup``, each hygiene check also compares its hygiene-check
+    digests (against ``tested_digests`` on ``identical``/``behind`` pushes, or against the default-branch record's
+    digests otherwise); with ``results``, a passed check of the same tested tree is reused. With ``fallbacks_output``,
+    write the hygiene fallbacks to running more as a JSON map of counts by reason: every check runs because the push
+    lookup, the changed files or the shared/tested digests cannot be read, REUSE runs because the default-branch REUSE
+    version marker is missing, evicted or unreadable, and Gitleaks scans the full history because it cannot read its
+    range (``gitleaks_fallback``, whose notice the Gitleaks step emits)."""
     inputs = (definition, packages_definition, markdown_definition, ecosystems)
     heading = None
+    lookup_unreadable = False
+    found: dict | None = None
+    main_decisions: dict[str, tuple[bool, str]] | None = None
     if lookup is None:
         changed, decisions = decisions_between(root, base, head, compare, *inputs)
     else:
-        found = read_lookup(lookup)
-        heading = f"Push lookup: `{found['case']}`, {found.get('reason', '')}."
-        landing = found.get("landing_base") or ""
-        if found["case"] == "identical":
-            reason = f"the tree equals the tested tree that passed on pull request #{found.get('pull_request')}"
-            changed, decisions = [], {name: (False, reason) for name in CHECKS}
-        elif found["case"] == "behind":
-            changed, ours = decisions_between(root, landing, found["head"], "direct", *inputs)
-            decisions = both_sides(ours, decisions_between(root, found["tested_base"], landing, "direct", *inputs)[1])
+        try:
+            found = read_lookup(lookup)
+        except ValueError as error:
+            heading = f"Push lookup could not be read: {error}."
+            print(f"::notice title=push-lookup::{error}")
+            lookup_unreadable = True
+            changed, decisions = None, decide_changes(None, definition, set(), set(), dependabot_coverage.load_ecosystems(ecosystems), root)
         else:
-            changed, decisions = decisions_between(root, landing, found["head"], "direct", *inputs)
+            heading = f"Push lookup: `{found['case']}`, {found.get('reason', '')}."
+            landing = found.get("landing_base") or ""
+            if found["case"] == "identical":
+                reason = f"the tree equals the tested tree that passed on pull request #{found.get('pull_request')}"
+                changed, decisions = [], {name: (False, reason) for name in CHECKS}
+            elif found["case"] == "behind":
+                changed, ours = decisions_between(root, landing, found["head"], "direct", *inputs)
+                theirs_changed, theirs = decisions_between(root, found["tested_base"], landing, "direct", *inputs)
+                if changed is None or theirs_changed is None:
+                    changed = None
+                    decisions = decide_changes(None, definition, set(), set(), dependabot_coverage.load_ecosystems(ecosystems), root)
+                else:
+                    main_decisions = theirs
+                    decisions = both_sides(ours, theirs, landing_base_passed=found.get("landing_base_passed") is True)
+            else:
+                changed, decisions = decisions_between(root, landing, found["head"], "direct", *inputs)
+    fallbacks: dict[str, int] = {}
+    if lookup_unreadable:
+        fallbacks[UNREADABLE_PUSH_LOOKUP] = 1
+        print(fallback_notice(UNREADABLE_PUSH_LOOKUP, "every hygiene check runs: the push lookup could not be read"))
+    elif changed is None:
+        fallbacks[CHANGED_FILES_UNKNOWN] = 1
+        print(fallback_notice(CHANGED_FILES_UNKNOWN, "every hygiene check runs: the changed files could not be determined"))
+    gitleaks_fell_back = gitleaks_fallback(root, base, head, compare, lookup)
+    if gitleaks_fell_back is not None:
+        fallbacks[gitleaks_fell_back[0]] = 1
+    if shared_lookup is not None:
+        comparison = _compare_hygiene_digests(shared_lookup, found)
+        digests_by_check = _check_digests(root)
+        if comparison.moved is None:
+            fell_back = False
+            suffix = TESTED_DIGEST_FALLBACK_SUFFIX if comparison.fallback == UNREADABLE_TESTED_DIGESTS else SHARED_DIGEST_FALLBACK_SUFFIX
+            for name, check_digests in digests_by_check.items():
+                if name == "reuse" and not has_reuse_config(root):
+                    continue
+                if not decisions[name][0]:
+                    decisions[name] = (True, f"`{check_digests[0]}` {suffix}")
+                    fell_back = True
+            if fell_back and comparison.fallback is not None:
+                fallbacks[comparison.fallback] = 1
+                detail = ("every hygiene check runs: the tested shared CI digests could not be read"
+                          if comparison.fallback == UNREADABLE_TESTED_DIGESTS
+                          else "every hygiene check runs: the shared CI digests could not be compared")
+                print(fallback_notice(comparison.fallback, detail))
+        else:
+            for name, check_digests in digests_by_check.items():
+                if name == "reuse" and not has_reuse_config(root):
+                    continue
+                moved = next((digest for digest in check_digests if digest in comparison.moved), None)
+                if moved is not None and not decisions[name][0]:
+                    decisions[name] = (True, f"`{moved}` digest moved")
+            if main_decisions is not None:
+                base_fell_back = False
+                for name, check_digests in digests_by_check.items():
+                    if name == "reuse" and not has_reuse_config(root):
+                        continue
+                    if decisions[name][0] or not main_decisions[name][0]:
+                        continue
+                    if comparison.base_moved is None:
+                        decisions[name] = (True, f"`{check_digests[0]}` {SHARED_DIGEST_FALLBACK_SUFFIX}")
+                        base_fell_back = True
+                    else:
+                        moved = next((digest for digest in check_digests if digest in comparison.base_moved), None)
+                        if moved is not None:
+                            decisions[name] = (True, f"`{moved}` digest moved since the landing base")
+                if base_fell_back and comparison.base_fallback is not None:
+                    fallbacks[comparison.base_fallback] = 1
+                    print(fallback_notice(comparison.base_fallback, "hygiene checks selected by the newer base run: the shared CI digests could not be compared"))
+    current_reuse_version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
+    reuse_pin_changed = False
+    if shared_lookup is None and reuse_marker is not None and has_reuse_config(root) and not _reuse_marker_matches(reuse_marker, current_reuse_version):
+        decisions["reuse"] = (True, "the pinned REUSE version changed or has no default-branch marker")
+        reuse_pin_changed = True
+        if not _reuse_marker_readable(reuse_marker):
+            fallbacks[UNREADABLE_REUSE_MARKER] = 1
+            print(fallback_notice(UNREADABLE_REUSE_MARKER, "REUSE runs: the default-branch REUSE version marker is missing, evicted or unreadable"))
+    if fallbacks_output is not None:
+        fallbacks_output.parent.mkdir(parents=True, exist_ok=True)
+        fallbacks_output.write_text(json.dumps(dict(sorted(fallbacks.items()))) + "\n", encoding="utf-8")
     reused: dict[str, int] = {}
     if results is not None:
-        passed = read_results(results, tested_tree(root))
+        passed, recorded_reuse_differs = read_results(results, tested_tree(root), current_reuse_version)
+        if reuse_pin_changed:
+            passed.pop("reuse", None)
+        elif recorded_reuse_differs and has_reuse_config(root) and not decisions["reuse"][0]:
+            decisions["reuse"] = (True, "the pinned REUSE version changed")
         for name in RECORDED_CHECKS:
             if decisions[name][0] and name in passed:
                 reused[name] = passed[name]
                 decisions[name] = (False, f"passed in run {passed[name]}, whose tested tree this run shares")
                 print(f"::notice title={name}::{decisions[name][1]}")
-    if not any(decisions[name][0] for name in ("actionlint", "zizmor")):
+    if any(decisions[name][0] for name in ("actionlint", "zizmor")):
+        if not decisions["workflows"][0]:
+            first = next(name for name in ("actionlint", "zizmor") if decisions[name][0])
+            decisions["workflows"] = (True, decisions[first][1])
+    else:
         decisions["workflows"] = (False, decisions["workflows"][1] if not decisions["workflows"][0] else "no check of actionlint and zizmor runs")
     lines = ["## Hygiene checks for this change", ""]
     if heading is not None:
@@ -591,7 +1041,7 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
     return 0
 
 
-def record(root: Path, run_id: int, outcomes: list[str], reused: str, output: Path) -> int:
+def record(root: Path, run_id: int, outcomes: list[str], reused: str, output: Path, pins: Path | None = None) -> int:
     """Write the record of a pull-request run: the tested tree and each check that passed in it or was reused, with
     the run it passed in."""
     checks: dict[str, int] = {}
@@ -605,8 +1055,12 @@ def record(root: Path, run_id: int, outcomes: list[str], reused: str, output: Pa
     for name, run in previous.items():
         if name in RECORDED_CHECKS and isinstance(run, int):
             checks.setdefault(name, run)
+    payload: dict[str, object] = {"tree": tested_tree(root), "checks": dict(sorted(checks.items()))}
+    reuse_version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
+    if reuse_version is not None:
+        payload["reuse_version"] = reuse_version
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps({"tree": tested_tree(root), "checks": dict(sorted(checks.items()))}) + "\n", encoding="utf-8")
+    output.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     print(f"recorded {', '.join(f'{name} (run {run})' for name, run in sorted(checks.items())) or 'no passed check'}")
     return 0
 
@@ -621,8 +1075,21 @@ def build_parser() -> argparse.ArgumentParser:
         subcommand.add_argument("--root", type=Path, default=Path("."))
     subcommands.choices["zizmor"].add_argument("--persona", default="")
     subcommands.choices["zizmor"].add_argument("--policy", type=Path, default=ZIZMOR_POLICY)
-    subcommands.choices["gitleaks"].add_argument("--config", default="")
-    subcommands.choices["gitleaks"].add_argument("--baseline", default="")
+    gitleaks_parser = subcommands.choices["gitleaks"]
+    gitleaks_parser.add_argument("--config", default="")
+    gitleaks_parser.add_argument("--baseline", default="")
+    gitleaks_parser.add_argument("--base", default="")
+    gitleaks_parser.add_argument("--head", default="")
+    gitleaks_parser.add_argument("--compare", choices=("merge-base", "direct"), default="direct")
+    gitleaks_parser.add_argument("--lookup", type=Path)
+    gitleaks_parser.add_argument("--pins", type=Path)
+    gitleaks_parser.add_argument("--marker", type=Path)
+    gitleaks_parser.add_argument("--record-marker", type=Path)
+    gitleaks_parser.add_argument("--github-output", type=Path)
+    reuse_parser = subcommands.choices["reuse"]
+    reuse_parser.add_argument("--pins", type=Path)
+    reuse_parser.add_argument("--record-marker", type=Path)
+    reuse_parser.add_argument("--github-output", type=Path)
     coverage = subcommands.add_parser("coverage")
     coverage.add_argument("--root", type=Path, default=Path("."))
     coverage.add_argument("--ecosystems", type=Path, default=dependabot_coverage.ECOSYSTEMS_PATH)
@@ -644,13 +1111,18 @@ def build_parser() -> argparse.ArgumentParser:
     deciding.add_argument("--ecosystems", type=Path, default=dependabot_coverage.ECOSYSTEMS_PATH)
     deciding.add_argument("--lookup", type=Path, help="the push lookup of a push or dispatch run, in place of --base and --head")
     deciding.add_argument("--results", type=Path, help="the record of an earlier run of the pull request, whose passed checks of the same tested tree are reused")
+    deciding.add_argument("--pins", type=Path, help="the pins file whose pinned REUSE version is compared with the marker and results")
+    deciding.add_argument("--reuse-marker", type=Path, help="the default-branch REUSE version marker")
+    deciding.add_argument("--shared-lookup", type=Path, help="the shared CI digests lookup written by suite_selection.py shared-lookup")
     deciding.add_argument("--github-output", type=Path)
     deciding.add_argument("--summary", type=Path)
+    deciding.add_argument("--fallbacks", type=Path, help="the JSON file of the hygiene fallbacks to running more, counted by reason, for plan.py plan")
     recording = subcommands.add_parser("record")
     recording.add_argument("--root", type=Path, default=Path("."))
     recording.add_argument("--run-id", type=int, required=True)
     recording.add_argument("--outcome", action="append", default=[], help="CHECK=OUTCOME of a check step of this run (repeatable)")
     recording.add_argument("--reused", default="", help="the reused output of changes")
+    recording.add_argument("--pins", type=Path)
     recording.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -663,13 +1135,14 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("changes takes --lookup without --base and --head")
         try:
             return changes(arguments.root.resolve(), arguments.base, arguments.head, arguments.compare, arguments.definition, arguments.packages_definition, arguments.markdown_definition,
-                           arguments.ecosystems, arguments.github_output, arguments.summary, arguments.lookup, arguments.results)
+                           arguments.ecosystems, arguments.github_output, arguments.summary, arguments.lookup, arguments.results, arguments.pins, arguments.reuse_marker,
+                           arguments.fallbacks, arguments.shared_lookup)
         except ValueError as error:
             print(f"::error::{error}", file=sys.stderr)
             return 2
     if arguments.check == "record":
         try:
-            return record(arguments.root.resolve(), arguments.run_id, arguments.outcome, arguments.reused, arguments.output)
+            return record(arguments.root.resolve(), arguments.run_id, arguments.outcome, arguments.reused, arguments.output, arguments.pins)
         except (ValueError, json.JSONDecodeError) as error:
             print(f"::error::{error}", file=sys.stderr)
             return 2
@@ -690,8 +1163,9 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.check == "zizmor":
             return zizmor(root, tools, arguments.persona, arguments.policy)
         if arguments.check == "reuse":
-            return reuse(root, tools)
-        return gitleaks(root, tools, arguments.config, arguments.baseline)
+            return reuse(root, tools, arguments.pins, arguments.record_marker, arguments.github_output)
+        return gitleaks(root, tools, arguments.config, arguments.baseline, arguments.base, arguments.head, arguments.compare,
+                        arguments.lookup, arguments.pins, arguments.marker, arguments.record_marker, arguments.github_output)
     except ToolMissing as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2

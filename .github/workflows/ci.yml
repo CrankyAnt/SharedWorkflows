@@ -3,12 +3,17 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
   repository_dispatch:
     types: [dependabot-merged]
 
 permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.action != 'edited' && 'pr' || 'run' }}-${{ github.event_name == 'pull_request' && github.event.action != 'edited' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' }}
 
 jobs:
   ci:

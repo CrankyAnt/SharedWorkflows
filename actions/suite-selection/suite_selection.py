@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select the suites of a CI job by the changed files, build its shards, and give the verdict.
+"""Select the suites of a CI job by the changed files and build its shards.
 
 A repository states its suites in a suite list: one entry per suite with its name, entry files, command, setups and the
 duration estimate per entry file, and its stored path list; plus the always-run patterns. The selection compares the
@@ -7,15 +7,13 @@ changed files of a pull request or a push with the stored lists alone and answer
 with its reason; a suite without a stored path list runs on every change. It assigns
 the selected Linux entry files to as few shards as keep each shard's estimated time on two workers under the bound,
 lists the selected Windows entry files, and writes GitHub step outputs and Markdown for the job summary. With the calling
-workflow named, files read only by gated steps run those suites. ``verdict`` reads the ``needs`` context of the calling
-workflow's closing job and passes or fails on the results of the selection and the called jobs. ``docs/maintaining.md`` documents
+workflow named, files read only by gated steps run those suites. ``docs/maintaining.md`` documents
 the file format, the rules and the commands.
 
     python suite_selection.py select --root <repository> --suites <suite list> --base <sha> --head <sha> \\
         --compare merge-base --workflow "$GITHUB_WORKFLOW_REF" --language-step python --json-output "$GITHUB_OUTPUT" \\
         --summary "$GITHUB_STEP_SUMMARY"
     python suite_selection.py select --root <repository> --suites <suite list> --changed-file <path>
-    python suite_selection.py verdict --needs <needs context as JSON> --summary "$GITHUB_STEP_SUMMARY"
     python suite_selection.py lookup --root <repository> --sha <commit> --before <commit> --workflow "$GITHUB_WORKFLOW_REF" --output <file>
     python suite_selection.py shared-lookup --root <repository> --digest <digest> --branch <base branch> \\
         [--default-branch <default branch>] [--pushed <commit>] --workflow "$GITHUB_WORKFLOW_REF" --output <file>
@@ -30,9 +28,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import functools
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -47,271 +45,79 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ci_definition  # noqa: E402
 from revisions import ALL_ZERO, commit_id, git  # noqa: E402
+from suite_list import (  # noqa: E402, F401
+    ENTRY_DURATIONS_VERSION,
+    GLOB_CHARACTERS,
+    IGNORE_FILE,
+    JOB_DEFAULTS,
+    NAME_PATTERN,
+    OPERATING_SYSTEMS,
+    PINNED_TOOLS,
+    RECORDED_ENTRY_FIELDS,
+    RUNNER_LABEL,
+    SCRIPT_SUFFIXES,
+    SETUP_KEYS,
+    STANDARD_LIBRARY,
+    SUITE_KEYS,
+    TOOLS,
+    TOP_LEVEL_KEYS,
+    VERSION_FILE,
+    ExistenceRead,
+    IgnorePattern,
+    IgnoreRules,
+    PinnedTool,
+    Setup,
+    Suite,
+    SuiteList,
+    SuiteListError,
+    _with_extra,
+    check_stated_setups,
+    expand_entries,
+    first_match,
+    glob_entries,
+    ignore_patterns,
+    ignore_regex,
+    ignore_rules,
+    is_ignore_file,
+    load_suite_list,
+    matches,
+    module_name,
+    parse_suite_list,
+    parse_suite_list_document,
+    pattern_regex,
+    render_suite_list,
+    resolve_entries,
+    revision_text,
+    standard_library_names,
+    suite_list_document,
+    tracked_files,
+)
 
 if TYPE_CHECKING:
     from unrecorded import Cause, EntryFile, Parts
 
-NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-GLOB_CHARACTERS = ("*", "?")
 SELECTION_JOB = "select"
-FAILING_RESULTS = ("failure", "cancelled")
-OPERATING_SYSTEMS = ("linux", "windows")
-SHARD_BOUND = 120.0  # seconds of estimated traced test time per Linux shard on its workers
-FULL_SHARD_BOUND = 300.0  # seconds of estimated wide-traced test time per Linux shard of the full recording
-WIDE_TO_MID = 1.65  # traced test time under the wide set divided by the time under the mid set
+GOAL_SECONDS = 180.0
+FIXED_COST_SECONDS = 90.0
+LANGUAGE_STEP_ALLOWANCE_SECONDS = 15.0  # reserved in shard 1 when a language step runs after the entry-file step
+SHARD_BOUND = GOAL_SECONDS - FIXED_COST_SECONDS  # seconds of estimated entry-file step time per Linux shard on its workers
+FULL_SHARD_BOUND = 300.0  # seconds of estimated entry-file step time per Linux shard of the full recording
+ENTRY_TIMEOUT_FLOOR = 180  # minimum per-entry timeout in seconds for normal runs
+FULL_ENTRY_TIMEOUT_FLOOR = 300  # minimum per-entry timeout in seconds for full recordings
+ENTRY_TIMEOUT_MULTIPLIER = 3
+ASSUMED_ESTIMATE_SECONDS = ENTRY_TIMEOUT_FLOOR / ENTRY_TIMEOUT_MULTIPLIER  # packing weight for unmeasured entries on normal runs
+FULL_ASSUMED_ESTIMATE_SECONDS = FULL_ENTRY_TIMEOUT_FLOOR / ENTRY_TIMEOUT_MULTIPLIER  # packing weight for unmeasured entries on full runs
+MAX_LINUX_SHARDS = 20  # hard cap on Linux shards, within GitHub's 256-job matrix limit and at the lowest concurrent-job limit of a GitHub personal plan
 FULL_REASON = "the full recording runs every entry file"
 SHARD_WORKERS = 2
 LANGUAGE_STEPS = {
     "python": ("**/*.py", "**/*.pyi", "**/pyproject.toml", "**/setup.cfg", "**/ruff.toml", "**/.ruff.toml", "**/mypy.ini", "**/.mypy.ini"),
 }
-SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_selection", "entry_paths",
-                        "entry_extra_paths", "directory_memberships", "entry_directory_memberships", "existence_reads", "entry_existence_reads",
-                        "extra_directory_memberships", "extra_existence_reads", "lookup_directories", "entry_lookup_directories",
-                        "os", "command", "setups", "entry_setups", "entry_durations"})
-# The per-entry fields that the recording writes; the repository writes entry_extra_paths and entry_setups.
-RECORDED_ENTRY_FIELDS = ("entry_paths", "entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories", "entry_durations")
-TOP_LEVEL_KEYS = ("always", "jobs", "setups", "suites", "module_lookups")
-TOOLS = ("python", "node", "dotnet")  # the tools that a suite job installs with its pinned action, outside the recording
-# The pinned tools: the setups that the suite jobs give at the version of the pins file when the configuration file names
-# them under pinned-tools of the suite selection. A suite list defines no setup of such a name.
-PINNED_TOOLS = ("node", "gitleaks")
-SCRIPT_SUFFIXES = (".py", ".sh", ".ps1")  # a setup script runs on the job's Python, in Bash or in PowerShell
-SETUP_KEYS = frozenset({"script", "recorded", "tool", "version", "version-file"})
-JOB_DEFAULTS = {"linux": {"runner": "ubuntu-26.04", "fetch-depth": 1}, "windows": {"runner": "windows-2025", "fetch-depth": 1}}
-VERSION_FILE = re.compile(r"^[^#]+#(/[^/]+)+$")
-# A label of one GitHub-hosted runner, as the definition runner-label of the pipeline's schema has it: no suite job runs on a self-hosted runner.
-RUNNER_LABEL = re.compile(r"^(ubuntu|windows|macos)-[A-Za-z0-9][A-Za-z0-9.-]*$")
-# The union of sys.stdlib_module_names over the Python versions that the shared CI supports.
-STANDARD_LIBRARY = Path(__file__).resolve().parent.parent / "recording" / "stdlib_module_names.json"
 RECORDING_SCRIPT = Path(__file__).resolve().parent.parent / "recording" / "recording.py"  # its apply keys a run under its additions
-
-
-class SuiteListError(Exception):
-    """The suite list is invalid; the message names the entry and the field."""
 
 
 class VerdictError(Exception):
     """The needs context cannot be read."""
-
-
-@dataclass(frozen=True)
-class ExistenceRead:
-    """A path whose presence and type, not its contents, a suite reads."""
-
-    path: str
-    kind: str
-
-    def entry(self) -> dict:
-        return {"path": self.path, "kind": self.kind}
-
-    def path_on(self, system: str) -> str:
-        """The repository path that the read names in a suite of the operating system ``system``. On Windows a backslash
-        separates directories, as a slash does; on Linux it is a character of a name, as a recording writes it."""
-        path = self.path.replace("\\", "/") if system == "windows" else self.path
-        return path.strip("/")
-
-
-def tracked_files(root: Path) -> set[str]:
-    """The files Git tracks under ``root``, as posix paths relative to it, or every file when the root is no checkout."""
-    listing = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True,
-                             encoding="utf-8", errors="replace", check=False)
-    if listing.returncode == 0 and listing.stdout:
-        return {item for item in listing.stdout.split("\0") if item}
-    if not root.is_dir():
-        return set()
-    return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() and ".git" not in path.relative_to(root).parts}
-
-
-@dataclass(frozen=True)
-class Suite:
-    name: str
-    entries: tuple[str, ...]
-    paths: tuple[str, ...] | None = None  # the stored path list, or None when the suite has none
-    extra_paths: tuple[str, ...] = ()
-    entry_selection: bool = False  # the suite is selected per entry file: each entry runs when a changed file matches its own list
-    entry_paths: tuple[tuple[str, tuple[str, ...]], ...] = ()  # the stored path list per entry file, in entry order
-    entry_extra_paths: tuple[tuple[str, tuple[str, ...]], ...] = ()  # extra patterns per entry file, for reads no recording sees
-    directory_memberships: tuple[str, ...] = ()  # directories whose direct child membership, not file contents, the suite reads
-    entry_directory_memberships: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    existence_reads: tuple[ExistenceRead, ...] = ()
-    entry_existence_reads: tuple[tuple[str, tuple[ExistenceRead, ...]], ...] = ()
-    extra_directory_memberships: tuple[str, ...] = ()  # membership patterns no recording sees
-    extra_existence_reads: tuple[ExistenceRead, ...] = ()  # existence reads no recording sees
-    lookup_directories: tuple[str, ...] = ()  # the checkout directories in which the suite looks up modules, the root as .
-    entry_lookup_directories: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    command: tuple[str, ...] | None = None  # the command that runs one entry file, with the entry file appended
-    setups: tuple[str, ...] | None = None  # the setups the suite needs, or None when it states none
-    entry_setups: tuple[tuple[str, tuple[str, ...]], ...] = ()  # further setups per entry file of a suite selected per entry
-    entry_durations: tuple[tuple[str, float], ...] = ()  # the duration estimate per entry file, in seconds of traced test time
-    os: str = "linux"  # the operating system its entry files run on: linux or windows
-
-    @functools.cached_property
-    def _entries_with_list(self) -> frozenset[str]:
-        return frozenset(entry for entry, _ in self.entry_paths)
-
-    def lacks_list(self, entry: str) -> bool:
-        """Whether an entry file of a stored suite selected per entry file has no stored list of its own: an entry file,
-        named by path or matched by a pattern of ``entries``, whose reads no recording has stored yet. Its inputs are
-        unknown."""
-        return self.entry_selection and self.paths is not None and entry not in self._entries_with_list
-
-    def setups_of(self, entry: str) -> tuple[str, ...]:
-        """The setups one entry file needs: the suite's and the entry file's own."""
-        suite, own = self.setups or (), dict(self.entry_setups).get(entry, ())
-        return suite + tuple(setup for setup in own if setup not in suite)
-
-    def entry(self) -> dict:
-        """The suite's JSON entry as the suite list states it."""
-        item: dict = {"name": self.name, "entries": list(self.entries)}
-        if self.os != "linux":
-            item["os"] = self.os
-        if self.command is not None:
-            item["command"] = list(self.command)
-        if self.setups is not None:
-            item["setups"] = list(self.setups)
-        if self.entry_setups:
-            item["entry_setups"] = {entry: list(setups) for entry, setups in self.entry_setups}
-        if self.entry_durations:
-            item["entry_durations"] = dict(self.entry_durations)
-        if self.entry_selection:
-            item["entry_selection"] = True
-        if self.paths is not None:
-            item["paths"] = list(self.paths)
-            if self.entry_selection:
-                item["entry_paths"] = {entry: list(paths) for entry, paths in self.entry_paths}
-        if self.extra_paths:
-            item["extra_paths"] = list(self.extra_paths)
-        if self.entry_extra_paths:
-            item["entry_extra_paths"] = {entry: list(paths) for entry, paths in self.entry_extra_paths}
-        if self.directory_memberships:
-            item["directory_memberships"] = list(self.directory_memberships)
-        if self.entry_directory_memberships:
-            item["entry_directory_memberships"] = {entry: list(paths) for entry, paths in self.entry_directory_memberships}
-        if self.existence_reads:
-            item["existence_reads"] = [read.entry() for read in self.existence_reads]
-        if self.entry_existence_reads:
-            item["entry_existence_reads"] = {entry: [read.entry() for read in reads] for entry, reads in self.entry_existence_reads}
-        if self.extra_directory_memberships:
-            item["extra_directory_memberships"] = list(self.extra_directory_memberships)
-        if self.extra_existence_reads:
-            item["extra_existence_reads"] = [read.entry() for read in self.extra_existence_reads]
-        if self.lookup_directories:
-            item["lookup_directories"] = list(self.lookup_directories)
-        if self.entry_lookup_directories:
-            item["entry_lookup_directories"] = {entry: list(directories) for entry, directories in self.entry_lookup_directories}
-        return item
-
-    # Each of the three takes an entry file or None. An entry file of a suite selected per entry file has its own lists;
-    # any other entry file, and None, stand for the suite as a whole.
-
-    def _own(self, entry: str | None) -> str | None:
-        return entry if self.entry_selection else None
-
-    def patterns_of(self, entry: str | None) -> tuple[str, ...]:
-        """The stored paths with the suite's extra paths and, for an entry file, its own extra paths added."""
-        own = self._own(entry)
-        if own is None:
-            return _with_extra(self.paths or (), self.extra_paths)
-        return _with_extra(dict(self.entry_paths).get(own, ()), self.extra_paths + dict(self.entry_extra_paths).get(own, ()))
-
-    def memberships_of(self, entry: str | None) -> tuple[str, ...]:
-        """The stored directory memberships with the suite's extra directory memberships added."""
-        own = self._own(entry)
-        stored = self.directory_memberships if own is None else dict(self.entry_directory_memberships).get(own, ())
-        return _with_extra(stored, self.extra_directory_memberships)
-
-    def existence_reads_of(self, entry: str | None) -> tuple[ExistenceRead, ...]:
-        """The stored existence reads with the suite's extra existence reads added."""
-        own = self._own(entry)
-        stored = self.existence_reads if own is None else dict(self.entry_existence_reads).get(own, ())
-        return _with_extra(stored, self.extra_existence_reads)
-
-    def lookup_directories_of(self, entry: str | None) -> tuple[str, ...]:
-        """The stored checkout directories in which the suite or the entry file looks up modules."""
-        own = self._own(entry)
-        return self.lookup_directories if own is None else dict(self.entry_lookup_directories).get(own, ())
-
-    def per_entry[T](self, lists_of: Callable[[str], T]) -> tuple[tuple[str, T], ...]:
-        """The lists of each entry file of a suite selected per entry file; none for a suite selected as a whole."""
-        return tuple((entry, lists_of(entry)) for entry in self.entries) if self.entry_selection else ()
-
-
-def _with_extra[T](own: tuple[T, ...], extra: tuple[T, ...]) -> tuple[T, ...]:
-    """The stored items followed by the extra items that they lack."""
-    return own + tuple(item for item in extra if item not in own)
-
-
-@dataclass(frozen=True)
-class Setup:
-    """A setup as the suite list states it: its one script, whether the script runs under the recording, and the tool
-    that the suite job installs for it with a pinned action before the recording starts."""
-
-    name: str
-    script: str
-    recorded: bool = True  # False: the script runs before the recording starts, outside it
-    tool: str | None = None
-    version: str | None = None
-    version_file: str | None = None  # <JSON file>#/<key>/<key>: the tracked file and the place in it that hold the version
-
-    def entry(self) -> dict:
-        """The setup's JSON entry as the suite list states it."""
-        item: dict = {"script": self.script}
-        if not self.recorded:
-            item["recorded"] = False
-        if self.tool is not None:
-            item["tool"] = self.tool
-        if self.version is not None:
-            item["version"] = self.version
-        if self.version_file is not None:
-            item["version-file"] = self.version_file
-        return item
-
-    @property
-    def files(self) -> tuple[str, ...]:
-        """The tracked files that decide what the setup installs: its script and the file that holds its tool's version."""
-        return (self.script,) + ((self.version_file.split("#", 1)[0],) if self.version_file is not None else ())
-
-
-@dataclass(frozen=True)
-class PinnedTool:
-    """A pinned tool that the configuration file names: its version of the pins file and what its pin holds, as text."""
-
-    name: str
-    version: str
-    pin: str
-
-
-@dataclass(frozen=True)
-class SuiteList:
-    always: tuple[str, ...]
-    suites: tuple[Suite, ...]
-    module_lookups: tuple[tuple[str, tuple[str, ...]], ...] = ()  # per checkout directory, the module lookups of every entry file
-    setups: tuple[Setup, ...] | None = None  # the setups as data, in the order they run; None when the suite list states none
-    jobs: tuple[tuple[str, tuple[tuple[str, object], ...]], ...] = ()  # per operating system, what the suite list states of its job
-    pinned: tuple[PinnedTool, ...] = ()  # the pinned tools that the configuration file names
-
-    @functools.cached_property
-    def setups_by_name(self) -> dict[str, Setup]:
-        return {setup.name: setup for setup in self.setups or ()}
-
-    def job(self, operating_system: str) -> dict:
-        """The runner label and the fetch depth of the checkout of one system's suite job, with the defaults of what the
-        suite list leaves out."""
-        return JOB_DEFAULTS[operating_system] | dict(dict(self.jobs).get(operating_system, ()))
-
-    def setup_files(self, suite: Suite, entry: str | None) -> tuple[str, ...]:
-        """The files of the setups that an entry file states, or with None of those that any entry file of the suite
-        states: their content decides what the entry file runs with, so the entry file reads them."""
-        entries = suite.entries if entry is None or not suite.entry_selection else (entry,)
-        names = dict.fromkeys(setup for item in entries for setup in suite.setups_of(item))
-        return tuple(dict.fromkeys(file for name in names if name in self.setups_by_name for file in self.setups_by_name[name].files))
-
-    @functools.cached_property
-    def lookups_by_directory(self) -> dict[str, tuple[str, ...]]:
-        return dict(self.module_lookups)
-
-    def lookups_in(self, directory: str) -> tuple[str, ...]:
-        return self.lookups_by_directory.get(directory, ())
 
 
 @dataclass(frozen=True)
@@ -360,241 +166,8 @@ class Selection:
 # --- the suite list ----------------------------------------------------------------------------------------
 
 
-def _strings(value, location: str) -> tuple[str, ...]:
-    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
-        raise SuiteListError(f"{location} must be a list of non-empty strings")
-    return tuple(value)
-
-
-def _existence_reads(value, location: str) -> tuple[ExistenceRead, ...]:
-    if not isinstance(value, list):
-        raise SuiteListError(f"{location} must be a list of path and kind records")
-    reads = []
-    for index, item in enumerate(value, start=1):
-        if (not isinstance(item, dict) or set(item) != {"path", "kind"}
-                or not isinstance(item["path"], str) or not item["path"]
-                or item["kind"] not in ("file", "directory", "any")):
-            raise SuiteListError(f"{location}[{index}] must name a non-empty path and kind file, directory or any")
-        reads.append(ExistenceRead(item["path"], item["kind"]))
-    return tuple(reads)
-
-
-def _membership_patterns(value, location: str) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        raise SuiteListError(f"{location} must be a list of non-empty path patterns")
-    for index, item in enumerate(value, start=1):
-        if not isinstance(item, str) or not item:
-            raise SuiteListError(f"{location}[{index}] must be a non-empty path pattern")
-    return tuple(value)
-
-
-def _entry_existence_reads(value, entries: tuple[str, ...], location: str):
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise SuiteListError(f"{location} must be an object with existence reads per entry file")
-    return tuple((entry, _existence_reads(value[entry], f"{location} ({entry})")) for entry in _entry_keys(value, entries, location, recorded=True))
-
-
-def _command(value, location: str) -> tuple[str, ...]:
-    command = _strings(value, location)
-    if not command:
-        raise SuiteListError(f"{location} must name at least the program")
-    return command
-
-
-def _duration(value, location: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-        raise SuiteListError(f"{location} must be a number of seconds, zero or more")
-    return value
-
-
-def glob_entries(entries) -> tuple[str, ...]:
-    """The entries that are glob patterns."""
-    return tuple(entry for entry in entries if any(character in entry for character in GLOB_CHARACTERS))
-
-
-def _entry_keys(value: dict, entries: tuple[str, ...], location: str, *, recorded: bool) -> tuple[str, ...]:
-    """The keys of a per-entry field, checked against the entries. A key names an entry or a file that a glob entry
-    matches. A field that the recording writes (``recorded``) may also hold a key that names no entry file any more, of a
-    deleted or renamed file, in any suite: the next apply removes it. The keys of a suite without a glob entry come in
-    entry order, followed by such keys in the order the field states them; those of a suite with one come in the order
-    the field states them."""
-    patterns = glob_entries(entries)
-    unknown = [key for key in value if key not in entries and not any(matches(pattern, key) for pattern in patterns)]
-    if unknown and not recorded:
-        raise SuiteListError(f"{location} names {', '.join(sorted(unknown))}, which the entries lack")
-    return tuple(value) if patterns else tuple(entry for entry in entries if entry in value) + tuple(unknown)
-
-
-def _per_entry_file(value, entries: tuple[str, ...], location: str, read, *, recorded: bool) -> tuple[tuple[str, object], ...]:
-    """A mapping from entry file to a value, in key order; ``_entry_keys`` states which keys it may hold."""
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise SuiteListError(f"{location} must be an object with one value per entry file")
-    _entry_keys(value, entries, location, recorded=recorded)
-    return tuple((key, read(item, f"{location} ({key})")) for key, item in value.items())
-
-
-def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise SuiteListError(f"{source} is not valid JSON: {error}") from error
-    if not isinstance(raw, dict) or not {"always", "suites"} <= set(raw) <= set(TOP_LEVEL_KEYS):
-        raise SuiteListError(f"{source} must be an object with the keys always and suites, and optionally jobs, setups and module_lookups")
-    job_data = _jobs(raw["jobs"], f"{source}: jobs") if "jobs" in raw else ()
-    setup_data = _setups(raw["setups"], f"{source}: setups") if "setups" in raw else None
-    always = _strings(raw["always"], f"{source}: always")
-    module_lookups = _module_lookups(raw.get("module_lookups", {}), f"{source}: module_lookups")
-    if not isinstance(raw["suites"], list):
-        raise SuiteListError(f"{source}: suites must be a list")
-    suites: list[Suite] = []
-    names: set[str] = set()
-    for index, item in enumerate(raw["suites"], start=1):
-        location = f"{source}: suites[{index}]"
-        if not isinstance(item, dict):
-            raise SuiteListError(f"{location} must be an object")
-        name = item.get("name")
-        if not isinstance(name, str) or not NAME_PATTERN.match(name):
-            raise SuiteListError(f"{location}: name must be lowercase letters, digits and hyphens")
-        if name in names:
-            raise SuiteListError(f"{location}: duplicate suite name {name}")
-        names.add(name)
-        entries = _strings(item.get("entries"), f"{location} ({name}): entries")
-        if not entries:
-            raise SuiteListError(f"{location} ({name}): entries must name at least one file")
-        has_paths = "paths" in item
-        extra = set(item) - SUITE_KEYS
-        if extra:
-            raise SuiteListError(f"{location} ({name}): unknown keys {', '.join(sorted(extra))}")
-        extra_paths = _strings(item["extra_paths"], f"{location} ({name}): extra_paths") if "extra_paths" in item else ()
-        entry_selection = item.get("entry_selection", False)
-        if not isinstance(entry_selection, bool):
-            raise SuiteListError(f"{location} ({name}): entry_selection must be true or false")
-        entry_paths = (_per_entry(item.get("entry_paths"), entries, f"{location} ({name}): entry_paths", recorded=True)
-                       if "entry_paths" in item else ())
-        entry_extra_paths = (_per_entry(item.get("entry_extra_paths"), entries, f"{location} ({name}): entry_extra_paths", recorded=False)
-                             if "entry_extra_paths" in item else ())
-        memberships = _strings(item["directory_memberships"], f"{location} ({name}): directory_memberships") if "directory_memberships" in item else ()
-        entry_memberships = _per_entry(item["entry_directory_memberships"], entries, f"{location} ({name}): entry_directory_memberships", recorded=True) if "entry_directory_memberships" in item else ()
-        existence = _existence_reads(item["existence_reads"], f"{location} ({name}): existence_reads") if "existence_reads" in item else ()
-        entry_existence = _entry_existence_reads(item["entry_existence_reads"], entries, f"{location} ({name}): entry_existence_reads") if "entry_existence_reads" in item else ()
-        extra_memberships = _membership_patterns(item["extra_directory_memberships"], f"{location} ({name}): extra_directory_memberships") if "extra_directory_memberships" in item else ()
-        extra_existence = _existence_reads(item["extra_existence_reads"], f"{location} ({name}): extra_existence_reads") if "extra_existence_reads" in item else ()
-        lookup_directories = _strings(item["lookup_directories"], f"{location} ({name}): lookup_directories") if "lookup_directories" in item else ()
-        entry_lookup_directories = (_per_entry(item["entry_lookup_directories"], entries, f"{location} ({name}): entry_lookup_directories", recorded=True)
-                                    if "entry_lookup_directories" in item else ())
-        operating_system = item.get("os", "linux")
-        if operating_system not in OPERATING_SYSTEMS:
-            raise SuiteListError(f"{location} ({name}): os must be one of {', '.join(OPERATING_SYSTEMS)}")
-        command = _command(item["command"], f"{location} ({name}): command") if "command" in item else None
-        setups = _strings(item["setups"], f"{location} ({name}): setups") if "setups" in item else None
-        entry_setups = _per_entry_file(item["entry_setups"], entries, f"{location} ({name}): entry_setups", _strings, recorded=False) if "entry_setups" in item else ()
-        entry_durations = _per_entry_file(item["entry_durations"], entries, f"{location} ({name}): entry_durations", _duration, recorded=True) if "entry_durations" in item else ()
-        if entry_existence and not entry_selection:
-            raise SuiteListError(f"{location} ({name}): entry_existence_reads needs entry_selection")
-        if entry_memberships and not entry_selection:
-            raise SuiteListError(f"{location} ({name}): entry_directory_memberships needs entry_selection")
-        if entry_lookup_directories and not entry_selection:
-            raise SuiteListError(f"{location} ({name}): entry_lookup_directories needs entry_selection")
-        if entry_paths and not entry_selection:
-            raise SuiteListError(f"{location} ({name}): entry_paths needs entry_selection")
-        if entry_setups and not entry_selection:
-            raise SuiteListError(f"{location} ({name}): entry_setups needs entry_selection")
-        if entry_extra_paths and not entry_selection:
-            raise SuiteListError(f"{location} ({name}): entry_extra_paths needs entry_selection")
-        if has_paths and entry_selection and "entry_paths" not in item:
-            raise SuiteListError(f"{location} ({name}): a stored suite with entry_selection needs entry_paths")
-        common = dict(extra_paths=extra_paths, entry_selection=entry_selection, entry_extra_paths=entry_extra_paths,
-                      directory_memberships=memberships, entry_directory_memberships=entry_memberships, existence_reads=existence,
-                      entry_existence_reads=entry_existence, extra_directory_memberships=extra_memberships,
-                      extra_existence_reads=extra_existence, lookup_directories=lookup_directories,
-                      entry_lookup_directories=entry_lookup_directories, command=command, setups=setups,
-                      entry_setups=entry_setups, entry_durations=entry_durations, os=operating_system)
-        if has_paths:
-            suites.append(Suite(name, entries, paths=_strings(item["paths"], f"{location} ({name}): paths"), entry_paths=entry_paths, **common))
-        else:
-            suites.append(Suite(name, entries, **common))
-    if setup_data is not None:
-        # A pinned tool is no setup of the suite list: select decides on it with the configuration file's names.
-        check_stated_setups(suites, {setup.name for setup in setup_data} | set(PINNED_TOOLS), source)
-    return SuiteList(always, tuple(suites), module_lookups, setup_data, job_data)
-
-
-def check_stated_setups(suites, known: set[str], source: str) -> None:
-    """Fail on the first setup that a suite or one of its entry files states and ``known`` lacks."""
-    for index, suite in enumerate(suites, start=1):
-        stated = [("setups", name) for name in suite.setups or ()]
-        stated += [(f"entry_setups ({entry})", name) for entry, names in suite.entry_setups for name in names]
-        for key, name in stated:
-            if name not in known:
-                raise SuiteListError(f"{source}: suites[{index}] ({suite.name}): {key} names the setup {name}, which setups lacks")
-
-
-def _setups(value, location: str) -> tuple[Setup, ...]:
-    """The setups of a suite list, in the order it states them."""
-    if not isinstance(value, dict):
-        raise SuiteListError(f"{location} must be an object with one setup per name")
-    setups: list[Setup] = []
-    versions: dict[str, tuple[str, str]] = {}  # per tool, the version that the first setup naming it gives, with that setup
-    for name, item in value.items():
-        if not NAME_PATTERN.match(name):
-            raise SuiteListError(f"{location}: the name {name} must be lowercase letters, digits and hyphens")
-        where = f"{location} ({name})"
-        if not isinstance(item, dict):
-            raise SuiteListError(f"{where} must be an object")
-        unknown = set(item) - SETUP_KEYS
-        if unknown:
-            raise SuiteListError(f"{where}: unknown keys {', '.join(sorted(unknown))}")
-        script = item.get("script")
-        if not isinstance(script, str) or not script.endswith(SCRIPT_SUFFIXES) or script.startswith(("/", "../", "./")) or "\\" in script:
-            raise SuiteListError(f"{where}: script must be a repository path that ends in {', '.join(SCRIPT_SUFFIXES[:-1])} or {SCRIPT_SUFFIXES[-1]}")
-        recorded = item.get("recorded", True)
-        if not isinstance(recorded, bool):
-            raise SuiteListError(f"{where}: recorded must be true or false")
-        tool, version, version_file = item.get("tool"), item.get("version"), item.get("version-file")
-        if tool is None and (version is not None or version_file is not None):
-            raise SuiteListError(f"{where}: version and version-file go with tool")
-        if tool is not None:
-            if tool not in TOOLS:
-                raise SuiteListError(f"{where}: tool must be one of {', '.join(TOOLS)}")
-            if (version is None) == (version_file is None):
-                raise SuiteListError(f"{where}: a tool needs either version or version-file")
-            if version is not None and (not isinstance(version, str) or not version):
-                raise SuiteListError(f"{where}: version must be a non-empty string")
-            if version_file is not None and (not isinstance(version_file, str) or not VERSION_FILE.match(version_file)):
-                raise SuiteListError(f"{where}: version-file must be <JSON file>#/<key>/<key>")
-            given = version if version is not None else f"from {version_file}"
-            first, owner = versions.setdefault(tool, (given, name))
-            if first != given:
-                raise SuiteListError(f"{where}: the tool {tool} has the version {given}, but the setup {owner} gives it {first}; "
-                                     "a suite list holds one version per tool")
-        setups.append(Setup(name, script, recorded, tool, version, version_file))
-    return tuple(setups)
-
-
-def _jobs(value, location: str) -> tuple[tuple[str, tuple[tuple[str, object], ...]], ...]:
-    """What the suite list states of the suite job of each operating system: its runner label and its fetch depth."""
-    if not isinstance(value, dict):
-        raise SuiteListError(f"{location} must be an object with one job per operating system")
-    jobs = []
-    for name, item in value.items():
-        if name not in OPERATING_SYSTEMS:
-            raise SuiteListError(f"{location}: {name} must be one of {', '.join(OPERATING_SYSTEMS)}")
-        where = f"{location} ({name})"
-        if not isinstance(item, dict):
-            raise SuiteListError(f"{where} must be an object")
-        unknown = set(item) - set(JOB_DEFAULTS[name])
-        if unknown:
-            raise SuiteListError(f"{where}: unknown keys {', '.join(sorted(unknown))}")
-        if "runner" in item and (not isinstance(item["runner"], str) or not RUNNER_LABEL.fullmatch(item["runner"])):
-            raise SuiteListError(f"{where}: runner must be a label of a GitHub-hosted runner of the ubuntu-, windows- or macos- family, such as ubuntu-26.04")
-        depth = item.get("fetch-depth", 0)
-        if not isinstance(depth, int) or isinstance(depth, bool) or depth < 0:
-            raise SuiteListError(f"{where}: fetch-depth must be a whole number of 0 or more")
-        jobs.append((name, tuple(item.items())))
-    return tuple(jobs)
-
-
-def with_pinned_tools(suite_list: SuiteList, names: list[str], pins: Path | None, source: str = "the suite list") -> SuiteList:
+def with_pinned_tools(suite_list: SuiteList, names: list[str], pins: Path | None, source: str = "the suite list",
+                      root: Path | None = None) -> SuiteList:
     """The suite list with the pinned tools that the configuration file names, each with its version of the pins file.
     A pinned tool is a setup that the suite jobs give: the suite list defines none of its name, and none that installs
     Node.js beside the pinned Node.js. A suite that states a pinned tool which the configuration file does not name states
@@ -616,13 +189,19 @@ def with_pinned_tools(suite_list: SuiteList, names: list[str], pins: Path | None
         document = json.loads(pins.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise SuiteListError(f"the pins file {pins} cannot be read as JSON: {error}") from error
+    pins_relative: str | None = None
+    if root is not None:
+        resolved_pins = pins.resolve()
+        resolved_root = root.resolve()
+        if resolved_pins.is_relative_to(resolved_root):
+            pins_relative = resolved_pins.relative_to(resolved_root).as_posix()
     pinned = []
     for name in dict.fromkeys(names):
         pin = (document.get("node") if name == "node" else document.get("tools", {}).get(name)) if isinstance(document, dict) else None
         version = pin.get("version") if isinstance(pin, dict) else None
         if not isinstance(version, str) or not version:
             raise SuiteListError(f"the pins file {pins} holds no version of {name}")
-        pinned.append(PinnedTool(name, version, json.dumps(pin, sort_keys=True)))
+        pinned.append(PinnedTool(name, version, json.dumps(pin, sort_keys=True), pins_relative))
     return dataclasses.replace(suite_list, pinned=tuple(pinned))
 
 
@@ -648,241 +227,6 @@ def tool_versions(suite_list: SuiteList, root: Path) -> dict[str, str]:
             raise SuiteListError(f"{where}: {file} holds no text at {pointer}")
         versions[setup.tool] = value
     return versions
-
-
-def _module_lookups(value, location: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """The module lookups per checkout directory, in key order."""
-    if not isinstance(value, dict) or not all(isinstance(key, str) and key for key in value):
-        raise SuiteListError(f"{location} must be an object with a list of module names per checkout directory")
-    return tuple((directory, _strings(names, f"{location} ({directory})")) for directory, names in value.items())
-
-
-def _per_entry(value, entries: tuple[str, ...], location: str, *, recorded: bool) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """A mapping from entry file to a list of patterns; ``_entry_keys`` states which keys it may hold and their order.
-    An entry file may lack a key: in ``entry_paths`` it then has no stored list, as ``Suite.lacks_list`` states."""
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise SuiteListError(f"{location} must be an object with one list of patterns per entry file")
-    keys = _entry_keys(value, entries, location, recorded=recorded)
-    return tuple((entry, _strings(value[entry], f"{location} ({entry})")) for entry in keys)
-
-
-def load_suite_list(path: Path) -> SuiteList:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise SuiteListError(f"cannot read {path}: {error}") from error
-    return parse_suite_list(text, str(path))
-
-
-def render_suite_list(suite_list: SuiteList) -> str:
-    """The suite list as JSON text, one path per line, with a trailing newline."""
-    return json.dumps(suite_list_document(suite_list, [suite.entry() for suite in suite_list.suites],
-                                          {directory: list(names) for directory, names in suite_list.module_lookups}), indent=2) + "\n"
-
-
-def suite_list_document(suite_list: SuiteList, suites: list[dict], module_lookups: dict[str, list[str]]) -> dict:
-    """The JSON document of a suite list with the given suite entries and module lookups, its keys in their fixed order."""
-    document: dict = {"always": list(suite_list.always)}
-    if suite_list.jobs:
-        document["jobs"] = {name: dict(item) for name, item in suite_list.jobs}
-    if suite_list.setups is not None:
-        document["setups"] = {setup.name: setup.entry() for setup in suite_list.setups}
-    document["suites"] = suites
-    if module_lookups:
-        document["module_lookups"] = module_lookups
-    return document
-
-
-def expand_entries(entries: tuple[str, ...], tracked: set[str], location: str) -> tuple[str, ...]:
-    """The tracked files the entries name: a glob pattern as the files it matches, a path as itself."""
-    expanded: list[str] = []
-    for entry in entries:
-        normalized = entry.replace("\\", "/")
-        if any(character in normalized for character in GLOB_CHARACTERS):
-            found = sorted(file for file in tracked if matches(normalized, file))
-        else:
-            found = [normalized] if normalized in tracked else []
-        if not found:
-            raise SuiteListError(f"{location}: the entry {entry} matches no tracked file")
-        expanded += [file for file in found if file not in expanded]
-    return tuple(expanded)
-
-
-def resolve_entries(suite_list: SuiteList, tracked: set[str], source: str = "the suite list") -> SuiteList:
-    """The suite list with every entry pattern expanded to the tracked files it matches. A suite loses the keys of its
-    recorded per-entry fields that name no entry file any more, so nothing that selects reads them."""
-    suites = []
-    for index, suite in enumerate(suite_list.suites, start=1):
-        entries = expand_entries(suite.entries, tracked, f"{source}: suites[{index}] ({suite.name})")
-        current = {field: tuple(pair for pair in getattr(suite, field) if pair[0] in entries) for field in RECORDED_ENTRY_FIELDS}
-        suites.append(dataclasses.replace(suite, entries=entries, **current))
-    for setup in suite_list.setups or ():
-        for file, what in zip(setup.files, ("script", "version file")):
-            if file not in tracked:
-                raise SuiteListError(f"{source}: setups ({setup.name}): the {what} {file} is no tracked file")
-    return dataclasses.replace(suite_list, suites=tuple(suites))
-
-
-def module_name(name: str) -> str:
-    """The module name that a file or directory name carries: the name up to its first dot."""
-    return name.split(".", 1)[0]
-
-
-@functools.cache
-def standard_library_names() -> frozenset[str]:
-    """The standard-library module names of every Python version that the shared CI supports."""
-    return frozenset(json.loads(STANDARD_LIBRARY.read_text(encoding="utf-8"))["names"])
-
-
-# --- patterns -------------------------------------------------------------------------------------------------
-
-
-@functools.lru_cache(maxsize=None)
-def pattern_regex(pattern: str) -> re.Pattern[str]:
-    """GitHub path-filter glob syntax: ``**`` crosses directory separators, ``*`` and ``?`` do not."""
-    parts: list[str] = []
-    index = 0
-    while index < len(pattern):
-        character = pattern[index]
-        if pattern.startswith("**/", index):
-            parts.append("(?:.*/)?")
-            index += 3
-            continue
-        if pattern.startswith("**", index):
-            parts.append(".*")
-            index += 2
-            continue
-        if character == "*":
-            parts.append("[^/]*")
-        elif character == "?":
-            parts.append("[^/]")
-        else:
-            parts.append(re.escape(character))
-        index += 1
-    return re.compile("^" + "".join(parts) + "$")
-
-
-def matches(pattern: str, path: str) -> bool:
-    return pattern_regex(pattern).match(path) is not None
-
-
-def first_match(patterns: tuple[str, ...], files: list[str]) -> tuple[str, str] | None:
-    """The first changed file that matches a pattern, with that pattern, in file order."""
-    for file in files:
-        for pattern in patterns:
-            if matches(pattern, file):
-                return file, pattern
-    return None
-
-
-# --- the ignore rules -----------------------------------------------------------------------------------------
-
-
-IGNORE_FILE = ".gitignore"
-
-
-def is_ignore_file(path: str) -> bool:
-    return path.rsplit("/", 1)[-1] == IGNORE_FILE
-
-
-def ignore_regex(pattern: str) -> str:
-    """A gitignore(5) glob as a regular expression over a path relative to the ignore file's directory: ``*``, ``?`` and
-    a bracket expression never match ``/``; a leading ``**/``, a trailing ``/**`` and an inner ``/**/`` cross it."""
-    parts: list[str] = []
-    index = 0
-    while index < len(pattern):
-        if pattern.startswith("**/", index) and index == 0:
-            parts.append("(?:.*/)?")
-            index += 3
-        elif pattern.startswith("/**/", index):
-            parts.append("/(?:.*/)?")
-            index += 4
-        elif pattern.startswith("/**", index) and index + 3 == len(pattern):
-            parts.append("/.*")
-            index += 3
-        elif pattern[index] == "*":
-            while index < len(pattern) and pattern[index] == "*":
-                index += 1
-            parts.append("[^/]*")
-        elif pattern[index] == "?":
-            parts.append("[^/]")
-            index += 1
-        elif pattern[index] == "\\" and index + 1 < len(pattern):
-            parts.append(re.escape(pattern[index + 1]))
-            index += 2
-        elif pattern[index] == "[" and (end := pattern.find("]", index + (3 if pattern[index + 1:index + 2] in ("!", "^") else 2))) != -1:
-            body = pattern[index + 1:end]
-            negated = body[:1] in ("!", "^")
-            body = body[1:] if negated else body
-            members = "".join(character if character == "-" else re.escape(character) for character in body)
-            parts.append(f"(?!/)[{'^' if negated else ''}{members}]")
-            index = end + 1
-        else:
-            parts.append(re.escape(pattern[index]))
-            index += 1
-    return "".join(parts)
-
-
-@dataclass(frozen=True)
-class IgnorePattern:
-    base: str  # the directory of its ignore file, the root as ""
-    regex: re.Pattern[str]
-    negated: bool
-    directory_only: bool
-
-
-def ignore_patterns(path: str, text: str) -> list[IgnorePattern]:
-    base = path.rpartition("/")[0]
-    patterns = []
-    for line in text.splitlines():
-        line = re.sub(r"(?<!\\) +$", "", line)
-        if not line or line.startswith("#"):
-            continue
-        negated = line.startswith("!")
-        line = line[1:] if negated else line
-        directory_only = line.endswith("/")
-        line = line.rstrip("/")
-        if not line:
-            continue
-        anchored = "/" in line
-        expression = ignore_regex(line.lstrip("/"))
-        patterns.append(IgnorePattern(base, re.compile(("" if anchored else "(?:.*/)?") + expression + r"\Z"), negated, directory_only))
-    return patterns
-
-
-class IgnoreRules:
-    """The ignore rules of the tracked ``.gitignore`` files of one commit, as gitignore(5) defines them, matched
-    case-sensitively against repository paths with ``/`` separators; no other ignore source takes part."""
-
-    def __init__(self, files: dict[str, str]) -> None:
-        self.files = dict(files)
-        ordered = sorted(self.files, key=lambda path: (path.count("/"), path))
-        self.patterns = [pattern for path in ordered for pattern in ignore_patterns(path, self.files[path])]
-        self._decided: dict[tuple[str, bool], bool] = {}
-
-    def ignored(self, path: str, directory: bool = False) -> bool:
-        """Whether the rules match the path, or one of its parent directories; ``directory`` says that the path is one."""
-        parts = path.split("/")
-        return any(self._matched("/".join(parts[:index]), True) for index in range(1, len(parts))) or self._matched(path, directory)
-
-    def _matched(self, path: str, directory: bool) -> bool:
-        key = (path, directory)
-        if key not in self._decided:
-            result = False
-            for pattern in self.patterns:
-                if pattern.directory_only and not directory:
-                    continue
-                if pattern.base and not path.startswith(pattern.base + "/"):
-                    continue
-                if pattern.regex.match(path[len(pattern.base) + 1:] if pattern.base else path):
-                    result = not pattern.negated
-            self._decided[key] = result
-        return self._decided[key]
-
-
-def ignore_rules(root: Path, revision: str, files: frozenset[str]) -> IgnoreRules:
-    """The ignore rules of the tracked ``.gitignore`` files among ``files``, with their text at the revision."""
-    return IgnoreRules({path: revision_text(root, revision, path) or "" for path in sorted(file for file in files if is_ignore_file(file))})
 
 
 def edited_ignore_files(root: Path, tracked: frozenset[str]) -> list[str]:
@@ -929,14 +273,6 @@ def previous_revision(root: Path, base: str, head: str, compare: str) -> str | N
         merge_base = git(root, "merge-base", base, head)
         return merge_base.stdout.strip() if merge_base.returncode == 0 else None
     return base
-
-
-def revision_text(root: Path, revision: str, path: str) -> str | None:
-    """The text of a tracked file at a revision, or None when the revision or the file is not there."""
-    shown = subprocess.run(["git", "-C", str(root), "show", f"{revision}:{path}", "--"], capture_output=True, check=False)
-    if shown.returncode != 0:
-        return None
-    return shown.stdout.decode("utf-8", errors="replace")
 
 
 def revision_files(root: Path, revision: str) -> frozenset[str]:
@@ -1178,13 +514,19 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
         return any(file.startswith(path + "/") for file in current_tracked or () if file not in added)
 
     standard = standard_library_names() if looked_in else frozenset()
-    lookup_changes = {directory: lookup_change(directory, standard | frozenset(suite_list.lookups_in(directory)), added, existed)
-                      for directory in looked_in}
+    lookup_cache: dict[tuple[str, frozenset[str]], tuple[str, str] | None] = {}
 
-    def lookup_match(directories: tuple[str, ...]) -> tuple[str, str] | None:
+    def lookup_hit(suite: Suite, entry: str | None, directory: str) -> tuple[str, str] | None:
+        names = standard | frozenset(suite_list.unit_lookups_in(suite, entry, directory))
+        key = (directory, names)
+        if key not in lookup_cache:
+            lookup_cache[key] = lookup_change(directory, names, added, existed)
+        return lookup_cache[key]
+
+    def lookup_match(suite: Suite, entry: str | None, directories: tuple[str, ...]) -> tuple[str, str] | None:
         """The added file that a module lookup of one of ``directories`` matches, with the lookup's description."""
         for directory in directories:
-            found = lookup_changes[directory]
+            found = lookup_hit(suite, entry, directory)
             if found is not None:
                 return found[0], f"module lookup `{found[1]}` in `{directory}`"
         return None
@@ -1197,7 +539,8 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
                         if (file := membership_changes[membership]) is not None)
             read.update(file for dependency in basis.existence_reads
                         if (file := existence_file(basis, dependency)) is not None)
-            read.update(found[0] for directory in basis.lookup_directories if (found := lookup_changes[directory]) is not None)
+            read.update(found[0] for directory in basis.lookup_directories
+                        if (found := lookup_hit(basis.suite, None, directory)) is not None)
         if basis.reason is not None:
             decisions.append(Decision(basis.suite.name, True, basis.reason, basis.suite.entries))
         elif basis.entry_patterns:
@@ -1222,7 +565,7 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
                     if dependency is not None:
                         match = (existence_file(basis, dependency), f"{dependency.kind} existence `{dependency.path}`")
                 if match is None:
-                    match = lookup_match(dict(basis.entry_lookup_directories).get(entry, ()))
+                    match = lookup_match(basis.suite, entry, dict(basis.entry_lookup_directories).get(entry, ()))
                 if match is not None:
                     read.add(match[0])
                     selected.append(entry)
@@ -1243,7 +586,7 @@ def select(suite_list: SuiteList, changed: list[str] | None, undetermined: str |
                 if dependency is not None:
                     match = (existence_file(basis, dependency), f"{dependency.kind} existence `{dependency.path}`")
             if match is None:
-                match = lookup_match(basis.lookup_directories)
+                match = lookup_match(basis.suite, None, basis.lookup_directories)
             if match is None:
                 decisions.append(Decision(basis.suite.name, False, "no changed file matches its path list"))
             else:
@@ -1338,25 +681,97 @@ def two_worker_time(estimates: list[float]) -> float:
     return max(workers)
 
 
-def assign_shards(units: list[tuple[Suite, str, float]], bound: float = SHARD_BOUND) -> list[list[tuple[Suite, str, float]]]:
-    """As few shards as keep each shard's two-worker time under the bound, filled greedily by estimate; an entry file
-    over the bound gets a shard of its own."""
-    ordered = sorted(units, key=lambda unit: -unit[2])
-    for count in range(1, len(ordered) + 1):
-        shards: list[list[tuple[Suite, str, float]]] = [[] for _ in range(count)]
+def entry_timeout(estimate: float | None, full: bool = False) -> int:
+    """The per-entry time limit in seconds for one entry file."""
+    floor = FULL_ENTRY_TIMEOUT_FLOOR if full else ENTRY_TIMEOUT_FLOOR
+    return floor if estimate is None else max(floor, math.ceil(estimate * ENTRY_TIMEOUT_MULTIPLIER))
+
+
+def _packing_weight(unit: tuple[Suite, str, float | None], assumed: float) -> float:
+    return unit[2] if unit[2] is not None else assumed
+
+
+def assign_shards(units: list[tuple[Suite, str, float | None]], bound: float = SHARD_BOUND, *,
+                  assumed: float = ASSUMED_ESTIMATE_SECONDS, language_allowance: float = 0.0,
+                  max_shards: int = MAX_LINUX_SHARDS) -> list[list[tuple[Suite, str, float | None]]]:
+    """As few shards (up to ``max_shards``) as keep each shard's two-worker time within ``bound``, filled longest first
+    by estimate (unmeasured entry files pack with ``assumed`` while keeping ``None`` in the unit). A single entry file
+    over ``bound`` stays allowed. When ``language_allowance`` is positive, the least-loaded measured shard becomes
+    shard 1 (falling back to the least-loaded shard only when no shard has a measured entry) and its two-worker time
+    plus ``language_allowance`` fits within ``bound`` wherever splitting can reduce it. Beyond ``max_shards``, remaining
+    entry files spread across the existing shards."""
+    if not units:
+        return []
+    ordered = sorted(units, key=lambda unit: (-_packing_weight(unit, assumed), unit[2] is None))
+    measured_units = [unit for unit in ordered if unit[2] is not None]
+    min_shard_1_weight = _packing_weight(measured_units[-1] if measured_units else ordered[-1], assumed)
+    limit = min(len(ordered), max(1, max_shards))
+    shards: list[list[tuple[Suite, str, float | None]]] = []
+    for count in range(1, limit + 1):
+        shards = [[] for _ in range(count)]
+        loads = [0.0] * count
         for unit in ordered:
-            loads = [sum(item[2] for item in shard) for shard in shards]
-            shards[loads.index(min(loads))].append(unit)
-        if all(len(shard) == 1 or two_worker_time([item[2] for item in shard]) < bound for shard in shards):
+            target = loads.index(min(loads))
+            shards[target].append(unit)
+            loads[target] += _packing_weight(unit, assumed)
+        times = [two_worker_time([_packing_weight(item, assumed) for item in shard]) for shard in shards]
+        if language_allowance > 0:
+            measured_indices = [index for index, shard in enumerate(shards) if any(item[2] is not None for item in shard)]
+            candidates = measured_indices if measured_indices else range(count)
+            lightest = min(candidates, key=lambda index: times[index])
+            if lightest != 0:
+                shards = [shards[lightest], *shards[:lightest], *shards[lightest + 1:]]
+                times = [times[lightest], *times[:lightest], *times[lightest + 1:]]
+        shard_1_limit = max(bound - language_allowance, min_shard_1_weight) if language_allowance > 0 else bound
+        fits = all(
+            len(shard) == 1 or (time <= bound and (index > 0 or time <= shard_1_limit))
+            for index, (shard, time) in enumerate(zip(shards, times))
+        )
+        if fits:
             return shards
-    return []
+    return shards
 
 
-def shard_document(units: list[tuple[Suite, str, float]], estimate: float, suite_list: SuiteList | None = None,
-                   tools: dict[str, str] | None = None) -> dict:
-    """The estimate, the setups and the entry files with their suite's command of one job; for a suite list that states
-    its setups as data, also the tools that the job's setups name, each with its version from ``tools``; and the pinned
-    tools among the job's setups, when it has any."""
+def shard_departures(shards: list[list[tuple[Suite, str, float | None]]], bound: float, *,
+                     assumed: float = ASSUMED_ESTIMATE_SECONDS, language_allowance: float = 0.0) -> list[tuple[int, str]]:
+    """One ``(shard number, detail)`` pair for every planned Linux shard whose two-worker packing time (plus
+    language-step allowance on shard 1) exceeds ``bound``."""
+    departures: list[tuple[int, str]] = []
+    for index, shard in enumerate(shards):
+        time = two_worker_time([_packing_weight(item, assumed) for item in shard])
+        allowance = language_allowance if index == 0 else 0.0
+        effective = time + allowance
+        if effective > bound:
+            if allowance > 0:
+                departures.append((index + 1, f"exceeds the {bound:g} s bound ({time:.1f} s + {allowance:g} s language step = {effective:.1f} s)"))
+            else:
+                departures.append((index + 1, f"exceeds the {bound:g} s bound ({time:.1f} s)"))
+    return departures
+
+
+def report_shard_departures(departures: list[tuple[int, str]]) -> None:
+    """Print each shard-bound departure and emit a warning annotation on a runner."""
+    for number, detail in departures:
+        message = f"Departure: shard {number} {detail}"
+        print(message)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::warning::{escaped}", flush=True)
+
+
+def shard_departures_summary(departures: list[tuple[int, str]]) -> str:
+    if not departures:
+        return ""
+    lines = ["", "### Departures", "", "| Shard | Over-bound departure |", "| --- | --- |"]
+    lines += [f"| `shard {number}` | {detail} |" for number, detail in departures]
+    return "\n".join(lines) + "\n"
+
+
+def shard_document(units: list[tuple[Suite, str, float | None]], estimate: float, suite_list: SuiteList | None = None,
+                   tools: dict[str, str] | None = None, *, full: bool = False) -> dict:
+    """The estimate, the setups and the entry files with their suite's command and time limit of one job; for a suite
+    list that states its setups as data, also the tools that the job's setups name, each with its version from
+    ``tools``; and the pinned tools among the job's setups, when it has any."""
     setups: list[str] = []
     for suite, entry, _ in units:
         setups += [setup for setup in suite.setups_of(entry) if setup not in setups]
@@ -1370,50 +785,59 @@ def shard_document(units: list[tuple[Suite, str, float]], estimate: float, suite
     if pinned:
         named["pinned"] = pinned
     return {"estimate": estimate, "setups": setups, **named,
-            "entries": [{"suite": suite.name, "entry": entry, "command": list(suite.command) if suite.command is not None else None}
-                        for suite, entry, _ in units]}
+            "entries": [{"suite": suite.name, "entry": entry, "command": list(suite.command) if suite.command is not None else None,
+                         "timeout": entry_timeout(duration, full)}
+                        for suite, entry, duration in units]}
 
 
-def full_recording_scale(operating_system: str) -> float:
-    """The traced seconds of an entry file in the full recording divided by its duration estimate: the wide-to-mid
-    ratio on Linux, and 1 on Windows, which records under its one ETW session in every run."""
-    return WIDE_TO_MID if operating_system == "linux" else 1.0
-
-
-def selected_units(selection: Selection, suite_list: SuiteList, operating_system: str, scale: float = 1.0) -> list[tuple[Suite, str, float]]:
-    """The selected entry files of one operating system with their estimates times ``scale``; an entry file without a
-    stored estimate counts with the mean of the stored estimates of that operating system, or 0 s when the suite list
-    stores none for it."""
-    stored = [estimate for suite in suite_list.suites if suite.os == operating_system for _, estimate in suite.entry_durations]
-    mean = sum(stored) / len(stored) if stored else 0
+def selected_units(selection: Selection, suite_list: SuiteList, operating_system: str) -> list[tuple[Suite, str, float | None]]:
+    """The selected entry files of one operating system with their duration estimates, or None when an entry file has no
+    stored estimate yet."""
     by_name = {suite.name: suite for suite in suite_list.suites}
-    units = []
+    units: list[tuple[Suite, str, float | None]] = []
     for decision in selection.decisions:
         suite = by_name[decision.suite]
         if decision.run and suite.os == operating_system:
             estimates = dict(suite.entry_durations)
-            units += [(suite, entry, estimates.get(entry, mean) * scale if scale != 1.0 else estimates.get(entry, mean))
-                      for entry in decision.entries]
+            for entry in decision.entries:
+                units.append((suite, entry, estimates.get(entry)))
     return units
+
+
+def plan_linux_shards(selection: Selection, suite_list: SuiteList, steps: dict[str, str],
+                      full: bool = False) -> tuple[list[list[tuple[Suite, str, float | None]]], list[tuple[int, str]]]:
+    """The planned Linux shards and any shard-bound departures for ``selection``."""
+    bound = FULL_SHARD_BOUND if full else SHARD_BOUND
+    assumed = FULL_ASSUMED_ESTIMATE_SECONDS if full else ASSUMED_ESTIMATE_SECONDS
+    allowance = 0.0 if full or "run" not in steps.values() else LANGUAGE_STEP_ALLOWANCE_SECONDS
+    units = selected_units(selection, suite_list, "linux")
+    assigned = assign_shards(units, bound, assumed=assumed, language_allowance=allowance)
+    return assigned, shard_departures(assigned, bound, assumed=assumed, language_allowance=allowance)
+
+
+def _shards_document(assigned: list[list[tuple[Suite, str, float | None]]], suite_list: SuiteList, steps: dict[str, str],
+                     full: bool = False, tools: dict[str, str] | None = None) -> list[dict]:
+    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard if estimate is not None]), suite_list, tools, full=full)
+              for shard in assigned]
+    if not shards and "run" in steps.values():
+        shards = [shard_document([], 0.0, suite_list, tools, full=full)]
+    return [{"shard": number, **shard} for number, shard in enumerate(shards, start=1)]
 
 
 def shards_json(selection: Selection, suite_list: SuiteList, steps: dict[str, str], full: bool = False,
                 tools: dict[str, str] | None = None) -> str:
     """The Linux shard matrix as a JSON list on one line; one shard without suites when only a language step runs. The
-    full recording counts each estimate under the wide set and bounds each shard by ``FULL_SHARD_BOUND``."""
-    units = selected_units(selection, suite_list, "linux", full_recording_scale("linux") if full else 1.0)
-    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard]), suite_list, tools)
-              for shard in assign_shards(units, FULL_SHARD_BOUND if full else SHARD_BOUND)]
-    if not shards and "run" in steps.values():
-        shards = [shard_document([], 0.0, suite_list, tools)]
-    return json.dumps([{"shard": number, **shard} for number, shard in enumerate(shards, start=1)], separators=(",", ":"))
+    full recording uses the same entry-time scale and bounds each shard by ``FULL_SHARD_BOUND``."""
+    assigned, _ = plan_linux_shards(selection, suite_list, steps, full)
+    return json.dumps(_shards_document(assigned, suite_list, steps, full, tools), separators=(",", ":"))
 
 
 def windows_json(selection: Selection, suite_list: SuiteList, full: bool = False, tools: dict[str, str] | None = None) -> str:
     """The selected Windows entry files as one job's JSON object on one line, or empty when none is selected. The job
-    runs its entry files one after another, so its estimate is the sum of their estimates."""
-    units = selected_units(selection, suite_list, "windows", full_recording_scale("windows") if full else 1.0)
-    return json.dumps(shard_document(units, sum(estimate for _, _, estimate in units), suite_list, tools), separators=(",", ":")) if units else ""
+    runs its entry files one after another, so its estimate is the sum of their measured estimates."""
+    units = selected_units(selection, suite_list, "windows")
+    return json.dumps(shard_document(units, sum(estimate for _, _, estimate in units if estimate is not None), suite_list, tools, full=full),
+                      separators=(",", ":")) if units else ""
 
 
 # --- the push lookup and the reuse of passed results ------------------------------------------------------
@@ -1425,7 +849,14 @@ def identical_selection(suite_list: SuiteList, reason: str) -> Selection:
 
 
 def both_sides(first: Selection, second: Selection) -> Selection:
-    """The units that both selections run: a suite runs the entry files that both select."""
+    """The units that both selections run: a suite runs the entry files that both select.
+    If either side could not determine its changed files, every suite runs and ``undetermined`` is preserved."""
+    if first.undetermined is not None or second.undetermined is not None:
+        why = first.undetermined if first.undetermined is not None else second.undetermined
+        decisions = tuple(Decision(one.suite, True, f"the changed files could not be determined: {why}",
+                                   one.entries or other.entries, per_entry=one.per_entry or other.per_entry)
+                          for one, other in zip(first.decisions, second.decisions))
+        return Selection(decisions, (), why, tuple(dict.fromkeys([*first.started, *second.started])))
     decisions = []
     for one, other in zip(first.decisions, second.decisions):
         entries = tuple(entry for entry in one.entries if entry in set(other.entries)) if one.run and other.run else ()
@@ -1435,19 +866,106 @@ def both_sides(first: Selection, second: Selection) -> Selection:
                                       tuple(dict.fromkeys(one.definition_reads + other.definition_reads))))
         else:
             decisions.append(Decision(one.suite, False, "the pull request and the base since its tested base do not both affect it", per_entry=per_entry))
-    undetermined = first.undetermined if first.undetermined is not None and second.undetermined is not None else None
-    return Selection(tuple(decisions), first.unread, undetermined)
+    return Selection(tuple(decisions), first.unread, None)
+
+
+def unpassed_base_selection(first: Selection, second: Selection) -> Selection:
+    """Selection for a behind merge whose landing base has not passed: nothing the newer base can affect is taken over."""
+    if first.undetermined is not None or second.undetermined is not None:
+        why = first.undetermined if first.undetermined is not None else second.undetermined
+        decisions = tuple(Decision(one.suite, True, f"the changed files could not be determined: {why}",
+                                   one.entries or other.entries, per_entry=one.per_entry or other.per_entry)
+                          for one, other in zip(first.decisions, second.decisions))
+        return Selection(decisions, (), why, tuple(dict.fromkeys([*first.started, *second.started])))
+    decisions = []
+    for one, other in zip(first.decisions, second.decisions):
+        per_entry = one.per_entry or other.per_entry
+        if other.run:
+            overlap = one.run and bool(set(one.entries) & set(other.entries))
+            reason = (f"both sides (newer base has not passed): {one.reason}; {other.reason}"
+                      if overlap else f"the newer base has not passed: {other.reason}")
+            decisions.append(Decision(other.suite, True, reason, other.entries, per_entry,
+                                      tuple(dict.fromkeys(one.definition_reads + other.definition_reads))))
+        else:
+            reason = ("only the pull request's side selects it, which passed on its tested tree"
+                      if one.run else "neither the pull request nor the newer base affects it")
+            decisions.append(Decision(other.suite, False, reason, per_entry=per_entry))
+    return Selection(tuple(decisions), second.unread, None, second.started)
+
+
+def unit_digests(suite: Suite, setups: tuple[str, ...], digests: dict[str, str] | None,
+                 language_steps: tuple[str, ...] = ()) -> dict[str, str]:
+    """The shared CI digests that apply to one unit: its platform digest, the tool digest of each setup it states, and
+    the digest of any language step it uses."""
+    if not digests:
+        return {}
+    selected: dict[str, str] = {}
+    platform_key = f"platform:{suite.os}"
+    if platform_key in digests:
+        selected[platform_key] = digests[platform_key]
+    for setup in setups:
+        tool_key = f"tool:{setup}"
+        if tool_key in digests:
+            selected[tool_key] = digests[tool_key]
+    for step in language_steps:
+        lang_key = f"language:{step}"
+        if lang_key in digests:
+            selected[lang_key] = digests[lang_key]
+    return selected
+
+
+def select_for_moved_digests(selection: Selection, suite_list: SuiteList, moved: frozenset[str], reason: str,
+                             language_names: list[str]) -> tuple[Selection, bool]:
+    """Add to ``selection`` every unit and language step whose platform, tool or language-step digest is in ``moved``.
+    Returns the updated selection and whether any suite or language step is selected by the moved digests."""
+    by_name = {suite.name: suite for suite in suite_list.suites}
+    decisions: list[Decision] = []
+    any_selected = False
+    for decision in selection.decisions:
+        suite = by_name[decision.suite]
+        platform_key = f"platform:{suite.os}"
+        if platform_key in moved:
+            any_selected = True
+            decisions.append(Decision(suite.name, True, f"`{platform_key}` digest moved: {reason}", suite.entries, False, decision.definition_reads))
+            continue
+        affected: dict[str, str] = {}
+        for entry in suite.entries:
+            tool_key = next((f"tool:{setup}" for setup in suite.setups_of(entry) if f"tool:{setup}" in moved), None)
+            if tool_key is not None:
+                affected[entry] = tool_key
+        if not affected:
+            decisions.append(decision)
+            continue
+        any_selected = True
+        first_key = next(iter(affected.values()))
+        move_reason = f"`{first_key}` digest moved: {reason}"
+        if suite.entry_selection:
+            existing = set(decision.entries) if decision.run else set()
+            merged = tuple(entry for entry in suite.entries if entry in existing or entry in affected)
+            combined_reason = f"{decision.reason}; {move_reason}" if decision.run else move_reason
+            decisions.append(Decision(suite.name, True, combined_reason, merged, True, decision.definition_reads))
+        else:
+            combined_reason = f"{decision.reason}; {move_reason}" if decision.run else move_reason
+            decisions.append(Decision(suite.name, True, combined_reason, suite.entries, False, decision.definition_reads))
+    started = list(selection.started)
+    for name in language_names:
+        if f"language:{name}" in moved:
+            any_selected = True
+            if name not in started:
+                started.append(name)
+    return dataclasses.replace(selection, decisions=tuple(decisions), started=tuple(started)), any_selected
 
 
 def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dict[str, str], labels: dict[str, str],
-                shared_digest: str = "", *, ignore_content: dict, parts: Parts | None = None) -> list[KeyedUnit]:
+                shared_digests: dict[str, str] | None = None, *, ignore_content: dict, parts: Parts | None = None,
+                unit_language_steps: dict[str, tuple[str, ...]] | None = None) -> list[KeyedUnit]:
     """The keyed unit (``KeyedUnit``) of every running unit with a stored path list: a suite, or each entry
     file of a suite selected per entry file. The reads are the unit's patterns with the always-run patterns, its
     directory memberships and existence reads, and the files of the CI definition counted as read by its suite; for a
     suite selected as a whole also each of its entry files with its content, whether its lists match it or not;
-    ``shared_digest`` is the digest of the shared recording step, ``ignore_content`` the content of the ignore rules
-    (``reuse.Tree.ignore_content``) and ``parts`` the unrecorded parts of the tested tree (``unrecorded.parts``), of
-    which the key holds those of the unit."""
+    ``shared_digests`` holds the shared CI digests (from which each unit takes its platform, tool and language-step
+    digests), ``ignore_content`` the content of the ignore rules (``reuse.Tree.ignore_content``) and ``parts`` the
+    unrecorded parts of the tested tree (``unrecorded.parts``), of which the key holds those of the unit."""
     import reuse
     import unrecorded
 
@@ -1458,28 +976,38 @@ def reuse_units(selection: Selection, suite_list: SuiteList, tree, versions: dic
     for decision in selection.decisions:
         basis = by_basis[decision.suite]
         suite = basis.suite
-        if not decision.run or basis.patterns is None:
+        if not decision.run:
             continue
         always = suite_list.always + decision.definition_reads
-        groups = [(entry,) for entry in decision.entries if not suite.lacks_list(entry)] if suite.entry_selection else [decision.entries]
-        for entries in groups:  # an entry file without a stored list has unknown inputs, so no passed result of it is reused
+        groups = [(entry,) for entry in decision.entries] if suite.entry_selection else [decision.entries]
+        for entries in groups:
             setups = tuple(dict.fromkeys(setup for entry in entries for setup in suite.setups_of(entry)))
-            context = reuse.unit_context(suite.command, setups, versions, labels.get(suite.os, ""), shared_digest,
+            digests_for_unit = unit_digests(suite, setups, shared_digests, (unit_language_steps or {}).get(suite.name, ()))
+            context = reuse.unit_context(suite.command, setups, versions, labels.get(suite.os, ""), digests_for_unit,
                                          ignore_content=ignore_content, unrecorded=unrecorded.unit_content(parts, suite, entries))
-            reads = unit_reads(suite_list, basis, entries, always, tree, standard)
-            units.append(KeyedUnit(reuse.unit_key(reads, context), decision, entries, context, always))
+            unlisted = basis.patterns is None or (suite.entry_selection and suite.lacks_list(entries[0]))
+            if unlisted:
+                # A unit without a stored list has unknown inputs: emit it under a sentinel key that is never looked up
+                # or stored directly, so store --additions can key its pass under the applied suite list.
+                key = f"unlisted:{reuse.content_digest({'suite': suite.name, 'entries': list(entries)})}"
+            else:
+                reads = unit_reads(suite_list, basis, entries, always, tree, standard)
+                key = reuse.unit_key(reads, context)
+            units.append(KeyedUnit(key, decision, entries, context, always, unlisted))
     return units
 
 
 class KeyedUnit(NamedTuple):
-    """A running unit with a stored path list: its key, its suite's decision, its entry files, the part of its key that
-    the stored lists do not decide (``reuse.unit_context``) and the always-run patterns that it reads with its own."""
+    """A running unit: its key (or sentinel key when unlisted), its suite's decision, its entry files, the part of its
+    key that the stored lists do not decide (``reuse.unit_context``), the always-run patterns that it reads with its
+    own, and whether it lacks a stored list."""
 
     key: str
     decision: Decision
     entries: tuple[str, ...]
     context: str
     always: tuple[str, ...]
+    unlisted: bool = False
 
 
 def unit_reads(suite_list: SuiteList, basis: Basis, entries: tuple[str, ...], always: tuple[str, ...], tree, standard: frozenset[str]) -> dict:
@@ -1487,9 +1015,10 @@ def unit_reads(suite_list: SuiteList, basis: Basis, entries: tuple[str, ...], al
     selected per entry file its own lists, for a suite selected as a whole the suite's lists and each of its entry files
     with its content."""
     suite = basis.suite
+    unit_entry = entries[0] if suite.entry_selection else None
 
     def lookups(directories: tuple[str, ...]) -> list[tuple[str, frozenset[str]]]:
-        return [(directory, standard | frozenset(suite_list.lookups_in(directory))) for directory in directories]
+        return [(directory, standard | frozenset(suite_list.unit_lookups_in(suite, unit_entry, directory))) for directory in directories]
 
     if suite.entry_selection:
         entry = entries[0]
@@ -1530,12 +1059,18 @@ def applied_keys(units: dict, suite_list: SuiteList, tree) -> dict[str, str]:
     return keys
 
 
+def _unit_payload(unit: KeyedUnit) -> dict:
+    payload: dict = {"suite": unit.decision.suite, "entries": list(unit.entries), "context": unit.context, "always": list(unit.always)}
+    if unit.unlisted:
+        payload["unlisted"] = True
+    return payload
+
+
 def apply_reuse(selection: Selection, units: list[KeyedUnit], record: dict[str, int]) -> tuple[Selection, dict, dict]:
     """The selection without the units whose key has a passed result, the running units by key with what ``store``
     needs to key them under applied additions, and the reused keys with the run each passed in."""
-    reused = {unit.key: record[unit.key] for unit in units if unit.key in record}
-    running = {unit.key: {"suite": unit.decision.suite, "entries": list(unit.entries), "context": unit.context, "always": list(unit.always)}
-               for unit in units if unit.key not in record}
+    reused = {unit.key: record[unit.key] for unit in units if not unit.unlisted and unit.key in record}
+    running = {unit.key: _unit_payload(unit) for unit in units if unit.key not in reused}
     dropped: dict[str, list[tuple[str, int]]] = {}
     for key, decision, entries, *_ in units:
         if key in reused:
@@ -1601,16 +1136,7 @@ def entries_note(decision: Decision) -> str:
     return "; entries: " + ", ".join(f"`{entry}`" for entry in decision.entries)
 
 
-# --- the verdict ----------------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Verdict:
-    passed: bool
-    reasons: tuple[str, ...]  # why the verdict fails; empty when it passes
-    jobs: tuple[tuple[str, str], ...]  # every job of the needs context with its result
-    suites: tuple[tuple[str, str], ...] | None  # the selection's decisions, or None when the output is missing
-    note: str | None = None  # a remark for the summary, such as a missing selection output
+# --- needs context parsing ------------------------------------------------------------------------------------
 
 
 def parse_needs(text: str) -> dict:
@@ -1624,60 +1150,6 @@ def parse_needs(text: str) -> dict:
         if not isinstance(job, dict) or not isinstance(job.get("result"), str):
             raise VerdictError(f"the needs context entry {name} must be an object with a string result")
     return raw
-
-
-def verdict(needs: dict) -> Verdict:
-    """Fail when ``select`` is not a success or any other job ended failure or cancelled; otherwise pass."""
-    jobs = tuple((name, job["result"]) for name, job in needs.items())
-    reasons: list[str] = []
-    suites: tuple[tuple[str, str], ...] | None = None
-    note: str | None = None
-    selection_job = needs.get(SELECTION_JOB)
-    if selection_job is None:
-        reasons.append(f"the needs context has no `{SELECTION_JOB}` job")
-    elif selection_job["result"] != "success":
-        reasons.append(f"`{SELECTION_JOB}` ended {selection_job['result']}")
-    if selection_job is not None:
-        outputs = selection_job.get("outputs")
-        raw = outputs.get("suites") if isinstance(outputs, dict) else None
-        try:
-            decoded = json.loads(raw) if isinstance(raw, str) and raw else None
-        except json.JSONDecodeError:
-            decoded = None
-        if isinstance(decoded, dict) and all(isinstance(value, str) for value in decoded.values()):
-            suites = tuple(decoded.items())
-        else:
-            note = f"the `{SELECTION_JOB}` job has no `suites` output to list"
-    for name, result in jobs:
-        if name != SELECTION_JOB and result in FAILING_RESULTS:
-            reasons.append(f"`{name}` ended {result}")
-    return Verdict(not reasons, tuple(reasons), jobs, suites, note)
-
-
-def verdict_markdown(outcome: Verdict) -> str:
-    lines = ["## Validation verdict", ""]
-    if outcome.passed:
-        lines.append("**Passed.** The selection succeeded and no called job ended failure or cancelled.")
-    else:
-        lines.append("**Failed.** " + "; ".join(outcome.reasons) + ".")
-    if outcome.suites is not None:
-        lines += ["", "| Suite | Decision |", "| --- | --- |"]
-        lines += [f"| `{name}` | {decision} |" for name, decision in outcome.suites]
-    elif outcome.note:
-        lines += ["", outcome.note + "."]
-    lines += ["", "| Job | Result |", "| --- | --- |"]
-    lines += [f"| `{name}` | {result} |" for name, result in outcome.jobs]
-    return "\n".join(lines) + "\n"
-
-
-def verdict_text(outcome: Verdict) -> str:
-    lines = ["Verdict: " + ("passed" if outcome.passed else "failed: " + "; ".join(outcome.reasons))]
-    if outcome.suites is not None:
-        lines += [f"{name}: {decision}" for name, decision in outcome.suites]
-    elif outcome.note:
-        lines.append(outcome.note)
-    lines += [f"job {name}: {result}" for name, result in outcome.jobs]
-    return "\n".join(lines) + "\n"
 
 
 # --- the commands --------------------------------------------------------------------------------------------
@@ -1705,6 +1177,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
                            help="the full recording: every entry file, in shards bounded by their wide-traced time")
     selecting.add_argument("--lookup", type=Path, help="the push lookup of a push or dispatch run, from the lookup command")
     selecting.add_argument("--results", type=Path, help="the record of passed results from the pull request's cache; the file may be missing")
+    selecting.add_argument("--default-record", type=Path, help="the default-branch record from the default branch's cache scope; the file may be missing")
     selecting.add_argument("--run-attempt", type=int, default=1, help="github.run_attempt; above 1 no earlier result is reused")
     selecting.add_argument("--runner-label", action="append", default=[], help="<os>=<label> of the job that runs that system's units (repeatable)")
     selecting.add_argument("--setup-version", action="append", default=[], help="<setup>=<version> that a setup pins (repeatable)")
@@ -1712,23 +1185,31 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     selecting.add_argument("--pinned-tool", action="append", default=[], choices=PINNED_TOOLS,
                            help="a pinned tool that the configuration file names under pinned-tools (repeatable)")
     selecting.add_argument("--pins", type=Path, help="the pins file that holds the version of each pinned tool; needed with --pinned-tool")
+    selecting.add_argument("--unit-decisions", type=Path, help="write the per-unit run/skip/reused decisions as JSON for plan.py")
     looking = commands.add_parser("lookup", help="find the tested tree of a pushed commit's pull request")
     looking.add_argument("--root", type=Path, required=True)
     looking.add_argument("--sha", required=True, help="the pushed commit, or client_payload.sha of a dependabot-merged run")
     looking.add_argument("--before", default="", help="the previous head of the push; empty for a dispatch run")
     looking.add_argument("--workflow", required=True, help="the calling workflow: its repository path, or github.workflow_ref")
     looking.add_argument("--run-attempt", type=int, default=1, help="github.run_attempt")
+    looking.add_argument("--default-record", type=Path, help="the restored default-branch record; used to check whether the landing base passed")
     looking.add_argument("--output", type=Path, required=True, help="write the lookup as JSON to this file")
     looking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
-    shared_parser = commands.add_parser("shared-lookup", help="find the digest of the shared recording step of the last passed run on the base branch")
-    shared_parser.add_argument("--digest", required=True, help="the digest of the shared recording step that this run took")
-    shared_parser.add_argument("--root", type=Path, required=True, help="the checkout whose first-parent history of the base branch the lookup walks")
-    shared_parser.add_argument("--branch", required=True, help="the base branch: the pull request's base, or the pushed branch")
-    shared_parser.add_argument("--default-branch", default="", help="the default branch; on a pull request whose base differs from it, the "
-                               "lookup compares with the passed pull-request run of the base's tip, or else with the default branch")
-    shared_parser.add_argument("--pushed", default="", help="the pushed commit of a push or dispatch run, whose first parent starts the walk; "
-                               "empty to start at the fetched tip origin/<branch>")
-    shared_parser.add_argument("--workflow", required=True, help="the calling workflow: its repository path, or github.workflow_ref")
+    writing_state = commands.add_parser("tested-state", help="write the structured tested-state JSON of a pull-request merge checkout")
+    writing_state.add_argument("--root", type=Path, required=True)
+    writing_state.add_argument("--pull-request", type=int, required=True)
+    writing_state.add_argument("--run-id", type=int, required=True)
+    writing_state.add_argument("--run-attempt", type=int, default=1)
+    writing_state.add_argument("--digests", default="", help="the shared CI digests JSON taken in the run, or empty")
+    writing_state.add_argument("--output", type=Path, required=True)
+    shared_parser = commands.add_parser("shared-lookup", help="compare the shared CI digests with the restored default-branch record")
+    shared_parser.add_argument("--digests", required=True, help="the shared CI digests JSON that this run took")
+    shared_parser.add_argument("--root", type=Path, default=Path("."), help="the checkout directory")
+    shared_parser.add_argument("--default-record", type=Path, help="the restored default-branch record; may be missing")
+    shared_parser.add_argument("--branch", default="", help="deprecated; kept for caller compatibility")
+    shared_parser.add_argument("--default-branch", default="", help="deprecated; kept for caller compatibility")
+    shared_parser.add_argument("--pushed", default="", help="deprecated; kept for caller compatibility")
+    shared_parser.add_argument("--workflow", default="", help="deprecated; kept for caller compatibility")
     shared_parser.add_argument("--output", type=Path, required=True, help="write the shared lookup as JSON to this file")
     shared_parser.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     storing = commands.add_parser("store", help="write the record of the passed results of a run")
@@ -1740,13 +1221,14 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     storing.add_argument("--github-output", type=Path, help="append stored=true or stored=false to this file")
     storing.add_argument("--additions", type=Path, help="a directory with the additions documents of the run's jobs")
     storing.add_argument("--root", type=Path, help="with --additions: the checkout of the tested tree")
+    storing.add_argument("--default-branch", action="store_true", help="write the structured default-branch record for a passed default-branch run")
+    storing.add_argument("--commit", default="", help="with --default-branch: the 40-character commit SHA tested on the default branch")
+    storing.add_argument("--tree", default="", help="with --default-branch: the 40-character Git tree SHA tested on the default branch")
+    storing.add_argument("--digests", default="", help="with --default-branch: the shared CI digests JSON taken in the run")
     checking = commands.add_parser("check-dispatch", help="fail unless client_payload.sha of a dependabot-merged run is a commit on the default branch")
     checking.add_argument("--root", type=Path, required=True, help="the checkout, with the default branch fetched as origin/<branch>")
     checking.add_argument("--sha", required=True, help="client_payload.sha of the dependabot-merged run")
     checking.add_argument("--branch", required=True, help="the default branch")
-    deciding = commands.add_parser("verdict", help="pass or fail on the results of the selection and the called jobs")
-    deciding.add_argument("--needs", type=Path, required=True, help="a file with the caller's needs context as JSON")
-    deciding.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
     options = parser.parse_args(argv)
     if options.command == "select":
         from_list = bool(options.changed_file or options.changed_list)
@@ -1779,21 +1261,37 @@ def run_select(options: argparse.Namespace) -> int:
     root = options.root.resolve()
     tracked = tracked_files(root)
     suite_list = resolve_entries(load_suite_list(options.suites), tracked, str(options.suites))
-    suite_list = with_pinned_tools(suite_list, options.pinned_tool, options.pins, str(options.suites))
+    suite_list = with_pinned_tools(suite_list, options.pinned_tool, options.pins, str(options.suites), root=root)
     if options.full:
         return write_selection(options, suite_list, every_suite(suite_list, FULL_REASON), [], full=True)
     found = sides = None
     identical = False
+    fallbacks: dict[str, int] = {}
+
+    def count_fallback(reason: str, detail: str | None = None, *, emit: bool = True) -> None:
+        import reuse as _reuse
+
+        fallbacks[reason] = fallbacks.get(reason, 0) + 1
+        if emit and detail is not None:
+            print(_reuse.fallback_notice(reason, detail))
+
     if options.lookup is not None:
         with record_errors() as reuse:
             found = reuse.read_lookup(options.lookup)
+        if found.fallback:
+            count_fallback(found.fallback, emit=False)
         if found.case == "identical":
             identical = True
             changed, selection = [], identical_selection(suite_list, f"the tree equals the tested tree that passed on pull request #{found.pull_request}")
         elif found.case == "behind":
             sides = [selection_between(options, root, tracked, suite_list, found.landing_base, found.head),
                      selection_between(options, root, tracked, suite_list, found.tested_base, found.landing_base)]
-            changed, selection = sides[0][0], both_sides(sides[0][1], sides[1][1])
+            if found.landing_base_passed is True:
+                changed, selection = sides[0][0], both_sides(sides[0][1], sides[1][1])
+            else:
+                if not found.fallback:
+                    count_fallback("unpassed-landing-base", f"landing base {found.landing_base} has no passed default-branch record")
+                changed, selection = sides[1][0], unpassed_base_selection(sides[0][1], sides[1][1])
         else:
             changed, selection = selection_between(options, root, tracked, suite_list, found.landing_base or "", found.head)
     elif options.base is not None:
@@ -1804,20 +1302,36 @@ def run_select(options: argparse.Namespace) -> int:
             changed += [line.strip().replace("\\", "/") for line in options.changed_list.read_text(encoding="utf-8").splitlines() if line.strip()]
         changed = sorted(set(changed))
         selection = selected_on(options, root, tracked, suite_list, changed, None, None, None)
+    if selection.undetermined is not None:
+        count_fallback("changed-files-unknown", selection.undetermined)
     shared_lookup = None
     if options.shared_lookup is not None:
         with record_errors() as reuse:
             shared_lookup = reuse.read_shared_lookup(options.shared_lookup)
-        tested = reuse.tested_digest(found)
-        if tested is not None:
-            if tested != shared_lookup.digest:
-                identical = False
-                selection = every_suite(suite_list, f"every suite runs: {reuse.tested_reason(found, shared_lookup.digest)}")
-        elif shared_lookup.moved:
+        if reuse.uses_tested_digests(found):
+            if found.tested_digests is None:
+                moved = None
+                why = reuse.tested_reason(found, shared_lookup.digests)
+                count_fallback("unreadable-tested-digests", why)
+            else:
+                moved = shared_lookup.moved_digests(found.tested_digests, use_given=True)
+                why = reuse.tested_reason(found, shared_lookup.digests)
+        else:
+            if shared_lookup.fallback:
+                count_fallback(shared_lookup.fallback, emit=False)
+            moved = shared_lookup.moved_digests()
+            why = shared_lookup.reason
+        if moved is None:
             identical = False
-            selection = every_suite(suite_list, f"every suite runs: {shared_lookup.reason}")
-    running = reused = None
-    if options.results is not None:
+            selection = every_suite(suite_list, f"every suite runs: {why}")
+            if options.language_step:
+                selection = dataclasses.replace(selection, started=tuple(dict.fromkeys(list(selection.started) + list(options.language_step))))
+        elif moved:
+            selection, affected = select_for_moved_digests(selection, suite_list, moved, why, options.language_step)
+            if affected:
+                identical = False
+    running = reused = reused_units = None
+    if options.results is not None or options.default_record is not None:
         labels, versions = _pairs(options.runner_label, "--runner-label"), _pairs(options.setup_version, "--setup-version")
         if suite_list.setups is not None or suite_list.jobs:
             # The suite list states its jobs and setups as data: the key holds each job and each setup as stated, with
@@ -1830,27 +1344,93 @@ def run_select(options: argparse.Namespace) -> int:
         versions = {tool.name: tool.pin for tool in suite_list.pinned} | versions
         with record_errors() as reuse:
             tree = reuse.Tree(reuse.tree_entries(root), matches)
-            units = reuse_units(selection, suite_list, tree, versions, labels, shared_lookup.digest if shared_lookup is not None else "",
-                                ignore_content=tree.ignore_content(ignore_rules(root, "HEAD", tree.files)),
-                                parts=tested_parts(options, root, tree.files, suite_list))
-            record = reuse.read_record(options.results) if options.run_attempt <= 1 else {}
-        selection, running, reused = apply_reuse(selection, units, record)
+            ignore_content = tree.ignore_content(ignore_rules(root, "HEAD", tree.files))
+            parts = tested_parts(options, root, tree.files, suite_list)
+            digests_map = shared_lookup.digests if shared_lookup is not None else None
+            default_rec = None
+            if options.default_record is not None:
+                default_rec, default_fb, default_detail = reuse.read_default_record(options.default_record)
+                if default_fb is not None and default_fb not in fallbacks:
+                    count_fallback(default_fb, default_detail)
+            if options.results is not None:
+                units = reuse_units(selection, suite_list, tree, versions, labels, digests_map,
+                                    ignore_content=ignore_content, parts=parts)
+                if options.run_attempt <= 1:
+                    pr_record, pr_fb, pr_detail = reuse.read_pr_record_safe(options.results)
+                    if pr_fb is not None:
+                        count_fallback(pr_fb, pr_detail)
+                    default_passed = default_rec.passed if default_rec is not None else {}
+                    record = {**default_passed, **pr_record}
+                else:
+                    record = {}
+                selection, running, reused = apply_reuse(selection, units, record)
+                reused_units = {unit.key: _unit_payload(unit) for unit in units if unit.key in reused}
+            else:
+                units = reuse_units(selection, suite_list, tree, versions, labels, digests_map,
+                                    ignore_content=ignore_content, parts=parts)
+                running = {unit.key: _unit_payload(unit) for unit in units}
+                reused_units = {}
+                all_units = reuse_units(every_suite(suite_list, ""), suite_list, tree, versions, labels, digests_map,
+                                        ignore_content=ignore_content, parts=parts)
+                carried: dict[str, int] = {}
+                for unit in all_units:
+                    if unit.unlisted or unit.key in running:
+                        continue
+                    if default_rec is not None and unit.key in default_rec.passed:
+                        carried[unit.key] = default_rec.passed[unit.key]
+                    elif found is not None and found.case == "identical" and found.tested_run is not None:
+                        carried[unit.key] = found.tested_run
+                    elif (found is not None and found.case == "behind" and found.tested_run is not None and sides is not None):
+                        pr_side = {d.suite: set(d.entries) for d in sides[0][1].decisions if d.run}
+                        base_side = {d.suite: set(d.entries) for d in sides[1][1].decisions if d.run}
+                        if all(e in pr_side.get(unit.decision.suite, set()) and e not in base_side.get(unit.decision.suite, set())
+                               for e in unit.entries):
+                            carried[unit.key] = found.tested_run
+                reused = carried
     steps = None
     if sides is not None:
-        steps = {name: "run" if all(language_steps([name], side, files)[name] == "run" for files, side in sides) else "skip"
-                 for name in options.language_step}
-    write_selection(options, suite_list, selection, changed, steps=steps)
+        if sides[0][1].undetermined is not None or sides[1][1].undetermined is not None:
+            steps = {name: "run" for name in options.language_step}
+        elif found is not None and found.landing_base_passed is True:
+            steps = {name: "run" if (name in selection.started or all(language_steps([name], side, files)[name] == "run" for files, side in sides)) else "skip"
+                     for name in options.language_step}
+        else:
+            steps = {name: "run" if (name in selection.started or language_steps([name], sides[1][1], sides[1][0])[name] == "run") else "skip"
+                     for name in options.language_step}
+    effective_steps = steps if steps is not None else language_steps(options.language_step, selection, changed)
+    planned_shards: list[dict] | None = None
+    planned_windows: str | None = None
+    planned_departures: list[tuple[int, str]] | None = None
+    if options.json_output is not None or options.summary is not None or options.unit_decisions is not None:
+        assigned, planned_departures = plan_linux_shards(selection, suite_list, effective_steps, False)
+        if options.json_output is not None or options.unit_decisions is not None:
+            tools = tool_versions(suite_list, root)
+            planned_shards = _shards_document(assigned, suite_list, effective_steps, False, tools)
+            planned_windows = windows_json(selection, suite_list, False, tools)
+    write_selection(options, suite_list, selection, changed, steps=effective_steps,
+                    planned=(planned_shards, planned_windows, planned_departures))
+    if options.unit_decisions is not None:
+        assert planned_shards is not None and planned_windows is not None
+        options.unit_decisions.parent.mkdir(parents=True, exist_ok=True)
+        pr_reused = (reused or {}) if options.results is not None else {}
+        doc = unit_decisions_document(suite_list, selection, pr_reused, identical, planned_shards, planned_windows)
+        doc["fallbacks"] = dict(sorted(fallbacks.items()))
+        options.unit_decisions.write_text(json.dumps(doc, separators=(",", ":")) + "\n", encoding="utf-8")
     if options.json_output is not None and running is not None:
         with options.json_output.open("a", encoding="utf-8") as handle:
             handle.write(f"units={json.dumps(running, separators=(',', ':'))}\n")
             handle.write(f"reused={json.dumps(reused, separators=(',', ':'))}\n")
+            handle.write(f"reused-units={json.dumps(reused_units or {}, separators=(',', ':'))}\n")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
             if found is not None:
                 handle.write("\n" + reuse.lookup_markdown(found))
             if shared_lookup is not None:
                 handle.write("\n" + reuse.shared_markdown(shared_lookup, found))
-            if options.results is not None and options.run_attempt > 1:
+            if fallbacks:
+                counts = ", ".join(f"`{name}` ({count})" for name, count in sorted(fallbacks.items()))
+                handle.write(f"\nFallbacks: {counts}.\n")
+            if (options.results is not None or options.default_record is not None) and options.run_attempt > 1:
                 handle.write(f"\nAttempt {options.run_attempt} is a re-run: it reuses no earlier result.\n")
     # The last write: a step that fails before it leaves the output unset.
     if options.json_output is not None and identical:
@@ -1876,6 +1456,8 @@ def selected_on(options: argparse.Namespace, root: Path, tracked, suite_list: Su
         try:
             definition = ci_definition.ci_definition(root, workflow_path(options.workflow), list_path(options, root), tracked)
         except ci_definition.WorkflowReadError as error:
+            if "unsupported suite-selection condition" in str(error):
+                return every_suite(suite_list, f"every suite runs: {error}")
             raise SuiteListError(f"the CI definition could not be read: {error}") from error
         workflow = definition[0].pattern if definition else None
         if workflow is not None and workflow in changed and previous is not None:
@@ -1883,7 +1465,10 @@ def selected_on(options: argparse.Namespace, root: Path, tracked, suite_list: Su
             # suites run instead of every suite.
             before, after = revision_text(root, previous, workflow), revision_text(root, head, workflow)
             if before is not None and after is not None:
-                gate = ci_definition.changed_step_gate(before, after)
+                try:
+                    gate = ci_definition.changed_step_gate(before, after)
+                except ci_definition.WorkflowReadError as error:
+                    return every_suite(suite_list, f"every suite runs: {error}")
                 if gate is not None:
                     workflow_steps = (workflow, gate)
     previous_tracked = revision_files(root, previous) if previous is not None and changed is not None else None
@@ -1935,7 +1520,8 @@ def differs_in_estimates_only(before: str | None, after: str | None) -> bool:
 
     def without_estimates(text: str) -> dict:
         raw = json.loads(text)
-        return {**raw, "suites": [{key: value for key, value in suite.items() if key != "entry_durations"} for suite in raw["suites"]]}
+        return {**{key: value for key, value in raw.items() if key != "entry_durations_version"},
+                "suites": [{key: value for key, value in suite.items() if key != "entry_durations"} for suite in raw["suites"]]}
     return without_estimates(before) == without_estimates(after)
 
 
@@ -2000,28 +1586,80 @@ def tested_parts(options: argparse.Namespace, root: Path, tracked: frozenset[str
     return unrecorded.parts(unrecorded.Side(root, "HEAD", tracked), calling_workflow(options), unrecorded.entry_units(suite_list))
 
 
+def unit_decisions_document(suite_list: SuiteList, selection: Selection, reused: dict, identical: bool,
+                            shards: list, windows: str) -> dict:
+    """Per-unit run/reused/reason decisions and part summary for ``plan.py plan --unit-decisions``."""
+    suites_by_name = {suite.name: suite for suite in suite_list.suites}
+    unit_map: dict[str, dict] = {}
+    for decision in selection.decisions:
+        suite = suites_by_name.get(decision.suite)
+        if decision.run and suite is not None and suite.entry_selection and decision.entries:
+            for entry in decision.entries:
+                unit_map[f"{decision.suite}:{entry}"] = {"run": True, "reason": decision.reason}
+        else:
+            row: dict = {"run": decision.run, "reason": decision.reason}
+            if not decision.run and (identical or "reuses the passed result" in decision.reason):
+                row["reused"] = True
+            unit_map[decision.suite] = row
+    jobs_planned = bool(shards) or bool(windows)
+    if jobs_planned:
+        parts = []
+        if shards:
+            parts.append(f"{len(shards)} Linux shard{'' if len(shards) == 1 else 's'}")
+        if windows:
+            parts.append("Windows")
+        reason = " and ".join(parts)
+        if reused:
+            count = len(reused)
+            reason += f"; {count} passed unit{'' if count == 1 else 's'} taken over"
+        document: dict = {"run": True, "reused": False, "reason": reason, "units": unit_map}
+        if shards:
+            document["shards"] = [{"shard": int(item["shard"]), "estimate": float(item["estimate"])} for item in shards]
+        return document
+    if identical:
+        reason = selection.decisions[0].reason if selection.decisions else "the tree equals a passed tested tree"
+        return {"run": False, "reused": True, "reason": reason, "units": unit_map}
+    if reused:
+        count = len(reused)
+        return {"run": False, "reused": True, "reason": f"{count} passed unit{'' if count == 1 else 's'} taken over", "units": unit_map}
+    return {"run": False, "reused": False, "reason": "no suites selected", "units": unit_map}
+
+
 def write_selection(options: argparse.Namespace, suite_list: SuiteList, selection: Selection, changed: list[str] | None,
-                    full: bool = False, steps: dict[str, str] | None = None) -> int:
+                    full: bool = False, steps: dict[str, str] | None = None,
+                    planned: tuple[list[dict] | None, str | None, list[tuple[int, str]] | None] | None = None) -> int:
     sys.stdout.write(text_report(selection, changed))
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(github_outputs(selection, suite_list))
-    if options.json_output is not None:
-        with options.json_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"suites={suites_json(selection)}\n")
-            if any(suite.entry_selection for suite in suite_list.suites):
-                handle.write(f"entries={entries_json(selection, suite_list)}\n")
-            if steps is None:
-                steps = language_steps(options.language_step, selection, changed)
-            if options.language_step:
-                handle.write(f"language-steps={json.dumps(steps, separators=(',', ':'))}\n")
-            tools = tool_versions(suite_list, options.root.resolve())
-            handle.write(f"shards={shards_json(selection, suite_list, steps, full, tools)}\n")
-            handle.write(f"windows={windows_json(selection, suite_list, full, tools)}\n")
-            handle.write(f"jobs={json.dumps({name: suite_list.job(name) for name in OPERATING_SYSTEMS}, separators=(',', ':'))}\n")
+    departures: list[tuple[int, str]] = []
+    if options.json_output is not None or options.summary is not None:
+        effective_steps = steps if steps is not None else language_steps(options.language_step, selection, changed)
+        if planned is not None:
+            shards_doc, windows_doc, planned_departures = planned
+            departures = planned_departures or []
+        else:
+            assigned, departures = plan_linux_shards(selection, suite_list, effective_steps, full)
+            shards_doc = windows_doc = None
+            if options.json_output is not None:
+                tools = tool_versions(suite_list, options.root.resolve())
+                shards_doc = _shards_document(assigned, suite_list, effective_steps, full, tools)
+                windows_doc = windows_json(selection, suite_list, full, tools)
+        report_shard_departures(departures)
+        if options.json_output is not None:
+            assert shards_doc is not None and windows_doc is not None
+            with options.json_output.open("a", encoding="utf-8") as handle:
+                handle.write(f"suites={suites_json(selection)}\n")
+                if any(suite.entry_selection for suite in suite_list.suites):
+                    handle.write(f"entries={entries_json(selection, suite_list)}\n")
+                if options.language_step:
+                    handle.write(f"language-steps={json.dumps(effective_steps, separators=(',', ':'))}\n")
+                handle.write(f"shards={json.dumps(shards_doc, separators=(',', ':'))}\n")
+                handle.write(f"windows={windows_doc}\n")
+                handle.write(f"jobs={json.dumps({name: suite_list.job(name) for name in OPERATING_SYSTEMS}, separators=(',', ':'))}\n")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
-            handle.write(summary_markdown(selection, changed))
+            handle.write(summary_markdown(selection, changed) + shard_departures_summary(departures))
     return 0
 
 
@@ -2029,8 +1667,11 @@ def run_lookup(options: argparse.Namespace) -> int:
     import reuse
 
     found = reuse.lookup(options.root.resolve(), reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.sha,
-                         options.before, options.run_attempt)
+                         options.before, options.run_attempt, options.default_record)
+    options.output.parent.mkdir(parents=True, exist_ok=True)
     options.output.write_text(json.dumps(found.document(), indent=2) + "\n", encoding="utf-8")
+    if found.fallback:
+        print(reuse.fallback_notice(found.fallback, found.reason))
     print(f"{found.case}: {found.reason}")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
@@ -2038,14 +1679,33 @@ def run_lookup(options: argparse.Namespace) -> int:
     return 0
 
 
+def run_write_tested_state(options: argparse.Namespace) -> int:
+    import reuse
+
+    digests = reuse.parse_digests(options.digests) if options.digests else None
+    if options.digests and digests is None:
+        raise SuiteListError("--digests must be a non-empty JSON object from digest name to 64-character hex SHA-256")
+    try:
+        state = reuse.write_tested_state(options.root.resolve(), options.pull_request, options.run_id, options.run_attempt, digests, options.output)
+    except reuse.RecordError as error:
+        raise SuiteListError(str(error)) from error
+    print(f"Wrote tested state for pull request #{state['pull_request']} merge {state['tested_merge']}.")
+    return 0
+
+
 def run_shared_lookup(options: argparse.Namespace) -> int:
     import reuse
 
-    found = reuse.shared_lookup(options.root.resolve(), reuse.environment_api(), Path(workflow_path(options.workflow)).name, options.branch,
-                                options.digest, options.pushed or None, options.default_branch or None)
+    digests = reuse.parse_digests(options.digests)
+    if digests is None:
+        raise SuiteListError("--digests must be a non-empty JSON object from digest name to 64-character hex SHA-256")
+    found = reuse.shared_lookup(digests, options.default_record)
+    options.output.parent.mkdir(parents=True, exist_ok=True)
     options.output.write_text(json.dumps(found.document(), indent=2) + "\n", encoding="utf-8")
     for line in found.log:
         print(line)
+    if found.fallback:
+        print(reuse.fallback_notice(found.fallback, found.reason))
     print(f"{'moved' if found.moved else 'unchanged'}: {found.reason}")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
@@ -2070,7 +1730,11 @@ def keys_under_additions(root: Path, additions: Path, units: dict) -> tuple[dict
             return None, set(), f"No key under the additions: {document} cannot be read: {error}."
         paths.add(raw.get("suite_list") if isinstance(raw, dict) else None)
         for item in raw.get("suites", []) if isinstance(raw, dict) and isinstance(raw.get("suites"), list) else []:
-            entries = (item.get("entries") if "entries" in item else item.get("recorded_entries")) if isinstance(item, dict) else None
+            if not isinstance(item, dict):
+                continue
+            entries = item.get("entries") if "entries" in item else (
+                item.get("recorded_entries") if "reads" in item or item.get("create") else None
+            )
             if isinstance(entries, (dict, list)):
                 named |= {(item.get("suite"), entry) for entry in entries if isinstance(entry, str)}
     if len(paths) != 1 or not all(isinstance(path, str) and path for path in paths):
@@ -2100,10 +1764,32 @@ def run_store(options: argparse.Namespace) -> int:
     try:
         needs = parse_needs(options.needs.read_text(encoding="utf-8"))
         passed, with_additions = reuse.read_passed(options.passed)
+        if options.default_branch:
+            if not FULL_COMMIT_ID.fullmatch(options.commit):
+                raise SuiteListError("--default-branch requires --commit as a 40-character lowercase hex SHA")
+            if not FULL_COMMIT_ID.fullmatch(options.tree):
+                raise SuiteListError("--default-branch requires --tree as a 40-character lowercase hex SHA")
+            digests = reuse.parse_digests(options.digests) if options.digests else None
+            if options.digests and digests is None:
+                raise SuiteListError("--digests must be a non-empty JSON object from digest name to 64-character hex SHA-256")
+            default_record = reuse.store_default_branch(needs, passed, options.run_id, options.commit, options.tree, digests, options.selection_job)
+            if default_record is None:
+                print("Nothing to store: the default-branch run did not pass or was cancelled.")
+                stored = False
+            else:
+                options.output.parent.mkdir(parents=True, exist_ok=True)
+                options.output.write_text(json.dumps(default_record.document(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                print(f"Stored default-branch record for {default_record.commit} with {len(default_record.passed)} passed result{'' if len(default_record.passed) == 1 else 's'}.")
+                stored = True
+            if options.github_output is not None:
+                with options.github_output.open("a", encoding="utf-8") as handle:
+                    handle.write(f"stored={'true' if stored else 'false'}\n")
+            return 0
         applied, named = None, set()
         units, _ = reuse.selection_outputs(needs, options.selection_job)
+        reused_units = reuse.reused_unit_outputs(needs, options.selection_job)
         if options.additions is not None and units is not None:
-            applied, named, note = keys_under_additions(options.root.resolve(), options.additions, units)
+            applied, named, note = keys_under_additions(options.root.resolve(), options.additions, units | reused_units)
             print(note)
         # A marked entry file whose additions no downloaded document names, as after a failed upload of its job's
         # additions, would be keyed under lists without them: it counts as not passed.
@@ -2112,7 +1798,7 @@ def run_store(options: argparse.Namespace) -> int:
     except reuse.RecordError as error:
         raise SuiteListError(str(error)) from error
     if record is None:
-        print("Nothing to store: the selection did not succeed.")
+        print("Nothing to store: the selection did not succeed or the run was cancelled.")
     else:
         options.output.parent.mkdir(parents=True, exist_ok=True)
         options.output.write_text(json.dumps({"passed": record}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -2152,24 +1838,15 @@ def run_check_dispatch(options: argparse.Namespace) -> int:
     return 0
 
 
-def run_verdict(options: argparse.Namespace) -> int:
-    outcome = verdict(parse_needs(options.needs.read_text(encoding="utf-8")))
-    sys.stdout.write(verdict_text(outcome))
-    if options.summary is not None:
-        with options.summary.open("a", encoding="utf-8") as handle:
-            handle.write(verdict_markdown(outcome))
-    return 0 if outcome.passed else 1
-
-
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
     try:
         if options.command == "select":
             return run_select(options)
-        if options.command == "verdict":
-            return run_verdict(options)
         if options.command == "lookup":
             return run_lookup(options)
+        if options.command == "tested-state":
+            return run_write_tested_state(options)
         if options.command == "shared-lookup":
             return run_shared_lookup(options)
         if options.command == "check-dispatch":

@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The run's head $HEAD_SHA is no commit id."; exit 1; }
           head_branch="$HEAD_BRANCH" head_sha="$HEAD_SHA" subject="${HEAD_MESSAGE%%$'\n'*}"
-          # Begin: the condition under which the rebuild workflow acts on the run, equal in rebuild-etw-consumer.yml and automation.yml.
+          # Begin: the condition under which the rebuild workflow acts on the run, equal in plan and comment.
           rebuild=false
           rebuild_pull_request=""
           if [[ "$head_branch" != dependabot/* ]]; then
@@ -115,11 +115,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/additions"
-          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name | startswith("recording-additions-")) | .name')"
-          while IFS= read -r name; do
-            [ -n "$name" ] || continue
-            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$name" --dir "$RUNNER_TEMP/additions/$name"
-          done <<<"$names"
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.expired | not) | .name')"
+          if grep -q '^recording-additions-' <<<"$names"; then
+            while IFS= read -r name; do
+              case "$name" in
+                recording-additions-*|recording-entry-times-*)
+                  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$name" --dir "$RUNNER_TEMP/additions/$name"
+                  ;;
+              esac
+            done <<<"$names"
+          fi
       - name: Apply the additions to the suite list and replace the consumer's build with the rebuild
         run: |
           set -euo pipefail
@@ -232,7 +237,7 @@ jobs:
           [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::The run id $RUN_ID is no number."; exit 1; }
           # The plan job's condition, evaluated again: also after a failed plan job, and false once the branch moved since the run.
           head_branch="$HEAD_BRANCH" head_sha="$HEAD_SHA" subject="${HEAD_MESSAGE%%$'\n'*}"
-          # Begin: the condition under which the rebuild workflow acts on the run, equal in rebuild-etw-consumer.yml and automation.yml.
+          # Begin: the condition under which the rebuild workflow acts on the run, equal in plan and comment.
           rebuild=false
           rebuild_pull_request=""
           if [[ "$head_branch" != dependabot/* ]]; then
@@ -265,8 +270,7 @@ jobs:
           fence="$(printf '\140\140\140')"
           {
             printf 'The rebuild workflow did not commit a rebuilt ETW consumer onto this branch: [its workflow run](%s) failed or was cancelled.\n\n' "$WORKFLOW_RUN_URL"
-            printf 'The additions workflow leaves the recorded additions of [run %s](%s) to the rebuild, so they are not applied either. ' "$RUN_ID" "$RUN_URL"
-            printf 'When the run reported additions, apply them by hand from the default branch:\n\n%ssh\ngh workflow run automation-caller.yml -f part=additions -f run-id=%s\n%s\n\n' "$fence" "$RUN_ID" "$fence"
+            printf 'When [run %s](%s) reported additions that were not applied, apply them by hand from the default branch:\n\n%ssh\ngh workflow run automation-caller.yml -f part=additions -f run-id=%s\n%s\n\n' "$RUN_ID" "$RUN_URL" "$fence" "$RUN_ID" "$fence"
             printf 'The additions workflow then opens a pull request onto this branch whose only change is the suite list; merge it once its checks pass. '
             printf 'Rebuild the consumer as [Change the ETW consumer](%s/%s/blob/HEAD/docs/maintaining.md#change-the-etw-consumer) says.\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY"
           } > "$body"

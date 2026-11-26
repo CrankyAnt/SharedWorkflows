@@ -46,7 +46,7 @@ class InvocationTests(unittest.TestCase):
     def test_the_issue_title_job_starts_the_program_with_options_that_it_accepts(self) -> None:
         (tokens,) = script_invocations(WORKFLOW, "issue_title.py")
         options = issue_title_program().parser().parse_args(tokens)
-        self.assertEqual(("x", ".", "x", True), (options.event, options.root, options.categories, options.apply))
+        self.assertEqual(("x", "x", "x", True), (options.event, options.ref, options.categories, options.apply))
 
 
 class CategoryFileDescriptionTests(unittest.TestCase):
@@ -163,6 +163,24 @@ class PlanOfTheWorkflowTests(PipelineFixture):
         self.assertEqual(PARTS, [part for part, decision in parts.items() if decision["run"]])
         self.assertEqual("tests/suites.json", parts["full-recording"]["config"]["suites"])
         self.assertEqual(json.loads(json.dumps(parts["additions"]["config"])), {"suites": "tests/suites.json"})
+
+    def test_a_scheduled_full_recording_runs_only_in_even_iso_weeks_and_a_start_by_hand_runs_in_any_week(self) -> None:
+        self.commit({CONFIGURATION: """\
+            version: 1
+            parts:
+              full-recording:
+                suites: ci/suites.json
+                validation-workflow: .github/workflows/ci.yml
+            """})
+        odd = self.plan("--shared-workflow", "automation.yml", "--event", "schedule", "--iso-week", "15")
+        self.assertEqual(0, odd.status, odd.summary)
+        self.assertEqual((False, "odd ISO week"), (odd.plan["parts"]["full-recording"]["run"], odd.plan["parts"]["full-recording"]["reason"]))
+        even = self.plan("--shared-workflow", "automation.yml", "--event", "schedule", "--iso-week", "16")
+        self.assertEqual(0, even.status, even.summary)
+        self.assertTrue(even.plan["parts"]["full-recording"]["run"])
+        manual = self.plan("--shared-workflow", "automation.yml", "--event", "workflow_dispatch", "--iso-week", "15")
+        self.assertEqual(0, manual.status, manual.summary)
+        self.assertTrue(manual.plan["parts"]["full-recording"]["run"])
 
 
 if __name__ == "__main__":

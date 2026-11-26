@@ -106,8 +106,11 @@ EVENTS = (
     ("a cancelled run of a person's pull request", workflow_run(conclusion="cancelled"), []),
     ("a failed push run", workflow_run(event="push"), []),
     ("a passed run of a Dependabot pull request", workflow_run(conclusion="success", actor="dependabot[bot]", head_branch="dependabot/pip/x"), ["dependabot-auto-merge"]),
-    ("a failed run of a Dependabot pull request", workflow_run(actor="dependabot[bot]", head_branch="dependabot/pip/x"), ["additions", "dependabot-auto-merge"]),
+    ("a failed run of a Dependabot pull request", workflow_run(actor="dependabot[bot]", head_branch="dependabot/pip/x"), ["additions"]),
+    ("a cancelled run of a Dependabot pull request", workflow_run(conclusion="cancelled", actor="dependabot[bot]", head_branch="dependabot/pip/x"), []),
     ("a passed run on the App's commit to a Dependabot branch", workflow_run(conclusion="success", actor=APP, head_branch="dependabot/pip/x"), ["dependabot-auto-merge"]),
+    ("a failed run on the App's commit to a Dependabot branch", workflow_run(actor=APP, head_branch="dependabot/pip/x"), ["additions"]),
+    ("a cancelled run on the App's commit to a Dependabot branch", workflow_run(conclusion="cancelled", actor=APP, head_branch="dependabot/pip/x"), []),
     ("a passed run on the App's commit to another branch", workflow_run(conclusion="success", actor=APP), []),
     ("a passed push run of Dependabot", workflow_run(event="push", conclusion="success", actor="dependabot[bot]", head_branch="dependabot/pip/x"), []),
     ("a fork's run under a Dependabot branch name", workflow_run(conclusion="success", head_branch="dependabot/pip/x"), []),
@@ -223,7 +226,7 @@ class AutomationWorkflowTests(unittest.TestCase):
         self.assertNotIn("actions/cache", self.text)
 
     def test_the_rights_of_each_part(self) -> None:
-        self.assertEqual({"contents": "write", "pull-requests": "write"}, self.jobs["dependabot-auto-merge"]["permissions"])
+        self.assertEqual({"actions": "read", "contents": "write", "pull-requests": "write"}, self.jobs["dependabot-auto-merge"]["permissions"])
         self.assertEqual({"contents": "read", "issues": "write"}, self.jobs["issue-title"]["permissions"])
         self.assertEqual({"actions": "read", "contents": "read", "pull-requests": "read"}, self.jobs["additions"]["permissions"])
         self.assertEqual({"pull-requests": "write"}, self.jobs["additions-comment"]["permissions"])
@@ -242,19 +245,20 @@ class AutomationWorkflowTests(unittest.TestCase):
 
     def test_the_issue_title_job_runs_the_program_of_its_own_revision_on_the_event_with_the_configured_category_file(self) -> None:
         steps = self.jobs["issue-title"]["steps"]
-        self.assertEqual("$/actions/issue-title", steps[0]["uses"])
+        self.assertEqual(["$/actions/issue-title"], [step["uses"] for step in steps if "uses" in step], "the job checks out nothing and reads only the file it needs")
         run = steps[-1]
-        self.assertEqual('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/issue_title.py" --event "$GITHUB_EVENT_PATH" --root . '
+        self.assertEqual('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/issue_title.py" --event "$GITHUB_EVENT_PATH" --ref "$REF" '
                          '--categories "$CATEGORIES" --apply', run["run"])
         self.assertEqual({"GITHUB_TOKEN": "${{ github.token }}", "RESOURCE_PATH": "${{ steps.resources.outputs.path }}",
-                          "CATEGORIES": "${{ fromJSON(needs.plan.outputs.plan).parts['issue-title'].config.categories }}"}, run["env"])
+                          "CATEGORIES": "${{ fromJSON(needs.plan.outputs.plan).parts['issue-title'].config.categories }}",
+                          "REF": "${{ github.sha }}"}, run["env"])
         self.assertNotIn("github.event.issue", json.dumps(self.jobs["issue-title"]), "the title and the body reach the program only through the event file")
 
     def test_the_auto_merge_job_decides_for_the_head_branch_of_the_completed_run_and_checks_out_nothing(self) -> None:
         job = self.jobs["dependabot-auto-merge"]
         self.assertEqual(["$/actions/dependabot-auto-merge"], [step["uses"] for step in job["steps"] if "uses" in step])
         run = job["steps"][-1]
-        self.assertTrue(run["run"].endswith('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" '
+        self.assertTrue(run["run"].endswith('auto_merge.py" --repository "$GITHUB_REPOSITORY" --suites "$SUITES" --updater-paths "$UPDATER_PATHS" --summary "$GITHUB_STEP_SUMMARY" '
                                             'workflow-run --head-branch "$HEAD_BRANCH" --disable-auto-merge'), run["run"])
         self.assertEqual("${{ github.event.workflow_run.head_branch }}", run["env"]["HEAD_BRANCH"])
         shared = read_workflow(WORKFLOWS / "dependabot-auto-merge.yml")[1]["jobs"]["merge"]
@@ -385,18 +389,19 @@ class CallerTests(unittest.TestCase):
         self.assertEqual([], reach_problems(self.template, self.automation, str(TEMPLATE)))
 
     def test_a_caller_that_withholds_an_event_a_right_a_secret_or_an_input_is_named(self) -> None:
-        for old, new, problem in (
-                ("  issues:\n    types: [opened]\n", "", "the caller does not start on issues"),
-                ("    types: [opened]\n", "    types: [opened, edited]\n", "the caller starts on other issue events than opened"),
-                ("      issues: write\n", "      issues: read\n", "the job issue-title needs issues: write, which the caller does not grant"),
-                ("      actions: read\n", "", "the job additions needs actions: read, which the caller does not grant"),
+        for old, new, expected in (
+                ("  issues:\n    types: [opened]\n", "", ["the caller does not start on issues"]),
+                ("    types: [opened]\n", "    types: [opened, edited]\n", ["the caller starts on other issue events than opened"]),
+                ("      issues: write\n", "      issues: read\n", ["the job issue-title needs issues: write, which the caller does not grant"]),
+                ("      actions: read\n", "", ["the job dependabot-auto-merge needs actions: read, which the caller does not grant",
+                                               "the job additions needs actions: read, which the caller does not grant"]),
                 ("    secrets:\n      PUBLICATION_CHECKS_APP_PRIVATE_KEY: ${{ secrets.PUBLICATION_CHECKS_APP_PRIVATE_KEY }}\n", "",
-                 "the caller does not pass the secret PUBLICATION_CHECKS_APP_PRIVATE_KEY"),
+                 ["the caller does not pass the secret PUBLICATION_CHECKS_APP_PRIVATE_KEY"]),
                 ("      run-id:\n        description: For additions, the id of the run whose recording check reported additions\n        required: false\n        type: string\n", "",
-                 "the caller's start by hand has no input run-id")):
-            with self.subTest(problem=problem):
+                 ["the caller's start by hand has no input run-id"])):
+            with self.subTest(problem=expected):
                 self.assertEqual(1, self.template.count(old), old)
-                self.assertEqual([problem], reach_problems(self.template.replace(old, new), self.automation, "a changed template"))
+                self.assertEqual(expected, reach_problems(self.template.replace(old, new), self.automation, "a changed template"))
 
     def test_the_start_by_hand_names_the_parts_that_have_work_on_it(self) -> None:
         _, template = read_workflow(TEMPLATE)
@@ -409,14 +414,12 @@ class CallerTests(unittest.TestCase):
         for part in named:
             self.assertIn(f"github.event.inputs.part == '{part}'", events_of(part, jobs[part]))
 
-    def test_this_repository_s_caller_equals_the_fixed_caller_apart_from_the_local_path_and_its_own_check_workflows(self) -> None:
+    def test_this_repository_s_caller_equals_the_fixed_caller_apart_from_the_local_path(self) -> None:
         expected = self.template.replace("uses: CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1", "uses: $/.github/workflows/automation.yml")
-        expected = expected.replace("    workflows: [CI]\n", "    workflows: [CI, Repository hygiene, Python tests]\n")
         self.assertEqual(expected, self.own)
         self.assertNotIn("@v1", self.own)
         self.assertEqual([], reach_problems(self.own, self.automation, str(OWN_CALLER)))
-        names = {read_workflow(path)[1]["name"] for path in (WORKFLOWS / "ci.yml", WORKFLOWS / "repository-hygiene-caller.yml", WORKFLOWS / "python-tests-caller.yml")}
-        self.assertEqual({"CI", "Repository hygiene", "Python tests"}, names, "the workflows whose runs report a check of a pull request or its additions")
+        self.assertEqual("CI", read_workflow(WORKFLOWS / "ci.yml")[1]["name"], "the workflow whose runs report the verdict and recorded additions")
 
     def test_this_repository_switches_every_part_of_the_workflow_on(self) -> None:
         configuration = ci_definition().read_yaml((REPOSITORY_ROOT / ".github" / "ci-config.yml").read_text(encoding="utf-8"), "ci-config.yml")

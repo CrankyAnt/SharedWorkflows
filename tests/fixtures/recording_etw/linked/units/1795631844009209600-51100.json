@@ -1,0 +1,24 @@
+{
+  "unit": "1795631844009209600-51100",
+  "kind": "entry",
+  "name": "tests/linked_revisions.py",
+  "suite": null,
+  "command": [
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\python\\Scripts\\python.EXE",
+    "tests/linked_revisions.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.219,
+  "skipped": null,
+  "incomplete_report": null,
+  "trace": "events.tsv",
+  "lookups": "1795631844009209600-51100",
+  "temporary": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\recording\\work\\1795631844009209600-51100\\tmp",
+  "cache": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\recording\\work\\1795631844009209600-51100\\pycache",
+  "cwd": "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-ya_5nhr9\\linked",
+  "pid": 2144,
+  "launcher": 51100,
+  "recorder": [
+    "etw"
+  ]
+}

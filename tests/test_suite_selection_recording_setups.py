@@ -183,7 +183,8 @@ class SetupOrderTests(unittest.TestCase):
         self.assertEqual(self.fixture.start().returncode, 0)
         failed = self.fixture.setups("recorded")
         self.assertEqual(failed.returncode, 2)
-        self.assertIn("the setup traced states `folder=/x`; a line is path=<directory>, variable=<name>=<value> or python=<interpreter>", failed.stderr)
+        self.assertIn("the setup traced states `folder=/x`; a line is path=<directory>, variable=<name>=<value>, python=<interpreter> or write=<directory>",
+                      failed.stderr)
 
 
 PATH_ENTRY = """\

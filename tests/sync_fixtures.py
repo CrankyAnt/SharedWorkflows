@@ -132,6 +132,7 @@ class GitHubStandIn:
         self.writes: list[Write] = []
         self.requests: list[tuple[str, str, str]] = []
         self.refused: dict[str, int] = {}
+        self.on_request = None
         stand_in = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -140,9 +141,11 @@ class GitHubStandIn:
                 body = json.loads(self.rfile.read(length).decode()) if length else {}
                 token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
                 stand_in.requests.append((method, self.path, token))
-                if method != "GET":
+                if method != "GET" and not (self.path == "/graphql" and not str(body.get("query", "")).lstrip().startswith("mutation")):
                     stand_in.writes.append(Write(method, self.path, body, token))
                 code, document = stand_in.route(method, self.path, body, token)
+                if stand_in.on_request is not None:
+                    stand_in.on_request(method, self.path)
                 payload = json.dumps(document).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
@@ -216,6 +219,13 @@ class GitHubStandIn:
         if rest.startswith("git/commits/"):
             commit = repository.commits.get(rest.removeprefix("git/commits/"))
             return (200, {"tree": {"sha": commit["tree"]}, "parents": [{"sha": sha} for sha in commit["parents"]]}) if commit else (404, {"message": "Not Found"})
+        if rest.startswith("git/blobs/"):
+            blob_sha = rest.removeprefix("git/blobs/")
+            for tree in repository.trees.values():
+                for text in tree.values():
+                    if digest(text) == blob_sha:
+                        return 200, {"content": base64.encodebytes(text.encode()).decode(), "encoding": "base64"}
+            return 404, {"message": "Not Found"}
         if rest == "git/trees" and method == "POST":
             files = dict(repository.trees[body["base_tree"]])
             for entry in body["tree"]:
@@ -284,9 +294,50 @@ class GitHubStandIn:
         return 200, [{"name": name, "path": f"{path}/{name}", "type": "file" if f"{path}/{name}" in files else "dir"} for name in under]
 
     def graphql(self, body: dict) -> tuple[int, object]:
-        if "enablePullRequestAutoMerge" not in body.get("query", ""):
+        query = body.get("query", "")
+        variables = body.get("variables") or {}
+        if "defaultBranchRef" in query:
+            full_name = f"{variables['owner']}/{variables['name']}"
+            repository = self.repositories.get(full_name)
+            if repository is None:
+                return 200, {"data": {"repository": None}, "errors": [{"message": "Could not resolve to a Repository"}]}
+            tip = repository.refs.get(f"heads/{repository.default_branch}")
+            commit = repository.commits.get(tip) if tip else None
+            if not tip or not commit:
+                return 200, {"data": {"repository": {"defaultBranchRef": None}}}
+            files = repository.trees[commit["tree"]]
+            target: dict[str, object] = {"oid": tip, "tree": {"oid": commit["tree"]}}
+            for alias, var in re.findall(r"(\w+):\s*file\(path:\s*\$(\w+)\)", query):
+                file_path = variables[var]
+                target[alias] = {"oid": digest(files[file_path]), "object": {"text": files[file_path]}} if file_path in files else None
+            pulls = [
+                {
+                    "number": pull["number"],
+                    "id": pull["node_id"],
+                    "url": pull["html_url"],
+                    "createdAt": pull["created_at"],
+                    "headRepository": {"nameWithOwner": repository.full_name},
+                    "autoMergeRequest": {"mergeMethod": pull["auto_merge"]["merge_method"].upper()} if pull.get("auto_merge") else None,
+                }
+                for pull in repository.pulls
+                if pull["state"] == "open" and pull["head"]["ref"] == variables.get("branch")
+            ]
+            result: dict[str, object] = {
+                "defaultBranchRef": {"name": repository.default_branch, "target": target},
+                "pullRequests": {"nodes": pulls},
+            }
+            if "issues(" in query:
+                label = variables.get("label")
+                issues = [
+                    {"number": issue["number"], "title": issue["title"], "url": issue["html_url"]}
+                    for issue in repository.issues
+                    if issue["state"] == "open" and "pull_request" not in issue
+                    and (label is None or label in [item["name"] for item in issue["labels"]])
+                ]
+                result["issues"] = {"pageInfo": {"hasNextPage": False}, "nodes": issues}
+            return 200, {"data": {"repository": result}}
+        if "enablePullRequestAutoMerge" not in query:
             return 200, {"errors": [{"message": "unknown operation"}]}
-        variables = body["variables"]
         for repository in self.repositories.values():
             for pull in repository.pulls:
                 if pull["node_id"] == variables["pullRequest"]:

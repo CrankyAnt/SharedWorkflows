@@ -2,14 +2,19 @@
   "mode": "full",
   "trace_set": "etw",
   "roots": [
-    "D:\\a\\_temp\\recording-s5s5kk5r\\repo"
+    "C:\\TMP\\etw-rec-tmp\\repo-tests\\SharedWorkflows\\windows-39056-134401054236952018\\recording-l4ew7jun\\repo"
   ],
   "git_directories": [],
   "devices": {
     "\\Device\\HarddiskVolume3": "C:",
-    "\\Device\\HarddiskVolume4": "D:"
+    "\\Device\\HarddiskVolume6": "D:",
+    "\\Device\\CdRom0": "E:",
+    "\\Device\\HarddiskVolume9": "F:",
+    "\\Device\\HarddiskVolume7": "G:",
+    "\\Device\\HarddiskVolume8": "H:",
+    "\\Device\\Volume{042dcf0d-1a8b-3c45-87b7-1a3469d2a54b}": "I:"
   },
   "events": "events.tsv",
-  "consumer": 1364,
-  "consumer_started": 134395862518945532
+  "consumer": 21884,
+  "consumer_started": 134401054244700874
 }

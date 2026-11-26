@@ -3,6 +3,7 @@ reported and never changed, the local mode corrects it, and a run opens one issu
 
 from __future__ import annotations
 
+import copy
 import unittest
 
 from tests.consumer_checks_fixtures import SHARED, SYNC_BRANCH, WORKFLOWS
@@ -40,8 +41,12 @@ class AppTokenTests(SyncFixture):
 
     def test_a_ruleset_that_still_requires_the_earlier_checks_differs(self) -> None:
         consumer = self.consumer()
-        consumer.rulesets[0] = {"id": 7, **RULESET}
-        self.assertEqual(4, len(RULESET["rules"][2]["parameters"]["required_status_checks"]), "the template still lists the earlier checks")
+        self.assertEqual([{"context": "ci / verdict", "integration_id": 15368}],
+                         RULESET["rules"][2]["parameters"]["required_status_checks"],
+                         "the template requires only ci / verdict")
+        legacy = copy.deepcopy(RULESET)
+        legacy["rules"][2]["parameters"]["required_status_checks"].insert(0, {"context": "hygiene / hygiene", "integration_id": 15368})
+        consumer.rulesets[0] = {"id": 7, **legacy}
         synced = self.run_sync()
         self.assertIn("the ruleset `main checks`: `rules` is ", synced.summary)
 
@@ -249,7 +254,7 @@ class IssueTests(SyncFixture):
     def test_the_issues_of_the_other_repositories_are_opened_when_one_repository_fails(self) -> None:
         self.consumer({CI: "name: other\n"})
         self.consumer(name=f"{CONSUMER}-two").settings["allow_rebase_merge"] = True
-        self.api.refused[f"/repos/{CONSUMER}/contents"] = 500
+        self.api.refused[f"/repos/{CONSUMER}/rulesets"] = 500
         synced = self.scheduled()
         self.assertEqual(1, synced.status)
         self.assertEqual([f"Settings differ: {CONSUMER}-two"], self.titles())

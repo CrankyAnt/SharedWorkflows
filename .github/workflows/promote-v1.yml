@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 14
     permissions:
-      actions: read
+      checks: read
       contents: read
     outputs:
       move: ${{ steps.outcome.outputs.move }}
@@ -91,6 +91,7 @@ jobs:
     timeout-minutes: 5
     environment: promote-v1
     permissions:
+      checks: read
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,9 +101,10 @@ jobs:
       - name: Move v1 under a lease on its previous commit
         env:
           DEPLOY_KEY: ${{ secrets.PROMOTE_V1_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
           OLD: ${{ needs.decide.outputs.old }}
           NEW: ${{ needs.decide.outputs.new }}
         run: |
           set -euo pipefail
           git remote add promote "git@github.com:$GITHUB_REPOSITORY.git"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py move --deploy-key DEPLOY_KEY --remote promote --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/repository-hygiene/promote_v1.py move --deploy-key DEPLOY_KEY --remote promote --repository "$GITHUB_REPOSITORY" --old "$OLD" --new "$NEW" --summary "$GITHUB_STEP_SUMMARY"

@@ -563,6 +563,8 @@ def changed_step_gate(before: str, after: str) -> Gate | None:
         return None
     if not isinstance(old, dict) or not isinstance(new, dict):
         return None
+    if any(old.get(key) != new.get(key) for key in ("env", "defaults", "permissions")):
+        return None
     old_jobs, new_jobs = old.get("jobs"), new.get("jobs")
     if not isinstance(old_jobs, dict) or not isinstance(new_jobs, dict):
         return None

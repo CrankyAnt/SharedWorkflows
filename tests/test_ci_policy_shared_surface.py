@@ -12,7 +12,7 @@ from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, is_tracked, 
 
 SURFACE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "shared-surface.json"
 CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
-PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "node-test", "issue-title", "sync")
+PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "node-test", "issue-title", "sync", "measurement")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
 # The consumer kits whose README leads to the ruleset template.
 LEADING_KITS = ("actions/repository-hygiene/consumer-kit", "actions/pipeline/consumer-kit")
@@ -236,7 +236,7 @@ class CatalogueTests(unittest.TestCase):
                 self.assertTrue(on_surface(kit, self.surface))
 
     def test_a_shared_workflow_or_step_without_an_entry_fails(self) -> None:
-        for path in (".github/workflows/suite-verdict.yml", "actions/recording"):
+        for path in (".github/workflows/suite-jobs.yml", "actions/recording"):
             with self.subTest(path=path):
                 catalogue = {"parts": [{**entry, "workflows": [item for item in entry["workflows"] if item != path],
                                         "steps": [item for item in entry["steps"] if item != path]} for entry in self.catalogue["parts"]]}
@@ -260,7 +260,8 @@ class CatalogueTests(unittest.TestCase):
 
     def test_the_suite_selection_names_its_consumer_kit(self) -> None:
         entries = {entry["name"]: entry for entry in self.catalogue["parts"]}
-        self.assertEqual("actions/suite-selection/consumer-kit", entries["Suite selection"]["consumer_kit"])
+        self.assertNotIn("Suite selection", entries, "the legacy suite-selection entry is retired")
+        self.assertEqual("actions/suite-selection/consumer-kit", entries["suite-selection"]["consumer_kit"])
 
     def test_repository_hygiene_names_its_consumer_kit_and_an_entry_without_one_says_so(self) -> None:
         entries = {entry["name"]: entry for entry in self.catalogue["parts"]}
@@ -312,7 +313,7 @@ class AutoMergeConsumerKitTests(unittest.TestCase):
 
     def test_the_readme_states_the_rights_of_the_part_s_job_and_the_ignore_entry_that_the_template_holds(self) -> None:
         automation = ci_definition().read_yaml((REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml").read_text(encoding="utf-8"), "automation.yml")
-        self.assertEqual({"contents": "write", "pull-requests": "write"}, automation["jobs"]["dependabot-auto-merge"]["permissions"])
+        self.assertEqual({"actions": "read", "contents": "write", "pull-requests": "write"}, automation["jobs"]["dependabot-auto-merge"]["permissions"])
         self.assertIn("the part's job takes both", self.readme)
         self.assertIn("an auto-merge that it still has is disabled", self.readme)
         self.assertIn("dependency-name: CrankyAnt/SharedWorkflows", (self.kit / "dependabot.yml").read_text(encoding="utf-8"))

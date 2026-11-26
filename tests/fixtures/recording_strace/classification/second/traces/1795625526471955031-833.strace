@@ -1,0 +1,1209 @@
+840   execve("${BASE}/python/bin/python3", ["python3", "tests/commands.py"], []) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/python3", {st_mode=S_IFREG|0755, st_size=17856, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", O_RDONLY) = 3<${BASE}/python/pyvenv.cfg>
+840   readlink("${BASE}/python/bin/python3", "/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3", 4096) = 51
+840   readlink("/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3", "python3.13", 4096) = 10
+840   readlink("/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3.13", 0x7fff452c7a90, 4096) = -1 EINVAL (Invalid argument)
+840   readlink("/opt/hostedtoolcache/Python/3.13.17/x64/bin/python3.13", 0x7fff452c7a90, 4096) = -1 EINVAL (Invalid argument)
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/python3._pth", O_RDONLY) = -1 ENOENT (No such file or directory)
+840   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13>, 0x630d64736900 /* 195 entries */, 32768) = 6512
+840   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13>, 0x630d64736900 /* 0 entries */, 32768) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/__init__.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt", 0x7fff452cc580, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache", {st_mode=S_IFDIR|0755, st_size=40, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/__init__.cpython-313.pyc.131762999896112", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/__init__.cpython-313.pyc.131762999896112>
+840   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings>, 0x630d6475a670 /* 125 entries */, 32768) = 4224
+840   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings>, 0x630d6475a670 /* 0 entries */, 32768) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/aliases.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/aliases.cpython-313.pyc.131762999901488", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/aliases.cpython-313.pyc.131762999901488>
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8.cpython-313.pyc.131763000323856", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8.cpython-313.pyc.131763000323856>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/pyvenv.cfg", 0x7fff452cc030, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", {st_mode=S_IFREG|0644, st_size=332, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/pyvenv.cfg", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/pyvenv.cfg>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.13/site-packages>
+840   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x630d647a5be0 /* 4 entries */, 32768) = 136
+840   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x630d647a5be0 /* 0 entries */, 32768) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", {st_mode=S_IFREG|0644, st_size=28, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth>
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8_sig.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings", {st_mode=S_IFDIR|0755, st_size=100, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8_sig.cpython-313.pyc.131762996333872", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/encodings/utf_8_sig.cpython-313.pyc.131762996333872>
+840   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/lib-dynload>, 0x630d647ca020 /* 80 entries */, 32768) = 5096
+840   getdents64(3</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/lib-dynload>, 0x630d647ca020 /* 0 entries */, 32768) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.13/site-packages>
+840   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x630d647ca020 /* 4 entries */, 32768) = 136
+840   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x630d647ca020 /* 0 entries */, 32768) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4171, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4171, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.py", {st_mode=S_IFREG|0644, st_size=4171, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache${BASE}/python/lib/python3.13/site-packages", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache${BASE}/python/lib/python3.13", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache${BASE}/python/lib", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache${BASE}/python", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache${BASE}", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/tmp/repo-tests/SharedWorkflows/linux-462-48247", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/tmp/repo-tests/SharedWorkflows", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/tmp/repo-tests", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/tmp", 0x7fff452cba40, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.cpython-313.pyc.131763000375600", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 3<${BASE}/recording/work/1795625526471955031-833/pycache${BASE}/python/lib/python3.13/site-packages/shared_lookup_report.cpython-313.pyc.131763000375600>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<${BASE}/python/lib/python3.13/site-packages>
+840   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x630d647b91e0 /* 4 entries */, 32768) = 136
+840   getdents64(3<${BASE}/python/lib/python3.13/site-packages>, 0x630d647b91e0 /* 0 entries */, 32768) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", {st_mode=S_IFREG|0644, st_size=28, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth", O_RDONLY|O_CLOEXEC) = 3<${BASE}/python/lib/python3.13/site-packages/shared-lookups.pth>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/opt", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/lookups/1795625526471955031-833/840.tsv", O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC, 0666) = 3<${BASE}/recording/lookups/1795625526471955031-833/840.tsv>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/opt", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests/SharedWorkflows", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python", {st_mode=S_IFDIR|0755, st_size=160, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/commands.py", {st_mode=S_IFREG|0644, st_size=481, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/commands.py", O_RDONLY|O_CLOEXEC) = 4<${BASE}/repo/tests/commands.py>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/commands.py", {st_mode=S_IFREG|0644, st_size=481, ...}, 0) = 0
+840   readlink("tests/commands.py", 0x7fff452bc210, 4096) = -1 EINVAL (Invalid argument)
+840   readlink("${BASE}/repo/tests", 0x7fff452bbdb0, 1023) = -1 EINVAL (Invalid argument)
+840   readlink("${BASE}/repo/tests/commands.py", 0x7fff452bbdb0, 1023) = -1 EINVAL (Invalid argument)
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests/commands.py", O_RDONLY) = 4<${BASE}/repo/tests/commands.py>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=200, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests/SharedWorkflows", {st_mode=S_IFDIR|0755, st_size=60, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", {st_mode=S_IFDIR|0755, st_size=80, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo", {st_mode=S_IFDIR|0755, st_size=260, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 4<${BASE}/repo/tests>
+840   getdents64(4<${BASE}/repo/tests>, 0x630d647b91e0 /* 28 entries */, 32768) = 992
+840   getdents64(4<${BASE}/repo/tests>, 0x630d647b91e0 /* 0 entries */, 32768) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/subprocess.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/subprocess.cpython-313.pyc.131762996399200", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/subprocess.cpython-313.pyc.131762996399200>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/locale.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/locale.cpython-313.pyc.131762996404480", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/locale.cpython-313.pyc.131762996404480>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/opt", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/__init__.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re", 0x7fff452cb880, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=100, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/__init__.cpython-313.pyc.131762996405920", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/__init__.cpython-313.pyc.131762996405920>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/enum.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=120, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/enum.cpython-313.pyc.131762996406400", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/enum.cpython-313.pyc.131762996406400>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/functools.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=140, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/functools.cpython-313.pyc.131762996409520", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/functools.cpython-313.pyc.131762996409520>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "/opt", {st_mode=S_IFDIR|0755, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/collections/__init__.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/collections", 0x7fff452ca0e0, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=160, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/collections/__init__.cpython-313.pyc.131762994929712", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/collections/__init__.cpython-313.pyc.131762994929712>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/keyword.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=180, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/keyword.cpython-313.pyc.131762994992096", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/keyword.cpython-313.pyc.131762994992096>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/operator.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=200, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/operator.cpython-313.pyc.131762994995456", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/operator.cpython-313.pyc.131762994995456>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/reprlib.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=220, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/reprlib.cpython-313.pyc.131762994996656", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/reprlib.cpython-313.pyc.131762994996656>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/types.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=240, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/types.cpython-313.pyc.131762994991136", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/types.cpython-313.pyc.131762994991136>
+840   getdents64(4</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re>, 0x630d648a6ce0 /* 8 entries */, 32768) = 248
+840   getdents64(4</opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re>, 0x630d648a6ce0 /* 0 entries */, 32768) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_compiler.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re", {st_mode=S_IFDIR|0755, st_size=60, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_compiler.cpython-313.pyc.131762996407360", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_compiler.cpython-313.pyc.131762996407360>
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_parser.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_parser.cpython-313.pyc.131762994987536", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_parser.cpython-313.pyc.131762994987536>
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_constants.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re", {st_mode=S_IFDIR|0755, st_size=100, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_constants.cpython-313.pyc.131762994991856", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_constants.cpython-313.pyc.131762994991856>
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_casefix.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re", {st_mode=S_IFDIR|0755, st_size=120, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_casefix.cpython-313.pyc.131762994988016", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/re/_casefix.cpython-313.pyc.131762994988016>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/copyreg.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=260, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/copyreg.cpython-313.pyc.131762994995456", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/copyreg.cpython-313.pyc.131762994995456>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/signal.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=280, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/signal.cpython-313.pyc.131762996405680", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/signal.cpython-313.pyc.131762996405680>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/threading.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=300, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/threading.cpython-313.pyc.131762996406160", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/threading.cpython-313.pyc.131762996406160>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/warnings.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=320, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/warnings.cpython-313.pyc.131762995001456", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/warnings.cpython-313.pyc.131762995001456>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/_weakrefset.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=340, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/_weakrefset.cpython-313.pyc.131762995001456", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/_weakrefset.cpython-313.pyc.131762995001456>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/contextlib.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=360, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/contextlib.cpython-313.pyc.131762993775600", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/contextlib.cpython-313.pyc.131762993775600>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/lib/python3.13/site-packages", {st_mode=S_IFDIR|0755, st_size=80, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/selectors.cpython-313.pyc", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13", {st_mode=S_IFDIR|0755, st_size=380, ...}, 0) = 0
+840   openat(AT_FDCWD<${BASE}/repo>, "${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/selectors.cpython-313.pyc.131762993776320", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0644) = 4<${BASE}/recording/work/1795625526471955031-833/pycache/opt/hostedtoolcache/Python/3.13.17/x64/lib/python3.13/selectors.cpython-313.pyc.131762993776320>
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/tests", {st_mode=S_IFDIR|0755, st_size=560, ...}, 0) = 0
+840   vfork( <unfinished ...>
+841   execve("${BASE}/repo/sh", ["sh", "-c", "git --version"], []) = -1 ENOENT (No such file or directory)
+841   execve("${BASE}/python/bin/sh", ["sh", "-c", "git --version"], []) = -1 ENOENT (No such file or directory)
+841   execve("/usr/local/sbin/sh", ["sh", "-c", "git --version"], []) = -1 ENOENT (No such file or directory)
+841   execve("/usr/local/bin/sh", ["sh", "-c", "git --version"], []) = -1 ENOENT (No such file or directory)
+841   execve("/usr/sbin/sh", ["sh", "-c", "git --version"], []) = -1 ENOENT (No such file or directory)
+841   execve("/usr/bin/sh", ["sh", "-c", "git --version"], [] <unfinished ...>
+840   <... vfork resumed>)              = 841
+841   <... execve resumed>)             = 0
+841   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/repo/git", 0x7ffc955bdfc0, 0) = -1 ENOENT (No such file or directory)
+841   newfstatat(AT_FDCWD<${BASE}/repo>, "${BASE}/python/bin/git", 0x7ffc955bdfc0, 0) = -1 ENOENT (No such file or directory)
+841   vfork( <unfinished ...>
+842   execve("/usr/bin/git", ["git", "--version"], [] <unfinished ...>
+841   <... vfork resumed>)              = 842
+842   <... execve resumed>)             = 0
+842   access("${BASE}/profile/.config/git/config", R_OK) = -1 ENOENT (No such file or directory)
+842   access("${BASE}/profile/.gitconfig", R_OK) = -1 ENOENT (No such file or directory)
+841   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=842, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+840   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=841, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "git.ps1", 0x7fff452ccc90, 0) = -1 ENOENT (No such file or directory)
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "missing-tool", 0x7fff452ccd00, 0) = -1 ENOENT (No such file or directory)
+840   vfork( <unfinished ...>
+843   chdir("data")                     = 0
+843   execve("${BASE}/python/bin/pwsh", ["pwsh", "-NoProfile", "-NonInteractive", "-Command", "Get-Content child-tool.ps1 -ErrorAction Ignore; exit 0"], []) = -1 ENOENT (No such file or directory)
+843   execve("/usr/local/sbin/pwsh", ["pwsh", "-NoProfile", "-NonInteractive", "-Command", "Get-Content child-tool.ps1 -ErrorAction Ignore; exit 0"], []) = -1 ENOENT (No such file or directory)
+843   execve("/usr/local/bin/pwsh", ["pwsh", "-NoProfile", "-NonInteractive", "-Command", "Get-Content child-tool.ps1 -ErrorAction Ignore; exit 0"], []) = -1 ENOENT (No such file or directory)
+843   execve("/usr/sbin/pwsh", ["pwsh", "-NoProfile", "-NonInteractive", "-Command", "Get-Content child-tool.ps1 -ErrorAction Ignore; exit 0"], []) = -1 ENOENT (No such file or directory)
+843   execve("/usr/bin/pwsh", ["pwsh", "-NoProfile", "-NonInteractive", "-Command", "Get-Content child-tool.ps1 -ErrorAction Ignore; exit 0"], [] <unfinished ...>
+840   <... vfork resumed>)              = 843
+843   <... execve resumed>)             = 0
+843   readlink("/proc", 0x7fffdc69d100, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc/self", "843", 1023) = 3
+843   readlink("/proc/843", 0x7fffdc69d100, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc/843/exe", "/opt/microsoft/powershell/7/pwsh", 1023) = 32
+843   readlink("/opt", 0x7fffdc69d100, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69d100, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69d100, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69d100, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh", 0x7fffdc69d100, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh.dll", 0x7fffdc69d0c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69cd80, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69cd80, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69cd80, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69cd80, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh.dll", 0x7fffdc69cd80, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69c780, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69c780, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69c780, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69c780, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh.runtimeconfig.dev.json", 0x7fffdc69c780, 1023) = -1 ENOENT (No such file or directory)
+843   readlink("/opt", 0x7fffdc69c880, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69c880, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69c880, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69c880, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh.runtimeconfig.json", 0x7fffdc69c880, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69cab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69cab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69cab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69cab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh.dll", 0x7fffdc69cab0, 1023) = -1 EINVAL (Invalid argument)
+843   access("", F_OK)                  = -1 ENOENT (No such file or directory)
+843   readlink("/opt", 0x7fffdc69c680, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69c680, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69c680, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69c680, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh.deps.json", 0x7fffdc69c680, 1023) = -1 EINVAL (Invalid argument)
+843   access("", F_OK)                  = -1 ENOENT (No such file or directory)
+843   readlink("/opt", 0x7fffdc69c950, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69c950, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69c950, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69c950, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/libcoreclr.so", 0x7fffdc69c950, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc", 0x7fffdc69c980, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc/self", "843", 1023) = 3
+843   readlink("/proc/843", 0x7fffdc69c980, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc/843/exe", "/opt/microsoft/powershell/7/pwsh", 1023) = 32
+843   readlink("/opt", 0x7fffdc69c980, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69c980, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69c980, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69c980, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh", 0x7fffdc69c980, 1023) = -1 EINVAL (Invalid argument)
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7ca4dcc0fce8, parent_tid=0x7ca4dcc0f990, exit_signal=0, stack=0x7ca4dc40f000, stack_size=0x7fff40, tls=0x7ca4dcc0f6c0} => {parent_tid=[844]}, 88) = 844
+843   getdents64(10</sys/devices/system/node>, 0x5649184a7dd0 /* 11 entries */, 32768) = 360
+843   getdents64(10</sys/devices/system/node>, 0x5649184a7dd0 /* 0 entries */, 32768) = 0
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7ca4d7fffce8, parent_tid=0x7ca4d7fff990, exit_signal=0, stack=0x7ca4d77ff000, stack_size=0x7fff40, tls=0x7ca4d7fff6c0} => {parent_tid=[845]}, 88) = 845
+845   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/recording/work/1795625526471955031-833/tmp/clr-debug-pipe-843-49137-in", O_RDONLY <unfinished ...>
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7ca4d77fece8, parent_tid=0x7ca4d77fe990, exit_signal=0, stack=0x7ca4d6ffe000, stack_size=0x7fff40, tls=0x7ca4d77fe6c0} => {parent_tid=[846]}, 88) = 846
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7ca4d6ffdce8, parent_tid=0x7ca4d6ffd990, exit_signal=0, stack=0x7ca4d67fd000, stack_size=0x7fff40, tls=0x7ca4d6ffd6c0} => {parent_tid=[847]}, 88) = 847
+843   readlink("/opt", 0x7fffdc69b230, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69b230, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69b230, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69b230, 1023) = -1 EINVAL (Invalid argument)
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7ca4d53ffce8, parent_tid=0x7ca4d53ff990, exit_signal=0, stack=0x7ca4d4bff000, stack_size=0x7fff40, tls=0x7ca4d53ff6c0} => {parent_tid=[848]}, 88) = 848
+843   access("", F_OK)                  = -1 ENOENT (No such file or directory)
+843   readlink("/opt", 0x7fffdc69c240, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69c240, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69c240, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69c240, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc697ef0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc697ef0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc697ef0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc697ef0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69a270, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69a270, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69a270, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69a270, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69a300, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69a300, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69a300, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69a300, 1023) = -1 EINVAL (Invalid argument)
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cf4fffce8, parent_tid=0x7c9cf4fff990, exit_signal=0, stack=0x7c9cf47ff000, stack_size=0x7fff40, tls=0x7c9cf4fff6c0} => {parent_tid=[849]}, 88) = 849
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7ca55c38ace8, parent_tid=0x7ca55c38a990, exit_signal=0, stack=0x7ca55c34a000, stack_size=0x3ff40, tls=0x7ca55c38a6c0} => {parent_tid=[850]}, 88) = 850
+849   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9ce7fffce8, parent_tid=0x7c9ce7fff990, exit_signal=0, stack=0x7c9ce77ff000, stack_size=0x7fff40, tls=0x7c9ce7fff6c0} <unfinished ...>
+849   <... clone3 resumed> => {parent_tid=[851]}, 88) = 851
+843   readlink("/opt", 0x7fffdc69a2d0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69a2d0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69a2d0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69a2d0, 1023) = -1 EINVAL (Invalid argument)
+851   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9ce77fece8, parent_tid=0x7c9ce77fe990, exit_signal=0, stack=0x7c9ce6ffe000, stack_size=0x7fff40, tls=0x7c9ce77fe6c0} <unfinished ...>
+851   <... clone3 resumed> => {parent_tid=[852]}, 88) = 852
+849   readlink("/opt" <unfinished ...>
+849   <... readlink resumed>, 0x7c9cf4ffac80, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft" <unfinished ...>
+849   <... readlink resumed>, 0x7c9cf4ffac80, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell" <unfinished ...>
+849   <... readlink resumed>, 0x7c9cf4ffac80, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell/7" <unfinished ...>
+849   <... readlink resumed>, 0x7c9cf4ffac80, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt", 0x7c9cf4ffab70, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft", 0x7c9cf4ffab70, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell", 0x7c9cf4ffab70, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell/7", 0x7c9cf4ffab70, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt", 0x7c9cf4ffb650, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft" <unfinished ...>
+849   <... readlink resumed>, 0x7c9cf4ffb650, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell" <unfinished ...>
+849   <... readlink resumed>, 0x7c9cf4ffb650, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell/7" <unfinished ...>
+849   <... readlink resumed>, 0x7c9cf4ffb650, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt", 0x7c9cf4ff9fc0, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft", 0x7c9cf4ff9fc0, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell", 0x7c9cf4ff9fc0, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell/7", 0x7c9cf4ff9fc0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc698b20, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698b20, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698b20, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698b20, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc6989a0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc6989a0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc6989a0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc6989a0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7fface0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7fface0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7fface0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7fface0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc698bc0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698bc0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698bc0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698bc0, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt", 0x7c9cf4ffabe0, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft", 0x7c9cf4ffabe0, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell", 0x7c9cf4ffabe0, 1023) = -1 EINVAL (Invalid argument)
+849   readlink("/opt/microsoft/powershell/7", 0x7c9cf4ffabe0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc698b70, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698b70, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698b70, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698b70, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffaa10, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffaa10, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffaa10, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ffaa10, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffab90, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffab90, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffab90, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ffab90, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc698b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc695870, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ff81d0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ff81d0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ff81d0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ff81d0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc696780, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc696780, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc696780, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc696780, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+843   lstat("${BASE}/profile/.config/powershell/powershell.config.json", 0x7fffdc69c2e0) = -1 ENOENT (No such file or directory)
+843   readlink("/opt", 0x7fffdc6987e0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc6987e0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc6987e0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc6987e0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7" <unfinished ...>
+851   <... readlink resumed>, 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+851   readlink("/opt/microsoft/powershell/7", 0x7c9ce7ffabd0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc696b00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc696b00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc696b00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc696b00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc", 0x7fffdc69c290, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc/self", "843", 1023) = 3
+843   readlink("/proc/843", 0x7fffdc69c290, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/proc/843/exe", "/opt/microsoft/powershell/7/pwsh", 1023) = 32
+843   readlink("/opt", 0x7fffdc69c290, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69c290, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69c290, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69c290, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7/pwsh", 0x7fffdc69c290, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/tmp", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/tmp/repo-tests", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/tmp/repo-tests/SharedWorkflows", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/tmp/repo-tests/SharedWorkflows/linux-462-48247", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}/profile", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}/profile/.cache", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}/profile/.cache/powershell", 0x7fffdc69ba00, 1023) = -1 EINVAL (Invalid argument)
+843   stat("${BASE}/profile/.cache/powershell/StartupProfileData-NonInteractive", 0x7fffdc69c020) = -1 ENOENT (No such file or directory)
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.cache/powershell/StartupProfileData-NonInteractive", O_RDONLY) = -1 ENOENT (No such file or directory)
+843   stat("${BASE}/profile/.cache/powershell", {st_mode=S_IFDIR|0755, st_size=40, ...}) = 0
+843   readlink("/opt", 0x7fffdc699830, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc699830, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc699830, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc699830, 1023) = -1 EINVAL (Invalid argument)
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cdf7ffce8, parent_tid=0x7c9cdf7ff990, exit_signal=0, stack=0x7c9cdefff000, stack_size=0x7fff40, tls=0x7c9cdf7ff6c0} => {parent_tid=[853]}, 88) = 853
+843   readlink("/opt", 0x7fffdc698b50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698b50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698b50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698b50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc6987f0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc6987f0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc6987f0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc6987f0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc694ce0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc694ce0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc694ce0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc694ce0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc696de0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc696de0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc696de0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc696de0, 1023) = -1 EINVAL (Invalid argument)
+843   lstat("${BASE}/repo/data/ApplicationInsightsDiagnostics.json", 0x7fffdc699c10) = -1 ENOENT (No such file or directory)
+851   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cdeffece8, parent_tid=0x7c9cdeffe990, exit_signal=0, stack=0x7c9cde7fe000, stack_size=0x7fff40, tls=0x7c9cdeffe6c0} => {parent_tid=[854]}, 88) = 854
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cde7fdce8, parent_tid=0x7c9cde7fd990, exit_signal=0, stack=0x7c9cddffd000, stack_size=0x7fff40, tls=0x7c9cde7fd6c0} => {parent_tid=[855]}, 88) = 855
+843   readlink("/opt", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698630, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc6986e0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc6986e0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc6986e0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc6986e0, 1023) = -1 EINVAL (Invalid argument)
+843   lstat("${BASE}/profile/.cache/powershell/telemetry.uuid", 0x7fffdc69b630) = -1 ENOENT (No such file or directory)
+843   lstat("${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory", {st_mode=S_IFDIR|0700, st_size=40, ...}) = 0
+843   lstat("${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet", 0x7fffdc69af90) = -1 ENOENT (No such file or directory)
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet.eTbma9", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 96<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet.eTbma9>
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 96<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet>
+843   lstat("${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm", 0x7fffdc69af90) = -1 ENOENT (No such file or directory)
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet.PMiaPr", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 97<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet.PMiaPr>
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 97<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm>
+843   openat(97<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm>, "session360", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = -1 ENOENT (No such file or directory)
+843   openat(97<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm>, "session360", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 98<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm/session360>
+843   openat(98<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm/session360>, "CreateUniqueUserId", O_RDWR|O_NOFOLLOW|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+843   openat(98<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm/session360>, "CreateUniqueUserId", O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC, 0600) = 99<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm/session360/CreateUniqueUserId>
+843   lstat("${BASE}/profile/.cache/powershell/telemetry.uuid", 0x7fffdc69b5f0) = -1 ENOENT (No such file or directory)
+843   stat("${BASE}/profile/.cache/powershell", {st_mode=S_IFDIR|0755, st_size=40, ...}) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.cache/powershell/telemetry.uuid", O_WRONLY|O_CREAT|O_CLOEXEC, 0666) = 98<${BASE}/profile/.cache/powershell/telemetry.uuid>
+843   openat(97<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm>, "session360", O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 98<${BASE}/profile/.dotnet/corefx/Runtime/SharedMemory/.dotnet/shm/session360>
+843   readlink("/opt", 0x7fffdc698840, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698840, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698840, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698840, 1023) = -1 EINVAL (Invalid argument)
+843   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+843   readlink("/opt", 0x7fffdc698670, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc698670, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc698670, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc698670, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc695c70, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc695c70, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc695c70, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc695c70, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/etc/localtime", "/usr/share/zoneinfo/Europe/Amsterdam", 256) = 36
+843   readlink("/etc", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/etc/localtime", "/usr/share/zoneinfo/Europe/Amsterdam", 1023) = 36
+843   readlink("/usr", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/usr/share", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/usr/share/zoneinfo", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/usr/share/zoneinfo/Europe", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/usr/share/zoneinfo/Europe/Amsterdam", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   getdents64(104</proc/843/task>, 0x5649186e5470 /* 15 entries */, 32768) = 360
+843   getdents64(104</proc/843/task>, 0x5649186e5470 /* 0 entries */, 32768) = 0
+843   readlink("/opt", 0x7fffdc697c50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc697c50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc697c50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc697c50, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc697b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc697b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc697b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc697b30, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc6956c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc6956c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc6956c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc6956c0, 1023) = -1 EINVAL (Invalid argument)
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cddffcce8, parent_tid=0x7c9cddffc990, exit_signal=0, stack=0x7c9cdd7fc000, stack_size=0x7fff40, tls=0x7c9cddffc6c0} => {parent_tid=[856]}, 88) = 856
+843   readlink("/opt", 0x7fffdc699390, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc699390, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc699390, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc699390, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc6992c0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc699480, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc699480, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc699480, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc699480, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc696660, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc696660, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc696660, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc696660, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc69a000, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc69a000, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc69a000, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc69a000, 1023) = -1 EINVAL (Invalid argument)
+852   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cdd7fbce8, parent_tid=0x7c9cdd7fb990, exit_signal=0, stack=0x7c9cdcffb000, stack_size=0x7fff40, tls=0x7c9cdd7fb6c0} => {parent_tid=[857]}, 88) = 857
+857   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cdcfface8, parent_tid=0x7c9cdcffa990, exit_signal=0, stack=0x7c9cdc7fa000, stack_size=0x7fff40, tls=0x7c9cdcffa6c0} => {parent_tid=[858]}, 88) = 858
+852   newfstatat(AT_FDCWD<${BASE}/repo/data>, "/", {st_mode=S_IFDIR|0755, st_size=4096, ...}, 0) = 0
+849   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cc3fffce8, parent_tid=0x7c9cc3fff990, exit_signal=0, stack=0x7c9cc37ff000, stack_size=0x7fff40, tls=0x7c9cc3fff6c0} => {parent_tid=[859]}, 88) = 859
+852   stat("${BASE}/profile", {st_mode=S_IFDIR|0755, st_size=100, ...}) = 0
+852   readlink("/opt", 0x7c9ce77fa850, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/opt/microsoft", 0x7c9ce77fa850, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/opt/microsoft/powershell", 0x7c9ce77fa850, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/opt/microsoft/powershell/7", 0x7c9ce77fa850, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt", 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr" <unfinished ...>
+858   readlink("/opt/microsoft" <unfinished ...>
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+858   <... readlink resumed>, 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib" <unfinished ...>
+858   readlink("/opt/microsoft/powershell" <unfinished ...>
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+858   <... readlink resumed>, 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules" <unfinished ...>
+858   readlink("/opt/microsoft/powershell/7", 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules/6.18.58.1-microsoft-standard-WSL2" <unfinished ...>
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt" <unfinished ...>
+858   <... readlink resumed>, 0x7c9cdcfef360, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt/microsoft", 0x7c9cdcfef360, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt/microsoft/powershell", 0x7c9cdcfef360, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt/microsoft/powershell/7" <unfinished ...>
+852   readlink("/usr" <unfinished ...>
+858   <... readlink resumed>, 0x7c9cdcfef360, 1023) = -1 EINVAL (Invalid argument)
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib" <unfinished ...>
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules" <unfinished ...>
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules/6.18.58.1-microsoft-standard-WSL2", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt" <unfinished ...>
+858   <... readlink resumed>, 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt/microsoft", 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt/microsoft/powershell", 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+858   readlink("/opt/microsoft/powershell/7" <unfinished ...>
+852   readlink("/usr" <unfinished ...>
+858   <... readlink resumed>, 0x7c9cdcff21f0, 1023) = -1 EINVAL (Invalid argument)
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib" <unfinished ...>
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules" <unfinished ...>
+852   <... readlink resumed>, 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules/6.18.58.1-microsoft-standard-WSL2", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules/6.18.58.1-microsoft-standard-WSL2", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/modules/6.18.58.1-microsoft-standard-WSL2", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/src", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/src/linux-headers-6.18.58.1-microsoft-standard-WSL2", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/src", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/src/linux-headers-6.18.58.1-microsoft-standard-WSL2", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/src", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/src/linux-headers-6.18.58.1-microsoft-standard-WSL2", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl/drivers", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl/drivers", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   stat("/", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/distro", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/distro", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/distro", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   stat("/mnt/wslg/distro", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/usr/lib/wsl/lib", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/init", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/init", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/init", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/pts", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/pts", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/pts", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/lock", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/lock", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/lock", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/shm", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/shm", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/shm", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/shm", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/shm", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/shm", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/cgroup", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/cgroup", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/cgroup", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/versions.txt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/versions.txt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/versions.txt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   stat("/mnt/wslg/versions.txt", {st_mode=S_IFREG|0644, st_size=375, ...}) = 0
+852   lstat("/mnt/wslg/versions.txt", {st_mode=S_IFREG|0644, st_size=375, ...}) = 0
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/doc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/doc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/doc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   stat("/mnt/wslg/doc", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp/.X11-unix", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp/.X11-unix", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp/.X11-unix", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/c", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/c", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/d", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/d", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/f", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/f", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/g", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/g", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/h", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/h", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc/status", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc/status", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/proc/sys/fs/binfmt_misc/status", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/systemd-journald.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/systemd-journald.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/systemd-journald.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/fuse", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/fuse/connections", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/fuse", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/fuse/connections", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/fuse", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/fs/fuse/connections", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/config", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/config", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/config", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/debug", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/debug", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/debug", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/mqueue", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/mqueue", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/mqueue", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/hugepages", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/hugepages", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/dev/hugepages", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/tracing", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/tracing", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/sys/kernel/tracing", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/systemd-resolved.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/systemd-resolved.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/systemd-resolved.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp/.X11-unix", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp/.X11-unix", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/tmp/.X11-unix", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/getty@tty1.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/getty@tty1.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/credentials/getty@tty1.service", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user/0", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user/0", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/run/user/0", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run/user/0", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run/user/0", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run/user", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   readlink("/mnt/wslg/run/user/0", 0x7c9ce77fd0c0, 1023) = -1 EINVAL (Invalid argument)
+852   stat("/", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+852   stat("${BASE}/recording/work/1795625526471955031-833/tmp/", {st_mode=S_IFDIR|0755, st_size=80, ...}) = 0
+843   stat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</>
+843   getdents64(129</>, 0x5649186503b0 /* 26 entries */, 32768) = 648
+843   lstat("/sbin", {st_mode=S_IFLNK|0777, st_size=8, ...}) = 0
+843   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+843   lstat("/bin", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+843   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+843   getdents64(129</>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp>
+843   getdents64(129</tmp>, 0x5649186503b0 /* 10 entries */, 32768) = 600
+843   getdents64(129</tmp>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests>
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows/linux-462-48247>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 4 entries */, 32768) = 128
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}>
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 6 entries */, 32768) = 168
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/repo", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}/repo>
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 13 entries */, 32768) = 368
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   lstat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   stat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</>
+843   getdents64(129</>, 0x5649186503b0 /* 26 entries */, 32768) = 648
+843   lstat("/sbin", {st_mode=S_IFLNK|0777, st_size=8, ...}) = 0
+843   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+843   lstat("/bin", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+843   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+843   getdents64(129</>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp>
+843   getdents64(129</tmp>, 0x5649186503b0 /* 10 entries */, 32768) = 600
+843   getdents64(129</tmp>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests>
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows/linux-462-48247>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 4 entries */, 32768) = 128
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}>
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 6 entries */, 32768) = 168
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/repo", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}/repo>
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 13 entries */, 32768) = 368
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   stat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</>
+843   getdents64(129</>, 0x5649186503b0 /* 26 entries */, 32768) = 648
+843   lstat("/sbin", {st_mode=S_IFLNK|0777, st_size=8, ...}) = 0
+843   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+843   lstat("/bin", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+843   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+843   getdents64(129</>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp>
+843   getdents64(129</tmp>, 0x5649186503b0 /* 10 entries */, 32768) = 600
+843   getdents64(129</tmp>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests>
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows/linux-462-48247>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 4 entries */, 32768) = 128
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}>
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 6 entries */, 32768) = 168
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/repo", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}/repo>
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 13 entries */, 32768) = 368
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   lstat("/", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+843   lstat("/tmp", {st_mode=S_IFDIR|S_ISVTX|0777, st_size=200, ...}) = 0
+843   lstat("/tmp/repo-tests", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   lstat("/tmp/repo-tests/SharedWorkflows", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   lstat("/tmp/repo-tests/SharedWorkflows/linux-462-48247", {st_mode=S_IFDIR|0755, st_size=80, ...}) = 0
+843   lstat("${BASE}", {st_mode=S_IFDIR|0700, st_size=120, ...}) = 0
+843   lstat("${BASE}/repo", {st_mode=S_IFDIR|0755, st_size=260, ...}) = 0
+843   lstat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   stat("/", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+843   lstat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   stat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   stat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</>
+843   getdents64(129</>, 0x5649186503b0 /* 26 entries */, 32768) = 648
+843   lstat("/sbin", {st_mode=S_IFLNK|0777, st_size=8, ...}) = 0
+843   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+843   lstat("/bin", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+843   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+843   getdents64(129</>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp>
+843   getdents64(129</tmp>, 0x5649186503b0 /* 10 entries */, 32768) = 600
+843   getdents64(129</tmp>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests>
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 3 entries */, 32768) = 88
+843   getdents64(129</tmp/repo-tests/SharedWorkflows>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129</tmp/repo-tests/SharedWorkflows/linux-462-48247>
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 4 entries */, 32768) = 128
+843   getdents64(129</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}>
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 6 entries */, 32768) = 168
+843   getdents64(129<${BASE}>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/repo", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 129<${BASE}/repo>
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 13 entries */, 32768) = 368
+843   getdents64(129<${BASE}/repo>, 0x5649186503b0 /* 0 entries */, 32768) = 0
+843   stat("${BASE}/repo/data", {st_mode=S_IFDIR|0755, st_size=60, ...}) = 0
+843   readlink("/opt", 0x7fffdc699ab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc699ab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc699ab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc699ab0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt", 0x7fffdc696730, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft", 0x7fffdc696730, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell", 0x7fffdc696730, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/opt/microsoft/powershell/7", 0x7fffdc696730, 1023) = -1 EINVAL (Invalid argument)
+843   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cc37fece8, parent_tid=0x7c9cc37fe990, exit_signal=0, stack=0x7c9cc2e74000, stack_size=0x989f40, tls=0x7c9cc37fe6c0} => {parent_tid=[860]}, 88) = 860
+860   readlink("/opt", 0x7c9cc37f8130, 1023) = -1 EINVAL (Invalid argument)
+860   readlink("/opt/microsoft", 0x7c9cc37f8130, 1023) = -1 EINVAL (Invalid argument)
+860   readlink("/opt/microsoft/powershell", 0x7c9cc37f8130, 1023) = -1 EINVAL (Invalid argument)
+860   readlink("/opt/microsoft/powershell/7", 0x7c9cc37f8130, 1023) = -1 EINVAL (Invalid argument)
+860   getdents64(135</opt/microsoft/powershell/7>, 0x7c9cb001ed80 /* 263 entries */, 32768) = 13416
+860   getdents64(135</opt/microsoft/powershell/7>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</opt/microsoft/powershell/7>, 0x7c9cb001ed80 /* 263 entries */, 32768) = 13416
+860   getdents64(135</opt/microsoft/powershell/7>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   stat("${BASE}/python/bin", {st_mode=S_IFDIR|0755, st_size=180, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/python/bin", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}/python/bin>
+860   getdents64(135<${BASE}/python/bin>, 0x7c9cb001ed80 /* 9 entries */, 32768) = 280
+860   lstat("${BASE}/python/bin/python3.13", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+860   stat("${BASE}/python/bin/python3.13", {st_mode=S_IFREG|0755, st_size=17856, ...}) = 0
+860   lstat("${BASE}/python/bin/python", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+860   stat("${BASE}/python/bin/python", {st_mode=S_IFREG|0755, st_size=17856, ...}) = 0
+860   lstat("${BASE}/python/bin/python3", {st_mode=S_IFLNK|0777, st_size=51, ...}) = 0
+860   stat("${BASE}/python/bin/python3", {st_mode=S_IFREG|0755, st_size=17856, ...}) = 0
+860   getdents64(135<${BASE}/python/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   stat("${BASE}/python/bin", {st_mode=S_IFDIR|0755, st_size=180, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/python/bin", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}/python/bin>
+860   getdents64(135<${BASE}/python/bin>, 0x7c9cb001ed80 /* 9 entries */, 32768) = 280
+860   lstat("${BASE}/python/bin/python3.13", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+860   stat("${BASE}/python/bin/python3.13", {st_mode=S_IFREG|0755, st_size=17856, ...}) = 0
+860   lstat("${BASE}/python/bin/python", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+860   stat("${BASE}/python/bin/python", {st_mode=S_IFREG|0755, st_size=17856, ...}) = 0
+860   lstat("${BASE}/python/bin/python3", {st_mode=S_IFLNK|0777, st_size=51, ...}) = 0
+860   stat("${BASE}/python/bin/python3", {st_mode=S_IFREG|0755, st_size=17856, ...}) = 0
+860   getdents64(135<${BASE}/python/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/local/sbin>, 0x7c9cb001ed80 /* 2 entries */, 32768) = 48
+860   getdents64(135</usr/local/sbin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/local/sbin>, 0x7c9cb001ed80 /* 2 entries */, 32768) = 48
+860   getdents64(135</usr/local/sbin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/local/bin>, 0x7c9cb001ed80 /* 4 entries */, 32768) = 104
+860   getdents64(135</usr/local/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/local/bin>, 0x7c9cb001ed80 /* 4 entries */, 32768) = 104
+860   getdents64(135</usr/local/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 184 entries */, 32768) = 5960
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 184 entries */, 32768) = 5960
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 924 entries */, 32768) = 29736
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 924 entries */, 32768) = 29736
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/sbin", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</usr/sbin>
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 184 entries */, 32768) = 5960
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/sbin", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</usr/sbin>
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 184 entries */, 32768) = 5960
+860   getdents64(135</usr/sbin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/bin", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</usr/bin>
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 924 entries */, 32768) = 29736
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/bin", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</usr/bin>
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 924 entries */, 32768) = 29736
+860   getdents64(135</usr/bin>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   stat("${BASE}/profile/.local/share/powershell/Modules", {st_mode=S_IFDIR|0755, st_size=40, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</>
+860   getdents64(135</>, 0x7c9cb001ed80 /* 26 entries */, 32768) = 648
+860   lstat("/sbin", {st_mode=S_IFLNK|0777, st_size=8, ...}) = 0
+860   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+860   lstat("/bin", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+860   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+860   getdents64(135</>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</tmp>
+860   getdents64(135</tmp>, 0x7c9cb001ed80 /* 10 entries */, 32768) = 600
+860   getdents64(135</tmp>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</tmp/repo-tests>
+860   getdents64(135</tmp/repo-tests>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 88
+860   getdents64(135</tmp/repo-tests>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</tmp/repo-tests/SharedWorkflows>
+860   getdents64(135</tmp/repo-tests/SharedWorkflows>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 88
+860   getdents64(135</tmp/repo-tests/SharedWorkflows>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/tmp/repo-tests/SharedWorkflows/linux-462-48247", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</tmp/repo-tests/SharedWorkflows/linux-462-48247>
+860   getdents64(135</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x7c9cb001ed80 /* 4 entries */, 32768) = 128
+860   getdents64(135</tmp/repo-tests/SharedWorkflows/linux-462-48247>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}>
+860   getdents64(135<${BASE}>, 0x7c9cb001ed80 /* 6 entries */, 32768) = 168
+860   getdents64(135<${BASE}>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}/profile>
+860   getdents64(135<${BASE}/profile>, 0x7c9cb001ed80 /* 5 entries */, 32768) = 144
+860   getdents64(135<${BASE}/profile>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.local", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}/profile/.local>
+860   getdents64(135<${BASE}/profile/.local>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 80
+860   getdents64(135<${BASE}/profile/.local>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.local/share", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}/profile/.local/share>
+860   getdents64(135<${BASE}/profile/.local/share>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 80
+860   getdents64(135<${BASE}/profile/.local/share>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.local/share/powershell", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}/profile/.local/share/powershell>
+860   getdents64(135<${BASE}/profile/.local/share/powershell>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 80
+860   getdents64(135<${BASE}/profile/.local/share/powershell>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   lstat("${BASE}/profile/.local/share/powershell/Modules", {st_mode=S_IFDIR|0755, st_size=40, ...}) = 0
+860   stat("${BASE}/profile/.local/share/powershell/Modules", {st_mode=S_IFDIR|0755, st_size=40, ...}) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.local/share/powershell/Modules", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135<${BASE}/profile/.local/share/powershell/Modules>
+860   getdents64(135<${BASE}/profile/.local/share/powershell/Modules>, 0x7c9cb001f2d0 /* 2 entries */, 32768) = 48
+860   getdents64(135<${BASE}/profile/.local/share/powershell/Modules>, 0x7c9cb001f2d0 /* 0 entries */, 32768) = 0
+860   lstat("${BASE}/profile/.local/share/powershell/Modules/Modules.psd1", 0x7c9cc37fd000) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/profile/.local/share/powershell/Modules/Modules.psm1", 0x7c9cc37fd000) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/profile/.local/share/powershell/Modules/Modules.cdxml", 0x7c9cc37fd000) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/profile/.local/share/powershell/Modules/Modules.ni.dll", 0x7c9cc37fd000) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/profile/.local/share/powershell/Modules/Modules.dll", 0x7c9cc37fd000) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/profile/.local/share/powershell/Modules/Modules.exe", 0x7c9cc37fd000) = -1 ENOENT (No such file or directory)
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</>
+860   getdents64(135</>, 0x7c9cb001ed80 /* 26 entries */, 32768) = 648
+860   lstat("/sbin", {st_mode=S_IFLNK|0777, st_size=8, ...}) = 0
+860   stat("/sbin", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+860   lstat("/bin", {st_mode=S_IFLNK|0777, st_size=7, ...}) = 0
+860   stat("/bin", {st_mode=S_IFDIR|0755, st_size=36864, ...}) = 0
+860   getdents64(135</>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   openat(AT_FDCWD<${BASE}/repo/data>, "/opt", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 135</opt>
+860   getdents64(135</opt>, 0x7c9cb001ed80 /* 5 entries */, 32768) = 152
+860   getdents64(135</opt>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</opt/microsoft>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 80
+860   getdents64(135</opt/microsoft>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</opt/microsoft/powershell>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 72
+860   getdents64(135</opt/microsoft/powershell>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</opt/microsoft/powershell/7>, 0x7c9cb001ed80 /* 263 entries */, 32768) = 13416
+860   getdents64(135</opt/microsoft/powershell/7>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</opt/microsoft/powershell/7/Modules>, 0x7c9cb001ed80 /* 12 entries */, 32768) = 528
+860   getdents64(135</opt/microsoft/powershell/7/Modules>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   getdents64(135</opt/microsoft/powershell/7/Modules/Microsoft.PowerShell.Management>, 0x7c9cb001ed80 /* 3 entries */, 32768) = 104
+860   getdents64(135</opt/microsoft/powershell/7/Modules/Microsoft.PowerShell.Management>, 0x7c9cb001ed80 /* 0 entries */, 32768) = 0
+860   lstat("${BASE}/profile/.cache/powershell/ModuleAnalysisCache-AE0255EC", 0x7c9cc37fc2b0) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/profile/.cache/powershell/ModuleAnalysisCache-AE0255EC", 0x7c9cc37fc2b0) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/profile/.cache/powershell/ModuleAnalysisCache-AE0255EC", 0x7c9cc37fc2b0) = -1 ENOENT (No such file or directory)
+860   clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7c9cc2e73ce8, parent_tid=0x7c9cc2e73990, exit_signal=0, stack=0x7c9cc2673000, stack_size=0x7fff40, tls=0x7c9cc2e736c0} => {parent_tid=[861]}, 88) = 861
+860   readlink("/opt", 0x7c9cc37f9f20, 1023) = -1 EINVAL (Invalid argument)
+860   readlink("/opt/microsoft", 0x7c9cc37f9f20, 1023) = -1 EINVAL (Invalid argument)
+860   readlink("/opt/microsoft/powershell", 0x7c9cc37f9f20, 1023) = -1 EINVAL (Invalid argument)
+860   readlink("/opt/microsoft/powershell/7", 0x7c9cc37f9f20, 1023) = -1 EINVAL (Invalid argument)
+860   stat("${BASE}/repo/data/child-tool.ps1", 0x7c9cc37fcc88) = -1 ENOENT (No such file or directory)
+860   lstat("${BASE}/repo/data/child-tool.ps1", 0x7c9cc37fccd0) = -1 ENOENT (No such file or directory)
+843   readlink("/tmp", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/tmp/repo-tests", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/tmp/repo-tests/SharedWorkflows", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("/tmp/repo-tests/SharedWorkflows/linux-462-48247", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}/profile", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}/profile/.cache", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   readlink("${BASE}/profile/.cache/powershell", 0x7fffdc69c3b0, 1023) = -1 EINVAL (Invalid argument)
+843   stat("${BASE}/profile/.cache/powershell/StartupProfileData-NonInteractive", 0x7fffdc69c9d0) = -1 ENOENT (No such file or directory)
+843   access("${BASE}/profile/.cache/powershell/StartupProfileData-NonInteractive", F_OK) = -1 ENOENT (No such file or directory)
+843   openat(AT_FDCWD<${BASE}/repo/data>, "${BASE}/profile/.cache/powershell/StartupProfileData-NonInteractive", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 137<${BASE}/profile/.cache/powershell/StartupProfileData-NonInteractive>
+847   readlink("/opt", 0x7ca4d6ff85b0, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft", 0x7ca4d6ff85b0, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft/powershell", 0x7ca4d6ff85b0, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft/powershell/7", 0x7ca4d6ff85b0, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt", 0x7ca4d6ff9780, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft", 0x7ca4d6ff9780, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft/powershell", 0x7ca4d6ff9780, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft/powershell/7", 0x7ca4d6ff9780, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt", 0x7ca4d6ff9690, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft", 0x7ca4d6ff9690, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft/powershell", 0x7ca4d6ff9690, 1023) = -1 EINVAL (Invalid argument)
+847   readlink("/opt/microsoft/powershell/7", 0x7ca4d6ff9690, 1023) = -1 EINVAL (Invalid argument)
+845   <... openat resumed>)             = ?
+840   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=843, si_uid=1001, si_status=0, si_utime=12 /* 0.12 s */, si_stime=9 /* 0.09 s */} ---
+840   newfstatat(AT_FDCWD<${BASE}/repo>, "notes:draft.txt", 0x7fff452ccd00, 0) = -1 ENOENT (No such file or directory)
+840   clone3({flags=CLONE_VM|CLONE_VFORK|CLONE_CLEAR_SIGHAND, exit_signal=SIGCHLD, stack=0x77d6766f7000, stack_size=0x9000}, 88 <unfinished ...>
+862   execve("./run.exe", ["./run.exe"], []) = -1 ENOENT (No such file or directory)
+840   <... clone3 resumed>)             = 862
+840   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=862, si_uid=1001, si_status=127, si_utime=0, si_stime=0} ---

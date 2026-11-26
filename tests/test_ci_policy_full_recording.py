@@ -43,16 +43,12 @@ class FullRecordingWorkflowTests(unittest.TestCase):
                          f"&& {PLANNED}.run }}}}", self.jobs[PART]["if"])
         self.assertEqual({"group": "${{ github.workflow }}-full-recording-${{ github.ref }}", "cancel-in-progress": "false"}, self.jobs[CLOSE]["concurrency"])
 
-    def test_the_schedule_records_every_two_weeks_and_a_run_by_hand_always(self) -> None:
+    def test_the_schedule_records_every_two_weeks_in_the_plan_so_full_recording_starts_only_with_work(self) -> None:
         plan = self.jobs[PART]
-        gate = plan["steps"][0]
-        self.assertEqual("week", gate["id"])
-        self.assertIn('if [ "$EVENT" != schedule ] || [ $((10#$(date -u +%V) % 2)) -eq 0 ]; then', gate["run"])
-        self.assertEqual("${{ github.event_name }}", gate["env"]["EVENT"])
-        for step in plan["steps"][1:]:
-            self.assertEqual("steps.week.outputs.run == 'true'", step["if"])
-        self.assertEqual("needs.full-recording.outputs.run == 'true'", self.jobs[JOBS]["if"])
-        self.assertEqual("${{ !cancelled() && needs.full-recording.outputs.run == 'true' }}", self.jobs[CLOSE]["if"])
+        self.assertNotIn("week", [step.get("id") for step in plan["steps"]], "week parity is decided in the plan job, not by starting full-recording")
+        self.assertNotIn("run", plan["outputs"])
+        self.assertNotIn("if", self.jobs[JOBS], "full-recording-jobs runs whenever full-recording succeeds")
+        self.assertEqual("${{ !cancelled() && needs.full-recording.result == 'success' }}", self.jobs[CLOSE]["if"])
 
     def test_the_plan_shards_every_entry_file_with_the_full_mode_of_select(self) -> None:
         steps = self.jobs[PART]["steps"]
@@ -67,7 +63,7 @@ class FullRecordingWorkflowTests(unittest.TestCase):
         self.assertIn('for tool in $pinned; do set -- "$@" --pinned-tool "$tool" --pins "$SELECTION/../repository-hygiene/pins.json"; done\n',
                       select["run"])
         self.assertEqual({"SELECTION": "${{ steps.selection.outputs.path }}", "SUITES": f"${{{{ {PLANNED}.config.suites }}}}"}, select["env"])
-        self.assertEqual({"run": "${{ steps.week.outputs.run }}", "suites": f"${{{{ {PLANNED}.config.suites }}}}",
+        self.assertEqual({"suites": f"${{{{ {PLANNED}.config.suites }}}}",
                           "validation-workflow": f"${{{{ {PLANNED}.config.validation-workflow }}}}",
                           "shards": "${{ steps.select.outputs.shards }}", "windows": "${{ steps.select.outputs.windows }}",
                           "jobs": "${{ steps.select.outputs.jobs }}"}, self.jobs[PART]["outputs"])
@@ -119,10 +115,11 @@ class ClosingJobTests(unittest.TestCase):
         self.assertEqual({"pattern": "full-recording-*", "path": "${{ runner.temp }}/full-recording"}, download["with"])
         apply = named(self.steps, APPLY_STEP)
         # One downloaded artifact lands directly in the download folder, several each in a folder named after it.
-        self.assertIn("shopt -s globstar\n", apply["run"])
+        self.assertIn("shopt -s globstar nullglob\n", apply["run"])
         self.assertEqual({"SUITES": SUITES}, self.job["env"])
-        self.assertIn('python3 "$RECORDING/recording.py" apply --suites "$SUITES" "$@" --summary "$GITHUB_STEP_SUMMARY" '
-                      '"$RUNNER_TEMP"/full-recording/**/full-recording.json', apply["run"])
+        self.assertIn('files=("$RUNNER_TEMP"/full-recording/**/full-recording.json)', apply["run"])
+        self.assertIn('python3 "$RECORDING/recording.py" apply --suites "$SUITES" "${expected[@]}" "$@" --summary "$GITHUB_STEP_SUMMARY" "${files[@]}"',
+                      apply["run"])
         upload = next(step for step in self.steps if str(step.get("uses", "")).startswith("actions/upload-artifact@"))
         self.assertLess(self.steps.index(apply), self.steps.index(upload))
         self.assertEqual("full-recording-joined", upload["with"]["name"])
@@ -191,6 +188,7 @@ class ClosingJobTests(unittest.TestCase):
         self.assertLess(self.steps.index(selection), self.steps.index(apply))
         self.assertEqual({"RECORDING": "${{ steps.recording.outputs.path }}", "SELECTION": "${{ steps.selection.outputs.path }}",
                           "RECORDED": "${{ github.sha }}", "VALIDATION_WORKFLOW": "${{ needs.full-recording.outputs.validation-workflow }}",
+                          "SHARDS": "${{ needs.full-recording.outputs.shards }}", "WINDOWS": "${{ needs.full-recording.outputs.windows }}",
                           "REPORT": "${{ runner.temp }}/full-recording-report.md"}, apply["env"])
         self.assertIn('if [ "$head" != "$RECORDED" ]; then', apply["run"])
         self.assertIn('python3 "$SELECTION/suite_selection.py" select --root . --suites "$SUITES" --base "$RECORDED" --head "$head" '

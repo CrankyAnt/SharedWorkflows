@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
-from tests.recording_fixtures import RecordingFixture, load_recording, requires_linux, suite
+from tests.recording_fixtures import ROOT, RecordingFixture, requires_linux, suite
 from tests.test_suite_selection_recording_check import BACKSLASH_READS, BACKSLASHES
 
+sys.path.insert(0, str(ROOT / "actions" / "suite-selection"))
+
+import suite_selection  # noqa: E402
+
 FILES = {"tests/a.py": "", "tests/c1.py": "", "tests/c2.py": "", "tests/c3.py": "", "tests/c4.py": "", "tests/w.py": ""}
-# The ratio of the wide trace set to the mid trace set, by which a Linux measurement of the full recording is divided.
-WIDE_TO_MID = 1.65
 
 
 def suites() -> list[dict]:
@@ -35,8 +38,9 @@ def reads(paths=(), existence=(), memberships=()) -> dict:
 
 
 class ApplyTests(unittest.TestCase):
-    def fixture(self, suite_list: list[dict] | None = None) -> RecordingFixture:
-        return RecordingFixture(self.addCleanup, FILES, suite_list or suites())
+    def fixture(self, suite_list: list[dict] | None = None, *,
+                entry_durations_version: int | None = suite_selection.ENTRY_DURATIONS_VERSION) -> RecordingFixture:
+        return RecordingFixture(self.addCleanup, FILES, suite_list or suites(), entry_durations_version=entry_durations_version)
 
     def write(self, fixture: RecordingFixture, name: str, document: dict):
         path = fixture.base / name
@@ -159,7 +163,7 @@ class ApplyTests(unittest.TestCase):
     def test_the_apply_of_a_full_recording_removes_the_keys_of_a_file_that_no_entry_of_a_glob_suite_names_any_more(self) -> None:
         fixture = self.fixture([self.stale_suite()])
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
-            {"suite": "glob", "entry": "tests/c2.py", "exit_code": 0, "skipped": 0, "seconds": 3.3, "reads": reads(["tests/c2.py", "lib/y.py"])}]}
+            {"suite": "glob", "entry": "tests/c2.py", "exit_code": 0, "skipped": 0, "seconds": 2.0, "reads": reads(["tests/c2.py", "lib/y.py"])}]}
         applied = fixture.apply(self.write(fixture, "full.json", result))
         self.assert_stale_keys_gone(fixture, applied)
         self.assertEqual(["lib/y.py", "tests/c2.py"], fixture.suite("glob")["entry_paths"]["tests/c2.py"])
@@ -201,22 +205,22 @@ class ApplyTests(unittest.TestCase):
     def test_the_apply_of_a_full_recording_removes_the_keys_of_a_file_that_no_path_entry_names(self) -> None:
         fixture = self.fixture([self.path_stale_suite()])
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
-            {"suite": "paths", "entry": "tests/c2.py", "exit_code": 0, "skipped": 0, "seconds": 3.3, "reads": reads(["tests/c2.py", "lib/y.py"])}]}
+            {"suite": "paths", "entry": "tests/c2.py", "exit_code": 0, "skipped": 0, "seconds": 2.0, "reads": reads(["tests/c2.py", "lib/y.py"])}]}
         applied = fixture.apply(self.write(fixture, "full.json", result))
         stored = self.assert_path_stale_keys_gone(fixture, applied)
         self.assertIn("paths: kept the list of tests/c1.py: it was not recorded", applied.stdout)
         self.assertEqual({"tests/c1.py": 1.0, "tests/c2.py": 2.0}, stored["entry_durations"])
 
-    def test_apply_writes_duration_estimates_converted_by_the_wide_to_mid_ratio(self) -> None:
+    def test_apply_writes_duration_estimates_with_the_linux_scale_and_job_speed_factor(self) -> None:
         fixture = self.fixture()
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
-            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 33.0, "reads": reads(["tests/a.py"])},
-            {"suite": "per-entry", "entry": "tests/c2.py", "job": "shard-2", "exit_code": 0, "skipped": 0, "seconds": 16.5,
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 20.0, "reads": reads(["tests/a.py"])},
+            {"suite": "per-entry", "entry": "tests/c2.py", "job": "shard-2", "exit_code": 0, "skipped": 0, "seconds": 10.0,
              "reads": reads(["tests/c2.py"])}]}
         applied = fixture.apply(self.write(fixture, "full.json", result))
         self.assertEqual(0, applied.returncode, applied.stderr)
         # tests/a.py is the only entry file of its job with a stored estimate, so the job's factor takes up its whole
-        # difference; tests/c2.py has none, and its job counts with factor 1.
+        # difference; tests/c2.py has none, and its job counts with factor 1 (wide and mid scales match at 1.0).
         self.assertEqual({"tests/a.py": 4.0}, fixture.suite("whole")["entry_durations"])
         self.assertEqual({"tests/c2.py": 10.0}, fixture.suite("per-entry")["entry_durations"])
         self.assertIn("per-entry: kept the list of tests/c1.py: it was not recorded", applied.stdout)
@@ -227,27 +231,41 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(["docs/**"], whole["extra_paths"])
         self.assertEqual([{"path": "Directory.Build.props", "kind": "file"}], whole["extra_existence_reads"])
 
-    def test_apply_keeps_the_stored_estimate_of_an_entry_file_that_did_not_run_clean(self) -> None:
-        # tests/a.py stores 4.0; a clean run of 1.65 s would make it 1.0. Each reason keeps the stored estimate instead.
-        cases = [({"exit_code": 1, "skipped": 0}, "it exited with 1"),
-                 ({"exit_code": 0, "skipped": None, "incomplete_report": "its TAP plan does not match its test lines"},
-                  "it printed no complete test report: its TAP plan does not match its test lines"),
-                 ({"exit_code": 0, "skipped": None}, "its test runner reports no skip count"),
-                 ({"exit_code": 0, "skipped": 2}, "2 tests skipped")]
-        for outcome, reason in cases:
+    def test_apply_renews_estimates_for_exit_zero_and_keeps_them_for_non_zero(self) -> None:
+        # Non-zero exit keeps both list and estimate; exit-0 entries with skips, deselected tests or no complete report
+        # keep their stored list while still renewing their duration estimate.
+        fixture = self.fixture()
+        failed = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "seconds": 1.65, "reads": reads(["tests/a.py"]),
+             "exit_code": 1, "skipped": 0}]}
+        applied = fixture.apply(self.write(fixture, "full.json", failed))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual({"tests/a.py": 4.0}, fixture.suite("whole")["entry_durations"])
+        self.assertIn("whole: kept the estimate of tests/a.py: it exited with 1", applied.stdout)
+
+        exit_zero_cases = [
+            ({"exit_code": 0, "skipped": None, "incomplete_report": "its TAP plan does not match its test lines"},
+             "it printed no complete test report: its TAP plan does not match its test lines"),
+            ({"exit_code": 0, "skipped": None}, "its test runner reports no skip count"),
+            ({"exit_code": 0, "skipped": 2}, "2 tests skipped"),
+            ({"exit_code": 0, "skipped": 0, "deselected": 3}, "3 tests deselected"),
+            ({"exit_code": 0, "skipped": 1, "deselected": 2}, "1 test skipped, 2 tests deselected"),
+        ]
+        for outcome, reason in exit_zero_cases:
             with self.subTest(reason=reason):
                 fixture = self.fixture()
                 result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
                     {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "seconds": 1.65, "reads": reads(["tests/a.py"]), **outcome}]}
                 applied = fixture.apply(self.write(fixture, "full.json", result))
                 self.assertEqual(0, applied.returncode, applied.stderr)
-                self.assertEqual({"tests/a.py": 4.0}, fixture.suite("whole")["entry_durations"])
-                self.assertIn(f"whole: kept the estimate of tests/a.py: {reason}", applied.stdout)
+                self.assertEqual({"tests/a.py": 1.65}, fixture.suite("whole")["entry_durations"])
+                self.assertIn(f"whole: kept the list of tests/a.py: {reason}", applied.stdout)
+                self.assertNotIn("kept the estimate of tests/a.py", applied.stdout)
 
-    def test_apply_writes_no_estimate_for_an_entry_file_without_one_that_did_not_run_clean(self) -> None:
+    def test_apply_writes_no_estimate_for_an_entry_file_without_one_that_failed(self) -> None:
         fixture = self.fixture()
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
-            {"suite": "per-entry", "entry": "tests/c2.py", "job": "shard-1", "exit_code": 1, "skipped": 0, "seconds": 16.5,
+            {"suite": "per-entry", "entry": "tests/c2.py", "job": "shard-1", "exit_code": 1, "skipped": 0, "seconds": 10.0,
              "reads": reads(["tests/c2.py"])}]}
         applied = fixture.apply(self.write(fixture, "full.json", result))
         self.assertEqual(0, applied.returncode, applied.stderr)
@@ -261,8 +279,8 @@ class ApplyTests(unittest.TestCase):
         fixture = self.fixture([suite("whole", ["tests/a.py", "tests/c1.py"], paths=["tests/a.py", "tests/c1.py"],
                                       entry_durations={"tests/c1.py": 4.0})])
         result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
-            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 16.5, "reads": reads(["tests/a.py"])},
-            {"suite": "whole", "entry": "tests/c1.py", "job": "shard-1", "exit_code": 1, "skipped": 0, "seconds": 1.65,
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 10.0, "reads": reads(["tests/a.py"])},
+            {"suite": "whole", "entry": "tests/c1.py", "job": "shard-1", "exit_code": 1, "skipped": 0, "seconds": 1.0,
              "reads": reads(["tests/c1.py"])}]}
         applied = fixture.apply(self.write(fixture, "full.json", result))
         self.assertEqual(0, applied.returncode, applied.stderr)
@@ -305,6 +323,9 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual({"tests/c1.py": ["tests"], "tests/c2.py": ["lib", "tests"]}, fixture.suite("per-entry")["entry_lookup_directories"])
         self.assertEqual(["lib", "tests"], fixture.suite("per-entry")["lookup_directories"])
+        self.assertEqual({"tests/c1.py": {"tests": ["helper"]}, "tests/c2.py": {"lib": ["absent"], "tests": ["other"]}},
+                         fixture.suite("per-entry")["entry_module_lookups"])
+        self.assertEqual({"lib": ["absent"], "tests": ["helper", "other"]}, fixture.suite("per-entry")["module_lookups"])
         self.assertEqual({"lib": ["absent"], "tests": ["helper", "other"]}, fixture.suites()["module_lookups"])
 
         def full(*entries: tuple[str, dict]) -> dict:
@@ -316,10 +337,14 @@ class ApplyTests(unittest.TestCase):
         applied = fixture.apply(self.write(fixture, "full-one.json", full(("tests/c1.py", lookups(["tests"], {"tests": ["fresh"]})))))
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual({"lib": ["absent"], "tests": ["fresh", "helper", "other"]}, fixture.suites()["module_lookups"])
+        self.assertEqual({"tests/c1.py": {"tests": ["fresh"]}, "tests/c2.py": {"lib": ["absent"], "tests": ["other"]}},
+                         fixture.suite("per-entry")["entry_module_lookups"])
         applied = fixture.apply(self.write(fixture, "full-both.json", full(("tests/c1.py", lookups(["tests"], {"tests": ["fresh"]})),
                                                                            ("tests/c2.py", lookups(["lib"], {})))))
         self.assertEqual(0, applied.returncode, applied.stderr)
         self.assertEqual({"tests": ["fresh"]}, fixture.suites()["module_lookups"])
+        self.assertEqual({"tests/c1.py": {"tests": ["fresh"]}, "tests/c2.py": {}}, fixture.suite("per-entry")["entry_module_lookups"])
+        self.assertEqual({"tests": ["fresh"]}, fixture.suite("per-entry")["module_lookups"])
         self.assertEqual({"tests/c1.py": ["tests"], "tests/c2.py": ["lib"]}, fixture.suite("per-entry")["entry_lookup_directories"])
 
     def test_two_applies_of_the_same_results_in_another_order_write_the_same_suite_list(self) -> None:
@@ -364,10 +389,10 @@ class ApplyTests(unittest.TestCase):
 
     def test_apply_joins_the_full_recording_results_of_every_shard_and_the_windows_job(self) -> None:
         # The closing job of the full recording applies one result per Linux shard and one from the Windows job; a suite
-        # selected as a whole whose entry files ran in different shards is replaced from the union of its results. The
-        # Linux seconds are wide-traced and count at 1/1.65; the Windows job has one ETW set, so its seconds count as
-        # recorded. No job has an entry file with a stored estimate, so each counts with factor 1. These results name no
-        # job, as those of a full-recording workflow that passes none to start: each file counts as one job.
+        # selected as a whole whose entry files ran in different shards is replaced from the union of its results. Both
+        # Linux (wide == mid) and Windows (one ETW session) use scale 1.0. No job has an entry file with a stored
+        # estimate, so each counts with factor 1. These results name no job, as those of a full-recording workflow that
+        # passes none to start: each file counts as one job.
         fixture = self.fixture([suite("whole", ["tests/a.py", "tests/c1.py"], paths=["tests/a.py", "stale.txt"]),
                                 suite("windows", ["tests/w.py"], os="windows", paths=["tests/w.py", "stale.txt"])])
 
@@ -375,8 +400,8 @@ class ApplyTests(unittest.TestCase):
             return {"kind": "full-recording", "suite_list": "suites.json", "entries": [
                 {"suite": suite_name, "entry": entry, "exit_code": 0, "skipped": 0, "seconds": seconds, "reads": reads(paths)}]}
 
-        shards = [self.write(fixture, "shard-1.json", result("whole", "tests/a.py", 3.3, ["tests/a.py"])),
-                  self.write(fixture, "shard-2.json", result("whole", "tests/c1.py", 6.6, ["tests/c1.py"])),
+        shards = [self.write(fixture, "shard-1.json", result("whole", "tests/a.py", 2.0, ["tests/a.py"])),
+                  self.write(fixture, "shard-2.json", result("whole", "tests/c1.py", 4.0, ["tests/c1.py"])),
                   self.write(fixture, "windows.json", result("windows", "tests/w.py", 16.5, ["tests/w.py"]))]
         applied = fixture.apply(*shards)
         self.assertEqual(0, applied.returncode, applied.stderr)
@@ -403,6 +428,12 @@ class ApplyTests(unittest.TestCase):
                 ("a module name no string", additions({**valid, "reads": {"module_lookups": {".": [1]}}})),
                 ("entries no object", additions({**valid, "entries": [reads(["x.txt"])]})),
                 ("an entry's reads no object", additions({**valid, "entries": {"tests/a.py": "x.txt"}})),
+                ("replace_entries no object", additions({**valid, "replace_entries": [reads(["x.txt"])]})),
+                ("a replace_entries read no object", additions({**valid, "replace_entries": {"tests/a.py": "x.txt"}})),
+                ("durations no object", additions({**valid, "durations": [1.0]})),
+                ("a duration no number", additions({**valid, "durations": {"tests/a.py": "1.0"}})),
+                ("a negative duration", additions({**valid, "durations": {"tests/a.py": -1.0}})),
+                ("a boolean duration", additions({**valid, "durations": {"tests/a.py": True}})),
                 ("an unknown change field", additions({**valid, "command": "echo"}))):
             with self.subTest(shape=shape):
                 fixture = self.fixture()
@@ -413,6 +444,139 @@ class ApplyTests(unittest.TestCase):
                 self.assertIn(f"{path} is no valid additions document:", refused.stderr)
                 self.assertNotIn("Traceback", refused.stderr)
                 self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+
+    def test_apply_replaces_stored_lists_for_complete_pull_request_entries_and_adds_for_incomplete_ones(self) -> None:
+        fixture = self.fixture([
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["tests/c1.py", "tests/c2.py", "stale.txt"],
+                  entry_paths={"tests/c1.py": ["tests/c1.py", "stale.txt"], "tests/c2.py": ["tests/c2.py", "stale.txt"]},
+                  entry_existence_reads={"tests/c1.py": [{"path": "old-probe", "kind": "any"}]},
+                  entry_directory_memberships={"tests/c1.py": ["old-dir"]},
+                  entry_lookup_directories={"tests/c1.py": ["old_lookups", "shared"], "tests/c2.py": ["shared"]},
+                  entry_extra_paths={"tests/c1.py": ["docs/**"]}),
+        ])
+        raw = fixture.suites()
+        raw["module_lookups"] = {"old_lookups": ["stale_mod"], "shared": ["kept_mod"]}
+        (fixture.root / "suites.json").write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        change = additions({
+            "suite": "per-entry", "create": False, "recorded_entries": ["tests/c1.py", "tests/c2.py"],
+            "entries": {"tests/c1.py": reads(["lib/new.py"]), "tests/c2.py": reads(["lib/other.py"])},
+            "replace_entries": {"tests/c1.py": {**reads(["tests/c1.py", "lib/new.py"]),
+                                                "lookup_directories": ["shared"], "module_lookups": {"shared": ["fresh_mod"]}}},
+        })
+        applied = fixture.apply(self.write(fixture, "additions.json", change))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        stored = fixture.suite("per-entry")
+        # tests/c1.py ran complete: stale path, existence read, directory membership and unshared lookup directory are removed.
+        self.assertEqual(["lib/new.py", "tests/c1.py"], stored["entry_paths"]["tests/c1.py"])
+        self.assertNotIn("entry_existence_reads", stored)
+        self.assertNotIn("entry_directory_memberships", stored)
+        self.assertEqual({"tests/c1.py": ["shared"], "tests/c2.py": ["shared"]}, stored["entry_lookup_directories"])
+        self.assertEqual({"tests/c1.py": ["docs/**"]}, stored["entry_extra_paths"])
+        # tests/c2.py was incomplete (not in replace_entries): its stale read stays alongside the new addition.
+        self.assertEqual(["lib/other.py", "stale.txt", "tests/c2.py"], stored["entry_paths"]["tests/c2.py"])
+        # old_lookups was used only by replaced tests/c1.py so it drops; shared is still used by kept tests/c2.py so kept_mod stays.
+        self.assertEqual({"shared": ["fresh_mod", "kept_mod"]}, fixture.suites()["module_lookups"])
+
+    def test_apply_replaces_a_pooled_suite_only_when_every_entry_file_ran_complete(self) -> None:
+        fixture = self.fixture([suite("whole", ["tests/c1.py", "tests/c2.py"], paths=["tests/c1.py", "tests/c2.py", "stale.txt"])])
+        partial = self.write(fixture, "partial.json", additions({
+            "suite": "whole", "create": False, "recorded_entries": ["tests/c1.py"],
+            "reads": reads(["lib/new.py"]),
+            "replace_entries": {"tests/c1.py": reads(["tests/c1.py", "lib/new.py"])},
+        }))
+        applied = fixture.apply(partial)
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual(["lib/new.py", "stale.txt", "tests/c1.py", "tests/c2.py"], fixture.suite("whole")["paths"])
+        second = self.write(fixture, "second.json", additions({
+            "suite": "whole", "create": False, "recorded_entries": ["tests/c2.py"],
+            "replace_entries": {"tests/c2.py": reads(["tests/c2.py"])},
+        }))
+        applied_both = fixture.apply(partial, second)
+        self.assertEqual(0, applied_both.returncode, applied_both.stderr)
+        self.assertEqual(["lib/new.py", "tests/c1.py", "tests/c2.py"], fixture.suite("whole")["paths"])
+
+    def test_apply_additions_records_measured_durations_from_normal_runs(self) -> None:
+        fixture = self.fixture([
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["tests/c1.py", "tests/c2.py"],
+                  entry_paths={"tests/c1.py": ["tests/c1.py"], "tests/c2.py": ["tests/c2.py"]},
+                  entry_durations={"tests/c2.py": 10.0}),
+        ])
+        change = additions({
+            "suite": "per-entry", "create": False, "recorded_entries": ["tests/c1.py", "tests/c2.py"],
+            "durations": {"tests/c1.py": 4.567, "tests/c2.py": 11.0},
+        })
+        applied = fixture.apply(self.write(fixture, "additions.json", change))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        # c1 had no stored duration -> recorded; c2 is within 25% of 10.0 -> kept at 10.0.
+        self.assertEqual({"tests/c1.py": 4.57, "tests/c2.py": 10.0}, fixture.suite("per-entry")["entry_durations"])
+        # When c2 changes by more than 25%, it updates too.
+        bigger = additions({
+            "suite": "per-entry", "create": False, "recorded_entries": ["tests/c2.py"],
+            "durations": {"tests/c2.py": 20.0},
+        })
+        applied_bigger = fixture.apply(self.write(fixture, "bigger.json", bigger))
+        self.assertEqual(0, applied_bigger.returncode, applied_bigger.stderr)
+        self.assertEqual({"tests/c1.py": 4.57, "tests/c2.py": 20.0}, fixture.suite("per-entry")["entry_durations"])
+
+    def test_apply_with_expect_job_fails_visibly_when_a_shard_is_missing_or_empty(self) -> None:
+        fixture = self.fixture()
+        before = (fixture.root / "suites.json").read_text(encoding="utf-8")
+        shard1 = self.write(fixture, "shard-1.json", {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.65, "reads": reads(["tests/a.py"])}]})
+        empty_shard2 = self.write(fixture, "shard-2.json", {"kind": "full-recording", "suite_list": "suites.json", "entries": []})
+        missing = fixture.run("apply", "--expect-job", "shard-1", "--expect-job", "shard-2", str(shard1))
+        self.assertEqual(2, missing.returncode)
+        self.assertIn("shard-2", missing.stderr)
+        self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+        empty = fixture.run("apply", "--expect-job", "shard-1", "--expect-job", "shard-2", str(shard1), str(empty_shard2))
+        self.assertEqual(2, empty.returncode)
+        self.assertIn("shard-2", empty.stderr)
+        self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+        # --expect-job is refused with additions documents.
+        change = self.write(fixture, "additions.json", additions())
+        refused = fixture.run("apply", "--expect-job", "shard-1", str(change))
+        self.assertEqual(2, refused.returncode)
+        self.assertIn("--expect-job goes with full-recording results", refused.stderr)
+
+    def test_a_full_recording_document_of_the_wrong_shape_fails_naming_the_file_and_changes_nothing(self) -> None:
+        valid_entry = {"suite": "whole", "entry": "tests/a.py", "exit_code": 0, "skipped": 0, "seconds": 1.0, "reads": reads(["tests/a.py"])}
+        for shape, document in (
+                ("no entries", {"kind": "full-recording", "suite_list": "suites.json"}),
+                ("entries no list", {"kind": "full-recording", "suite_list": "suites.json", "entries": {}}),
+                ("entry no object", {"kind": "full-recording", "suite_list": "suites.json", "entries": ["x"]}),
+                ("unknown top field", {"kind": "full-recording", "suite_list": "suites.json", "entries": [], "extra": 1}),
+                ("unknown entry field", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "extra": 1}]}),
+                ("exit_code bool", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "exit_code": True}]}),
+                ("seconds string", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "seconds": "1.0"}]}),
+                ("bad reads", {"kind": "full-recording", "suite_list": "suites.json", "entries": [{**valid_entry, "reads": []}]})):
+            with self.subTest(shape=shape):
+                fixture = self.fixture()
+                before = (fixture.root / "suites.json").read_text(encoding="utf-8")
+                path = self.write(fixture, "full.json", document)
+                refused = fixture.apply(path)
+                self.assertEqual(2, refused.returncode, refused.stderr)
+                self.assertIn(f"{path} is no valid full-recording document:", refused.stderr)
+                self.assertNotIn("Traceback", refused.stderr)
+                self.assertEqual(before, (fixture.root / "suites.json").read_text(encoding="utf-8"))
+
+    def test_a_full_recording_applies_complete_suites_and_reports_partly_recorded_listless_and_unrecorded_suites(self) -> None:
+        fixture = self.fixture([
+            suite("complete", ["tests/a.py"], paths=["tests/a.py", "stale.txt"]),
+            suite("partly-new", ["tests/c1.py", "tests/c2.py"], entry_selection=True),
+            suite("unrecorded", ["tests/w.py"], os="windows", paths=["tests/w.py", "stale.txt"]),
+        ])
+        result = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "complete", "entry": "tests/a.py", "exit_code": 0, "skipped": 0, "seconds": 1.65, "reads": reads(["tests/a.py"])},
+            {"suite": "partly-new", "entry": "tests/c1.py", "exit_code": 0, "skipped": 0, "seconds": 1.65, "reads": reads(["tests/c1.py"])},
+        ]}
+        applied = fixture.apply(self.write(fixture, "full.json", result))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual(["tests/a.py"], fixture.suite("complete")["paths"])
+        self.assertNotIn("paths", fixture.suite("partly-new"))
+        self.assertNotIn("entry_paths", fixture.suite("partly-new"))
+        self.assertEqual(["stale.txt", "tests/w.py"], fixture.suite("unrecorded")["paths"])
+        self.assertIn("partly-new: left without stored lists: partly recorded (missing tests/c2.py)", applied.stdout)
+        self.assertIn("unrecorded: kept the list of tests/w.py: it was not recorded", applied.stdout)
 
 
 SELECTS = "the change since the recorded commit selects it"
@@ -441,7 +605,9 @@ class AppliedBackslashTests(unittest.TestCase):
                 fixture.git("commit", "-q", "-am", "lists")
                 second = fixture.record(["tests/a.py"])
                 self.assertEqual(0, second.returncode, second.stdout + second.stderr)
-                self.assertEqual([], fixture.additions()["suites"])
+                suites_doc = fixture.additions()["suites"]
+                self.assertEqual([], [item for item in suites_doc if "reads" in item or "entries" in item or item.get("create")])
+                self.assertEqual(["tests/a.py"], list(suites_doc[0]["durations"]))
 
 
 class KeptListTests(unittest.TestCase):
@@ -511,13 +677,13 @@ class KeptListTests(unittest.TestCase):
             self.assertIn(f"{name}: kept the list of {entry}: {UNSELECTED}", applied.stdout)
 
     def test_a_kept_entry_file_that_ran_clean_gets_its_duration_estimate_as_before(self) -> None:
-        # tests/c2.py has no stored estimate and its job no clean entry file with one: factor 1, 16.5 / 1.65 = 10.0.
+        # tests/c2.py has no stored estimate and its job no clean entry file with one: factor 1, scale 1.0 -> 10.0.
         for option in (["--keep-all-lists"], ["--keep-lists", "selection"]):
             with self.subTest(option=option[0]):
                 fixture = self.fixture()
                 if option[0] == "--keep-lists":
                     option = ["--keep-lists", str(self.selection(fixture, {"whole": "skip", "per-entry": "run"}, {"per-entry": ["tests/c2.py"]}))]
-                applied = fixture.run("apply", *option, str(self.result(fixture, clean("per-entry", "tests/c2.py", ["tests/c2.py"], 16.5))))
+                applied = fixture.run("apply", *option, str(self.result(fixture, clean("per-entry", "tests/c2.py", ["tests/c2.py"], 10.0))))
                 self.assertEqual(0, applied.returncode, applied.stderr)
                 self.assertEqual({"tests/c2.py": 10.0}, fixture.suite("per-entry")["entry_durations"])
                 self.assertNotIn("kept the estimate of tests/c2.py", applied.stdout)
@@ -549,12 +715,14 @@ class JobCorrectionTests(unittest.TestCase):
 
     STORED = {"tests/c1.py": 10.0, "tests/c2.py": 20.0, "tests/c3.py": 10.0}
 
-    def fixture(self, linux: dict[str, float] | None = None, windows: dict[str, float] | None = None) -> RecordingFixture:
+    def fixture(self, linux: dict[str, float] | None = None, windows: dict[str, float] | None = None, *,
+                entry_durations_version: int | None = suite_selection.ENTRY_DURATIONS_VERSION) -> RecordingFixture:
         entries = ["tests/c1.py", "tests/c2.py", "tests/c3.py", "tests/c4.py"]
         return RecordingFixture(self.addCleanup, FILES, [
             suite("linux", entries, entry_selection=True, paths=[], entry_paths={entry: [entry] for entry in entries},
                   **({"entry_durations": linux} if linux else {})),
-            suite("windows", ["tests/w.py"], os="windows", paths=["tests/w.py"], **({"entry_durations": windows} if windows else {}))])
+            suite("windows", ["tests/w.py"], os="windows", paths=["tests/w.py"], **({"entry_durations": windows} if windows else {}))],
+            entry_durations_version=entry_durations_version)
 
     def apply(self, fixture: RecordingFixture, *measurements: tuple[str, str, str, float]) -> tuple[dict | None, dict | None]:
         """Apply one full-recording result per job from (suite, entry, job, seconds); return the stored estimates of
@@ -575,37 +743,37 @@ class JobCorrectionTests(unittest.TestCase):
     def test_a_job_that_ran_every_entry_file_faster_or_slower_leaves_the_stored_estimates(self) -> None:
         stored = {**self.STORED, "tests/c4.py": 8.0}
         fixture = self.fixture(stored)
-        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.3 * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.3 * 20.0),
-                              ("linux", "tests/c3.py", "shard-2", WIDE_TO_MID * 0.8 * 10.0), ("linux", "tests/c4.py", "shard-2", WIDE_TO_MID * 0.8 * 8.0))
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 1.3 * 10.0), ("linux", "tests/c2.py", "shard-1", 1.3 * 20.0),
+                              ("linux", "tests/c3.py", "shard-2", 0.8 * 10.0), ("linux", "tests/c4.py", "shard-2", 0.8 * 8.0))
         self.assertEqual(stored, linux)
 
     def test_an_entry_file_that_moved_by_more_than_a_quarter_against_its_job_gets_its_corrected_value(self) -> None:
         fixture = self.fixture({**self.STORED, "tests/c4.py": 8.0})
         # The job ran at 1.2x: tests/c3.py's corrected value is 13.337 s, 33% above its stored 10 s.
-        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.2 * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.2 * 20.0),
-                              ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 1.2 * 13.337))
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 1.2 * 10.0), ("linux", "tests/c2.py", "shard-1", 1.2 * 20.0),
+                              ("linux", "tests/c3.py", "shard-1", 1.2 * 13.337))
         self.assertEqual({"tests/c1.py": 10.0, "tests/c2.py": 20.0, "tests/c3.py": 13.34, "tests/c4.py": 8.0}, linux)
 
     def test_the_threshold_compares_the_corrected_value_before_rounding(self) -> None:
         # 12.504 s is 25.04% above the stored 10 s, so the estimate changes, to 12.5 s.
         fixture = self.fixture(dict(self.STORED))
-        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 20.0),
-                              ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 12.504))
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 10.0), ("linux", "tests/c2.py", "shard-1", 20.0),
+                              ("linux", "tests/c3.py", "shard-1", 12.504))
         self.assertEqual({**self.STORED, "tests/c3.py": 12.5}, linux)
 
     def test_an_entry_file_within_a_quarter_of_its_stored_estimate_keeps_it(self) -> None:
         for corrected in (12.49, 7.51, 12.0, 7.6):
             with self.subTest(corrected=corrected):
                 fixture = self.fixture(dict(self.STORED))
-                linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.2 * 10.0),
-                                      ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.2 * 20.0), ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 1.2 * corrected))
+                linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 1.2 * 10.0),
+                                      ("linux", "tests/c2.py", "shard-1", 1.2 * 20.0), ("linux", "tests/c3.py", "shard-1", 1.2 * corrected))
                 self.assertEqual(self.STORED, linux)
 
     def test_a_job_without_a_stored_estimate_counts_with_factor_1(self) -> None:
         fixture = self.fixture({"tests/c1.py": 10.0}, {"tests/w.py": 30.0})
         # shard-1 has a stored estimate and runs at 1.5x; shard-2 has none.
-        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.5 * 10.0),
-                                    ("linux", "tests/c2.py", "shard-2", WIDE_TO_MID * 7.0), ("linux", "tests/c3.py", "shard-2", WIDE_TO_MID * 9.0))
+        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 1.5 * 10.0),
+                                    ("linux", "tests/c2.py", "shard-2", 7.0), ("linux", "tests/c3.py", "shard-2", 9.0))
         self.assertEqual({"tests/c1.py": 10.0, "tests/c2.py": 7.0, "tests/c3.py": 9.0}, linux)
         self.assertEqual({"tests/w.py": 30.0}, windows)
 
@@ -613,29 +781,29 @@ class JobCorrectionTests(unittest.TestCase):
         # Two of the three entry files with a stored estimate measured 0 s, so the median ratio is 0.
         fixture = self.fixture(dict(self.STORED))
         linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 0.0), ("linux", "tests/c2.py", "shard-1", 0.0),
-                              ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 10.0), ("linux", "tests/c4.py", "shard-1", WIDE_TO_MID * 5.0))
+                              ("linux", "tests/c3.py", "shard-1", 10.0), ("linux", "tests/c4.py", "shard-1", 5.0))
         self.assertEqual({"tests/c1.py": 0.0, "tests/c2.py": 0.0, "tests/c3.py": 10.0, "tests/c4.py": 5.0}, linux)
 
     def test_an_entry_file_without_a_stored_estimate_gets_its_corrected_value(self) -> None:
         fixture = self.fixture(dict(self.STORED))
-        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 1.2 * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 1.2 * 20.0),
-                                    ("linux", "tests/c4.py", "shard-1", WIDE_TO_MID * 1.2 * 7.0), ("windows", "tests/w.py", "windows", 12.345))
+        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 1.2 * 10.0), ("linux", "tests/c2.py", "shard-1", 1.2 * 20.0),
+                                    ("linux", "tests/c4.py", "shard-1", 1.2 * 7.0), ("windows", "tests/w.py", "windows", 12.345))
         self.assertEqual({**self.STORED, "tests/c4.py": 7.0}, linux)
         # The Windows job has no stored estimate: its measurement counts at its recorded seconds, rounded to hundredths.
         self.assertEqual({"tests/w.py": 12.35}, windows)
 
     def test_an_entry_file_that_was_not_recorded_keeps_its_stored_estimate(self) -> None:
         fixture = self.fixture({**self.STORED, "tests/c4.py": 8.0})
-        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 30.0))
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 30.0))
         self.assertEqual({**self.STORED, "tests/c4.py": 8.0}, linux)
 
-    def test_the_conversion_divides_by_the_wide_to_mid_ratio_on_linux_and_by_1_on_windows_before_the_job_correction(self) -> None:
-        # The converted values of the entry files with a stored estimate are 1.0, 2.0 and 2.49 times those estimates, so
-        # the job's factor is 2.0; each converted value is divided by it, and tests/c3.py's 12.45 s stays within 25%. The Windows job has no stored estimate and
-        # shows the conversion alone.
+    def test_linux_and_windows_use_measured_entry_times_directly_before_job_correction(self) -> None:
+        # The measured entry times of the entry files with a stored estimate are 1.0, 2.0 and 2.49 times those
+        # estimates, so the job's factor is 2.0; each value is divided by it, and tests/c3.py's 12.45 s stays within
+        # 25%. The Windows job has no stored estimate and stores its measured entry time directly.
         fixture = self.fixture({"tests/c1.py": 10.0, "tests/c2.py": 10.0, "tests/c3.py": 10.0})
-        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", WIDE_TO_MID * 10.0), ("linux", "tests/c2.py", "shard-1", WIDE_TO_MID * 20.0),
-                                    ("linux", "tests/c3.py", "shard-1", WIDE_TO_MID * 24.9), ("linux", "tests/c4.py", "shard-1", WIDE_TO_MID * 30.0),
+        linux, windows = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 10.0), ("linux", "tests/c2.py", "shard-1", 20.0),
+                                    ("linux", "tests/c3.py", "shard-1", 24.9), ("linux", "tests/c4.py", "shard-1", 30.0),
                                     ("windows", "tests/w.py", "windows", 16.5))
         self.assertEqual({"tests/c1.py": 5.0, "tests/c2.py": 10.0, "tests/c3.py": 10.0, "tests/c4.py": 15.0}, linux)
         self.assertEqual({"tests/w.py": 16.5}, windows)
@@ -648,7 +816,7 @@ class JobCorrectionTests(unittest.TestCase):
         outcomes = [("tests/c1.py", 0, 1.2 * 10.0), ("tests/c2.py", 1, 0.1 * 20.0), ("tests/c4.py", 0, 1.2 * 7.0)]
         path = fixture.base / "shard-1.json"
         path.write_text(json.dumps({"kind": "full-recording", "suite_list": "suites.json", "entries": [
-            {"suite": "linux", "entry": entry, "job": "shard-1", "exit_code": exit_code, "skipped": 0, "seconds": WIDE_TO_MID * seconds,
+            {"suite": "linux", "entry": entry, "job": "shard-1", "exit_code": exit_code, "skipped": 0, "seconds": seconds,
              "reads": reads([entry])} for entry, exit_code, seconds in outcomes]}), encoding="utf-8")
         applied = fixture.apply(path)
         self.assertEqual(0, applied.returncode, applied.stderr)
@@ -657,6 +825,58 @@ class JobCorrectionTests(unittest.TestCase):
         self.assertIn("linux: kept the estimate of tests/c3.py: it was not recorded", applied.stdout)
         self.assertNotIn("kept the estimate of tests/c1.py", applied.stdout)
         self.assertNotIn("kept the estimate of tests/c4.py", applied.stdout)
+
+    def test_an_exit_zero_entry_with_skips_or_no_report_gets_an_estimate_without_pulling_the_job_factor(self) -> None:
+        # shard-1 ran at 1.2x (from clean c1 alone). c2 exited 0 with 1 skip at 0.2x its stored time: it must not pull
+        # the job factor, and its estimate still updates using factor 1.2 (4.0 / 1.2 = 3.33). c4 exited 0 with no skip
+        # count and no stored estimate: it gets 7.0 using factor 1.2. c3 exited 1 and keeps its stored estimate.
+        fixture = self.fixture(dict(self.STORED))
+        path = fixture.base / "shard-1.json"
+        path.write_text(json.dumps({"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "linux", "entry": "tests/c1.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.2 * 10.0, "reads": reads(["tests/c1.py"])},
+            {"suite": "linux", "entry": "tests/c2.py", "job": "shard-1", "exit_code": 0, "skipped": 1, "seconds": 4.0, "reads": reads(["tests/c2.py"])},
+            {"suite": "linux", "entry": "tests/c3.py", "job": "shard-1", "exit_code": 1, "skipped": 0, "seconds": 0.5, "reads": reads(["tests/c3.py"])},
+            {"suite": "linux", "entry": "tests/c4.py", "job": "shard-1", "exit_code": 0, "skipped": None, "seconds": 1.2 * 7.0, "reads": reads(["tests/c4.py"])},
+        ]}), encoding="utf-8")
+        applied = fixture.apply(path)
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertEqual({"tests/c1.py": 10.0, "tests/c2.py": 3.33, "tests/c3.py": 10.0, "tests/c4.py": 7.0}, fixture.suite("linux")["entry_durations"])
+        self.assertIn("linux: kept the estimate of tests/c3.py: it exited with 1", applied.stdout)
+        for entry in ("tests/c1.py", "tests/c2.py", "tests/c4.py"):
+            self.assertNotIn(f"kept the estimate of {entry}", applied.stdout)
+        self.assertIn("linux: kept the list of tests/c2.py: 1 test skipped", applied.stdout)
+        self.assertIn("linux: kept the list of tests/c4.py: its test runner reports no skip count", applied.stdout)
+
+    def test_full_recording_rescales_old_version_without_speed_factor_and_sets_version(self) -> None:
+        # Omitted entry_durations_version defaults to 1 (< ENTRY_DURATIONS_VERSION): the full recording writes every
+        # exit-0 entry time without applying a speed factor (and even within 25% of the old scale) and sets version 2.
+        fixture = self.fixture(dict(self.STORED), entry_durations_version=None)
+        self.assertNotIn("entry_durations_version", fixture.suites())
+        linux, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 18.0), ("linux", "tests/c2.py", "shard-1", 36.0),
+                              ("linux", "tests/c3.py", "shard-1", 11.0))
+        self.assertEqual({"tests/c1.py": 18.0, "tests/c2.py": 36.0, "tests/c3.py": 11.0}, linux)
+        self.assertEqual(suite_selection.ENTRY_DURATIONS_VERSION, fixture.suites()["entry_durations_version"])
+        # Once at the current version, the next full recording applies the speed factor and 25% threshold as normal.
+        linux_after, _ = self.apply(fixture, ("linux", "tests/c1.py", "shard-1", 1.3 * 18.0),
+                                    ("linux", "tests/c2.py", "shard-1", 1.3 * 36.0), ("linux", "tests/c3.py", "shard-1", 1.3 * 11.0))
+        self.assertEqual({"tests/c1.py": 18.0, "tests/c2.py": 36.0, "tests/c3.py": 11.0}, linux_after)
+
+    def test_additions_apply_preserves_old_entry_durations_version(self) -> None:
+        # Pull-request additions apply keeps version 1 (omitted) so the next full recording still rescales without the factor.
+        fixture = self.fixture(dict(self.STORED), entry_durations_version=None)
+        change = additions({"suite": "linux", "create": False, "recorded_entries": ["tests/c1.py"],
+                            "durations": {"tests/c1.py": 18.0}})
+        path = fixture.base / "additions.json"
+        path.write_text(json.dumps(change), encoding="utf-8")
+        applied = fixture.apply(path)
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertNotIn("entry_durations_version", fixture.suites())
+        self.assertEqual(18.0, fixture.suite("linux")["entry_durations"]["tests/c1.py"])
+
+    def test_invalid_entry_durations_version_is_rejected(self) -> None:
+        for bad in (0, -1, True, "2"):
+            with self.subTest(version=bad), self.assertRaises(suite_selection.SuiteListError):
+                suite_selection.parse_suite_list_document({"always": [], "entry_durations_version": bad, "suites": []})
 
 
 class SuiteListMoveTests(unittest.TestCase):
@@ -682,8 +902,8 @@ class SuiteListMoveTests(unittest.TestCase):
         outputs.write_text("", encoding="utf-8")
         report, error = io.StringIO(), io.StringIO()
         with redirect_stdout(report), redirect_stderr(error):
-            code = load_recording().suite_selection.main(["select", "--root", str(fixture.root), "--suites", str(fixture.root / "suites.json"),
-                                                          "--json-output", str(outputs), *arguments])
+            code = suite_selection.main(["select", "--root", str(fixture.root), "--suites", str(fixture.root / "suites.json"),
+                                         "--json-output", str(outputs), *arguments])
         if code != 0:
             return code, error.getvalue().strip(), []
         values = dict(line.split("=", 1) for line in outputs.read_text(encoding="utf-8").splitlines())

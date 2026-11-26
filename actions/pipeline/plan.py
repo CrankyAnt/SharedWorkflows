@@ -25,13 +25,10 @@ files are unknown. The plan is one JSON document, the output ``plan``: per part 
 for a stated part with the setting ``setups`` the tool and the version of each setup it names, in the listed order, the
 parts switched off and the local workflows registered compared with the base, and whether that comparison was made.
 
-Before it reads the configuration file, ``plan`` writes the output ``concurrency``: per part the ``group`` and
-``cancel-in-progress`` of its job, so that a failed plan still gives them. The group is the workflow's name, the part
-and the pull request's number, or the run's id on any other event; only a pull request's run is cancelled by a newer one.
-
 ``verdict`` reads the ``needs`` context of the job that needs ``plan`` and every part, as ``toJSON(needs)`` renders it.
-It fails when ``plan`` did not succeed or any other job ended failure or cancelled; a skipped job is a part that did not
-run. ``schema`` writes, or with ``--check`` compares, the assembled schema ``ci-config.schema.json`` of each version.
+It fails when ``plan`` did not succeed, its plan output is missing or invalid, or a planned check failed, ended skipped,
+timed out or never started; a check the plan did not select counts as not run. ``schema`` writes, or with ``--check``
+compares, the assembled schema ``ci-config.schema.json`` of each version.
 
 ``setting`` prints the items of one list setting of one part, one per line, as the checked configuration file states
 them; it prints nothing when the file does not state the setting. When the configuration file cannot be used, it prints
@@ -43,10 +40,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 PART_FOLDER = Path(__file__).resolve().parent
@@ -58,14 +60,87 @@ SCHEMAS = PART_FOLDER / "schema"
 ASSEMBLED = "ci-config.schema.json"
 SETUPS = "setups.json"
 PIPELINE = "pipeline.yml"
+AUTOMATION = "automation.yml"
+FULL_RECORDING_JOB = "full-recording"
 PLAN_JOB = "plan"
-FAILING_RESULTS = ("failure", "cancelled")
+HYGIENE_JOB = "repository-hygiene"
+VERDICT_JOB = "verdict"
+SUITE_SELECTION_JOB = "suite-selection"
+SUITE_SELECTION_JOBS = "suite-selection-jobs"
+SUITE_SELECTION_LINUX = "suite-selection-linux"
+SUITE_SELECTION_WINDOWS = "suite-selection-windows"
+SUITE_SELECTION_RESULTS = "suite-selection-results"
+DEFAULT_JOB_TIMEOUT_MINUTES = 10
+TIMEOUTS_FILE = PART_FOLDER / "timeouts.json"
+
+
+def load_timeouts(path: Path = TIMEOUTS_FILE) -> dict[str, int]:
+    """Read and validate the job timeout-minutes map; fails loudly when missing, unreadable or malformed."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if (not isinstance(document, dict)
+            or not all(isinstance(k, str) and k and isinstance(v, int) and not isinstance(v, bool) and v > 0
+                       for k, v in document.items())):
+        raise ValueError(f"{path} must map job names to positive integer minute limits")
+    return document
+
+
+JOB_TIMEOUT_MINUTES: dict[str, int] = load_timeouts()
+PLAN_CHANGES_STEP = "Decide which checks the changed files can affect"
+TITLE_STEP = "Check the pull request title"
+REFERENCES_STEP = "Check the references to repositories of the owner"
+API_TIMEOUT = 15
+FAILING_RESULTS = ("failure", "cancelled", "timed_out")
+INPUTS_UNKNOWN_REASON = "inputs unknown"
+# Each pipeline part's own shared code and pin files in SharedWorkflows, which select the part where this repository
+# calls the pipeline by local path. The pipeline's own folder and workflow are not among them: each part's job in the
+# workflow and the files it runs make up its part digest (``PART_DIGESTS``). A folder's consumer kit
+# (``PART_SHARED_EXCLUDED``), which no job runs, selects no part, as it moves no part digest.
+PART_SHARED_INPUTS: dict[str, tuple[str, ...]] = {
+    "python-verify": (
+        "actions/python-language-step/",
+        "actions/python-tests/",
+        "actions/repository-hygiene/pins.json",
+        "actions/repository-hygiene/install_tools.py",
+    ),
+    "python-test": (
+        "actions/python-tests/",
+        "actions/python-language-step/",
+        "actions/repository-hygiene/pins.json",
+        "actions/repository-hygiene/install_tools.py",
+    ),
+    "dotnet-test": ("actions/dotnet-test/",),
+    "node-test": ("actions/node-test/",),
+}
+PART_SHARED_EXCLUDED = ("consumer-kit",)
+
+
+def shared_input_changed(name: str, changed: list[str]) -> str | None:
+    """The first changed file of a part's own shared code that its job runs: under one of its ``PART_SHARED_INPUTS``
+    and, under a folder, outside the folder's consumer kit; None when there is none."""
+    for path in changed:
+        for pattern in PART_SHARED_INPUTS.get(name, ()):
+            if pattern.endswith("/"):
+                if path.startswith(pattern) and path.removeprefix(pattern).split("/")[0] not in PART_SHARED_EXCLUDED:
+                    return path
+            elif path == pattern:
+                return path
+    return None
+
+
+# Shared CI digests (from shared-lookup.json) that select a pipeline part when moved.
+PART_DIGESTS: dict[str, tuple[str, ...]] = {
+    "custom": ("part:custom",),
+    "dotnet-test": ("part:dotnet-test",),
+    "node-test": ("part:node-test",),
+    "python-verify": ("part:python-verify", "language:python"),
+    "python-test": ("part:python-test", "language:python"),
+}
 ALL_ZERO = re.compile(r"^0+$")
 VERSION_FOLDER = re.compile(r"^v([1-9][0-9]*)$")
 WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.yml$")
 # The schema keywords that say nothing about a value, and those the check reads; any other keyword fails the check.
 ANNOTATIONS = {"$schema", "$id", "$defs", "title", "description", "examples", "default"}
-KEYWORDS = {"type", "const", "enum", "pattern", "minLength", "minimum", "minItems", "uniqueItems", "items", "properties", "required",
+KEYWORDS = {"type", "const", "enum", "pattern", "minLength", "minimum", "minItems", "maxItems", "uniqueItems", "items", "properties", "required",
             "additionalProperties", "oneOf", "$ref"}
 TYPES = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
 TYPE_NAMES = {"object": "a mapping", "array": "a list", "string": "a string", "integer": "a whole number", "boolean": "true or false", "null": "nothing"}
@@ -255,6 +330,9 @@ def problems(value: object, schema: dict, root: dict, path: tuple = ()) -> list[
         minimum = schema.get("minItems", 0)
         if len(value) < minimum:
             found.append(Problem(path, f"needs at least {minimum} item{'' if minimum == 1 else 's'}"))
+        maximum = schema.get("maxItems")
+        if maximum is not None and len(value) > maximum:
+            found.append(Problem(path, f"holds at most {maximum} item{'' if maximum == 1 else 's'}"))
         if schema.get("uniqueItems"):
             seen: list = []
             for item in value:
@@ -414,49 +492,489 @@ def registered_workflows(configuration: dict | None) -> list[str]:
     return [entry["workflow"] for entry in entries if isinstance(entry, dict) and isinstance(entry.get("workflow"), str)] if isinstance(entries, list) else []
 
 
+LOOKUP_CASES = ("identical", "behind", "pull-request", "own")
+HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
+
+
+def parse_digests(value: object) -> dict[str, str] | None:
+    """Validate a shared CI digests mapping (non-empty dict of non-empty name to 64-hex SHA-256); None when invalid."""
+    if (not isinstance(value, dict) or not value
+            or not all(isinstance(k, str) and k and isinstance(v, str) and HEX_DIGEST.fullmatch(v) for k, v in value.items())):
+        return None
+    return {k: value[k] for k in sorted(value)}
+
+
+def moved_digest_names(current: dict[str, str], other: dict[str, str]) -> set[str]:
+    """Digest names whose value differs between ``current`` and ``other``; a name absent on either side counts as moved."""
+    return {name for name in set(current) | set(other) if current.get(name) != other.get(name)}
+
+
+@dataclass(frozen=True)
+class ResolvedChange:
+    """The resolved change range, changed paths and push-lookup context of a run."""
+    start: str | None
+    changed: list[str] | None
+    identical_reason: str | None = None
+    tested_base: str | None = None
+    lookup_case: str | None = None
+    tested_digests: object = None
+
+
+def read_push_lookup(path: str | None) -> dict | None:
+    """The push lookup document written by ``suite_selection.py lookup``, or None when absent or unreadable."""
+    if not path:
+        return None
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or raw.get("case") not in LOOKUP_CASES or not isinstance(raw.get("head"), str) or not raw["head"]:
+        return None
+    if raw["case"] == "behind" and not (isinstance(raw.get("tested_base"), str) and isinstance(raw.get("landing_base"), str)):
+        return None
+    return raw
+
+
+def resolve_change(root: Path, base: str | None, head: str | None, compare: str,
+                   lookup: str | None) -> ResolvedChange:
+    """Resolve the comparison range, changed paths and push-lookup metadata for the run's change."""
+    if lookup is not None:
+        found = read_push_lookup(lookup)
+        if found is None:
+            return ResolvedChange(None, None)
+        case, target, landing = found["case"], found["head"], found.get("landing_base")
+        start = comparison_start(root, landing, target, "direct")
+        if case == "identical":
+            changed = changed_files(root, start, target) if start else None
+            pull = found.get("pull_request")
+            reason = f"the tree equals the tested tree that passed on pull request #{pull}" if isinstance(pull, int) else "the tree equals a passed tested tree"
+            return ResolvedChange(start, changed, identical_reason=reason, lookup_case=case, tested_digests=found.get("tested_digests"))
+        if case == "behind":
+            tested_base = comparison_start(root, found.get("tested_base"), landing, "direct")
+            pr_changed = changed_files(root, start, target) if start else None
+            base_changed = changed_files(root, tested_base, landing) if tested_base and landing else None
+            changed = sorted({*pr_changed, *base_changed}) if pr_changed is not None and base_changed is not None else None
+            return ResolvedChange(start, changed, tested_base=tested_base, lookup_case=case, tested_digests=found.get("tested_digests"))
+        changed = changed_files(root, start, target) if start else None
+        return ResolvedChange(start, changed, lookup_case=case)
+    start = comparison_start(root, base, head, compare)
+    changed = changed_files(root, start, head) if start and head else None
+    return ResolvedChange(start, changed)
+
+
 # --- the plan -------------------------------------------------------------------------------------------------------
 
 
-def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, changed: list[str] | None) -> tuple[bool, str]:
-    """Whether a part runs, with the reason."""
+def supports_paths(name: str, version: SchemaVersion) -> bool:
+    """Whether the schema of part ``name`` declares a ``paths`` property."""
+    part_schema = version.schema["properties"]["parts"]["properties"].get(name)
+    return isinstance(part_schema, dict) and "paths" in part_schema.get("properties", {})
+
+
+def declared_input_patterns(name: str, config: dict) -> list[str]:
+    """Input path patterns implied by a part's declared project, working directory, install file, or script."""
+    patterns: list[str] = []
+    script = config.get("script")
+    if isinstance(script, str) and script:
+        patterns.append(script)
+    projects = config.get("projects")
+    if isinstance(projects, list):
+        for project in projects:
+            if not isinstance(project, dict):
+                continue
+            proj = project.get("project")
+            if isinstance(proj, str) and proj:
+                normalized = proj.rstrip("/")
+                if normalized:
+                    patterns.extend((normalized, normalized + "/"))
+            wd = project.get("working-directory")
+            cleaned_wd = wd.strip("/") if isinstance(wd, str) else ""
+            if cleaned_wd and cleaned_wd != ".":
+                patterns.append(cleaned_wd + "/")
+            elif name == "node-test":
+                patterns.extend(("package.json", "package-lock.json", ".nvmrc"))
+            install = project.get("install")
+            if isinstance(install, str) and install:
+                prefix = "" if not cleaned_wd or cleaned_wd == "." else cleaned_wd + "/"
+                if install.endswith(".txt"):
+                    patterns.append(prefix + install.lstrip("./"))
+                else:
+                    patterns.extend(prefix + manifest for manifest in ("pyproject.toml", "setup.py", "setup.cfg"))
+    return list(dict.fromkeys(patterns))
+
+
+def tracked_files(root: Path) -> set[str] | None:
+    """The tracked files of the checkout at ``root``, or None when Git cannot list them."""
+    listing = git(root, "ls-files", "-z")
+    if listing.returncode != 0:
+        return None
+    return {path for path in listing.stdout.split("\0") if path}
+
+
+def unmatched_paths(parts: dict, workflow_parts: list[str], tracked: set[str] | None) -> dict[str, list[str]]:
+    """Per switched-on part, each pattern in its ``paths`` that matches no tracked file."""
+    if tracked is None:
+        return {}
+    unmatched: dict[str, list[str]] = {}
+    for name in workflow_parts:
+        patterns = parts.get(name, {}).get("paths")
+        if not isinstance(patterns, list):
+            continue
+        missing = [pattern for pattern in patterns if not any(pattern_expression(pattern).fullmatch(path) for path in tracked)]
+        if missing:
+            unmatched[name] = missing
+    return unmatched
+
+
+# The plan's own fallbacks to running more, by the reason of a part's decision: the counted reason that the plan adds
+# to the fallbacks of the suite selection, as the suite selection counts its own (``reuse.fallback_notice``).
+DIGEST_FALLBACK_SUFFIX = "digest could not be compared"
+TESTED_DIGEST_FALLBACK_SUFFIX = "digest could not be compared with the tested digests"
+CHANGED_FILES_UNKNOWN = "the changed files are unknown"
+PLAN_FALLBACKS = {
+    TESTED_DIGEST_FALLBACK_SUFFIX: "unreadable-tested-digests",
+    DIGEST_FALLBACK_SUFFIX: "unreadable-shared-digests",
+    CHANGED_FILES_UNKNOWN: "changed-files-unknown",
+}
+
+
+def moved_part_digests(path: str | None, *, lookup_case: str | None = None,
+                       tested_digests: object = None) -> tuple[set[str] | None, str]:
+    """The digest names that moved compared with ``tested_digests`` on ``identical``/``behind`` pushes or with
+    ``previous`` in ``shared-lookup.json`` otherwise, paired with the fallback suffix to use when the comparison fails.
+    A digest present on either side and missing on the other counts as moved. Returns an empty set when ``path`` is None."""
+    if not path:
+        return set(), DIGEST_FALLBACK_SUFFIX
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, DIGEST_FALLBACK_SUFFIX
+    digests = parse_digests(raw.get("digests")) if isinstance(raw, dict) else None
+    if digests is None:
+        return None, DIGEST_FALLBACK_SUFFIX
+    if lookup_case in ("identical", "behind"):
+        tested = parse_digests(tested_digests)
+        if tested is None:
+            return None, TESTED_DIGEST_FALLBACK_SUFFIX
+        return moved_digest_names(digests, tested), TESTED_DIGEST_FALLBACK_SUFFIX
+    previous = parse_digests(raw.get("previous"))
+    if previous is None:
+        return None, DIGEST_FALLBACK_SUFFIX
+    return moved_digest_names(digests, previous), DIGEST_FALLBACK_SUFFIX
+
+
+def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, changed: list[str] | None,
+           identical_reason: str | None = None, tested_base_parts: dict | None = None,
+           moved_digests: set[str] | None = None,
+           digest_fallback_suffix: str = DIGEST_FALLBACK_SUFFIX) -> tuple[bool, str, bool]:
+    """Whether a part runs, with the reason and whether a passed result was taken over."""
     if name in version.always:
-        return True, "always runs"
+        return True, "always runs", False
     if name not in parts:
-        return False, "switched off"
+        return False, "switched off", False
+    part_digests = PART_DIGESTS.get(name, ())
+    if part_digests:
+        if moved_digests is None:
+            return True, f"`{part_digests[0]}` {digest_fallback_suffix}", False
+        moved = next((digest for digest in part_digests if digest in moved_digests), None)
+        if moved is not None:
+            return True, f"`{moved}` digest moved", False
+    if identical_reason is not None:
+        return False, identical_reason, True
     patterns = parts[name].get("paths")
     if patterns is None:
-        return True, "switched on"
+        return (True, INPUTS_UNKNOWN_REASON, False) if supports_paths(name, version) else (True, "switched on", False)
     if changed is None:
-        return True, "the changed files are unknown"
-    if base_parts.get(name) != parts[name]:
-        return True, "its configuration changed"
-    matched = first_match(patterns, changed)
-    return (True, f"{matched} changed") if matched else (False, "no changed path matches its paths")
+        return True, CHANGED_FILES_UNKNOWN, False
+    if base_parts.get(name) != parts[name] or (tested_base_parts is not None and tested_base_parts.get(name) != parts[name]):
+        return True, "its configuration changed", False
+    all_patterns = [*patterns, *declared_input_patterns(name, parts[name])]
+    matched = first_match(all_patterns, changed) or shared_input_changed(name, changed)
+    return (True, f"{matched} changed", False) if matched else (False, "no changed path matches its paths", False)
 
 
-def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str, workflow: str = PIPELINE) -> dict:
+def own_fallbacks(decisions: dict) -> list[tuple[str, str]]:
+    """The plan's own fallbacks, one per running part whose decision fell back to running it: the counted reason and
+    the detail of its notice, in the order of the parts."""
+    found = []
+    for name, entry in decisions.items():
+        reason = entry.get("reason") if isinstance(entry, dict) and entry.get("run") is True else None
+        if not isinstance(reason, str):
+            continue
+        key = next((counted for suffix, counted in PLAN_FALLBACKS.items() if reason.endswith(suffix)), None)
+        if key is not None:
+            found.append((key, f"`{name}` runs: {reason}"))
+    return found
+
+
+def read_hygiene_fallbacks(path: str | None) -> dict[str, int]:
+    """The hygiene fallbacks that ``hygiene.py changes --fallbacks`` counted by reason; none when the file is absent
+    or unreadable."""
+    if not path:
+        return {}
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {name: count for name, count in raw.items()
+            if isinstance(name, str) and isinstance(count, int) and not isinstance(count, bool) and count > 0}
+
+
+def fallback_notice(reason: str, detail: str) -> str:
+    """The notice of one fallback, in the form of the suite selection's ``reuse.fallback_notice``."""
+    return f"::notice title=ci-fallback::{reason}: {detail}"
+
+
+def read_unit_decisions(path: str | None) -> dict | None:
+    """The per-unit selection decisions written by ``suite_selection.py select --unit-decisions``, or None."""
+    if not path:
+        return None
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("run"), bool) or not isinstance(raw.get("units"), dict):
+        return None
+    return raw
+
+
+def combine_python_projects(decisions: dict) -> None:
+    """Fold matching python-verify projects into python-test so each Python project installs once per run."""
+    verify, test = decisions.get("python-verify"), decisions.get("python-test")
+    if not (verify and verify.get("run") and test and test.get("run")):
+        return
+    verify_projects = verify.get("config", {}).get("projects")
+    test_projects = test.get("config", {}).get("projects")
+    if not isinstance(verify_projects, list) or not isinstance(test_projects, list):
+        return
+    updated_test = [dict(project) for project in test_projects]
+    remaining_verify = []
+    for verify_project in verify_projects:
+        verify_dir = verify_project.get("working-directory", ".")
+        verify_version = verify_project.get("python-version")
+        verify_install = verify_project.get("install", "")
+        matched = False
+        for test_project in updated_test:
+            if (
+                not test_project.get("verify")
+                and test_project.get("runner-label", "ubuntu-26.04") == "ubuntu-26.04"
+                and test_project.get("python-version") == verify_version
+                and test_project.get("working-directory", ".") == verify_dir
+                and verify_install in ("", test_project.get("install", ""))
+            ):
+                test_project["verify"] = True
+                test_project["format-check"] = bool(verify_project.get("format-check", False))
+                matched = True
+                break
+        if not matched:
+            remaining_verify.append(verify_project)
+    if len(remaining_verify) != len(verify_projects):
+        test["config"] = {**test["config"], "projects": updated_test}
+        verify["config"] = {**verify["config"], "projects": remaining_verify}
+        if not remaining_verify:
+            verify["run"] = False
+            verify["reason"] = "combined into python-test"
+
+
+def github_get(api_url: str, repository: str, token: str | None, path: str) -> object:
+    """Read one JSON endpoint under ``repos/<repository>/<path>``."""
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"{api_url.rstrip('/')}/repos/{repository}/{path}", headers=headers)
+    with urllib.request.urlopen(request, timeout=API_TIMEOUT) as response:  # noqa: S310 - the API host of the run
+        return json.loads(response.read().decode("utf-8"))
+
+
+def is_edited_run(jobs: list[dict]) -> bool:
+    """Whether a run's ``plan`` job skipped change detection, which only an ``edited`` run does."""
+    plan_job = next((job for job in jobs if str(job.get("name", "")).rsplit(" / ", 1)[-1] == PLAN_JOB), None)
+    if not isinstance(plan_job, dict):
+        return False
+    return any(step.get("name") == PLAN_CHANGES_STEP and step.get("conclusion") == "skipped"
+               for step in (plan_job.get("steps") or []) if isinstance(step, dict))
+
+
+def code_failures_of_run(run: dict, jobs: list[dict], head: str) -> list[str]:
+    """Every non-title, non-reference failure in a completed code run of ``head``."""
+    run_id = run.get("id")
+    failures: list[str] = []
+    title_or_ref_failed = False
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        job_name = str(job.get("name", ""))
+        short_name = job_name.rsplit(" / ", 1)[-1]
+        if short_name == VERDICT_JOB:
+            continue
+        conclusion = job.get("conclusion")
+        if short_name in (PLAN_JOB, HYGIENE_JOB):
+            if conclusion in ("success", "skipped"):
+                continue
+            allowed = REFERENCES_STEP if short_name == PLAN_JOB else TITLE_STEP
+            bad_steps = [step.get("name") for step in (job.get("steps") or [])
+                         if isinstance(step, dict) and step.get("conclusion") in (*FAILING_RESULTS, "action_required")]
+            if bad_steps and all(step == allowed for step in bad_steps):
+                title_or_ref_failed = True
+            else:
+                failures.append(f"`{job_name}` ended {conclusion} in run {run_id}")
+        elif conclusion in (*FAILING_RESULTS, "action_required", "startup_failure"):
+            failures.append(f"`{job_name}` ended {conclusion} in run {run_id}")
+    if not failures and not title_or_ref_failed and run.get("conclusion") != "success":
+        failures.append(f"code run {run_id} for `{head}` ended {run.get('conclusion')}")
+    return failures
+
+
+def head_code_results(head: str | None, workflow_ref: str, run_id: str) -> dict:
+    """Look up the code results of ``head`` from the pull request's latest non-cancelled code run."""
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    token = os.environ.get("GITHUB_TOKEN") or None
+    if not head or not repository:
+        return {"run_id": None, "passed": False, "failures": ["the code results of the head could not be looked up: missing repository or head"]}
+    workflow_file = workflow_ref.split("@", 1)[0].rsplit("/", 1)[-1] if workflow_ref else "ci.yml"
+    try:
+        runs_doc = github_get(api_url, repository, token,
+                              f"actions/workflows/{urllib.parse.quote(workflow_file)}/runs?head_sha={urllib.parse.quote(head)}&event=pull_request&per_page=100")
+        runs = runs_doc.get("workflow_runs") if isinstance(runs_doc, dict) else None
+        if not isinstance(runs, list):
+            return {"run_id": None, "passed": False, "failures": [f"the code results of `{head}` could not be read"]}
+        for run in runs:
+            if not isinstance(run, dict) or str(run.get("id")) == str(run_id) or run.get("conclusion") == "cancelled":
+                continue
+            jobs_doc = github_get(api_url, repository, token, f"actions/runs/{run.get('id')}/jobs?per_page=100")
+            jobs = jobs_doc.get("jobs") if isinstance(jobs_doc, dict) else None
+            if not isinstance(jobs, list):
+                return {"run_id": run.get("id"), "passed": False, "failures": [f"the jobs of run {run.get('id')} could not be read"]}
+            if is_edited_run(jobs):
+                continue
+            if run.get("status") != "completed":
+                return {"run_id": run.get("id"), "passed": False, "failures": [f"code run {run.get('id')} for `{head}` is still {run.get('status')}"]}
+            failures = code_failures_of_run(run, jobs, head)
+            return {"run_id": run.get("id"), "passed": not failures, "failures": failures}
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        return {"run_id": None, "passed": False, "failures": [f"the code results of `{head}` could not be looked up: {error}"]}
+    return {"run_id": None, "passed": False, "failures": [f"no completed code run found for `{head}`"]}
+
+
+def job_timeouts(version: SchemaVersion, workflow: str) -> dict[str, int]:
+    """The timeout-minutes limit for every job of ``workflow``."""
+    timeouts: dict[str, int] = {PLAN_JOB: JOB_TIMEOUT_MINUTES[PLAN_JOB]}
+    for name in version.parts_of(workflow):
+        if workflow == PIPELINE and name == SUITE_SELECTION_JOB:
+            timeouts[SUITE_SELECTION_LINUX] = JOB_TIMEOUT_MINUTES[SUITE_SELECTION_LINUX]
+            timeouts[SUITE_SELECTION_WINDOWS] = JOB_TIMEOUT_MINUTES[SUITE_SELECTION_WINDOWS]
+            timeouts[SUITE_SELECTION_RESULTS] = JOB_TIMEOUT_MINUTES[SUITE_SELECTION_RESULTS]
+        else:
+            timeouts[name] = JOB_TIMEOUT_MINUTES.get(name, DEFAULT_JOB_TIMEOUT_MINUTES)
+    if workflow == PIPELINE:
+        timeouts[VERDICT_JOB] = JOB_TIMEOUT_MINUTES[VERDICT_JOB]
+    return timeouts
+
+
+def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
+              workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None,
+              event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0",
+              iso_week: int | None = None, shared_lookup: str | None = None, hygiene_fallbacks: str | None = None) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
     configuration, version = checked_configuration(path.read_text(encoding="utf-8"), versions)
-    start = comparison_start(root, base, head, compare)
-    changed = changed_files(root, start, head) if start and head else None
-    before = base_configuration(root, start) if changed is not None else None
+    change = resolve_change(root, base, head, compare, lookup)
+    before = base_configuration(root, change.start) if change.changed is not None else None
+    tested_before = base_configuration(root, change.tested_base) if change.changed is not None and change.tested_base is not None else None
     parts, base_parts = stated_parts(configuration), stated_parts(before)
+    tested_base_parts = stated_parts(tested_before) if change.tested_base is not None else None
+    workflow_parts = version.parts_of(workflow)
+    moved_digests, digest_fallback_suffix = moved_part_digests(shared_lookup, lookup_case=change.lookup_case, tested_digests=change.tested_digests)
+    departures: list[dict] = [
+        {"part": name, "reason": INPUTS_UNKNOWN_REASON}
+        for name in workflow_parts
+        if name in parts and supports_paths(name, version) and parts[name].get("paths") is None
+    ]
+    unmatched = unmatched_paths(parts, workflow_parts, tracked_files(root))
     decisions = {}
-    for name in version.parts_of(workflow):
-        run, reason = decide(name, version, parts, base_parts, changed)
-        decisions[name] = {"run": run, "reason": reason, "config": parts.get(name, {})}
-        if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
-            decisions[name]["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+    head_results: dict | None = None
+    if event == "pull_request" and event_action == "edited" and workflow == PIPELINE:
+        head_results = head_code_results(head, workflow_ref, run_id)
+        for name in workflow_parts:
+            if name == HYGIENE_JOB:
+                entry: dict = {"run": True, "reason": "title and description checks", "config": parts.get(name, {})}
+            elif name not in parts:
+                entry = {"run": False, "reason": "switched off", "config": {}}
+            elif head_results["passed"]:
+                entry = {"run": False, "reason": f"took over from run {head_results['run_id']}", "config": parts.get(name, {}), "reused": True}
+            else:
+                entry = {"run": False, "reason": "edited pull request", "config": parts.get(name, {})}
+            if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
+                entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+            decisions[name] = entry
+    else:
+        for name in workflow_parts:
+            run, reason, reused = decide(name, version, parts, base_parts, change.changed, change.identical_reason, tested_base_parts,
+                                         moved_digests, digest_fallback_suffix)
+            entry = {"run": run, "reason": reason, "config": parts.get(name, {})}
+            if reused:
+                entry["reused"] = True
+            if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
+                entry["setups"] = [version.setups[setup] for setup in parts[name].get("setups", [])]
+            decisions[name] = entry
+        combine_python_projects(decisions)
+        if workflow == AUTOMATION and event == "schedule" and FULL_RECORDING_JOB in decisions and decisions[FULL_RECORDING_JOB]["run"]:
+            week = datetime.now(timezone.utc).isocalendar().week if iso_week is None else iso_week
+            if week % 2 != 0:
+                decisions[FULL_RECORDING_JOB]["run"] = False
+                decisions[FULL_RECORDING_JOB]["reason"] = "odd ISO week"
+        selected_units = read_unit_decisions(unit_decisions)
+        if selected_units is not None and SUITE_SELECTION_JOB in decisions and SUITE_SELECTION_JOB in parts:
+            suite_entry = decisions[SUITE_SELECTION_JOB]
+            suite_entry["run"] = bool(selected_units["run"])
+            if isinstance(selected_units.get("reason"), str) and selected_units["reason"]:
+                suite_entry["reason"] = selected_units["reason"]
+            if not suite_entry["run"] and selected_units.get("reused") is True:
+                suite_entry["reused"] = True
+            else:
+                suite_entry.pop("reused", None)
     known = registered_workflows(before)
-    return {
+    result: dict = {
         "version": version.version,
         "parts": decisions,
-        "compared": changed is not None,
+        "timeouts": job_timeouts(version, workflow),
+        "departures": departures,
+        "unmatched-paths": unmatched,
+        "compared": change.changed is not None,
         "switched-off": sorted(name for name in base_parts if name not in parts and name not in version.always),
         "local-workflows-added": [workflow for workflow in registered_workflows(configuration) if workflow not in known],
     }
+    fallbacks: dict[str, int] = {}
+    if head_results is None and (selected_units := read_unit_decisions(unit_decisions)) is not None:
+        result["units"] = selected_units["units"]
+        if isinstance(selected_units.get("shards"), list):
+            shards = [
+                {"shard": item["shard"], "estimate": float(item["estimate"])}
+                for item in selected_units["shards"]
+                if isinstance(item, dict)
+                and isinstance(item.get("shard"), int)
+                and not isinstance(item.get("shard"), bool)
+                and isinstance(item.get("estimate"), (int, float))
+                and not isinstance(item.get("estimate"), bool)
+            ]
+            if shards:
+                result["shards"] = shards
+        if isinstance(selected_units.get("fallbacks"), dict):
+            fallbacks.update({name: count for name, count in selected_units["fallbacks"].items()
+                              if isinstance(name, str) and isinstance(count, int) and count > 0})
+    for reason, _ in own_fallbacks(decisions):
+        fallbacks[reason] = fallbacks.get(reason, 0) + 1
+    for reason, count in read_hygiene_fallbacks(hygiene_fallbacks).items():
+        fallbacks[reason] = fallbacks.get(reason, 0) + count
+    if fallbacks:
+        result["fallbacks"] = dict(sorted(fallbacks.items()))
+    if head_results is not None:
+        result["head-results"] = head_results
+    return result
 
 
 def comparison_lines(plan: dict) -> list[str]:
@@ -473,7 +991,35 @@ def comparison_lines(plan: dict) -> list[str]:
 
 def plan_markdown(plan: dict) -> str:
     lines = ["## Pipeline plan", "", f"`{CONFIGURATION}` matches schema version {plan['version']}.", "", "| Part | Runs | Reason |", "| --- | --- | --- |"]
-    lines += [f"| `{name}` | {'yes' if part['run'] else 'no'} | {part['reason']} |" for name, part in plan["parts"].items()]
+    for name, part in plan["parts"].items():
+        status = "yes" if part["run"] else ("no (taken over)" if part.get("reused") is True else "no")
+        lines.append(f"| `{name}` | {status} | {part['reason']} |")
+    units = plan.get("units")
+    if isinstance(units, dict) and units:
+        lines += ["", "### Units", "", "| Unit | Runs | Reason |", "| --- | --- | --- |"]
+        for unit_name, unit in units.items():
+            status = "yes" if unit.get("run") else ("no (taken over)" if unit.get("reused") is True else "no")
+            lines.append(f"| `{unit_name}` | {status} | {unit.get('reason', '')} |")
+    departures = plan.get("departures")
+    if isinstance(departures, list) and departures:
+        lines += ["", "### Departures", ""]
+        lines += [f"- `{item['part']}`: {item['reason']}" for item in departures if isinstance(item, dict)]
+    unmatched = plan.get("unmatched-paths")
+    if isinstance(unmatched, dict) and unmatched:
+        lines += ["", "### Unmatched paths", ""]
+        for part_name, patterns in unmatched.items():
+            for pattern in patterns:
+                lines.append(f"- `{part_name}`: `{pattern}` matches no tracked file")
+    head_results = plan.get("head-results")
+    if isinstance(head_results, dict):
+        if head_results.get("passed"):
+            lines += ["", f"Code results of the head: passed in run {head_results.get('run_id')}."]
+        else:
+            lines += ["", "Code results of the head: " + "; ".join(head_results.get("failures") or ["not passed"]) + "."]
+    fallbacks = plan.get("fallbacks")
+    if isinstance(fallbacks, dict) and fallbacks:
+        counts = ", ".join(f"`{name}` ({count})" for name, count in sorted(fallbacks.items()))
+        lines += ["", f"Fallbacks: {counts}."]
     return "\n".join([*lines, "", *comparison_lines(plan)]) + "\n"
 
 
@@ -483,19 +1029,13 @@ def append(path: str | None, text: str) -> None:
             stream.write(text)
 
 
-def concurrency(parts: list[str], workflow: str, event: str, pull_request: str, run_id: str) -> dict:
-    """The concurrency group and cancel flag of each part's job."""
-    on_pull_request = event == "pull_request" and bool(pull_request)
-    scope = f"pr-{pull_request}" if on_pull_request else f"run-{run_id}"
-    return {name: {"group": f"{workflow}-{name}-{scope}", "cancel-in-progress": on_pull_request} for name in parts}
-
-
 def run_plan(options: argparse.Namespace) -> int:
     try:
         versions = schema_versions(Path(options.schemas))
-        groups = concurrency(versions[max(versions)].parts_of(options.shared_workflow), options.workflow, options.event, options.pull_request, options.run_id)
-        append(options.github_output, f"concurrency={json.dumps(groups, separators=(',', ':'))}\n")
-        plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare, options.shared_workflow)
+        plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare,
+                         options.shared_workflow, options.lookup, options.unit_decisions,
+                         options.event, options.event_action, options.workflow_ref, options.run_id, options.iso_week,
+                         options.shared_lookup, options.hygiene_fallbacks)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
         print(f"The plan failed: {CONFIGURATION} cannot be used.")
@@ -504,7 +1044,18 @@ def run_plan(options: argparse.Namespace) -> int:
         return 1
     for name, part in plan["parts"].items():
         print(f"{name}: {'runs' if part['run'] else 'does not run'} ({part['reason']})")
+    for departure in plan.get("departures", []):
+        print(f"departure: {departure['part']} ({departure['reason']})")
+    for reason, detail in own_fallbacks(plan["parts"]):
+        print(fallback_notice(reason, detail))
+    for part_name, patterns in plan.get("unmatched-paths", {}).items():
+        for pattern in patterns:
+            print(f"unmatched path pattern: {part_name}: {pattern}")
     append(options.github_output, f"plan={json.dumps(plan, separators=(',', ':'))}\n")
+    if options.output:
+        destination = Path(options.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(plan, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
     append(options.summary, plan_markdown(plan))
     return 0
 
@@ -512,38 +1063,190 @@ def run_plan(options: argparse.Namespace) -> int:
 # --- the verdict ----------------------------------------------------------------------------------------------------
 
 
-def job_plan(needs: dict) -> dict | None:
-    """The plan in the outputs of the ``plan`` job, when that job gave one."""
-    outputs = needs.get(PLAN_JOB, {}).get("outputs") if isinstance(needs.get(PLAN_JOB), dict) else None
+def parse_job_plan(needs: dict) -> tuple[dict | None, str | None]:
+    """The validated plan in the outputs of the ``plan`` job, or None with the reason when missing or invalid."""
+    plan_job = needs.get(PLAN_JOB)
+    outputs = plan_job.get("outputs") if isinstance(plan_job, dict) else None
     raw = outputs.get("plan") if isinstance(outputs, dict) else None
+    if not isinstance(raw, str) or not raw:
+        return None, f"the `{PLAN_JOB}` job gave no plan output"
     try:
-        plan = json.loads(raw) if isinstance(raw, str) and raw else None
+        plan = json.loads(raw)
     except ValueError:
-        return None
-    return plan if isinstance(plan, dict) and isinstance(plan.get("parts"), dict) else None
+        return None, f"the `{PLAN_JOB}` job gave an invalid plan output"
+    if not isinstance(plan, dict) or not isinstance(plan.get("parts"), dict):
+        return None, f"the `{PLAN_JOB}` job gave an invalid plan output"
+    for name, part in plan["parts"].items():
+        if (not isinstance(name, str) or not isinstance(part, dict) or not isinstance(part.get("run"), bool)
+                or ("reused" in part and not isinstance(part["reused"], bool))):
+            return None, f"the `{PLAN_JOB}` job gave an invalid plan output"
+    return plan, None
+
+
+def job_plan(needs: dict) -> dict | None:
+    """The validated plan in the outputs of the ``plan`` job, when that job gave one."""
+    return parse_job_plan(needs)[0]
+
+
+@dataclass(frozen=True)
+class CheckOutcome:
+    name: str
+    outcome: str
+    result: str
+    reason: str
+
+
+def planned_check_outcome(name: str, reason: str, needs: dict) -> tuple[CheckOutcome, str | None]:
+    """The outcome row and optional failure reason of a check the plan selected to run."""
+    job = needs.get(name)
+    result = job.get("result") if isinstance(job, dict) else None
+    if not isinstance(result, str) or not result:
+        return CheckOutcome(name, "skipped", "never started", reason), f"`{name}` never started"
+    if result == "success":
+        return CheckOutcome(name, "ran", "success", reason), None
+    if result == "skipped":
+        return CheckOutcome(name, "skipped", "skipped", reason), f"`{name}` ended skipped"
+    return CheckOutcome(name, "ran", result, reason), f"`{name}` ended {result}"
+
+
+def decode_json_output(outputs: dict, key: str, expected_type: type) -> tuple[object | None, bool]:
+    """Decode one optional JSON string output of a job; returns (value, ok)."""
+    if key not in outputs or outputs[key] == "":
+        return None, True
+    raw = outputs[key]
+    if not isinstance(raw, str):
+        return None, False
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None, False
+    return (value, True) if isinstance(value, expected_type) else (None, False)
+
+
+def suite_selection_followups(needs: dict, selection_job: str = SUITE_SELECTION_JOB) -> tuple[list[CheckOutcome], list[str]]:
+    """Evaluate the follow-up jobs of a planned ``suite-selection`` (either its own job or inside ``plan``)."""
+    job_entry = needs.get(selection_job, {})
+    outputs = job_entry.get("outputs") if isinstance(job_entry, dict) else None
+    if not isinstance(outputs, dict):
+        outputs = {}
+    shards, shards_ok = decode_json_output(outputs, "shards", list)
+    units, units_ok = decode_json_output(outputs, "units", dict)
+    reused, reused_ok = decode_json_output(outputs, "reused", dict)
+    windows = outputs.get("windows", "")
+    if not (shards_ok and units_ok and reused_ok and isinstance(windows, str)):
+        return [], [f"`{selection_job}` gave invalid selection output"]
+    identical = outputs.get("identical") == "true"
+    jobs_planned = bool(shards) or bool(windows) or bool(units)
+    if not jobs_planned and "shards" not in outputs and "windows" not in outputs and not identical:
+        if SUITE_SELECTION_JOBS in needs:
+            return [], [f"`{selection_job}` gave no selection output"]
+        return [], []
+    reasons: list[str] = []
+    if jobs_planned:
+        parts = []
+        if shards:
+            parts.append(f"{len(shards)} Linux shard{'' if len(shards) == 1 else 's'}")  # type: ignore[arg-type]
+        if windows:
+            parts.append("Windows")
+        reason = " and ".join(parts) if parts else "selected units"
+        if reused:
+            count = len(reused)  # type: ignore[arg-type]
+            reason += f"; {count} passed unit{'' if count == 1 else 's'} taken over"
+        row, failure = planned_check_outcome(SUITE_SELECTION_JOBS, reason, needs)
+        rows = [row]
+        if failure:
+            reasons.append(failure)
+    elif identical:
+        rows = [CheckOutcome(SUITE_SELECTION_JOBS, "taken over", "not run", "the tree equals a passed tested tree")]
+    elif reused:
+        count = len(reused)  # type: ignore[arg-type]
+        rows = [CheckOutcome(SUITE_SELECTION_JOBS, "taken over", "not run", f"{count} passed unit{'' if count == 1 else 's'} taken over")]
+    else:
+        rows = [CheckOutcome(SUITE_SELECTION_JOBS, "skipped", "not run", "no suites selected")]
+    if SUITE_SELECTION_RESULTS in needs and isinstance(needs[SUITE_SELECTION_RESULTS], dict):
+        store_result = needs[SUITE_SELECTION_RESULTS].get("result")
+        if isinstance(store_result, str) and store_result and store_result not in ("success", "skipped"):
+            reasons.append(f"`{SUITE_SELECTION_RESULTS}` ended {store_result}")
+    return rows, reasons
+
+
+# The outputs of the ``plan`` job that hold the outcome of each light hygiene check that runs inside it.
+LIGHT_CHECKS = {"light-branch": "the pull request branch", "light-references": "the references to repositories of the owner",
+                "light-consumer-checks": "the consumer checks", "light-coverage": "Dependabot coverage",
+                "light-links": "relative links in tracked Markdown"}
+
+
+def light_check_failures(needs: dict) -> list[str]:
+    """The light hygiene checks inside ``plan`` whose step failed, as the plan job's outputs name them."""
+    plan_job = needs.get(PLAN_JOB)
+    outputs = plan_job.get("outputs") if isinstance(plan_job, dict) else None
+    if not isinstance(outputs, dict):
+        return []
+    return [f"the light check of {label} in `{PLAN_JOB}` failed" for output, label in LIGHT_CHECKS.items() if outputs.get(output) == "failure"]
+
+
+def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOutcome]]:
+    """Evaluate the needs context against the plan; returns (failure reasons, validated plan, check outcomes). A failed
+    ``plan`` job that wrote its plan, such as one whose light hygiene check failed, fails the verdict with the failed
+    check named, and its planned checks are judged as after a passed ``plan``."""
+    reasons: list[str] = []
+    if PLAN_JOB not in needs:
+        reasons.append(f"the needs context has no `{PLAN_JOB}` job")
+    else:
+        result = needs[PLAN_JOB].get("result")
+        if result != "success":
+            reasons.append(f"`{PLAN_JOB}` never started" if not isinstance(result, str) or not result else f"`{PLAN_JOB}` ended {result}")
+            reasons += light_check_failures(needs)
+        plan, error = parse_job_plan(needs) if result in ("success", "failure") else (None, None)
+        if plan is None:
+            if result == "success":
+                reasons.append(error or f"the `{PLAN_JOB}` job gave no plan output")
+        else:
+            checks: list[CheckOutcome] = []
+            for name, part in plan["parts"].items():
+                reason = str(part.get("reason", ""))
+                if part["run"]:
+                    if name == SUITE_SELECTION_JOB and SUITE_SELECTION_JOB not in needs:
+                        followup_rows, followup_reasons = suite_selection_followups(needs, selection_job=PLAN_JOB)
+                        checks += followup_rows
+                        reasons += followup_reasons
+                    else:
+                        row, failure = planned_check_outcome(name, reason, needs)
+                        checks.append(row)
+                        if failure:
+                            reasons.append(failure)
+                        elif name == SUITE_SELECTION_JOB:
+                            followup_rows, followup_reasons = suite_selection_followups(needs)
+                            checks += followup_rows
+                            reasons += followup_reasons
+                else:
+                    outcome = "taken over" if part.get("reused") is True else "skipped"
+                    checks.append(CheckOutcome(name, outcome, "not run", reason))
+            head_results = plan.get("head-results")
+            if isinstance(head_results, dict) and head_results.get("passed") is False:
+                reasons.extend(str(item) for item in (head_results.get("failures") or ["the code checks of the head did not pass"]))
+            return reasons, plan, checks
+    reasons += [f"`{name}` ended {job.get('result')}" for name, job in needs.items()
+                if name != PLAN_JOB and job.get("result") in FAILING_RESULTS]
+    return reasons, None, []
 
 
 def verdict_reasons(needs: dict) -> list[str]:
-    """Why the verdict fails: ``plan`` did not succeed, or another job ended failure or cancelled."""
-    reasons = []
-    if PLAN_JOB not in needs:
-        reasons.append(f"the needs context has no `{PLAN_JOB}` job")
-    elif needs[PLAN_JOB].get("result") != "success":
-        reasons.append(f"`{PLAN_JOB}` ended {needs[PLAN_JOB].get('result')}")
-    reasons += [f"`{name}` ended {job.get('result')}" for name, job in needs.items() if name != PLAN_JOB and job.get("result") in FAILING_RESULTS]
-    return reasons
+    """Why the verdict fails: ``plan`` did not succeed, its plan output is missing or invalid, or a planned check did not succeed."""
+    return evaluate_verdict(needs)[0]
 
 
-def verdict_markdown(needs: dict, reasons: list[str]) -> str:
+def verdict_markdown(needs: dict, reasons: list[str], plan: dict | None = None, checks: list[CheckOutcome] | None = None) -> str:
+    if plan is None and checks is None:
+        _, plan, checks = evaluate_verdict(needs)
     lines = ["## Verdict", ""]
-    lines.append("**Failed.** " + "; ".join(reasons) + "." if reasons else "**Passed.** The plan succeeded and no started part ended failure or cancelled.")
-    plan = job_plan(needs)
+    lines.append("**Failed.** " + "; ".join(reasons) + "." if reasons else "**Passed.** The plan succeeded and every planned check passed or took over a pass.")
     if plan is None:
         lines += ["", f"The `{PLAN_JOB}` job gave no plan: the parts switched off and the local workflows registered by this change are unknown."]
     else:
         lines += ["", *comparison_lines(plan)]
-        lines += ["", "| Part | Planned | Reason |", "| --- | --- | --- |"]
-        lines += [f"| `{name}` | {'runs' if part.get('run') else 'does not run'} | {part.get('reason', '')} |" for name, part in plan["parts"].items()]
+        lines += ["", "| Check | Outcome | Result | Reason |", "| --- | --- | --- | --- |"]
+        lines += [f"| `{check.name}` | {check.outcome} | {check.result} | {check.reason} |" for check in (checks or [])]
     lines += ["", "| Job | Result |", "| --- | --- |"]
     lines += [f"| `{name}` | {job.get('result')} |" for name, job in needs.items()]
     return "\n".join(lines) + "\n"
@@ -558,11 +1261,11 @@ def run_verdict(options: argparse.Namespace) -> int:
     if not isinstance(needs, dict) or not all(isinstance(job, dict) for job in needs.values()):
         print(f"The needs context {options.needs} is no object of jobs", file=sys.stderr)
         return 2
-    reasons = verdict_reasons(needs)
+    reasons, plan, checks = evaluate_verdict(needs)
     print("Verdict: " + ("failed: " + "; ".join(reasons) if reasons else "passed"))
     for name, job in needs.items():
         print(f"job {name}: {job.get('result')}")
-    append(options.summary, verdict_markdown(needs, reasons))
+    append(options.summary, verdict_markdown(needs, reasons, plan, checks))
     return 1 if reasons else 0
 
 
@@ -635,11 +1338,19 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--base", help="the commit the head is compared with")
     planning.add_argument("--head", help="the commit under test")
     planning.add_argument("--compare", choices=("merge-base", "direct"), default="direct", help="compare the head with its merge base with the base, or with the base itself")
+    planning.add_argument("--lookup", help="the push lookup JSON file written by suite_selection.py lookup")
+    planning.add_argument("--shared-lookup", help="the shared lookup JSON file written by suite_selection.py shared-lookup")
+    planning.add_argument("--unit-decisions", help="the per-unit decisions JSON file written by suite_selection.py select")
+    planning.add_argument("--hygiene-fallbacks", help="the hygiene fallbacks JSON file written by hygiene.py changes --fallbacks")
     planning.add_argument("--workflow", default="pipeline", help="the name of the running workflow, for the concurrency groups")
+    planning.add_argument("--workflow-ref", default="", help="the workflow_ref of the running workflow, for looking up head runs")
     planning.add_argument("--event", default="", help="the name of the event of the run")
+    planning.add_argument("--event-action", default="", help="the action of the event, such as edited on pull_request")
     planning.add_argument("--pull-request", default="", help="the number of the pull request of the run, empty on another event")
     planning.add_argument("--run-id", default="0", help="the id of the run")
-    planning.add_argument("--github-output", help="the file that receives the outputs concurrency and plan")
+    planning.add_argument("--iso-week", type=int, default=None, help="override the UTC ISO week number used for scheduled cadence checks")
+    planning.add_argument("--github-output", help="the file that receives the output plan")
+    planning.add_argument("--output", help="the file that receives the JSON plan document")
     planning.add_argument("--summary", help="the file that receives the Markdown summary")
     deciding = commands.add_parser("verdict", help="pass or fail on the results of the plan and the parts")
     deciding.add_argument("--needs", required=True, help="a file with toJSON(needs) of the verdict job")

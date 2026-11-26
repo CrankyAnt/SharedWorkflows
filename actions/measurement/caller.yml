@@ -1,0 +1,17 @@
+name: Measurement
+
+on:
+  schedule:
+    # Weekly on Monday at 06:17 UTC.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  measurement:
+    permissions:
+      issues: write
+    secrets:
+      MEASUREMENT_APP_PRIVATE_KEY: ${{ secrets.MEASUREMENT_APP_PRIVATE_KEY }}
+    uses: CrankyAnt/SharedWorkflows/.github/workflows/measurement.yml@v1

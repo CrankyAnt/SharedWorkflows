@@ -1,4 +1,3 @@
 steps:
   - name: Run the Python language step
-    if: ${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}
     uses: CrankyAnt/SharedWorkflows/actions/python-language-step@v1

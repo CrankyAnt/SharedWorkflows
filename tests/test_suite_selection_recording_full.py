@@ -36,6 +36,7 @@ SKIPPING = """\
 
 PLAIN = 'open("data/plain.txt").read()\n'
 READLINK = 'import os\nprint(os.readlink("link"))\n'
+OPEN_LINK = 'print(open("link").read())\n'
 ENTRIES = ["tests/ok.py", "tests/skip.py", "tests/plain.py"]
 STALE = "data/stale.txt"
 RUNNERS = StoredFixture("full-runners", {"tests/ok.py": PASSING, "tests/skip.py": SKIPPING, "tests/plain.py": PLAIN, "data/ok.txt": "",
@@ -60,7 +61,8 @@ TAP = {
     "stray-plan": printing("1..3") + textwrap.dedent(PASSING),
 }
 TAP_ENTRIES = [f"tests/tap_{name}.py" for name in TAP]
-LINKING = StoredFixture("full-link", {"tests/link.py": READLINK, "target.txt": ""}, {"link": ("python3", "tests/link.py")}, {"link": "target.txt"})
+LINKING = StoredFixture("full-link", {"tests/link.py": READLINK, "tests/open_link.py": OPEN_LINK, "target.txt": "target\n"},
+                        {"link": ("python3", "tests/link.py"), "open_link": ("python3", "tests/open_link.py")}, {"link": "target.txt"})
 # The fixtures whose commands python3 -m tests.record_strace_fixture records.
 STORED = (RUNNERS, LINKING)
 
@@ -76,10 +78,20 @@ class FullRecordingTests(unittest.TestCase):
         checked = fixture.record(["tests/link.py"], full=True)
         self.assertEqual(0, checked.returncode, checked.stderr)
         self.assertIn("link", fixture.reads_of("tests/link.py")["paths"])
-        # Under the mid set of a pull-request run, readlink is not traced.
-        self.assertEqual(0, fixture.record(["tests/link.py"]).returncode)
+        # Pull-request runs also trace readlink and readlinkat, so link is reported as an addition.
+        pr_checked = fixture.record(["tests/link.py"])
+        self.assertEqual(1, pr_checked.returncode, pr_checked.stdout + pr_checked.stderr)
+        self.assertIn("link", fixture.additions()["suites"][0]["reads"]["paths"])
         traced = [call[call.index("-e") + 1] for call in fixture.stand_in_calls()]
-        self.assertEqual([True, False], ["?readlink" in calls.split("=", 1)[1].split(",") for calls in traced])
+        self.assertEqual([True, True], ["?readlink" in calls.split("=", 1)[1].split(",") for calls in traced])
+
+    def test_a_pull_request_run_records_a_tests_reads_through_link_targets(self) -> None:
+        fixture = LINKING.fixture(self.addCleanup, [suite("a", ["tests/open_link.py"], paths=["tests/open_link.py"])])
+        checked = fixture.record(["tests/open_link.py"])
+        self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
+        added = fixture.additions()["suites"][0]["reads"]["paths"]
+        self.assertIn("link", added)
+        self.assertIn("target.txt", added)
 
     def test_it_removes_a_stored_read_only_for_an_entry_file_that_ran_with_no_test_skipped(self) -> None:
         fixture = self.fixture()
@@ -115,7 +127,7 @@ class FullRecordingTests(unittest.TestCase):
         self.assertNotIn(STALE, stored["paths"])
         for name in ("ok", "skip", "plain"):
             self.assertIn(f"data/{name}.txt", stored["entry_paths"][f"tests/{name}.py"])
-        self.assertEqual(["tests/ok.py"], list(stored["entry_durations"]))
+        self.assertEqual(sorted(ENTRIES), list(stored["entry_durations"]))
         # The written suite list loads: a second apply of the same result reads it and exits 0.
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
 
@@ -137,7 +149,7 @@ class FullRecordingTests(unittest.TestCase):
         self.assertEqual(ENTRIES, list(stored["entry_paths"]))
         for field in ("entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories"):
             self.assertNotIn(gone, stored.get(field, {}))
-        self.assertEqual(["tests/ok.py"], list(stored["entry_durations"]))
+        self.assertEqual(ENTRIES, list(stored["entry_durations"]))
         self.assertNotIn(STALE, stored["paths"])
         # The written suite list loads: a second apply of the same result reads it and exits 0.
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
@@ -181,14 +193,16 @@ class FullRecordingTests(unittest.TestCase):
         self.assertEqual(2, refused.returncode)
         self.assertIn("--job goes with --full", refused.stderr)
 
-    def test_it_writes_a_duration_estimate_only_for_an_entry_file_that_ran_clean(self) -> None:
-        # tests/skip.py skipped a test and tests/plain.py reports no skip count; neither has a stored estimate to keep.
+    def test_it_writes_a_duration_estimate_for_every_entry_file_that_exited_with_zero(self) -> None:
+        # tests/skip.py skipped a test and tests/plain.py reports no skip count; all three exited with 0 so all three
+        # get duration estimates, while only clean tests/ok.py replaces its stored list.
         fixture = self.fixture()
         self.assertEqual(0, fixture.record(ENTRIES, full=True).returncode)
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
         durations = fixture.suite("per-entry")["entry_durations"]
-        self.assertEqual(["tests/ok.py"], list(durations))
-        self.assertGreater(durations["tests/ok.py"], 0)
+        self.assertEqual(ENTRIES, list(durations))
+        for entry in ENTRIES:
+            self.assertGreater(durations[entry], 0)
 
 
 @requires_linux
@@ -240,6 +254,58 @@ class TapReportTests(unittest.TestCase):
         self.assertIn(STALE, fixture.suite("per-entry")["entry_paths"]["tests/tap_two-plans.py"])
         self.assertIn("kept the list of tests/tap_two-plans.py: it printed no complete test report: its TAP report has more than one plan",
                       applied.stdout)
+
+
+PYTEST = {
+    "framed": printing("======== 34 passed in 1.23s ========"),
+    "quiet": printing("34 passed in 1.23s"),
+    "quiet-warnings": printing("12 passed, 2 warnings in 120.50s (0:02:00)"),
+    "colored": printing("\x1b[32m5 passed\x1b[0m in 0.42s"),
+    "quiet-skipped": printing("3 passed, 1 skipped in 0.45s"),
+    "quiet-deselected": printing("3 passed, 2 deselected in 0.45s"),
+    "framed-deselected": printing("======== 3 passed, 1 deselected in 0.45s ========"),
+    "quiet-both": printing("2 passed, 1 skipped, 2 deselected in 0.45s"),
+    "prose": printing("finished 3 items in 1.23s"),
+}
+PYTEST_ENTRIES = [f"tests/pytest_{name}.py" for name in PYTEST]
+
+
+@requires_linux
+class PytestReportTests(unittest.TestCase):
+    """Entry files whose output holds a pytest summary, framed or quiet, with or without ANSI colour codes."""
+
+    def record(self) -> tuple[RecordingFixture, subprocess.CompletedProcess[str]]:
+        files = {**{f"tests/pytest_{name}.py": source for name, source in PYTEST.items()}, STALE: ""}
+        fixture = RecordingFixture(self.addCleanup, files, [suite("per-entry", PYTEST_ENTRIES, entry_selection=True, paths=[],
+                                                                   entry_paths={entry: [entry, STALE] for entry in PYTEST_ENTRIES})])
+        checked = fixture.record(PYTEST_ENTRIES, full=True)
+        self.assertEqual(0, checked.returncode, checked.stderr)
+        applied = fixture.apply(fixture.output / "full-recording.json")
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        return fixture, applied
+
+    def test_quiet_framed_and_colored_pytest_summaries_without_skipped_or_deselected_replace_the_list(self) -> None:
+        fixture, applied = self.record()
+        stored = fixture.suite("per-entry")["entry_paths"]
+        for entry in ("tests/pytest_framed.py", "tests/pytest_quiet.py", "tests/pytest_quiet-warnings.py", "tests/pytest_colored.py"):
+            with self.subTest(entry=entry):
+                self.assertNotIn(STALE, stored[entry])
+                self.assertNotIn(entry, applied.stdout)
+
+    def test_pytest_runs_with_skipped_or_deselected_tests_keep_the_list_and_report_why(self) -> None:
+        fixture, applied = self.record()
+        stored = fixture.suite("per-entry")["entry_paths"]
+        cases = (
+            ("tests/pytest_quiet-skipped.py", "1 test skipped"),
+            ("tests/pytest_quiet-deselected.py", "2 tests deselected"),
+            ("tests/pytest_framed-deselected.py", "1 test deselected"),
+            ("tests/pytest_quiet-both.py", "1 test skipped, 2 tests deselected"),
+            ("tests/pytest_prose.py", "its test runner reports no skip count"),
+        )
+        for entry, reason in cases:
+            with self.subTest(entry=entry):
+                self.assertIn(STALE, stored[entry])
+                self.assertIn(f"kept the list of {entry}: {reason}", applied.stdout)
 
 
 if __name__ == "__main__":

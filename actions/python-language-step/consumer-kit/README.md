@@ -1,6 +1,6 @@
 # Python language step
 
-The consumer kit of the Python language step, a shared part of the [catalogue](../../../catalogue.json). A repository with Python files adopts it by adding one step, [python-language-step.yml](python-language-step.yml), to a job of its validation workflow. The step calls the shared step `CrankyAnt/SharedWorkflows/actions/python-language-step@v1`.
+The consumer kit of the Python language step, a shared part of the [catalogue](../../../catalogue.json). A repository with Python files adopts it in the pipeline, which runs the step itself, as [How the pipeline runs it](#how-the-pipeline-runs-it) states, or, outside the pipeline, by adding one step, [python-language-step.yml](python-language-step.yml), to a job that installs Python. The step calls the shared step `CrankyAnt/SharedWorkflows/actions/python-language-step@v1`.
 
 ## What the step runs
 
@@ -38,35 +38,35 @@ A repository whose Python project lies in a directory below the repository root,
 
 Without `root`, the step checks the repository root.
 
-## How a validation workflow calls it
+## How the pipeline runs it
 
-A repository that runs the suite selection as the part `suite-selection` of the pipeline installs no step: it names `python` under `language-steps` of that part in `.github/ci-config.yml`, and the first Linux shard of the shared suite jobs runs the step after the recording's check, with its result in `ci / verdict`. The rest of this section is for a repository whose own validation workflow, from an earlier kit of the suite selection, holds the step.
+A repository that runs the suite selection as the part `suite-selection` of the pipeline installs no step: it names `python` under `language-steps` of that part in `.github/ci-config.yml`. The suite selection selects the step when a changed file is a Python file or Python configuration, and gives one shard without entry files when only the step is selected. Shard 1 of the shared suite jobs runs it after the step that checks the recording and outside the suite recording, so its reads join no suite's path list. The parts `python-verify` and `python-test` of the pipeline run the step on each project they check.
 
-Add the step of [python-language-step.yml](python-language-step.yml) to the shard job of the repository's validation workflow, after the step that checks the recording. The job installs Python before the step, and the step runs outside the suite recording, so its reads join no suite's path list.
-
-The step runs under `if: ${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}`. The validation workflow takes the input `language-steps` (`type: string`, `required: false`), which the validation caller passes from the `language-steps` output of the shared `suite-selection.yml`; the caller names the step there with `language-steps: python`. That output holds `run` when a changed file is a Python file or Python configuration. In the shard job the condition also holds `matrix.shard.shard == 1`, so shard 1 alone runs the step; the suite selection gives one shard without entry files when only the step is selected.
-
-A job outside the suite selection that already installs Python calls the step without the `if`.
+Outside the pipeline, a job that already installs Python calls the step of [python-language-step.yml](python-language-step.yml).
 
 ## Where it runs
 
-The step runs on the job's runner, Linux or Windows, in a job that has Python installed. With the suite selection, that is shard 1 of the validation workflow, where the verdict reports its result. The step adds no check to the default-branch ruleset: its result is part of that job.
+The step runs on the job's runner, Linux or Windows, in a job that has Python installed. In the pipeline, that is shard 1 of the suite jobs or the job of `python-verify` or `python-test`, and `ci / verdict` reports its result. The step adds no check to the default-branch ruleset: its result is part of that job.
 
 ## When a repository adopted it earlier
 
-A repository that adopted the Python language step earlier brings its installed step onto the current template in one pull request. It compares the installed step with the template it came from, read at `v1`:
+A repository whose validation workflow from an earlier kit of the suite selection holds the step removes it with that workflow when it switches to the part `suite-selection`, as the [suite selection kit](../../suite-selection/consumer-kit/README.md#when-a-repository-adopted-it-earlier) states, and names `python` under `language-steps` of that part.
+
+A repository that installed the step in a job of its own brings it onto the current template in one pull request. It compares the installed step with the template it came from, read at `v1`:
 
 | Template | Install target |
 | --- | --- |
-| [python-language-step.yml](python-language-step.yml) | the step in shard 1 of the shard job of `.github/workflows/<validation-workflow>.yml`, after the step that checks the recording; without the suite selection, the step in the job that installs Python |
+| [python-language-step.yml](python-language-step.yml) | the step in the job that installs Python |
 
 Every difference that the template makes is taken over, apart from the repository's own values, which carry over:
 
 - the `with:` of the step, such as `format-check: "true"` or `root: backend`;
-- the step's place in its job, and without the suite selection its omitted `if`, as [How a validation workflow calls it](#how-a-validation-workflow-calls-it) states;
+- the step's place in its job;
 - the repository's ruff and mypy configuration, which come from no template and stay as they are.
 
-The result works when the job that holds the step passes on that pull request: with the suite selection, `<file name> / shard 1` of the validation workflow, which runs the step because a changed step whose condition names it starts it, and the verdict `validation / validation`; without it, the check of the job that holds the step.
+An installed step that still holds the `if` of an earlier template drops it: that condition reads the input `language-steps` of the shared suite jobs, which no other job has.
+
+The result works when the check of the job that holds the step passes on that pull request.
 
 ## When `v1` moves
 

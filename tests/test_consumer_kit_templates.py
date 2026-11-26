@@ -170,8 +170,8 @@ class ShardedValidationWorkflowDocumentationTest(unittest.TestCase):
 
     def test_a_change_to_the_shared_suite_jobs_runs_every_suite_through_the_shared_digest(self) -> None:
         selection = readme_section(self.readme, "## What selects a suite")
-        self.assertIn("a change of the shared suite jobs or of the shared recording step", selection)
-        self.assertIn("every suite runs once", selection)
+        self.assertIn("a change of the shared suite jobs, the shared recording step, a pinned tool or a language step", selection)
+        self.assertIn("reruns only the checks whose digest moved", selection)
         self.assertIn("a changed setup definition", selection)
         self.assertIn("a changed `jobs` entry runs the entry files of its system", selection)
 
@@ -241,7 +241,7 @@ class EarlierAdoptionSectionTest(unittest.TestCase):
         self.assertEqual(1, readme.count("`v1-moved`"), "only the earlier adoption still names the event")
         self.assertIn("No move of `v1` sends the repository an event", readme_section(readme, "## When `v1` moves"))
 
-    def test_the_earlier_adoption_registers_both_files_or_switches_and_names_the_required_check(self) -> None:
+    def test_the_earlier_adoption_switches_to_the_part_and_names_the_change_of_the_required_check(self) -> None:
         section = readme_section((SELECTION_KIT / "README.md").read_text(encoding="utf-8"), EARLIER_ADOPTION_HEADING)
         for text in ("`validation.yml`", "`local-workflows`", "../../pipeline/consumer-kit/README.md#the-configuration-file",
                      "`suite-selection`", "`setups`", "`jobs`", "`validation / validation`", "`ci / verdict`",

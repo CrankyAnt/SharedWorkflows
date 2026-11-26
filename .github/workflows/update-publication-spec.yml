@@ -40,7 +40,14 @@ jobs:
           package-manager-cache: false
       - id: specification
         name: Check the official Conventional Branch specification
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/publication-checks/update_spec.py --root . --output "$GITHUB_OUTPUT"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/publication-checks/update_spec.py --root . --no-apply --write-candidate "$RUNNER_TEMP/spec-candidate.json" --output "$GITHUB_OUTPUT"
+      - name: Upload the verified specification candidate
+        if: steps.specification.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: spec-candidate
+          path: ${{ runner.temp }}/spec-candidate.json
+          retention-days: 1
       - name: Report the refresh plan
         env:
           CHANGED: ${{ steps.specification.outputs.changed }}
@@ -73,9 +80,14 @@ jobs:
         with:
           node-version: ${{ steps.pins.outputs.node-version }}
           package-manager-cache: false
+      - name: Download the verified specification candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: spec-candidate
+          path: ${{ runner.temp }}/spec-candidate
       - name: Refresh the vendored specification
         id: specification
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/publication-checks/update_spec.py --root . --output "$GITHUB_OUTPUT"
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 actions/publication-checks/update_spec.py --root . --candidate "$RUNNER_TEMP/spec-candidate/spec-candidate.json" --output "$GITHUB_OUTPUT"
       - name: Check the changed files
         if: steps.specification.outputs.changed == 'true'
         run: |

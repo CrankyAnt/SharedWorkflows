@@ -129,6 +129,19 @@ class SetupTests(PipelineFixture):
         self.assertEqual((False, "switched off", {}), (part["run"], part["reason"], part["config"]))
         self.assertNotIn("setups", part)
 
+    def test_setups_beyond_the_maximum_fail_the_plan(self) -> None:
+        schemas = self.directory / "bounded-schemas"
+        shutil.copytree(SCHEMAS, schemas)
+        setups_path = schemas / "v1" / "setups.json"
+        setups = json.loads(setups_path.read_text(encoding="utf-8"))
+        setups["python-3.15"] = {"tool": "python", "version": "3.15"}
+        setups_path.write_text(json.dumps(setups), encoding="utf-8")
+        self.schemas = schemas
+        self.commit({CONFIGURATION: configuration("[python-3.11, python-3.12, python-3.13, python-3.14, python-3.15, dotnet-8, dotnet-10]")})
+        outcome = self.plan()
+        self.assertEqual(1, outcome.status)
+        self.assertIn("parts.custom.setups: holds at most 6 items", outcome.summary)
+
 
 class AssembledSetupTests(unittest.TestCase):
     def test_the_assembled_schema_names_the_known_setups_for_a_reader(self) -> None:
@@ -137,6 +150,7 @@ class AssembledSetupTests(unittest.TestCase):
         self.assertEqual(list(setups), schema["$defs"]["setup"]["enum"])
         custom = schema["properties"]["parts"]["properties"][CUSTOM]
         self.assertEqual({"$ref": "#/$defs/setup"}, schema["$defs"]["setups"]["items"])
+        self.assertEqual(len(setups), schema["$defs"]["setups"]["maxItems"], "setups is bounded to the slots the workflow provides")
         self.assertEqual({"$ref": "#/$defs/setups"}, custom["properties"]["setups"])
         self.assertEqual({"$ref": "#/$defs/script"}, custom["properties"]["script"])
         self.assertEqual(["script"], custom["required"])
