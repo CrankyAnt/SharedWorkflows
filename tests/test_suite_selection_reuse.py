@@ -1161,7 +1161,7 @@ class SharedDigestTests(unittest.TestCase):
         # Selection code changes no digest at all.
         for changed in ("suite-selection/suite_selection.py", "suite-selection/ci_definition.py",
                         "suite-selection/revisions.py", "suite-selection/reuse.py", "suite-selection/unrecorded.py",
-                        "suite-selection/action.yml", "repository-hygiene/hygiene.py"):
+                        "suite-selection/action.yml"):
             with self.subTest(selection_or_unrelated=changed):
                 path = self.shared_folder / changed
                 original = path.read_bytes()
@@ -1234,13 +1234,17 @@ class SharedDigestTests(unittest.TestCase):
         write(workflow.parent, workflow.name, "name: Suite jobs\n")
         self.assertEqual(first, self.taken(), "another workflow is not part of it")
 
-    PIPELINE = ("name: Pipeline\non: workflow_call\njobs:\n  plan:\n    runs-on: ubuntu-26.04\n\n"
+    PIPELINE = ("name: Pipeline\non: workflow_call\njobs:\n  plan:\n    runs-on: ubuntu-26.04\n    steps:\n"
+                "      - name: Dependabot coverage of tracked package files\n        id: coverage\n        run: coverage\n"
+                "      - name: Relative links in tracked Markdown\n        id: links\n        run: links\n\n"
                 "  custom:\n    needs: plan\n    steps:\n      - run: bash -- \"$SCRIPT\"\n\n"
                 "  dotnet-test:\n    needs: plan\n    steps:\n      - uses: $/actions/dotnet-test\n\n"
                 "  node-test:\n    needs: plan\n    steps:\n      - uses: $/actions/node-test\n\n"
                 "  python-test:\n    needs: plan\n    steps:\n      - uses: $/actions/python-tests\n\n"
-                "  python-verify:\n    needs: plan\n    steps:\n      - uses: $/actions/python-tests\n")
+                "  python-verify:\n    needs: plan\n    steps:\n      - uses: $/actions/python-tests\n\n"
+                "  repository-hygiene:\n    needs: plan\n    steps:\n      - run: hygiene\n")
     PARTS = ("part:custom", "part:dotnet-test", "part:node-test", "part:python-test", "part:python-verify")
+    HYGIENE = ("hygiene:actionlint", "hygiene:markdown", "hygiene:packages", "hygiene:reuse", "hygiene:zizmor", "hygiene:zizmor-policy")
 
     def assert_moves_only(self, before: dict[str, str], after: dict[str, str], moved: set[str]) -> None:
         self.assertEqual(moved, {name for name in set(before) | set(after) if before.get(name) != after.get(name)})
@@ -1265,12 +1269,62 @@ class SharedDigestTests(unittest.TestCase):
         # Changing another job, or the blank lines between jobs, changes no part digest.
         write(workflow.parent, workflow.name, self.PIPELINE.replace("runs-on: ubuntu-26.04\n", "runs-on: ubuntu-26.04\n    timeout-minutes: 5\n\n\n"))
         self.assert_moves_only(first, self.taken(), set())
-        # Changing the lines before jobs: changes every part digest and no platform, tool or language digest.
+        # Changing the lines before jobs: changes every part and pipeline-backed hygiene digest and no platform, tool or language digest.
         write(workflow.parent, workflow.name, self.PIPELINE.replace("name: Pipeline\n", "name: Pipeline v2\n"))
-        self.assert_moves_only(first, self.taken(), set(self.PARTS))
+        self.assert_moves_only(first, self.taken(), {*self.PARTS, *(k for k in self.HYGIENE if k != "hygiene:zizmor-policy")})
+        write(workflow.parent, workflow.name, self.PIPELINE)
+
+    def test_hygiene_digests_track_each_hygiene_check_s_scripts_pins_and_pipeline_steps(self) -> None:
+        for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
+            shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
+        workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
+        write(workflow.parent, workflow.name, self.PIPELINE)
+        first = self.taken()
+        for key in self.HYGIENE:
+            self.assertIn(key, first)
+        # Check-specific scripts move only their own digest.
+        for relative, expected in (
+            ("repository-hygiene/dependabot_coverage.py", {"hygiene:packages"}),
+            ("repository-hygiene/package-ecosystems.json", {"hygiene:packages"}),
+            ("repository-hygiene/link_check.py", {"hygiene:markdown"}),
+            ("repository-hygiene/zizmor-policy.yml", {"hygiene:zizmor-policy"}),
+            ("repository-hygiene/hygiene.py", {"hygiene:actionlint", "hygiene:zizmor", "hygiene:packages", "hygiene:markdown", "hygiene:reuse"}),
+            ("repository-hygiene/consumer-kit/README.md", set()),
+            ("repository-hygiene/promote_v1.py", set()),
+        ):
+            with self.subTest(file=relative):
+                path = self.shared_folder / relative
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                self.assert_moves_only(first, self.taken(), expected)
+                path.write_bytes(original)
+        # Tool pins move only the checks that use them (including ShellCheck for actionlint).
+        pins_path = self.shared_folder / "repository-hygiene" / "pins.json"
+        original_pins = pins_path.read_bytes()
+        for section, tool, expected in (
+            ("tools", "actionlint", {"tool:actionlint", "hygiene:actionlint"}),
+            ("tools", "shellcheck", {"tool:shellcheck", "hygiene:actionlint"}),
+            ("tools", "zizmor", {"tool:zizmor", "hygiene:zizmor"}),
+            ("python", "reuse", {"tool:reuse", "hygiene:reuse"}),
+        ):
+            with self.subTest(pin=f"{section}/{tool}"):
+                pins = json.loads(original_pins.decode("utf-8"))
+                pins[section][tool]["version"] = "9.9.9"
+                pins_path.write_bytes(json.dumps(pins).encode("utf-8"))
+                self.assert_moves_only(first, self.taken(), expected)
+                pins_path.write_bytes(original_pins)
+        # Pipeline workflow job / light-check step changes move only the checks they run.
+        write(workflow.parent, workflow.name, self.PIPELINE.replace("run: hygiene\n", "run: hygiene --strict\n"))
+        self.assert_moves_only(first, self.taken(), {"hygiene:actionlint", "hygiene:zizmor", "hygiene:reuse"})
+        write(workflow.parent, workflow.name, self.PIPELINE.replace("run: coverage\n", "run: coverage --all\n"))
+        self.assert_moves_only(first, self.taken(), {"hygiene:packages"})
+        write(workflow.parent, workflow.name, self.PIPELINE.replace("run: links\n", "run: links --all\n"))
+        self.assert_moves_only(first, self.taken(), {"hygiene:markdown"})
         write(workflow.parent, workflow.name, self.PIPELINE)
 
     def test_a_part_job_that_the_pipeline_workflow_does_not_hold_as_expected_fails_the_digest(self) -> None:
+        for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
+            shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
         workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
         for name, text in (("missing", self.PIPELINE.replace("  node-test:\n", "  node-tests:\n")),
                            ("indented", self.PIPELINE.replace("  node-test:\n", "    node-test:\n"))):
@@ -1279,6 +1333,67 @@ class SharedDigestTests(unittest.TestCase):
                 completed = self.digest()
                 self.assertNotEqual(0, completed.returncode)
                 self.assertIn("the job of the part node-test cannot be found in ../.github/workflows/pipeline.yml", completed.stdout + completed.stderr)
+
+    def test_a_part_digest_fails_loudly_when_its_part_folder_or_pipeline_workflow_is_missing(self) -> None:
+        for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
+            shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
+        workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
+        write(workflow.parent, workflow.name, self.PIPELINE)
+        # Missing part folder while pipeline.yml is present fails loudly.
+        shutil.rmtree(self.shared_folder / "dotnet-test")
+        completed = self.digest()
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("dotnet-test", completed.stdout + completed.stderr)
+        shutil.copytree(SHARED_FOLDER / "dotnet-test", self.shared_folder / "dotnet-test", ignore=shutil.ignore_patterns("__pycache__"))
+        # Missing pipeline.yml while part folders are present fails loudly.
+        workflow.unlink()
+        completed = self.digest()
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("pipeline.yml", completed.stdout + completed.stderr)
+        write(workflow.parent, workflow.name, self.PIPELINE)
+        # Missing or unreadable timeouts.json while part digests are taken fails loudly.
+        timeouts_path = self.shared_folder / "pipeline" / "timeouts.json"
+        original_timeouts = timeouts_path.read_bytes()
+        for label, action in (
+            ("missing", lambda: timeouts_path.unlink()),
+            ("invalid json", lambda: timeouts_path.write_text("{bad", encoding="utf-8")),
+            ("wrong type", lambda: timeouts_path.write_text('{"dotnet-test": "15"}\n', encoding="utf-8")),
+        ):
+            with self.subTest(timeouts=label):
+                action()
+                completed = self.digest()
+                self.assertNotEqual(0, completed.returncode)
+                self.assertIn("timeouts.json", completed.stdout + completed.stderr)
+                timeouts_path.write_bytes(original_timeouts)
+
+    def test_part_digests_include_time_limits_and_custom_setups(self) -> None:
+        for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
+            shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
+        workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
+        write(workflow.parent, workflow.name, self.PIPELINE)
+        first = self.taken()
+        # Changing setups.json moves only part:custom.
+        setups_path = self.shared_folder / "pipeline" / "schema" / "v1" / "setups.json"
+        original_setups = setups_path.read_bytes()
+        setups_doc = json.loads(original_setups.decode("utf-8"))
+        setups_doc["python-3.14"]["version"] = "3.14.1"
+        setups_path.write_bytes(json.dumps(setups_doc).encode("utf-8"))
+        self.assert_moves_only(first, self.taken(), {"part:custom"})
+        setups_path.write_bytes(original_setups)
+        # Changing one part's timeout in timeouts.json moves only that part's digest.
+        timeouts_path = self.shared_folder / "pipeline" / "timeouts.json"
+        original_timeouts = timeouts_path.read_bytes()
+        timeouts_doc = json.loads(original_timeouts.decode("utf-8"))
+        timeouts_doc["dotnet-test"] = 8
+        timeouts_path.write_bytes(json.dumps(timeouts_doc).encode("utf-8"))
+        self.assert_moves_only(first, self.taken(), {"part:dotnet-test"})
+        # Changing plan or verdict timeout moves no part digest.
+        timeouts_doc = json.loads(original_timeouts.decode("utf-8"))
+        timeouts_doc["plan"] = 4
+        timeouts_doc["verdict"] = 4
+        timeouts_path.write_bytes(json.dumps(timeouts_doc).encode("utf-8"))
+        self.assert_moves_only(first, self.taken(), set())
+        timeouts_path.write_bytes(original_timeouts)
 
     def test_part_digests_leave_out_what_no_part_job_runs(self) -> None:
         for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
@@ -1377,7 +1492,8 @@ class SharedDigestScopeTests(unittest.TestCase):
         for name in recorded:
             with self.subTest(digest=name):
                 self.assertEqual(recorded[name], promoted[name])
-        for name in ("platform:linux", "platform:windows", "tool:gitleaks", "language:python", "part:custom", "part:dotnet-test"):
+        for name in ("platform:linux", "platform:windows", "tool:gitleaks", "language:python", "part:custom", "part:dotnet-test",
+                     "hygiene:actionlint", "hygiene:zizmor", "hygiene:zizmor-policy", "hygiene:packages", "hygiene:markdown", "hygiene:reuse"):
             self.assertIn(name, recorded)
         self.assertFalse([entry for entries in recorded.values() for entry in entries if "/consumer-kit/" in entry],
                          "no digest covers a consumer kit, which no job runs")
@@ -1451,6 +1567,117 @@ class SharedDigestScopeTests(unittest.TestCase):
         completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("the job of the part dotnet-test cannot be found in .github/workflows/pipeline.yml", completed.stdout)
+
+    def test_promote_v1_fails_loudly_when_a_part_folder_or_pipeline_workflow_is_missing(self) -> None:
+        for case, remove in (("missing folder", self.repo / "actions" / "dotnet-test"),
+                             ("missing workflow", self.repo / ".github" / "workflows" / "pipeline.yml"),
+                             ("missing timeouts", self.repo / "actions" / "pipeline" / "timeouts.json")):
+            with self.subTest(case=case):
+                copy = Path(self.temporary.name) / case.replace(" ", "-")
+                shutil.copytree(self.repo, copy)
+                target = copy / remove.relative_to(self.repo)
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+                git(copy, "init", "-q")
+                git(copy, "add", "-A", "-f", ".")
+                git(copy, "commit", "-q", "-m", "fixture")
+                script = (
+                    "import sys\n"
+                    f"sys.path.insert(0, {str(copy / 'actions' / 'repository-hygiene')!r})\n"
+                    "import promote_v1\n"
+                    "try:\n"
+                    f"    promote_v1.commit_digests(promote_v1.Path({str(copy)!r}), 'HEAD')\n"
+                    "except promote_v1.DigestScopeError as error:\n"
+                    "    print(error)\n"
+                    "else:\n"
+                    "    print('no error')\n"
+                )
+                completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertNotEqual("no error", completed.stdout.strip())
+                expected_name = "dotnet-test" if "folder" in case else "timeouts.json" if "timeouts" in case else "pipeline.yml"
+                self.assertIn(expected_name, completed.stdout)
+
+    def test_promote_v1_fails_loudly_on_unreadable_timeouts_and_handles_historical_base_commits(self) -> None:
+        # Unreadable/malformed timeouts.json fails loudly in promote_v1.commit_digests.
+        for label, bad_content in (("invalid json", "{bad"), ("wrong type", '{"dotnet-test": true}\n')):
+            with self.subTest(timeouts=label):
+                copy = Path(self.temporary.name) / f"bad-timeouts-{label.replace(' ', '-')}"
+                shutil.copytree(self.repo, copy)
+                (copy / "actions" / "pipeline" / "timeouts.json").write_text(bad_content, encoding="utf-8")
+                git(copy, "init", "-q")
+                git(copy, "add", "-A", "-f", ".")
+                git(copy, "commit", "-q", "-m", "fixture")
+                script = (
+                    "import sys\n"
+                    f"sys.path.insert(0, {str(copy / 'actions' / 'repository-hygiene')!r})\n"
+                    "import promote_v1\n"
+                    "try:\n"
+                    f"    promote_v1.commit_digests(promote_v1.Path({str(copy)!r}), 'HEAD')\n"
+                    "except promote_v1.DigestScopeError as error:\n"
+                    "    print(error)\n"
+                    "else:\n"
+                    "    print('no error')\n"
+                )
+                completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn("timeouts.json", completed.stdout)
+        # Historical old_commit predating timeouts.json and plan light-check steps still compares in moved_digests.
+        hist = Path(self.temporary.name) / "historical-base"
+        shutil.copytree(self.repo, hist)
+        timeouts_saved = (hist / "actions" / "pipeline" / "timeouts.json").read_bytes()
+        workflow_saved = (hist / ".github" / "workflows" / "pipeline.yml").read_bytes()
+        (hist / "actions" / "pipeline" / "timeouts.json").unlink()
+        (hist / ".github" / "workflows" / "pipeline.yml").write_text(
+            workflow_saved.decode("utf-8").replace("        id: coverage\n", "").replace("        id: links\n", ""),
+            encoding="utf-8",
+        )
+        git(hist, "init", "-q")
+        git(hist, "add", "-A", "-f", ".")
+        git(hist, "commit", "-q", "-m", "historical v1")
+        old_sha = git(hist, "rev-parse", "HEAD").strip()
+        (hist / "actions" / "pipeline" / "timeouts.json").write_bytes(timeouts_saved)
+        (hist / ".github" / "workflows" / "pipeline.yml").write_bytes(workflow_saved)
+        git(hist, "add", "-A", "-f", ".")
+        git(hist, "commit", "-q", "-m", "new main")
+        script = (
+            "import json, sys\n"
+            f"sys.path.insert(0, {str(hist / 'actions' / 'repository-hygiene')!r})\n"
+            "import promote_v1\n"
+            f"print(json.dumps(promote_v1.moved_digests(promote_v1.Path({str(hist)!r}), {old_sha!r}, 'HEAD')))\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        moved = set(json.loads(completed.stdout))
+        self.assertLessEqual({"part:custom", "part:dotnet-test", "hygiene:packages", "hygiene:markdown"}, moved)
+
+    def test_hygiene_check_digests_and_shared_digest_helpers_stay_in_step_across_part_folders(self) -> None:
+        recorded, promoted = self.scopes()
+        actions = self.repo / "actions"
+        script = (
+            "import json, sys\n"
+            f"sys.path[:0] = [{str(actions / 'repository-hygiene')!r}, {str(actions / 'pipeline')!r}, {str(actions / 'suite-selection')!r}]\n"
+            "import hygiene, plan, reuse\n"
+            "print(json.dumps({'check_keys': sorted(hygiene.CHECK_DIGESTS), 'recorded_checks': sorted(hygiene.RECORDED_CHECKS), "
+            "'digest_names': sorted({name for names in hygiene.CHECK_DIGESTS.values() for name in names})}))\n"
+            "good = {'a': '0' * 64, 'b': '1' * 64}\n"
+            "other = {'a': '0' * 64, 'c': '2' * 64}\n"
+            "for sample in (good, {}, None, 'bad', {'': '0' * 64}, {'a': 'not-hex'}):\n"
+            "    vals = [reuse.parse_digests(sample), plan.parse_digests(sample), hygiene.parse_digests(sample)]\n"
+            "    assert vals[0] == vals[1] == vals[2], (sample, vals)\n"
+            "diffs = [reuse.moved_digest_names(good, other), plan.moved_digest_names(good, other), hygiene.moved_digest_names(good, other)]\n"
+            "assert diffs[0] == diffs[1] == diffs[2] == {'b', 'c'}, diffs\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        info = json.loads(completed.stdout.splitlines()[0])
+        self.assertEqual(info["recorded_checks"], info["check_keys"])
+        recorded_hygiene = sorted(name for name in recorded if name.startswith("hygiene:"))
+        promoted_hygiene = sorted(name for name in promoted if name.startswith("hygiene:"))
+        self.assertEqual(recorded_hygiene, info["digest_names"])
+        self.assertEqual(promoted_hygiene, info["digest_names"])
 
     def test_a_folder_added_to_one_side_only_breaks_the_tie(self) -> None:
         recording_script = self.repo / "actions" / "recording" / "recording.py"
@@ -1698,6 +1925,36 @@ class SharedLookupTests(SharedLookupFixture):
         outputs, printed, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(shared_path))
         self.assertEqual(self.runs(outputs), self.ALL)
         self.assertIn("`platform:linux` digest moved:", printed)
+
+    def test_a_digest_present_on_either_side_and_missing_on_the_other_counts_as_moved(self) -> None:
+        # Missing from current digests (present in previous) counts as moved and reports "differ from".
+        self.write_default_record(digests=self.DIGESTS)
+        without_linux = {k: v for k, v in self.DIGESTS.items() if k != "platform:linux"}
+        found = self.looked_up(without_linux)
+        self.assertIn("differ from", found["reason"])
+        head = self.commit("head", {"README.md": "unrelated\n"})
+        outputs, printed, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
+                                                "--shared-lookup", str(self.root.parent / "shared.json"))
+        self.assertEqual(self.runs(outputs), ["both", "main-only", "per-entry", "pr-only"])
+        self.assertIn("`platform:linux`", summary)
+        self.assertIn("`platform:linux` digest moved:", printed)
+
+        # Same for identical push against tested_digests: present in T, missing in D.
+        lookup = self.root.parent / "lookup.json"
+        lookup.write_text(json.dumps({"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested",
+                                      "pull_request": 7, "tested_run": 4100, "tested_digests": self.DIGESTS}), encoding="utf-8")
+        outputs, printed, summary = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(without_linux)))
+        self.assertEqual(self.runs(outputs), ["both", "main-only", "per-entry", "pr-only"])
+        self.assertNotIn("identical", outputs)
+        self.assertIn("differ from", summary)
+        self.assertIn("`platform:linux`", summary)
+
+        # Present in D, missing in T also counts as moved.
+        lookup.write_text(json.dumps({"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested",
+                                      "pull_request": 7, "tested_run": 4100, "tested_digests": without_linux}), encoding="utf-8")
+        outputs, printed, summary = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
+        self.assertEqual(self.runs(outputs), ["both", "main-only", "per-entry", "pr-only"])
+        self.assertIn("differ from", summary)
 
     def test_the_reuse_key_holds_the_digest(self) -> None:
         self.write_default_record(digests=self.DIGESTS)

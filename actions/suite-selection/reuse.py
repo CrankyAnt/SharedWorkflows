@@ -78,6 +78,11 @@ def parse_digests(value: object) -> dict[str, str] | None:
     return {k: value[k] for k in sorted(value)}
 
 
+def moved_digest_names(current: dict[str, str], other: dict[str, str]) -> set[str]:
+    """Digest names whose value differs between ``current`` and ``other``; a name absent on either side counts as moved."""
+    return {name for name in set(current) | set(other) if current.get(name) != other.get(name)}
+
+
 @dataclass(frozen=True)
 class Lookup:
     case: str  # one of CASES
@@ -344,11 +349,12 @@ class SharedLookup:
 
     def moved_digests(self, previous: dict[str, str] | None = None, *, use_given: bool = False) -> frozenset[str] | None:
         """The digest names that differ from ``previous`` (or ``self.previous``), or None when no readable previous
-        digests exist (meaning every digest counts as moved)."""
+        digests exist (meaning every digest counts as moved). A digest present on either side and missing on the other
+        counts as moved."""
         compared = previous if use_given else self.previous
         if compared is None:
             return None
-        return frozenset(name for name, value in self.digests.items() if compared.get(name) != value)
+        return frozenset(moved_digest_names(self.digests, compared))
 
     @property
     def moved(self) -> bool:
@@ -390,7 +396,7 @@ def shared_lookup(digests: dict[str, str], default_record: Path | None) -> Share
         why = f"the default-branch record of run {rec.run_id} on {rec.commit} holds no readable shared CI digests"
         return SharedLookup(digests, None, why, run=rec.run_id, commit=rec.commit, fallback="unreadable-default-branch-digests",
                             log=(f"No digests to compare with: {why}.",))
-    compared = "equal" if all(rec.digests.get(name) == value for name, value in digests.items()) else "differ from"
+    compared = "equal" if rec.digests == digests else "differ from"
     why = f"the shared CI digests {compared} those of run {rec.run_id}, the last passed default-branch record on {rec.commit}"
     return SharedLookup(digests, rec.digests, why, run=rec.run_id, commit=rec.commit, fallback=None,
                         log=(f"Read default-branch record of run {rec.run_id} on {rec.commit}.",))
@@ -410,7 +416,7 @@ def tested_reason(found: Lookup, digests: dict[str, str]) -> str:
     if found.tested_digests is None:
         who = f"run {found.tested_run} of pull request #{found.pull_request}" if found.tested_run is not None else f"pull request #{found.pull_request}"
         return f"the shared CI digests of {who} could not be read"
-    if all(found.tested_digests.get(name) == value for name, value in digests.items()):
+    if found.tested_digests == digests:
         return f"the tested tree took the same shared CI digests in run {found.tested_run} of pull request #{found.pull_request}"
     return f"the shared CI digests differ from those of run {found.tested_run} of pull request #{found.pull_request}"
 

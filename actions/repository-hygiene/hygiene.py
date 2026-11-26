@@ -36,6 +36,7 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 RESOURCES = Path(__file__).resolve().parent
@@ -213,6 +214,77 @@ CHANGED_FILES_UNKNOWN = "hygiene-changed-files-unknown"
 GITLEAKS_UNREADABLE_PUSH_LOOKUP = "gitleaks-unreadable-push-lookup"
 GITLEAKS_RANGE_UNKNOWN = "gitleaks-range-unknown"
 UNREADABLE_REUSE_MARKER = "hygiene-unreadable-reuse-marker"
+UNREADABLE_SHARED_DIGESTS = "hygiene-unreadable-shared-digests"
+UNREADABLE_TESTED_DIGESTS = "hygiene-unreadable-tested-digests"
+SHARED_DIGEST_FALLBACK_SUFFIX = "digest could not be compared"
+TESTED_DIGEST_FALLBACK_SUFFIX = "digest could not be compared with the tested digests"
+HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
+# Shared CI hygiene digests checked for each hygiene check when ``--shared-lookup`` is passed.
+CHECK_DIGESTS: dict[str, tuple[str, ...]] = {
+    "actionlint": ("hygiene:actionlint",),
+    "zizmor": ("hygiene:zizmor", "hygiene:zizmor-policy"),
+    "packages": ("hygiene:packages",),
+    "markdown": ("hygiene:markdown",),
+    "reuse": ("hygiene:reuse",),
+}
+
+
+def parse_digests(value: object) -> dict[str, str] | None:
+    """Validate a shared CI digests mapping (non-empty dict of non-empty name to 64-hex SHA-256); None when invalid."""
+    if (not isinstance(value, dict) or not value
+            or not all(isinstance(k, str) and k and isinstance(v, str) and HEX_DIGEST.fullmatch(v) for k, v in value.items())):
+        return None
+    return {k: value[k] for k in sorted(value)}
+
+
+def moved_digest_names(current: dict[str, str], other: dict[str, str]) -> set[str]:
+    """Digest names whose value differs between ``current`` and ``other``; a name absent on either side counts as moved."""
+    return {name for name in set(current) | set(other) if current.get(name) != other.get(name)}
+
+
+def _check_digests(root: Path | None) -> dict[str, tuple[str, ...]]:
+    """The hygiene check digests that apply to ``root``; omits ``hygiene:zizmor-policy`` when ``root`` has its own
+    zizmor configuration."""
+    mapping = dict(CHECK_DIGESTS)
+    if root is not None and any((root / path).is_file() for path in CONSUMER_ZIZMOR_CONFIGS):
+        mapping["zizmor"] = ("hygiene:zizmor",)
+    return mapping
+
+
+@dataclass(frozen=True)
+class HygieneDigestComparison:
+    """Moved hygiene digests for the run and, on a ``behind`` push, also against the default-branch record."""
+    moved: set[str] | None
+    fallback: str | None
+    base_moved: set[str] | None = None
+    base_fallback: str | None = None
+
+
+def _compare_hygiene_digests(shared_lookup: Path, found: dict | None) -> HygieneDigestComparison:
+    """Compare current shared digests with ``tested_digests`` on ``identical``/``behind`` pushes or with ``previous``
+    otherwise; on ``behind``, also compare with ``previous`` so checks selected by the newer base are not skipped when
+    ``v1`` moved between the landing base and the pull request."""
+    try:
+        raw = json.loads(shared_lookup.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return HygieneDigestComparison(None, UNREADABLE_SHARED_DIGESTS)
+    digests = parse_digests(raw.get("digests")) if isinstance(raw, dict) else None
+    if digests is None:
+        return HygieneDigestComparison(None, UNREADABLE_SHARED_DIGESTS)
+    previous = parse_digests(raw.get("previous"))
+    if found is not None and found.get("case") in ("identical", "behind"):
+        tested = parse_digests(found.get("tested_digests"))
+        if tested is None:
+            return HygieneDigestComparison(None, UNREADABLE_TESTED_DIGESTS)
+        moved = moved_digest_names(digests, tested)
+        if found.get("case") == "behind":
+            if previous is None:
+                return HygieneDigestComparison(moved, None, base_moved=None, base_fallback=UNREADABLE_SHARED_DIGESTS)
+            return HygieneDigestComparison(moved, None, base_moved=moved_digest_names(digests, previous), base_fallback=None)
+        return HygieneDigestComparison(moved, None)
+    if previous is None:
+        return HygieneDigestComparison(None, UNREADABLE_SHARED_DIGESTS)
+    return HygieneDigestComparison(moved_digest_names(digests, previous), None)
 
 
 def fallback_notice(reason: str, detail: str) -> str:
@@ -826,16 +898,20 @@ def read_results(path: Path, tree: str, reuse_version: str | None = None) -> tup
     return passed, reuse_version_changed and recorded_reuse is not None
 
 
-def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, results: Path | None = None, pins: Path | None = None, reuse_marker: Path | None = None, fallbacks_output: Path | None = None) -> int:
+def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, results: Path | None = None, pins: Path | None = None, reuse_marker: Path | None = None, fallbacks_output: Path | None = None, shared_lookup: Path | None = None) -> int:
     """Write individual check decisions and the compatible ``workflows`` union for the workflow's gates. With
-    ``lookup``, a push decides by its case; with ``results``, a passed check of the same tested tree is reused. With
-    ``fallbacks_output``, write the hygiene fallbacks to running more as a JSON map of counts by reason: every check
-    runs because the push lookup or the changed files cannot be read, REUSE runs because the default-branch REUSE
+    ``lookup``, a push decides by its case; with ``shared_lookup``, each hygiene check also compares its hygiene-check
+    digests (against ``tested_digests`` on ``identical``/``behind`` pushes, or against the default-branch record's
+    digests otherwise); with ``results``, a passed check of the same tested tree is reused. With ``fallbacks_output``,
+    write the hygiene fallbacks to running more as a JSON map of counts by reason: every check runs because the push
+    lookup, the changed files or the shared/tested digests cannot be read, REUSE runs because the default-branch REUSE
     version marker is missing, evicted or unreadable, and Gitleaks scans the full history because it cannot read its
     range (``gitleaks_fallback``, whose notice the Gitleaks step emits)."""
     inputs = (definition, packages_definition, markdown_definition, ecosystems)
     heading = None
     lookup_unreadable = False
+    found: dict | None = None
+    main_decisions: dict[str, tuple[bool, str]] | None = None
     if lookup is None:
         changed, decisions = decisions_between(root, base, head, compare, *inputs)
     else:
@@ -859,6 +935,7 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
                     changed = None
                     decisions = decide_changes(None, definition, set(), set(), dependabot_coverage.load_ecosystems(ecosystems), root)
                 else:
+                    main_decisions = theirs
                     decisions = both_sides(ours, theirs, landing_base_passed=found.get("landing_base_passed") is True)
             else:
                 changed, decisions = decisions_between(root, landing, found["head"], "direct", *inputs)
@@ -872,9 +949,51 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
     gitleaks_fell_back = gitleaks_fallback(root, base, head, compare, lookup)
     if gitleaks_fell_back is not None:
         fallbacks[gitleaks_fell_back[0]] = 1
+    if shared_lookup is not None:
+        comparison = _compare_hygiene_digests(shared_lookup, found)
+        digests_by_check = _check_digests(root)
+        if comparison.moved is None:
+            fell_back = False
+            suffix = TESTED_DIGEST_FALLBACK_SUFFIX if comparison.fallback == UNREADABLE_TESTED_DIGESTS else SHARED_DIGEST_FALLBACK_SUFFIX
+            for name, check_digests in digests_by_check.items():
+                if name == "reuse" and not has_reuse_config(root):
+                    continue
+                if not decisions[name][0]:
+                    decisions[name] = (True, f"`{check_digests[0]}` {suffix}")
+                    fell_back = True
+            if fell_back and comparison.fallback is not None:
+                fallbacks[comparison.fallback] = 1
+                detail = ("every hygiene check runs: the tested shared CI digests could not be read"
+                          if comparison.fallback == UNREADABLE_TESTED_DIGESTS
+                          else "every hygiene check runs: the shared CI digests could not be compared")
+                print(fallback_notice(comparison.fallback, detail))
+        else:
+            for name, check_digests in digests_by_check.items():
+                if name == "reuse" and not has_reuse_config(root):
+                    continue
+                moved = next((digest for digest in check_digests if digest in comparison.moved), None)
+                if moved is not None and not decisions[name][0]:
+                    decisions[name] = (True, f"`{moved}` digest moved")
+            if main_decisions is not None:
+                base_fell_back = False
+                for name, check_digests in digests_by_check.items():
+                    if name == "reuse" and not has_reuse_config(root):
+                        continue
+                    if decisions[name][0] or not main_decisions[name][0]:
+                        continue
+                    if comparison.base_moved is None:
+                        decisions[name] = (True, f"`{check_digests[0]}` {SHARED_DIGEST_FALLBACK_SUFFIX}")
+                        base_fell_back = True
+                    else:
+                        moved = next((digest for digest in check_digests if digest in comparison.base_moved), None)
+                        if moved is not None:
+                            decisions[name] = (True, f"`{moved}` digest moved since the landing base")
+                if base_fell_back and comparison.base_fallback is not None:
+                    fallbacks[comparison.base_fallback] = 1
+                    print(fallback_notice(comparison.base_fallback, "hygiene checks selected by the newer base run: the shared CI digests could not be compared"))
     current_reuse_version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
     reuse_pin_changed = False
-    if reuse_marker is not None and has_reuse_config(root) and not _reuse_marker_matches(reuse_marker, current_reuse_version):
+    if shared_lookup is None and reuse_marker is not None and has_reuse_config(root) and not _reuse_marker_matches(reuse_marker, current_reuse_version):
         decisions["reuse"] = (True, "the pinned REUSE version changed or has no default-branch marker")
         reuse_pin_changed = True
         if not _reuse_marker_readable(reuse_marker):
@@ -895,7 +1014,11 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
                 reused[name] = passed[name]
                 decisions[name] = (False, f"passed in run {passed[name]}, whose tested tree this run shares")
                 print(f"::notice title={name}::{decisions[name][1]}")
-    if not any(decisions[name][0] for name in ("actionlint", "zizmor")):
+    if any(decisions[name][0] for name in ("actionlint", "zizmor")):
+        if not decisions["workflows"][0]:
+            first = next(name for name in ("actionlint", "zizmor") if decisions[name][0])
+            decisions["workflows"] = (True, decisions[first][1])
+    else:
         decisions["workflows"] = (False, decisions["workflows"][1] if not decisions["workflows"][0] else "no check of actionlint and zizmor runs")
     lines = ["## Hygiene checks for this change", ""]
     if heading is not None:
@@ -990,6 +1113,7 @@ def build_parser() -> argparse.ArgumentParser:
     deciding.add_argument("--results", type=Path, help="the record of an earlier run of the pull request, whose passed checks of the same tested tree are reused")
     deciding.add_argument("--pins", type=Path, help="the pins file whose pinned REUSE version is compared with the marker and results")
     deciding.add_argument("--reuse-marker", type=Path, help="the default-branch REUSE version marker")
+    deciding.add_argument("--shared-lookup", type=Path, help="the shared CI digests lookup written by suite_selection.py shared-lookup")
     deciding.add_argument("--github-output", type=Path)
     deciding.add_argument("--summary", type=Path)
     deciding.add_argument("--fallbacks", type=Path, help="the JSON file of the hygiene fallbacks to running more, counted by reason, for plan.py plan")
@@ -1012,7 +1136,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return changes(arguments.root.resolve(), arguments.base, arguments.head, arguments.compare, arguments.definition, arguments.packages_definition, arguments.markdown_definition,
                            arguments.ecosystems, arguments.github_output, arguments.summary, arguments.lookup, arguments.results, arguments.pins, arguments.reuse_marker,
-                           arguments.fallbacks)
+                           arguments.fallbacks, arguments.shared_lookup)
         except ValueError as error:
             print(f"::error::{error}", file=sys.stderr)
             return 2

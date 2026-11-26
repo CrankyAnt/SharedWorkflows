@@ -92,13 +92,18 @@ jobs:
         run: |
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$SELECTION_PATH/suite_selection.py" lookup --root . --sha "$SHA" --before "$BEFORE" --workflow "$WORKFLOW" --run-attempt "$RUN_ATTEMPT" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/push-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
           printf 'lookup=%s\n' "$(jq -c . "$RUNNER_TEMP/push-lookup.json")" >> "$GITHUB_OUTPUT"
-      - name: Restore the default-branch REUSE version marker
+      - name: Take the shared CI digests
+        id: digest
         if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/reuse-marker/marker.json
-          key: reuse-marker-lookup-${{ github.run_id }}
-          restore-keys: reuse-marker-
+        env:
+          RECORDING: ${{ steps.recording.outputs.path }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
+      - name: Look up the shared CI digests from the default-branch record
+        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
+        env:
+          RESOURCE_PATH: ${{ steps.selection.outputs.path }}
+          DIGESTS: ${{ steps.digest.outputs.shared-digests }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Decide which checks the changed files can affect
         id: changes
         if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
@@ -113,7 +118,7 @@ jobs:
             push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
             *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
           esac
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --pins "$RESOURCE_PATH/pins.json" --reuse-marker "$RUNNER_TEMP/reuse-marker/marker.json" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude" --markdown-definition ".github/workflows/pipeline.yml#step:links" --markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude" --fallbacks "$RUNNER_TEMP/hygiene-fallbacks.json" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude" --markdown-definition ".github/workflows/pipeline.yml#step:links" --markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude" --fallbacks "$RUNNER_TEMP/hygiene-fallbacks.json" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Check the configuration file and read part configuration
         id: initial-plan
         env:
@@ -144,18 +149,6 @@ jobs:
             cat "$RUNNER_TEMP/initial-plan-summary.md" >> "$GITHUB_STEP_SUMMARY"
             exit "$status"
           fi
-      - name: Take the shared CI digests
-        id: digest
-        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
-        env:
-          RECORDING: ${{ steps.recording.outputs.path }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" digest --github-output "$GITHUB_OUTPUT"
-      - name: Look up the shared CI digests from the default-branch record
-        if: ${{ !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
-        env:
-          RESOURCE_PATH: ${{ steps.selection.outputs.path }}
-          DIGESTS: ${{ steps.digest.outputs.shared-digests }}
-        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" shared-lookup --root . --digests "$DIGESTS" --default-record "$RUNNER_TEMP/default-branch-record/record.json" --output "$RUNNER_TEMP/shared-lookup.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Restore the passed results of the pull request
         if: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' && github.run_attempt == 1 && fromJSON(steps.initial-plan.outputs.plan).parts['suite-selection'].config.suites != '' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -734,19 +727,7 @@ jobs:
         env:
           RESOURCE_PATH: ${{ steps.resources.outputs.path }}
           HYGIENE_TOOLS: ${{ runner.temp }}/hygiene-tools
-          RECORD_MARKER: ${{ github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch) }}
-        run: |
-          set --
-          if [ "$RECORD_MARKER" = "true" ]; then
-            set -- --record-marker "$RUNNER_TEMP/reuse-marker/marker.json" --github-output "$GITHUB_OUTPUT"
-          fi
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" reuse "$@" --tools "$HYGIENE_TOOLS" --pins "$RESOURCE_PATH/pins.json"
-      - name: Store the default-branch REUSE version marker
-        if: ${{ !cancelled() && steps.install-reuse.outcome == 'success' && steps.reuse.outputs.recorded-marker == 'true' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/reuse-marker/marker.json
-          key: reuse-marker-${{ github.run_id }}-${{ github.run_attempt }}
+        run: PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" reuse --tools "$HYGIENE_TOOLS"
       - name: Install Gitleaks
         id: install-gitleaks
         if: ${{ !cancelled() && !(github.event_name == 'pull_request' && github.event.action == 'edited') }}

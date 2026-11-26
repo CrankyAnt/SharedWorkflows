@@ -95,12 +95,14 @@ RECORDING_DIR = "actions/recording"
 WINDOWS_ONLY_PARTS = ("etw-consumer/", "etw_consumer_build.py")
 SUITE_JOBS_WORKFLOW = ".github/workflows/suite-jobs.yml"
 PIPELINE_WORKFLOW = ".github/workflows/pipeline.yml"
+TIMEOUTS_FILE = "actions/pipeline/timeouts.json"
 TOOL_INSTALLER_FILES = ("actions/repository-hygiene/install_tools.py", "actions/repository-hygiene/pins.py")
 LANGUAGE_STEP_FOLDERS = {"python": "actions/python-language-step"}
 LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
-# The folders whose files each part's job runs, apart from the consumer kit; with the part's job in the pipeline
-# workflow they make up its part digest. ``SharedDigestScopeTests`` in tests/test_suite_selection_reuse.py ties these
-# scopes to those of actions/recording/recording.py.
+# The folders whose files each part's job runs, apart from the consumer kit; with the part's extra files, its time
+# limit in ``timeouts.json`` and its job in the pipeline workflow they make up its part digest.
+# ``SharedDigestScopeTests`` in tests/test_suite_selection_reuse.py ties these scopes to those of
+# actions/recording/recording.py.
 PART_DIGEST_FOLDERS: dict[str, tuple[str, ...]] = {
     "custom": (),
     "dotnet-test": ("actions/dotnet-test",),
@@ -108,7 +110,31 @@ PART_DIGEST_FOLDERS: dict[str, tuple[str, ...]] = {
     "python-test": ("actions/python-tests",),
     "python-verify": ("actions/python-tests",),
 }
+PART_DIGEST_FILES: dict[str, tuple[str, ...]] = {
+    "custom": ("actions/pipeline/schema/v1/setups.json",),
+}
 PART_EXCLUDED_FOLDERS = ("consumer-kit",)
+HYGIENE_DIR = "actions/repository-hygiene"
+HYGIENE_DIGEST_SCRIPTS: dict[str, tuple[str, ...]] = {
+    "actionlint": ("hygiene.py", "install_tools.py", "pins.py"),
+    "zizmor": ("hygiene.py", "install_tools.py", "pins.py"),
+    "zizmor-policy": ("zizmor-policy.yml",),
+    "packages": ("hygiene.py", "dependabot_coverage.py", "package-ecosystems.json"),
+    "markdown": ("hygiene.py", "link_check.py"),
+    "reuse": ("hygiene.py", "install_tools.py", "pins.py"),
+}
+HYGIENE_DIGEST_PINS: dict[str, tuple[tuple[str, str], ...]] = {
+    "actionlint": (("tools", "actionlint"), ("tools", "shellcheck")),
+    "zizmor": (("tools", "zizmor"),),
+    "reuse": (("python", "reuse"),),
+}
+HYGIENE_DIGEST_WORKFLOW: dict[str, tuple[str, str]] = {
+    "actionlint": ("job", "repository-hygiene"),
+    "zizmor": ("job", "repository-hygiene"),
+    "packages": ("plan-step", "coverage"),
+    "markdown": ("plan-step", "links"),
+    "reuse": ("job", "repository-hygiene"),
+}
 # The line that ends a job's block in the pipeline workflow, as ``recording.JOB_BOUNDARY``.
 JOB_BOUNDARY = re.compile(r"^(?:  )?[A-Za-z_][A-Za-z0-9_-]*:(?:\s|$)")
 RECORDING_MODULE_SEARCH = ("actions/suite-selection", "actions/recording")
@@ -392,9 +418,59 @@ def part_job_text(workflow: str, job: str) -> str | None:
     return "\n".join(lines[:jobs] + block) + "\n"
 
 
-def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, str]:
-    """Per-platform, per-tool, per-language-step and per-part digest fingerprints of ``commit``, keyed like ``shared-digests``."""
-    return {name: _digest_entries(entries) for name, entries in commit_digest_entries(root, commit, pins_path).items()}
+def plan_step_text(workflow: str, step_id: str) -> str | None:
+    """The lines of the pipeline workflow that one light-check step of ``plan`` runs under, read as
+    ``recording.plan_step_text`` reads them."""
+    lines = workflow.splitlines()
+    try:
+        jobs = lines.index("jobs:")
+        plan_start = lines.index("  plan:", jobs + 1)
+    except ValueError:
+        return None
+    plan_end = plan_start + 1
+    while plan_end < len(lines) and not JOB_BOUNDARY.match(lines[plan_end]):
+        plan_end += 1
+    try:
+        steps_start = lines.index("    steps:", plan_start + 1, plan_end)
+    except ValueError:
+        return None
+    step_starts = [i for i in range(steps_start + 1, plan_end) if lines[i].startswith("      - ")]
+    for pos, start in enumerate(step_starts):
+        end = step_starts[pos + 1] if pos + 1 < len(step_starts) else plan_end
+        block = lines[start:end]
+        if any(line in (f"        id: {step_id}", f"      - id: {step_id}") for line in block):
+            while block and (not block[-1].strip() or (block[-1].lstrip().startswith("#") and not block[-1].startswith("       "))):
+                block.pop()
+            return "\n".join(lines[:jobs] + block) + "\n"
+    return None
+
+
+def _load_timeouts_blob(root: Path, commit: str, blobs: Mapping[str, str], *, require_complete: bool) -> dict[str, int]:
+    """Read and validate ``actions/pipeline/timeouts.json`` from ``commit``; fails loudly when unreadable or malformed,
+    and when missing if ``require_complete`` is True."""
+    if TIMEOUTS_FILE not in blobs:
+        if require_complete:
+            raise DigestScopeError(f"{TIMEOUTS_FILE} is missing in {commit}; part digests cannot be taken")
+        return {}
+    raw = _blob_bytes(root, blobs[TIMEOUTS_FILE])
+    if raw is None:
+        raise DigestScopeError(f"{TIMEOUTS_FILE} in {commit} cannot be read")
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise DigestScopeError(f"{TIMEOUTS_FILE} in {commit} cannot be read: {error}") from error
+    if (not isinstance(document, dict)
+            or not all(isinstance(k, str) and k and isinstance(v, int) and not isinstance(v, bool) and v > 0
+                       for k, v in document.items())):
+        raise DigestScopeError(f"{TIMEOUTS_FILE} in {commit} must map job names to positive integer minute limits")
+    return document
+
+
+def commit_digests(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json", *,
+                   require_complete: bool = True) -> dict[str, str]:
+    """Per-platform, per-tool, per-language-step, per-part and per-hygiene-check digest fingerprints of ``commit``,
+    keyed like ``shared-digests``."""
+    return {name: _digest_entries(entries) for name, entries in commit_digest_entries(root, commit, pins_path, require_complete=require_complete).items()}
 
 
 def commit_digest_scopes(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, list[str]]:
@@ -402,14 +478,17 @@ def commit_digest_scopes(root: Path, commit: str, pins_path: str = "actions/repo
     return {name: sorted(entries) for name, entries in commit_digest_entries(root, commit, pins_path).items()}
 
 
-def commit_digest_entries(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> dict[str, dict[str, str]]:
+def commit_digest_entries(root: Path, commit: str, pins_path: str = "actions/repository-hygiene/pins.json", *,
+                          require_complete: bool = True) -> dict[str, dict[str, str]]:
     """The entries of every shared digest of ``commit``, sorted by digest name: each file's path with its blob id, and
     each extra entry with its value."""
     if not commit or not has_commit(root, commit):
         return {}
     part_folders = tuple(dict.fromkeys(folder for folders in PART_DIGEST_FOLDERS.values() for folder in folders))
-    scope = [RECORDING_DIR, SUITE_JOBS_WORKFLOW, PIPELINE_WORKFLOW, *TOOL_INSTALLER_FILES, *LANGUAGE_STEP_FOLDERS.values(),
-             *part_folders, *RECORDING_MODULE_SEARCH, pins_path]
+    part_extra_files = tuple(dict.fromkeys(path for paths in PART_DIGEST_FILES.values() for path in paths))
+    hygiene_scripts = tuple(dict.fromkeys(f"{HYGIENE_DIR}/{script}" for scripts in HYGIENE_DIGEST_SCRIPTS.values() for script in scripts))
+    scope = [RECORDING_DIR, SUITE_JOBS_WORKFLOW, PIPELINE_WORKFLOW, TIMEOUTS_FILE, *part_extra_files,
+             *hygiene_scripts, *TOOL_INSTALLER_FILES, *LANGUAGE_STEP_FOLDERS.values(), *part_folders, *RECORDING_MODULE_SEARCH, pins_path]
     blobs = _tree_blobs(root, commit, scope)
     digests: dict[str, dict[str, str]] = {}
     recording_files = {path: blob for path, blob in blobs.items() if path.startswith(f"{RECORDING_DIR}/")}
@@ -451,23 +530,67 @@ def commit_digest_entries(root: Path, commit: str, pins_path: str = "actions/rep
             digests[f"language:{name}"] = {**lang_files, **installer, **extra}
     raw_workflow = _blob_bytes(root, blobs[PIPELINE_WORKFLOW]) if PIPELINE_WORKFLOW in blobs else None
     workflow = raw_workflow.decode("utf-8", errors="replace") if raw_workflow is not None else None
-    for name, folders in sorted(PART_DIGEST_FOLDERS.items()):
-        part_files = {path: blob for path, blob in blobs.items() for folder in folders
-                      if path.startswith(f"{folder}/") and path.removeprefix(f"{folder}/").split("/")[0] not in PART_EXCLUDED_FOLDERS}
-        if workflow is not None:
+    any_part_folder = any(path.startswith(f"{folder}/") for folder in part_folders for path in blobs)
+    if workflow is not None or any_part_folder:
+        if workflow is None:
+            raise DigestScopeError(f"{PIPELINE_WORKFLOW} is missing in {commit}; part digests cannot be taken")
+        timeouts = _load_timeouts_blob(root, commit, blobs, require_complete=require_complete)
+        for name, folders in sorted(PART_DIGEST_FOLDERS.items()):
+            part_files: dict[str, str] = {}
+            for folder in folders:
+                folder_files = {path: blob for path, blob in blobs.items()
+                                if path.startswith(f"{folder}/") and path.removeprefix(f"{folder}/").split("/")[0] not in PART_EXCLUDED_FOLDERS}
+                if not folder_files:
+                    raise DigestScopeError(f"the part folder {folder} for part {name} is missing or empty in {commit}; "
+                                           f"its part digest cannot be taken")
+                part_files.update(folder_files)
+            for path in PART_DIGEST_FILES.get(name, ()):
+                if path in blobs:
+                    part_files[path] = blobs[path]
             job = part_job_text(workflow, name)
             if job is None:
                 raise DigestScopeError(f"the job of the part {name} cannot be found in {PIPELINE_WORKFLOW} of {commit} as a line "
                                        f"`  {name}:` under `jobs:`; its part digest cannot be taken")
             part_files[f"{PIPELINE_WORKFLOW}#jobs.{name}"] = hashlib.sha256(job.encode("utf-8")).hexdigest()
-        if part_files:
+            if name in timeouts:
+                part_files[f"{TIMEOUTS_FILE}#{name}"] = json.dumps(timeouts[name], sort_keys=True, separators=(",", ":"))
             digests[f"part:{name}"] = part_files
+    for name, scripts in sorted(HYGIENE_DIGEST_SCRIPTS.items()):
+        hygiene_entries: dict[str, str] = {}
+        for script in scripts:
+            rel = f"{HYGIENE_DIR}/{script}"
+            if rel in blobs:
+                hygiene_entries[rel] = blobs[rel]
+        for section, tool in HYGIENE_DIGEST_PINS.get(name, ()):
+            section_pins = pins.get(section)
+            if isinstance(section_pins, dict) and tool in section_pins:
+                hygiene_entries[f"pins:{section}/{tool}"] = json.dumps(section_pins[tool], sort_keys=True, separators=(",", ":"))
+        if workflow is not None and name in HYGIENE_DIGEST_WORKFLOW:
+            kind, target = HYGIENE_DIGEST_WORKFLOW[name]
+            if kind == "job":
+                job = part_job_text(workflow, target)
+                if job is None:
+                    if require_complete:
+                        raise DigestScopeError(f"the job {target} for hygiene check {name} cannot be found in {PIPELINE_WORKFLOW} of {commit} "
+                                               f"as a line `  {target}:` under `jobs:`; its digest cannot be taken")
+                else:
+                    hygiene_entries[f"{PIPELINE_WORKFLOW}#jobs.{target}"] = hashlib.sha256(job.encode("utf-8")).hexdigest()
+            else:
+                step = plan_step_text(workflow, target)
+                if step is None:
+                    if require_complete:
+                        raise DigestScopeError(f"the step {target} of plan for hygiene check {name} cannot be found in {PIPELINE_WORKFLOW} of {commit}; "
+                                               f"its digest cannot be taken")
+                else:
+                    hygiene_entries[f"{PIPELINE_WORKFLOW}#jobs.plan.steps.{target}"] = hashlib.sha256(step.encode("utf-8")).hexdigest()
+        if hygiene_entries:
+            digests[f"hygiene:{name}"] = hygiene_entries
     return dict(sorted(digests.items()))
 
 
 def moved_digests(root: Path, old_commit: str, new_commit: str, pins_path: str = "actions/repository-hygiene/pins.json") -> list[str]:
     """The sorted names of the shared digests that differ between ``old_commit`` and ``new_commit``."""
-    before = commit_digests(root, old_commit, pins_path) if old_commit else {}
+    before = commit_digests(root, old_commit, pins_path, require_complete=False) if old_commit else {}
     after = commit_digests(root, new_commit, pins_path)
     return sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
 

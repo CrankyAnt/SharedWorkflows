@@ -1122,11 +1122,26 @@ class PrepareTests(ManualMove):
 
     def test_the_promotion_question_states_the_shared_digests_the_move_changes(self) -> None:
         pins_v1 = json.dumps({"node": {"version": "24.0.0"}, "tools": {"gitleaks": {"version": "8.1.0"}}, "python": {"ruff": {"version": "0.1.0"}}}) + "\n"
+        pipeline_yml = (
+            "name: Pipeline\non: workflow_call\njobs:\n"
+            "  plan:\n    steps:\n"
+            "      - name: Dependabot coverage\n        id: coverage\n        run: coverage\n"
+            "      - name: Relative links\n        id: links\n        run: links\n"
+            "  custom:\n    steps:\n      - run: exit 0\n"
+            "  dotnet-test:\n    steps:\n      - uses: $/actions/dotnet-test\n"
+            "  node-test:\n    steps:\n      - uses: $/actions/node-test\n"
+            "  python-test:\n    steps:\n      - uses: $/actions/python-tests\n"
+            "  python-verify:\n    steps:\n      - uses: $/actions/python-tests\n"
+            "  repository-hygiene:\n    steps:\n      - run: hygiene\n"
+        )
         self.fixture.v1 = self.fixture.commit("feat: baseline digests", {
             "ci/pins.json": pins_v1,
+            ".github/workflows/pipeline.yml": pipeline_yml,
+            "actions/pipeline/timeouts.json": json.dumps({"custom": 15, "dotnet-test": 15, "node-test": 15, "python-test": 15, "python-verify": 15}) + "\n",
             "actions/recording/recording.py": "# rec 1\n",
             "actions/recording/etw-consumer/Program.cs": "// etw 1\n",
             "actions/python-language-step/python_language_step.py": "# py 1\n",
+            "actions/python-tests/python_tests.py": "# py tests 1\n",
             "actions/dotnet-test/dotnet_test.py": "# dotnet 1\n",
             "actions/node-test/node_test.py": "# node 1\n",
         })

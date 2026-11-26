@@ -109,7 +109,7 @@ The shared workflow that the writing fixed caller calls: it runs the shared part
 _Avoid_: Write pipeline, bot workflow
 
 **Plan**:
-The first job of the pipeline, which checks out the repository once to validate the configuration file against its schema, runs the push lookup, the shared lookup, suite selection, hygiene change detection and the light hygiene checks, and decides per shared part and per selected unit whether it runs and why, turning off every tree-based shared part on a push whose tree already passed on its pull request.
+The first job of the pipeline, which checks out the repository once to validate the configuration file against its schema, runs the push lookup, the shared lookup, hygiene change detection, suite selection and the light hygiene checks, and decides per shared part and per selected unit whether it runs and why, turning off every tree-based shared part whose digests equal those the pull request was tested under on a push whose tree already passed on its pull request.
 _Avoid_: Planner, setup job
 
 **Schema fragment**:
@@ -167,8 +167,12 @@ The SHA-256 (`language:<name>`) over what one shared language step runs: its fol
 _Avoid_: Shared digest, linter hash
 
 **Part digest**:
-The SHA-256 (`part:<name>`) over what one pipeline part's job runs: its shared folder without the consumer kit, and its job in the pipeline workflow with the workflow's lines before its jobs. A change to a part digest reruns only that part.
+The SHA-256 (`part:<name>`) over what one pipeline part's job runs: its shared folder without the consumer kit, its plan-set time limit (`actions/pipeline/timeouts.json`), `actions/pipeline/schema/v1/setups.json` for `part:custom`, and its job in the pipeline workflow with the workflow's lines before its jobs. A change to a part digest reruns only that part.
 _Avoid_: Shared digest, pipeline hash
+
+**Hygiene-check digest**:
+The SHA-256 (`hygiene:<name>`) over what one hygiene check of the pipeline runs: its scripts, the pin entries of its tools in the pins file (ShellCheck included for actionlint), and its job or light-check step in the pipeline workflow with the workflow's lines before its jobs, plus `hygiene:zizmor-policy` over the shared zizmor policy for a consumer without its own zizmor configuration. A change to a hygiene-check digest reruns only that hygiene check.
+_Avoid_: Shared digest, hygiene hash
 
 ### Sync
 

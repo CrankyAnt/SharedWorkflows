@@ -3256,15 +3256,16 @@ def loaded_modules(script: Path) -> list[Path]:
 
 SUITE_JOBS = SHARED_FOLDER.parent / ".github" / "workflows" / "suite-jobs.yml"  # the shared workflow that runs the entry files
 PIPELINE_WORKFLOW = SHARED_FOLDER.parent / ".github" / "workflows" / "pipeline.yml"
+TIMEOUTS_FILE = SHARED_FOLDER / "pipeline" / "timeouts.json"
 WINDOWS_ONLY_PARTS = ("etw-consumer/", "etw_consumer_build.py")
 PINS_FILE = SHARED_FOLDER / "repository-hygiene" / "pins.json"
 TOOL_INSTALLER_FILES = (SHARED_FOLDER / "repository-hygiene" / "install_tools.py", SHARED_FOLDER / "repository-hygiene" / "pins.py")
 LANGUAGE_STEP_FOLDERS = {"python": SHARED_FOLDER / "python-language-step"}
 LANGUAGE_STEP_PYTHON_TOOLS = {"python": ("ruff", "mypy")}
 # The shared folders whose files each pipeline part's job runs, apart from the consumer kit, which no job runs; with
-# the part's job in the pipeline workflow (``part_job_text``) they make up its ``part:<name>`` digest. Kept equal to
-# ``PART_DIGEST_FOLDERS`` of actions/repository-hygiene/promote_v1.py, as ``SharedDigestScopeTests`` in
-# tests/test_suite_selection_reuse.py checks.
+# the part's extra files, its time limit in ``timeouts.json`` and its job in the pipeline workflow (``part_job_text``)
+# they make up its ``part:<name>`` digest. Kept equal to ``PART_DIGEST_FOLDERS`` and ``PART_DIGEST_FILES`` of
+# actions/repository-hygiene/promote_v1.py, as ``SharedDigestScopeTests`` in tests/test_suite_selection_reuse.py checks.
 PART_DIGEST_FOLDERS: dict[str, tuple[Path, ...]] = {
     "custom": (),
     "dotnet-test": (SHARED_FOLDER / "dotnet-test",),
@@ -3272,7 +3273,33 @@ PART_DIGEST_FOLDERS: dict[str, tuple[Path, ...]] = {
     "python-test": (SHARED_FOLDER / "python-tests",),
     "python-verify": (SHARED_FOLDER / "python-tests",),
 }
+PART_DIGEST_FILES: dict[str, tuple[Path, ...]] = {
+    "custom": (SHARED_FOLDER / "pipeline" / "schema" / "v1" / "setups.json",),
+}
 PART_EXCLUDED_FOLDERS = ("consumer-kit",)
+HYGIENE_FOLDER = SHARED_FOLDER / "repository-hygiene"
+# Each hygiene check's scripts, tool pins and pipeline workflow block/step; kept equal to ``HYGIENE_DIGEST_*`` of
+# actions/repository-hygiene/promote_v1.py, as ``SharedDigestScopeTests`` in tests/test_suite_selection_reuse.py checks.
+HYGIENE_DIGEST_SCRIPTS: dict[str, tuple[str, ...]] = {
+    "actionlint": ("hygiene.py", "install_tools.py", "pins.py"),
+    "zizmor": ("hygiene.py", "install_tools.py", "pins.py"),
+    "zizmor-policy": ("zizmor-policy.yml",),
+    "packages": ("hygiene.py", "dependabot_coverage.py", "package-ecosystems.json"),
+    "markdown": ("hygiene.py", "link_check.py"),
+    "reuse": ("hygiene.py", "install_tools.py", "pins.py"),
+}
+HYGIENE_DIGEST_PINS: dict[str, tuple[tuple[str, str], ...]] = {
+    "actionlint": (("tools", "actionlint"), ("tools", "shellcheck")),
+    "zizmor": (("tools", "zizmor"),),
+    "reuse": (("python", "reuse"),),
+}
+HYGIENE_DIGEST_WORKFLOW: dict[str, tuple[str, str]] = {
+    "actionlint": ("job", "repository-hygiene"),
+    "zizmor": ("job", "repository-hygiene"),
+    "packages": ("plan-step", "coverage"),
+    "markdown": ("plan-step", "links"),
+    "reuse": ("job", "repository-hygiene"),
+}
 # The line that ends a job's block in the pipeline workflow: the next job (``  <name>:``) or a top-level key.
 JOB_BOUNDARY = re.compile(r"^(?:  )?[A-Za-z_][A-Za-z0-9_-]*:(?:\s|$)")
 
@@ -3384,16 +3411,48 @@ def part_job_text(workflow: str, job: str) -> str | None:
     return "\n".join(lines[:jobs] + block) + "\n"
 
 
-def part_job_entry(name: str) -> dict[str, bytes]:
-    """The extra digest entry of a part's job in the pipeline workflow, or none without that workflow. A workflow in
-    which the job cannot be found fails, so that the part digest never covers less than the job runs."""
-    if not PIPELINE_WORKFLOW.is_file():
-        return {}
-    text = part_job_text(PIPELINE_WORKFLOW.read_text(encoding="utf-8"), name)
-    if text is None:
-        raise RecordingError(f"the job of the part {name} cannot be found in {shared_name(PIPELINE_WORKFLOW)} "
-                             f"as a line `  {name}:` under `jobs:`; its part digest cannot be taken")
-    return {f"{shared_name(PIPELINE_WORKFLOW)}#jobs.{name}": text.encode("utf-8")}
+def plan_step_text(workflow: str, step_id: str) -> str | None:
+    """The lines of the pipeline workflow that one light-check step of ``plan`` runs under: the workflow's lines before
+    ``jobs:`` and that step's block in ``jobs.plan.steps``, identified by ``id: <step_id>``, without trailing blank
+    lines and trailing comments at the step's indentation or less; None when absent.
+    ``promote_v1.plan_step_text`` reads it the same way."""
+    lines = workflow.splitlines()
+    try:
+        jobs = lines.index("jobs:")
+        plan_start = lines.index("  plan:", jobs + 1)
+    except ValueError:
+        return None
+    plan_end = plan_start + 1
+    while plan_end < len(lines) and not JOB_BOUNDARY.match(lines[plan_end]):
+        plan_end += 1
+    try:
+        steps_start = lines.index("    steps:", plan_start + 1, plan_end)
+    except ValueError:
+        return None
+    step_starts = [i for i in range(steps_start + 1, plan_end) if lines[i].startswith("      - ")]
+    for pos, start in enumerate(step_starts):
+        end = step_starts[pos + 1] if pos + 1 < len(step_starts) else plan_end
+        block = lines[start:end]
+        if any(line in (f"        id: {step_id}", f"      - id: {step_id}") for line in block):
+            while block and (not block[-1].strip() or (block[-1].lstrip().startswith("#") and not block[-1].startswith("       "))):
+                block.pop()
+            return "\n".join(lines[:jobs] + block) + "\n"
+    return None
+
+
+def _load_timeouts_document() -> dict[str, int]:
+    """Read and validate ``actions/pipeline/timeouts.json``; fails loudly when missing, unreadable or malformed."""
+    if not TIMEOUTS_FILE.is_file():
+        raise RecordingError(f"{shared_name(TIMEOUTS_FILE)} is missing; part digests cannot be taken")
+    try:
+        document = json.loads(TIMEOUTS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise RecordingError(f"{shared_name(TIMEOUTS_FILE)} cannot be read: {error}") from error
+    if (not isinstance(document, dict)
+            or not all(isinstance(k, str) and k and isinstance(v, int) and not isinstance(v, bool) and v > 0
+                       for k, v in document.items())):
+        raise RecordingError(f"{shared_name(TIMEOUTS_FILE)} must map job names to positive integer minute limits")
+    return document
 
 
 def part_files(folders: Collection[Path]) -> list[Path]:
@@ -3405,15 +3464,78 @@ def part_files(folders: Collection[Path]) -> list[Path]:
     return files
 
 
-def part_digests() -> dict[str, str]:
-    """One digest per pipeline part, keyed as ``part:<name>``: the files its job runs and its job in the pipeline
-    workflow, so that a README, a schema document or another job leaves it unmoved."""
-    digests: dict[str, str] = {}
+def _part_digest_inputs() -> dict[str, tuple[list[Path], dict[str, bytes]]]:
+    """Per pipeline part, its files and extra entries. Fails loudly when the pipeline workflow or a part folder is
+    present while the pipeline workflow, a part's job or a part's folder is missing."""
+    workflow_exists = PIPELINE_WORKFLOW.is_file()
+    any_part_folder = any(folder.is_dir() for folders in PART_DIGEST_FOLDERS.values() for folder in folders)
+    if not workflow_exists and not any_part_folder:
+        return {}
+    if not workflow_exists:
+        raise RecordingError(f"{shared_name(PIPELINE_WORKFLOW)} is missing; part digests cannot be taken")
+    workflow_text = PIPELINE_WORKFLOW.read_text(encoding="utf-8")
+    timeouts = _load_timeouts_document()
+    inputs: dict[str, tuple[list[Path], dict[str, bytes]]] = {}
     for name, folders in sorted(PART_DIGEST_FOLDERS.items()):
-        files, extra = part_files(folders), part_job_entry(name)
+        files: list[Path] = []
+        for folder in folders:
+            folder_files = part_files((folder,)) if folder.is_dir() else []
+            if not folder_files:
+                raise RecordingError(f"the part folder {shared_name(folder)} for part {name} is missing or empty; its part digest cannot be taken")
+            files.extend(folder_files)
+        files.extend(path for path in PART_DIGEST_FILES.get(name, ()) if path.is_file())
+        text = part_job_text(workflow_text, name)
+        if text is None:
+            raise RecordingError(f"the job of the part {name} cannot be found in {shared_name(PIPELINE_WORKFLOW)} "
+                                 f"as a line `  {name}:` under `jobs:`; its part digest cannot be taken")
+        extra: dict[str, bytes] = {f"{shared_name(PIPELINE_WORKFLOW)}#jobs.{name}": text.encode("utf-8")}
+        if name in timeouts:
+            extra[f"{shared_name(TIMEOUTS_FILE)}#{name}"] = _canonical_json(timeouts[name])
+        inputs[name] = (files, extra)
+    return inputs
+
+
+def part_digests() -> dict[str, str]:
+    """One digest per pipeline part, keyed as ``part:<name>``: the files its job runs, its time limit and its job in
+    the pipeline workflow, so that a README, a schema document or another job leaves it unmoved."""
+    return {f"part:{name}": files_digest(files, extra) for name, (files, extra) in _part_digest_inputs().items()}
+
+
+def _hygiene_digest_inputs(pins: dict) -> dict[str, tuple[list[Path], dict[str, bytes]]]:
+    """Per hygiene check, its scripts, tool pin entries and pipeline workflow job or light-check step."""
+    workflow_text = PIPELINE_WORKFLOW.read_text(encoding="utf-8") if PIPELINE_WORKFLOW.is_file() else None
+    inputs: dict[str, tuple[list[Path], dict[str, bytes]]] = {}
+    for name, scripts in sorted(HYGIENE_DIGEST_SCRIPTS.items()):
+        files = [HYGIENE_FOLDER / script for script in scripts if (HYGIENE_FOLDER / script).is_file()]
+        extra: dict[str, bytes] = {}
+        for section, tool in HYGIENE_DIGEST_PINS.get(name, ()):
+            entries = pins.get(section)
+            if isinstance(entries, dict) and tool in entries:
+                extra[f"pins:{section}/{tool}"] = _canonical_json(entries[tool])
+        if workflow_text is not None and name in HYGIENE_DIGEST_WORKFLOW:
+            kind, target = HYGIENE_DIGEST_WORKFLOW[name]
+            if kind == "job":
+                text = part_job_text(workflow_text, target)
+                if text is None:
+                    raise RecordingError(f"the job {target} for hygiene check {name} cannot be found in {shared_name(PIPELINE_WORKFLOW)} "
+                                         f"as a line `  {target}:` under `jobs:`; its digest cannot be taken")
+                extra[f"{shared_name(PIPELINE_WORKFLOW)}#jobs.{target}"] = text.encode("utf-8")
+            else:
+                text = plan_step_text(workflow_text, target)
+                if text is None:
+                    raise RecordingError(f"the step {target} of plan for hygiene check {name} cannot be found in {shared_name(PIPELINE_WORKFLOW)}; "
+                                         f"its digest cannot be taken")
+                extra[f"{shared_name(PIPELINE_WORKFLOW)}#jobs.plan.steps.{target}"] = text.encode("utf-8")
         if files or extra:
-            digests[f"part:{name}"] = files_digest(files, extra)
-    return digests
+            inputs[name] = (files, extra)
+    return inputs
+
+
+def hygiene_digests(pins: dict | None = None) -> dict[str, str]:
+    """One digest per hygiene check, keyed as ``hygiene:<name>``: its scripts, tool pins and pipeline workflow job or
+    light-check step, with ``hygiene:zizmor-policy`` separate so consumers with their own zizmor config ignore it."""
+    document = _load_pins_document() if pins is None else pins
+    return {f"hygiene:{name}": files_digest(files, extra) for name, (files, extra) in _hygiene_digest_inputs(document).items()}
 
 
 def shared_digest_scopes() -> dict[str, list[str]]:
@@ -3436,22 +3558,23 @@ def shared_digest_scopes() -> dict[str, list[str]]:
         if folder.is_dir():
             scopes[f"language:{name}"] = [*(shared_name(path) for path in part_files((folder,)) + installer),
                                           *(f"pins:python/{tool}" for tool in LANGUAGE_STEP_PYTHON_TOOLS.get(name, ()) if tool in python_pins)]
-    for name, folders in PART_DIGEST_FOLDERS.items():
-        part_entries = [*(shared_name(path) for path in part_files(folders)), *part_job_entry(name)]
-        if part_entries:
-            scopes[f"part:{name}"] = part_entries
+    for name, (files, extra) in _part_digest_inputs().items():
+        scopes[f"part:{name}"] = [*(shared_name(path) for path in files), *extra]
+    for name, (files, extra) in _hygiene_digest_inputs(pins).items():
+        scopes[f"hygiene:{name}"] = [*(shared_name(path) for path in files), *extra]
     return {name: sorted(entries) for name, entries in sorted(scopes.items())}
 
 
 def shared_digests() -> dict[str, str]:
     """All shared CI digests: one per platform (``platform:linux``, ``platform:windows``), one per pinned tool
-    (``tool:<name>``), one per language step (``language:<name>``), and one per pipeline part (``part:<name>``),
-    sorted by key."""
+    (``tool:<name>``), one per language step (``language:<name>``), one per pipeline part (``part:<name>``) and one
+    per hygiene check (``hygiene:<name>``), sorted by key."""
     pins = _load_pins_document()
     digests = {f"platform:{platform}": files_digest(platform_files(platform)) for platform in suite_selection.OPERATING_SYSTEMS}
     digests.update(tool_digests(pins))
     digests.update(language_step_digests(pins))
     digests.update(part_digests())
+    digests.update(hygiene_digests(pins))
     return dict(sorted(digests.items()))
 
 

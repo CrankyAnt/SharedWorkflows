@@ -397,6 +397,134 @@ class PushLookupPlanTests(PipelineFixture):
                 self.assertIs(True, outcome.plan["parts"][part]["reused"])
         self.assertIs(True, outcome.plan["parts"]["repository-hygiene"]["run"])
 
+    def test_an_identical_tree_push_compares_part_digests_with_tested_digests_not_the_default_branch_record(self) -> None:
+        self.schemas = SCHEMAS
+        config = """\
+            version: 1
+            parts:
+              custom:
+                script: ci/check.sh
+                paths: [ci/]
+              dotnet-test:
+                projects:
+                  - sdk-version: "10.0.x"
+                    project: tests/App.Tests.csproj
+                paths: [tests/]
+              node-test:
+                projects:
+                  - working-directory: web
+                paths: [web/]
+            """
+        base = self.commit({CONFIGURATION: config, "ci/check.sh": "exit 0\n", "tests/App.Tests.csproj": "<Project />\n", "web/package.json": "{}\n"})
+        head = self.commit({"ci/check.sh": "exit 0\n# edit\n"})
+        digests_a = {"part:custom": "a" * 64, "part:dotnet-test": "b" * 64, "part:node-test": "c" * 64}
+        digests_b = {**digests_a, "part:dotnet-test": "9" * 64}
+        shared = self.directory / "shared-lookup.json"
+
+        # Current digests equal tested digests and differ from the previous default-branch record -> every part is taken
+        # over (no double work after a v1 move and a passing PR run).
+        shared.write_text(json.dumps({"digests": digests_b, "previous": digests_a}), encoding="utf-8")
+        lookup = self.write_lookup({"case": "identical", "head": head, "landing_base": base, "pull_request": 42,
+                                    "tested_digests": digests_b, "reason": "identical tree"})
+        outcome = self.plan("--lookup", lookup, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        for part in ("custom", "dotnet-test", "node-test"):
+            self.assertIs(False, outcome.plan["parts"][part]["run"], part)
+            self.assertIs(True, outcome.plan["parts"][part]["reused"], part)
+        self.assertNotIn("fallbacks", outcome.plan)
+
+        # Current digests differ from tested digests (e.g. a v1 rollback back to the previous default-branch record
+        # after the PR passed under newer digests) -> moved part runs, unaffected parts stay taken over.
+        shared.write_text(json.dumps({"digests": digests_a, "previous": digests_a}), encoding="utf-8")
+        lookup = self.write_lookup({"case": "identical", "head": head, "landing_base": base, "pull_request": 42,
+                                    "tested_digests": digests_b, "reason": "identical tree"})
+        outcome = self.plan("--lookup", lookup, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["dotnet-test"]["run"])
+        self.assertNotIn("reused", outcome.plan["parts"]["dotnet-test"])
+        self.assertIn("part:dotnet-test", outcome.plan["parts"]["dotnet-test"]["reason"])
+        for part in ("custom", "node-test"):
+            self.assertIs(False, outcome.plan["parts"][part]["run"], part)
+            self.assertIs(True, outcome.plan["parts"][part]["reused"], part)
+
+        # Missing digest on either side (present in T, missing in D) counts as moved.
+        shared.write_text(json.dumps({"digests": {"part:custom": "a" * 64, "part:node-test": "c" * 64}, "previous": digests_a}), encoding="utf-8")
+        lookup = self.write_lookup({"case": "identical", "head": head, "landing_base": base, "pull_request": 42,
+                                    "tested_digests": digests_a, "reason": "identical tree"})
+        outcome = self.plan("--lookup", lookup, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["dotnet-test"]["run"])
+        self.assertIs(False, outcome.plan["parts"]["custom"]["run"])
+
+        # Absent or unreadable tested_digests -> every part with a digest runs and counts unreadable-tested-digests.
+        shared.write_text(json.dumps({"digests": digests_a, "previous": digests_a}), encoding="utf-8")
+        for bad_tested in (None, {}, "not-a-dict", {"part:custom": "not-hex"}):
+            with self.subTest(tested_digests=bad_tested):
+                lookup = self.write_lookup({"case": "identical", "head": head, "landing_base": base, "pull_request": 42,
+                                            "tested_digests": bad_tested, "reason": "identical tree"})
+                outcome = self.plan("--lookup", lookup, "--shared-lookup", str(shared))
+                self.assertEqual(0, outcome.status, outcome.summary)
+                for part in ("custom", "dotnet-test", "node-test"):
+                    self.assertIs(True, outcome.plan["parts"][part]["run"], part)
+                self.assertEqual({"unreadable-tested-digests": 3}, outcome.plan["fallbacks"])
+                self.assertIn("::notice title=ci-fallback::unreadable-tested-digests:", outcome.stdout)
+
+    def test_a_behind_push_compares_part_digests_with_tested_digests(self) -> None:
+        self.schemas = SCHEMAS
+        config = """\
+            version: 1
+            parts:
+              custom:
+                script: ci/check.sh
+                paths: [ci/]
+              dotnet-test:
+                projects:
+                  - sdk-version: "10.0.x"
+                    project: tests/App.Tests.csproj
+                paths: [tests/]
+              node-test:
+                projects:
+                  - working-directory: web
+                paths: [web/]
+            """
+        tested_base = self.commit({CONFIGURATION: config, "ci/check.sh": "exit 0\n", "tests/App.Tests.csproj": "<Project />\n", "web/package.json": "{}\n", "README.md": "1\n"})
+        landing = self.commit({"README.md": "2\n"})
+        head = self.commit({"ci/check.sh": "exit 0\n# pr\n"})
+        digests_a = {"part:custom": "a" * 64, "part:dotnet-test": "b" * 64, "part:node-test": "c" * 64}
+        digests_b = {**digests_a, "part:dotnet-test": "9" * 64}
+        shared = self.directory / "shared-lookup.json"
+
+        # Current digests equal tested digests and differ from the previous default-branch record -> untouched
+        # dotnet-test stays off even though the previous record differs.
+        shared.write_text(json.dumps({"digests": digests_b, "previous": digests_a}), encoding="utf-8")
+        lookup = self.write_lookup({"case": "behind", "head": head, "landing_base": landing, "tested_base": tested_base,
+                                    "pull_request": 12, "tested_digests": digests_b, "reason": "behind"})
+        outcome = self.plan("--lookup", lookup, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["custom"]["run"])
+        self.assertIs(False, outcome.plan["parts"]["dotnet-test"]["run"])
+        self.assertIs(False, outcome.plan["parts"]["node-test"]["run"])
+
+        # Current digests differ from tested digests (while matching the previous default-branch record) -> untouched
+        # dotnet-test runs because its tested digest differs from the current digest.
+        shared.write_text(json.dumps({"digests": digests_a, "previous": digests_a}), encoding="utf-8")
+        lookup = self.write_lookup({"case": "behind", "head": head, "landing_base": landing, "tested_base": tested_base,
+                                    "pull_request": 12, "tested_digests": digests_b, "reason": "behind"})
+        outcome = self.plan("--lookup", lookup, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertIs(True, outcome.plan["parts"]["dotnet-test"]["run"])
+        self.assertIn("part:dotnet-test", outcome.plan["parts"]["dotnet-test"]["reason"])
+        self.assertIs(False, outcome.plan["parts"]["node-test"]["run"])
+
+        # Unreadable tested_digests on behind -> runs every part with a digest and counts unreadable-tested-digests.
+        lookup = self.write_lookup({"case": "behind", "head": head, "landing_base": landing, "tested_base": tested_base,
+                                    "pull_request": 12, "tested_digests": None, "reason": "behind"})
+        outcome = self.plan("--lookup", lookup, "--shared-lookup", str(shared))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        for part in ("custom", "dotnet-test", "node-test"):
+            self.assertIs(True, outcome.plan["parts"][part]["run"], part)
+        self.assertEqual({"unreadable-tested-digests": 3}, outcome.plan["fallbacks"])
+
     def test_a_behind_push_runs_parts_affected_by_either_the_pull_request_or_the_newer_base(self) -> None:
         parts = {
             **FIXTURE_PARTS,
@@ -1086,6 +1214,17 @@ class PartInputsAndDeparturesTests(PipelineFixture):
         self.assertEqual(0, outcome.status, outcome.summary)
         for part in ("custom", "dotnet-test", "node-test", "python-test"):
             self.assertIs(True, outcome.plan["parts"][part]["run"], part)
+
+        # A digest missing on either side (present in previous, missing in digests; or vice versa) counts as moved.
+        without_dotnet = {k: v for k, v in same.items() if k != "part:dotnet-test"}
+        for label, current, previous in (("missing from current", without_dotnet, same), ("missing from previous", same, without_dotnet)):
+            with self.subTest(case=label):
+                shared.write_text(json.dumps({"digests": current, "previous": previous}), encoding="utf-8")
+                outcome = self.plan("--base", base, "--head", head, "--shared-lookup", str(shared))
+                self.assertEqual(0, outcome.status, outcome.summary)
+                self.assertIs(True, outcome.plan["parts"]["dotnet-test"]["run"])
+                for unchanged in ("custom", "node-test", "python-test"):
+                    self.assertIs(False, outcome.plan["parts"][unchanged]["run"], unchanged)
 
     def test_output_writes_the_plan_json_document(self) -> None:
         base = self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n", "ci/check.sh": "exit 0\n", "README.md": "1\n"})

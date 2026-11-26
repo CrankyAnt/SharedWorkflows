@@ -21,6 +21,8 @@ HYGIENE_WORKFLOW = WORKFLOWS / "repository-hygiene.yml"
 # The steps of the hygiene job of repository-hygiene.yml that the pipeline's job leaves out, each with its reason.
 LEFT_OUT = {
     "Load the push lookup from this workflow revision": "the pipeline loads suite-selection once in plan as Load the scripts of the suite selection from this workflow revision",
+    "Restore the default-branch REUSE version marker": "the pipeline compares hygiene:reuse through the shared digests instead of a default-branch REUSE version marker",
+    "Store the default-branch REUSE version marker": "the pipeline compares hygiene:reuse through the shared digests instead of a default-branch REUSE version marker",
     "Restore the passed checks of the pull request": "the pipeline has no edited run that reuses passed checks",
     "Record the passed checks for an edit of the pull request": "the pipeline has no edited run that reuses passed checks",
     "Store the passed checks in the pull request's cache": "the pipeline has no edited run that reuses passed checks",
@@ -30,8 +32,7 @@ DIFFERENT = {
     "Load resources from this workflow revision": "the pipeline loads hygiene resources in plan under id hygiene",
     "Restore the default-branch record": "the pipeline restores the default-branch record for pull requests as well as pushes, and skips it on edited",
     "Look up the tested tree of the pushed commit's pull request": "the pipeline runs the push lookup once in plan and exports it as an output",
-    "Restore the default-branch REUSE version marker": "the pipeline restores the marker in plan and skips it on edited",
-    "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run, and runs change detection in plan",
+    "Decide which checks the changed files can affect": "the pipeline has no inputs and no record of an edited run, passes shared-lookup for hygiene check digests, and runs change detection in plan",
     "Decide whether the PR author skips the convention checks": "the pipeline runs light convention checks in plan after the plan step succeeds",
     "Load the convention checks from this workflow revision": "the pipeline loads publication-checks in plan for branch/reference checks and in repository-hygiene for commitlint",
     "actions/setup-node": "the pipeline reads pr-author-skip from needs.plan.outputs",
@@ -244,6 +245,12 @@ class PipelineTests(unittest.TestCase):
                       "Check the references to repositories of the owner", "Consumer checks",
                       "Dependabot coverage of tracked package files", "Relative links in tracked Markdown"):
             self.assertIn(light, plan_step_names, f"light hygiene check {light!r} runs in plan")
+        ordered_names = [step_key(step) for step in plan["steps"]]
+        self.assertLess(ordered_names.index("Take the shared CI digests"), ordered_names.index("Decide which checks the changed files can affect"))
+        self.assertLess(ordered_names.index("Look up the shared CI digests from the default-branch record"),
+                        ordered_names.index("Decide which checks the changed files can affect"))
+        changes_step = next(step for step in plan["steps"] if step.get("id") == "changes")
+        self.assertIn('--shared-lookup "$RUNNER_TEMP/shared-lookup.json"', changes_step["run"])
 
     def test_repository_hygiene_runs_whenever_the_plan_wrote_its_plan_and_runs_only_tool_installing_checks(self) -> None:
         hygiene = self.jobs[HYGIENE]
@@ -739,7 +746,7 @@ class ConsumerPathTests(unittest.TestCase):
                 workflow = ci_definition().read_yaml(text.replace(install, replacement, 1), str(PIPELINE))
                 problems = self.problems("pipeline.yml", workflow)
                 self.assertEqual(1, len(problems), problems)
-                self.assertTrue(problems[0].startswith("pipeline.yml: job plan, step Decide which checks the changed files can affect"), problems[0])
+                self.assertTrue(problems[0].startswith("pipeline.yml: job repository-hygiene, step Compute the hygiene tools cache key"), problems[0])
                 self.assertIn(f"{path} is a path of this repository", problems[0])
 
     def test_a_program_s_own_path_and_a_variable_that_no_loaded_part_folder_set_are_named(self) -> None:

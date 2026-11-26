@@ -1,0 +1,13 @@
+{
+  "plan": 5,
+  "repository-hygiene": 10,
+  "custom": 10,
+  "dotnet-test": 10,
+  "node-test": 10,
+  "python-test": 10,
+  "python-verify": 10,
+  "suite-selection-linux": 10,
+  "suite-selection-windows": 15,
+  "suite-selection-results": 5,
+  "verdict": 5
+}

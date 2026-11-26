@@ -71,19 +71,20 @@ SUITE_SELECTION_LINUX = "suite-selection-linux"
 SUITE_SELECTION_WINDOWS = "suite-selection-windows"
 SUITE_SELECTION_RESULTS = "suite-selection-results"
 DEFAULT_JOB_TIMEOUT_MINUTES = 10
-JOB_TIMEOUT_MINUTES = {
-    PLAN_JOB: 5,
-    HYGIENE_JOB: 10,
-    "custom": 10,
-    "dotnet-test": 10,
-    "node-test": 10,
-    "python-test": 10,
-    "python-verify": 10,
-    SUITE_SELECTION_LINUX: 10,
-    SUITE_SELECTION_WINDOWS: 15,
-    SUITE_SELECTION_RESULTS: 5,
-    VERDICT_JOB: 5,
-}
+TIMEOUTS_FILE = PART_FOLDER / "timeouts.json"
+
+
+def load_timeouts(path: Path = TIMEOUTS_FILE) -> dict[str, int]:
+    """Read and validate the job timeout-minutes map; fails loudly when missing, unreadable or malformed."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if (not isinstance(document, dict)
+            or not all(isinstance(k, str) and k and isinstance(v, int) and not isinstance(v, bool) and v > 0
+                       for k, v in document.items())):
+        raise ValueError(f"{path} must map job names to positive integer minute limits")
+    return document
+
+
+JOB_TIMEOUT_MINUTES: dict[str, int] = load_timeouts()
 PLAN_CHANGES_STEP = "Decide which checks the changed files can affect"
 TITLE_STEP = "Check the pull request title"
 REFERENCES_STEP = "Check the references to repositories of the owner"
@@ -492,6 +493,31 @@ def registered_workflows(configuration: dict | None) -> list[str]:
 
 
 LOOKUP_CASES = ("identical", "behind", "pull-request", "own")
+HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
+
+
+def parse_digests(value: object) -> dict[str, str] | None:
+    """Validate a shared CI digests mapping (non-empty dict of non-empty name to 64-hex SHA-256); None when invalid."""
+    if (not isinstance(value, dict) or not value
+            or not all(isinstance(k, str) and k and isinstance(v, str) and HEX_DIGEST.fullmatch(v) for k, v in value.items())):
+        return None
+    return {k: value[k] for k in sorted(value)}
+
+
+def moved_digest_names(current: dict[str, str], other: dict[str, str]) -> set[str]:
+    """Digest names whose value differs between ``current`` and ``other``; a name absent on either side counts as moved."""
+    return {name for name in set(current) | set(other) if current.get(name) != other.get(name)}
+
+
+@dataclass(frozen=True)
+class ResolvedChange:
+    """The resolved change range, changed paths and push-lookup context of a run."""
+    start: str | None
+    changed: list[str] | None
+    identical_reason: str | None = None
+    tested_base: str | None = None
+    lookup_case: str | None = None
+    tested_digests: object = None
 
 
 def read_push_lookup(path: str | None) -> dict | None:
@@ -510,30 +536,30 @@ def read_push_lookup(path: str | None) -> dict | None:
 
 
 def resolve_change(root: Path, base: str | None, head: str | None, compare: str,
-                   lookup: str | None) -> tuple[str | None, list[str] | None, str | None, str | None]:
-    """Return ``(start, changed, identical_reason, tested_base)`` for the run's change."""
+                   lookup: str | None) -> ResolvedChange:
+    """Resolve the comparison range, changed paths and push-lookup metadata for the run's change."""
     if lookup is not None:
         found = read_push_lookup(lookup)
         if found is None:
-            return None, None, None, None
+            return ResolvedChange(None, None)
         case, target, landing = found["case"], found["head"], found.get("landing_base")
         start = comparison_start(root, landing, target, "direct")
         if case == "identical":
             changed = changed_files(root, start, target) if start else None
             pull = found.get("pull_request")
             reason = f"the tree equals the tested tree that passed on pull request #{pull}" if isinstance(pull, int) else "the tree equals a passed tested tree"
-            return start, changed, reason, None
+            return ResolvedChange(start, changed, identical_reason=reason, lookup_case=case, tested_digests=found.get("tested_digests"))
         if case == "behind":
             tested_base = comparison_start(root, found.get("tested_base"), landing, "direct")
             pr_changed = changed_files(root, start, target) if start else None
             base_changed = changed_files(root, tested_base, landing) if tested_base and landing else None
             changed = sorted({*pr_changed, *base_changed}) if pr_changed is not None and base_changed is not None else None
-            return start, changed, None, tested_base
+            return ResolvedChange(start, changed, tested_base=tested_base, lookup_case=case, tested_digests=found.get("tested_digests"))
         changed = changed_files(root, start, target) if start else None
-        return start, changed, None, None
+        return ResolvedChange(start, changed, lookup_case=case)
     start = comparison_start(root, base, head, compare)
     changed = changed_files(root, start, head) if start and head else None
-    return start, changed, None, None
+    return ResolvedChange(start, changed)
 
 
 # --- the plan -------------------------------------------------------------------------------------------------------
@@ -600,26 +626,47 @@ def unmatched_paths(parts: dict, workflow_parts: list[str], tracked: set[str] | 
     return unmatched
 
 
-def moved_part_digests(path: str | None) -> set[str] | None:
-    """The digest names that moved in ``shared-lookup.json``, or None when all count as moved (unreadable or no previous).
-    Returns an empty set when ``path`` is None."""
+# The plan's own fallbacks to running more, by the reason of a part's decision: the counted reason that the plan adds
+# to the fallbacks of the suite selection, as the suite selection counts its own (``reuse.fallback_notice``).
+DIGEST_FALLBACK_SUFFIX = "digest could not be compared"
+TESTED_DIGEST_FALLBACK_SUFFIX = "digest could not be compared with the tested digests"
+CHANGED_FILES_UNKNOWN = "the changed files are unknown"
+PLAN_FALLBACKS = {
+    TESTED_DIGEST_FALLBACK_SUFFIX: "unreadable-tested-digests",
+    DIGEST_FALLBACK_SUFFIX: "unreadable-shared-digests",
+    CHANGED_FILES_UNKNOWN: "changed-files-unknown",
+}
+
+
+def moved_part_digests(path: str | None, *, lookup_case: str | None = None,
+                       tested_digests: object = None) -> tuple[set[str] | None, str]:
+    """The digest names that moved compared with ``tested_digests`` on ``identical``/``behind`` pushes or with
+    ``previous`` in ``shared-lookup.json`` otherwise, paired with the fallback suffix to use when the comparison fails.
+    A digest present on either side and missing on the other counts as moved. Returns an empty set when ``path`` is None."""
     if not path:
-        return set()
+        return set(), DIGEST_FALLBACK_SUFFIX
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
-    if not isinstance(raw, dict) or not isinstance(raw.get("digests"), dict):
-        return None
-    previous = raw.get("previous")
-    if not isinstance(previous, dict):
-        return None
-    return {name for name, value in raw["digests"].items() if previous.get(name) != value}
+        return None, DIGEST_FALLBACK_SUFFIX
+    digests = parse_digests(raw.get("digests")) if isinstance(raw, dict) else None
+    if digests is None:
+        return None, DIGEST_FALLBACK_SUFFIX
+    if lookup_case in ("identical", "behind"):
+        tested = parse_digests(tested_digests)
+        if tested is None:
+            return None, TESTED_DIGEST_FALLBACK_SUFFIX
+        return moved_digest_names(digests, tested), TESTED_DIGEST_FALLBACK_SUFFIX
+    previous = parse_digests(raw.get("previous"))
+    if previous is None:
+        return None, DIGEST_FALLBACK_SUFFIX
+    return moved_digest_names(digests, previous), DIGEST_FALLBACK_SUFFIX
 
 
 def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, changed: list[str] | None,
            identical_reason: str | None = None, tested_base_parts: dict | None = None,
-           moved_digests: set[str] | None = None) -> tuple[bool, str, bool]:
+           moved_digests: set[str] | None = None,
+           digest_fallback_suffix: str = DIGEST_FALLBACK_SUFFIX) -> tuple[bool, str, bool]:
     """Whether a part runs, with the reason and whether a passed result was taken over."""
     if name in version.always:
         return True, "always runs", False
@@ -628,7 +675,7 @@ def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, cha
     part_digests = PART_DIGESTS.get(name, ())
     if part_digests:
         if moved_digests is None:
-            return True, f"`{part_digests[0]}` {DIGEST_FALLBACK_SUFFIX}", False
+            return True, f"`{part_digests[0]}` {digest_fallback_suffix}", False
         moved = next((digest for digest in part_digests if digest in moved_digests), None)
         if moved is not None:
             return True, f"`{moved}` digest moved", False
@@ -644,13 +691,6 @@ def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, cha
     all_patterns = [*patterns, *declared_input_patterns(name, parts[name])]
     matched = first_match(all_patterns, changed) or shared_input_changed(name, changed)
     return (True, f"{matched} changed", False) if matched else (False, "no changed path matches its paths", False)
-
-
-# The plan's own fallbacks to running more, by the reason of a part's decision: the counted reason that the plan adds
-# to the fallbacks of the suite selection, as the suite selection counts its own (``reuse.fallback_notice``).
-DIGEST_FALLBACK_SUFFIX = "digest could not be compared"
-CHANGED_FILES_UNKNOWN = "the changed files are unknown"
-PLAN_FALLBACKS = {DIGEST_FALLBACK_SUFFIX: "unreadable-shared-digests", CHANGED_FILES_UNKNOWN: "changed-files-unknown"}
 
 
 def own_fallbacks(decisions: dict) -> list[tuple[str, str]]:
@@ -842,13 +882,13 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
     configuration, version = checked_configuration(path.read_text(encoding="utf-8"), versions)
-    start, changed, identical_reason, tested_base = resolve_change(root, base, head, compare, lookup)
-    before = base_configuration(root, start) if changed is not None else None
-    tested_before = base_configuration(root, tested_base) if changed is not None and tested_base is not None else None
+    change = resolve_change(root, base, head, compare, lookup)
+    before = base_configuration(root, change.start) if change.changed is not None else None
+    tested_before = base_configuration(root, change.tested_base) if change.changed is not None and change.tested_base is not None else None
     parts, base_parts = stated_parts(configuration), stated_parts(before)
-    tested_base_parts = stated_parts(tested_before) if tested_base is not None else None
+    tested_base_parts = stated_parts(tested_before) if change.tested_base is not None else None
     workflow_parts = version.parts_of(workflow)
-    moved_digests = moved_part_digests(shared_lookup)
+    moved_digests, digest_fallback_suffix = moved_part_digests(shared_lookup, lookup_case=change.lookup_case, tested_digests=change.tested_digests)
     departures: list[dict] = [
         {"part": name, "reason": INPUTS_UNKNOWN_REASON}
         for name in workflow_parts
@@ -873,7 +913,8 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
             decisions[name] = entry
     else:
         for name in workflow_parts:
-            run, reason, reused = decide(name, version, parts, base_parts, changed, identical_reason, tested_base_parts, moved_digests)
+            run, reason, reused = decide(name, version, parts, base_parts, change.changed, change.identical_reason, tested_base_parts,
+                                         moved_digests, digest_fallback_suffix)
             entry = {"run": run, "reason": reason, "config": parts.get(name, {})}
             if reused:
                 entry["reused"] = True
@@ -903,7 +944,7 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
         "timeouts": job_timeouts(version, workflow),
         "departures": departures,
         "unmatched-paths": unmatched,
-        "compared": changed is not None,
+        "compared": change.changed is not None,
         "switched-off": sorted(name for name in base_parts if name not in parts and name not in version.always),
         "local-workflows-added": [workflow for workflow in registered_workflows(configuration) if workflow not in known],
     }

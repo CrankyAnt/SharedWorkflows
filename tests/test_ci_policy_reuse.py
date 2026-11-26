@@ -113,7 +113,7 @@ class StoreStepTests(unittest.TestCase):
                 with self.subTest(workflow=path.name):
                     self.assertNotIn("actions/cache/save", path.read_text(encoding="utf-8"))
         pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
-        self.assertEqual(4, pipeline_text.count("uses: actions/cache/save"))
+        self.assertEqual(3, pipeline_text.count("uses: actions/cache/save"))
         pipeline_saves = {
             job: [step for step in body.get("steps", ()) if str(step.get("uses", "")).startswith("actions/cache/save@")]
             for job, body in pipeline["jobs"].items()
@@ -121,7 +121,7 @@ class StoreStepTests(unittest.TestCase):
         }
         self.assertEqual({"repository-hygiene", "suite-selection-results", "verdict"}, set(pipeline_saves))
         self.assertEqual(1, len(pipeline_saves["suite-selection-results"]))
-        self.assertEqual(2, len(pipeline_saves["repository-hygiene"]))
+        self.assertEqual(1, len(pipeline_saves["repository-hygiene"]))
         self.assertEqual(1, len(pipeline_saves["verdict"]))
         verdict_steps = steps_of(pipeline, "verdict")
         verdict_decision = next(step for step in verdict_steps if step.get("id") == "verdict")
@@ -166,16 +166,18 @@ class StoreStepTests(unittest.TestCase):
         }
         self.assertEqual({"hygiene"}, set(hygiene_saves))
         self.assertEqual(3, len(hygiene_saves["hygiene"]))
-        for label, wf_steps, reuse_marker_save, marker_save in (
-            ("pipeline", steps_of(pipeline, "repository-hygiene"), pipeline_saves["repository-hygiene"][0], pipeline_saves["repository-hygiene"][1]),
-            ("repository-hygiene", steps_of(hygiene, "hygiene"), hygiene_saves["hygiene"][0], hygiene_saves["hygiene"][1]),
+        hygiene_steps = steps_of(hygiene, "hygiene")
+        reuse = next(step for step in hygiene_steps if step.get("id") == "reuse")
+        reuse_marker_save = hygiene_saves["hygiene"][0]
+        self.assertLess(hygiene_steps.index(reuse), hygiene_steps.index(reuse_marker_save))
+        self.assertEqual("Store the default-branch REUSE version marker", reuse_marker_save["name"])
+        self.assertEqual(REUSE_MARKER_SAVE_IF, reuse_marker_save["if"])
+        self.assertEqual(REUSE_MARKER_SAVE_WITH, reuse_marker_save["with"])
+        for label, wf_steps, marker_save in (
+            ("pipeline", steps_of(pipeline, "repository-hygiene"), pipeline_saves["repository-hygiene"][0]),
+            ("repository-hygiene", hygiene_steps, hygiene_saves["hygiene"][1]),
         ):
             with self.subTest(workflow=label):
-                reuse = next(step for step in wf_steps if step.get("id") == "reuse")
-                self.assertLess(wf_steps.index(reuse), wf_steps.index(reuse_marker_save))
-                self.assertEqual("Store the default-branch REUSE version marker", reuse_marker_save["name"])
-                self.assertEqual(REUSE_MARKER_SAVE_IF, reuse_marker_save["if"])
-                self.assertEqual(REUSE_MARKER_SAVE_WITH, reuse_marker_save["with"])
                 gitleaks = next(step for step in wf_steps if step.get("id") == "gitleaks")
                 self.assertLess(wf_steps.index(gitleaks), wf_steps.index(marker_save))
                 self.assertEqual("Store the default-branch Gitleaks scan marker", marker_save["name"])

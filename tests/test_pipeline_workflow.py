@@ -139,8 +139,6 @@ class HygieneInvocationTests(PipelineFixture):
         for tokens in invocations:
             if tokens[0] in ("changes", "gitleaks"):
                 events = (["--lookup", "x"], ["--base", "x", "--head", "x", "--compare", "direct"])
-            elif tokens[0] == "reuse":
-                events = ([], ["--record-marker", "x", "--github-output", "x"])
             else:
                 events = ([],)
             for event in events:
@@ -164,7 +162,7 @@ class HygieneInvocationTests(PipelineFixture):
             if skip_next:
                 skip_next = False
                 continue
-            if token in ("--github-output", "--summary", "--pins", "--reuse-marker"):
+            if token in ("--github-output", "--summary", "--pins", "--reuse-marker", "--shared-lookup", "--fallbacks"):
                 skip_next = True
                 continue
             if token != "$@":
