@@ -61,33 +61,33 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_ci_policy_action_pins.py": 0.23,
-        "tests/test_ci_policy_additions.py": 2.02,
+        "tests/test_ci_policy_action_pins.py": 0.41,
+        "tests/test_ci_policy_additions.py": 0.47,
         "tests/test_ci_policy_auto_merge_caller.py": 0.31,
         "tests/test_ci_policy_catalogue.py": 1.83,
         "tests/test_ci_policy_etw_consumer.py": 0.41,
         "tests/test_ci_policy_full_recording.py": 0.36,
         "tests/test_ci_policy_hygiene_caller.py": 0.31,
         "tests/test_ci_policy_hygiene_core.py": 0.31,
-        "tests/test_ci_policy_hygiene_promotion.py": 0.31,
+        "tests/test_ci_policy_hygiene_promotion.py": 0.41,
         "tests/test_ci_policy_hygiene_promotion_surface.py": 0.31,
         "tests/test_ci_policy_hygiene_updater.py": 0.31,
         "tests/test_ci_policy_hygiene_validate.py": 0.36,
-        "tests/test_ci_policy_measurement.py": 2.87,
+        "tests/test_ci_policy_measurement.py": 0.72,
         "tests/test_ci_policy_off_path_runners.py": 0.22,
         "tests/test_ci_policy_pipeline.py": 1.42,
-        "tests/test_ci_policy_pipeline_parts.py": 1.37,
+        "tests/test_ci_policy_pipeline_parts.py": 0.56,
         "tests/test_ci_policy_publication.py": 0.31,
-        "tests/test_ci_policy_publication_document.py": 0.32,
-        "tests/test_ci_policy_python_language_step.py": 0.41,
+        "tests/test_ci_policy_publication_document.py": 0.41,
+        "tests/test_ci_policy_python_language_step.py": 0.52,
         "tests/test_ci_policy_python_tests_caller.py": 1.37,
         "tests/test_ci_policy_recording_action.py": 0.23,
-        "tests/test_ci_policy_release.py": 1.55,
-        "tests/test_ci_policy_reuse.py": 0.31,
-        "tests/test_ci_policy_shared_surface.py": 0.97,
-        "tests/test_ci_policy_suite_jobs.py": 0.81,
-        "tests/test_ci_policy_temporary_files.py": 2.76,
-        "tests/test_ci_policy_tool_pins.py": 0.31,
+        "tests/test_ci_policy_release.py": 0.47,
+        "tests/test_ci_policy_reuse.py": 0.47,
+        "tests/test_ci_policy_shared_surface.py": 1.97,
+        "tests/test_ci_policy_suite_jobs.py": 1.02,
+        "tests/test_ci_policy_temporary_files.py": 1.52,
+        "tests/test_ci_policy_tool_pins.py": 0.41,
         "tests/test_ci_policy_zizmor.py": 0.31
       },
       "entry_selection": true,
@@ -566,9 +566,14 @@
         ],
         "tests/test_ci_policy_measurement.py": [
           ".github/workflows/measurement.yml",
+          ".github/workflows/suite-jobs.yml",
           "actions/measurement/caller.yml",
           "actions/measurement/measurement.py",
           "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
+          "actions/suite-selection/suite_selection.py",
+          "docs/maintaining.md",
           "tests/ci_policy_support.py",
           "tests/test_ci_policy_measurement.py",
           "tests/workflow_commands.py"
@@ -3632,6 +3637,74 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
             "path": "tests",
             "kind": "directory"
           },
@@ -5219,6 +5292,7 @@
         "tests/test_ci_policy_measurement.py": [
           ".",
           "actions/measurement",
+          "actions/suite-selection",
           "tests"
         ],
         "tests/test_ci_policy_off_path_runners.py": [
@@ -5294,6 +5368,9 @@
       "module_lookups": {
         ".": [
           "tests"
+        ],
+        "actions/suite-selection": [
+          "measurement"
         ]
       },
       "entry_module_lookups": {
@@ -5360,6 +5437,9 @@
         "tests/test_ci_policy_measurement.py": {
           ".": [
             "tests"
+          ],
+          "actions/suite-selection": [
+            "measurement"
           ]
         },
         "tests/test_ci_policy_pipeline.py": {
@@ -5896,13 +5976,13 @@
         "tests/test_consumer_kit_automation_full_recording.py": 1.77,
         "tests/test_consumer_kit_dependabot.py": 0.22,
         "tests/test_consumer_kit_hygiene.py": 0.23,
-        "tests/test_consumer_kit_install_by_need.py": 0.36,
+        "tests/test_consumer_kit_install_by_need.py": 0.52,
         "tests/test_consumer_kit_installed_permissions.py": 0.31,
         "tests/test_consumer_kit_installed_targets.py": 0.32,
         "tests/test_consumer_kit_own_dependabot.py": 0.23,
         "tests/test_consumer_kit_publication.py": 0.31,
         "tests/test_consumer_kit_templates.py": 0.31,
-        "tests/test_consumer_kit_validation_workflow.py": 0.87
+        "tests/test_consumer_kit_validation_workflow.py": 1.27
       },
       "entry_selection": true,
       "paths": [
@@ -8443,20 +8523,20 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_suite_selection.py": 39.79,
-        "tests/test_suite_selection_caller_entries.py": 8.03,
-        "tests/test_suite_selection_ci_step_precision.py": 1.67,
+        "tests/test_suite_selection.py": 95.82,
+        "tests/test_suite_selection_caller_entries.py": 12.99,
+        "tests/test_suite_selection_ci_step_precision.py": 3.67,
         "tests/test_suite_selection_code_boundary.py": 0.31,
         "tests/test_suite_selection_part_boundary.py": 0.31,
-        "tests/test_suite_selection_recording_apply.py": 22.05,
-        "tests/test_suite_selection_recording_check.py": 9.96,
-        "tests/test_suite_selection_recording_classification.py": 4.64,
-        "tests/test_suite_selection_recording_etw.py": 9.63,
+        "tests/test_suite_selection_recording_apply.py": 42.91,
+        "tests/test_suite_selection_recording_check.py": 43.45,
+        "tests/test_suite_selection_recording_classification.py": 11.09,
+        "tests/test_suite_selection_recording_etw.py": 18.86,
         "tests/test_suite_selection_recording_full.py": 47.31,
         "tests/test_suite_selection_recording_lookups.py": 1.07,
-        "tests/test_suite_selection_recording_pathspecs.py": 5.37,
+        "tests/test_suite_selection_recording_pathspecs.py": 9.48,
         "tests/test_suite_selection_reuse.py": 71.04,
-        "tests/test_suite_selection_workflow.py": 2.22,
+        "tests/test_suite_selection_workflow.py": 2.82,
         "tests/test_suite_selection_workflow_reader.py": 0.24
       },
       "entry_selection": true,
@@ -8814,60 +8894,34 @@
         "tests/fixtures/recording_strace/classification/second/units/1795625531865313101-1071.json",
         "tests/fixtures/recording_strace/classification/second/units/1795625532069066174-1080.json",
         "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1256.tsv",
-        "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1267.tsv",
         "tests/fixtures/recording_strace/commands/check-backslashes/a.strace",
         "tests/fixtures/recording_strace/commands/check-backslashes/b.lookups/1262.tsv",
-        "tests/fixtures/recording_strace/commands/check-backslashes/b.lookups/1273.tsv",
         "tests/fixtures/recording_strace/commands/check-backslashes/b.strace",
         "tests/fixtures/recording_strace/commands/check-prober/a.lookups/1221.tsv",
-        "tests/fixtures/recording_strace/commands/check-prober/a.lookups/1229.tsv",
-        "tests/fixtures/recording_strace/commands/check-prober/a.lookups/1231.tsv",
         "tests/fixtures/recording_strace/commands/check-prober/a.strace",
         "tests/fixtures/recording_strace/commands/check-reader/a.lookups/1149.tsv",
-        "tests/fixtures/recording_strace/commands/check-reader/a.lookups/1157.tsv",
-        "tests/fixtures/recording_strace/commands/check-reader/a.lookups/1159.tsv",
         "tests/fixtures/recording_strace/commands/check-reader/a.strace",
         "tests/fixtures/recording_strace/commands/check-setups/a.lookups/1187.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/a.lookups/1195.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/a.lookups/1197.tsv",
         "tests/fixtures/recording_strace/commands/check-setups/a.strace",
         "tests/fixtures/recording_strace/commands/check-setups/b.lookups/1193.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/b.lookups/1201.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/b.lookups/1203.tsv",
         "tests/fixtures/recording_strace/commands/check-setups/b.strace",
         "tests/fixtures/recording_strace/commands/check-setups/c1.lookups/1199.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/c1.lookups/1207.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/c1.lookups/1209.tsv",
         "tests/fixtures/recording_strace/commands/check-setups/c1.strace",
         "tests/fixtures/recording_strace/commands/check-setups/c2.lookups/1205.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/c2.lookups/1213.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/c2.lookups/1215.tsv",
         "tests/fixtures/recording_strace/commands/check-setups/c2.strace",
         "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1181.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1189.tsv",
-        "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1191.tsv",
         "tests/fixtures/recording_strace/commands/check-setups/deps.strace",
         "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups/1284.tsv",
-        "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups/1300.tsv",
         "tests/fixtures/recording_strace/commands/check-siblings/discover.strace",
         "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups/1278.tsv",
-        "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups/1294.tsv",
         "tests/fixtures/recording_strace/commands/check-siblings/pytest.strace",
         "tests/fixtures/recording_strace/commands/check-siblings/stat.strace",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1237.tsv",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1238.tsv",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1239.tsv",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1240.tsv",
-        "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1245.tsv",
-        "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1246.tsv",
-        "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1247.tsv",
-        "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1248.tsv",
-        "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1249.tsv",
-        "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1250.tsv",
         "tests/fixtures/recording_strace/commands/check-toolchain/build.strace",
         "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups/1165.tsv",
-        "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups/1173.tsv",
-        "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups/1175.tsv",
         "tests/fixtures/recording_strace/commands/check-two-reader/a.strace",
         "tests/fixtures/recording_strace/commands/full-link/link.lookups/1441.tsv",
         "tests/fixtures/recording_strace/commands/full-link/link.strace",
@@ -8927,42 +8981,9 @@
           "actions/dotnet-test/dotnet_test.py",
           "actions/node-test/action.yml",
           "actions/node-test/node_test.py",
-          "actions/pipeline/action.yml",
-          "actions/pipeline/consumer-kit/README.md",
-          "actions/pipeline/consumer-kit/automation.yml",
-          "actions/pipeline/consumer-kit/ci.yml",
-          "actions/pipeline/consumer-kit/docs/agents/ci.md",
-          "actions/pipeline/consumer-kit/fixed-callers.json",
-          "actions/pipeline/consumer-kit/previous/automation.yml",
-          "actions/pipeline/consumer-kit/previous/ci.yml",
-          "actions/pipeline/consumer-kit/previous/docs/agents/ci.md",
-          "actions/pipeline/consumer-kit/previous/release.yml",
-          "actions/pipeline/consumer-kit/release.yml",
-          "actions/pipeline/consumer_checks.py",
-          "actions/pipeline/plan.py",
-          "actions/pipeline/release.py",
-          "actions/pipeline/schema/v1/base.json",
-          "actions/pipeline/schema/v1/ci-config.schema.json",
-          "actions/pipeline/schema/v1/parts/additions.json",
-          "actions/pipeline/schema/v1/parts/custom.json",
-          "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
-          "actions/pipeline/schema/v1/parts/dotnet-test.json",
-          "actions/pipeline/schema/v1/parts/full-recording.json",
-          "actions/pipeline/schema/v1/parts/github-release.json",
-          "actions/pipeline/schema/v1/parts/issue-title.json",
-          "actions/pipeline/schema/v1/parts/node-test.json",
-          "actions/pipeline/schema/v1/parts/python-test.json",
-          "actions/pipeline/schema/v1/parts/python-verify.json",
-          "actions/pipeline/schema/v1/parts/repository-hygiene.json",
-          "actions/pipeline/schema/v1/parts/suite-selection.json",
-          "actions/pipeline/schema/v1/setups.json",
           "actions/python-language-step/action.yml",
-          "actions/python-language-step/consumer-kit/README.md",
-          "actions/python-language-step/consumer-kit/python-language-step.yml",
           "actions/python-language-step/python_language_step.py",
           "actions/python-tests/action.yml",
-          "actions/python-tests/consumer-kit/README.md",
-          "actions/python-tests/consumer-kit/python-tests.yml",
           "actions/python-tests/python_tests.py",
           "actions/recording/action.yml",
           "actions/recording/etw-consumer/EtwConsumer.csproj",
@@ -9076,60 +9097,34 @@
           "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1256.tsv",
-          "tests/fixtures/recording_strace/commands/check-backslashes/a.lookups/1267.tsv",
           "tests/fixtures/recording_strace/commands/check-backslashes/a.strace",
           "tests/fixtures/recording_strace/commands/check-backslashes/b.lookups/1262.tsv",
-          "tests/fixtures/recording_strace/commands/check-backslashes/b.lookups/1273.tsv",
           "tests/fixtures/recording_strace/commands/check-backslashes/b.strace",
           "tests/fixtures/recording_strace/commands/check-prober/a.lookups/1221.tsv",
-          "tests/fixtures/recording_strace/commands/check-prober/a.lookups/1229.tsv",
-          "tests/fixtures/recording_strace/commands/check-prober/a.lookups/1231.tsv",
           "tests/fixtures/recording_strace/commands/check-prober/a.strace",
           "tests/fixtures/recording_strace/commands/check-reader/a.lookups/1149.tsv",
-          "tests/fixtures/recording_strace/commands/check-reader/a.lookups/1157.tsv",
-          "tests/fixtures/recording_strace/commands/check-reader/a.lookups/1159.tsv",
           "tests/fixtures/recording_strace/commands/check-reader/a.strace",
           "tests/fixtures/recording_strace/commands/check-setups/a.lookups/1187.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/a.lookups/1195.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/a.lookups/1197.tsv",
           "tests/fixtures/recording_strace/commands/check-setups/a.strace",
           "tests/fixtures/recording_strace/commands/check-setups/b.lookups/1193.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/b.lookups/1201.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/b.lookups/1203.tsv",
           "tests/fixtures/recording_strace/commands/check-setups/b.strace",
           "tests/fixtures/recording_strace/commands/check-setups/c1.lookups/1199.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/c1.lookups/1207.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/c1.lookups/1209.tsv",
           "tests/fixtures/recording_strace/commands/check-setups/c1.strace",
           "tests/fixtures/recording_strace/commands/check-setups/c2.lookups/1205.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/c2.lookups/1213.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/c2.lookups/1215.tsv",
           "tests/fixtures/recording_strace/commands/check-setups/c2.strace",
           "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1181.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1189.tsv",
-          "tests/fixtures/recording_strace/commands/check-setups/deps.lookups/1191.tsv",
           "tests/fixtures/recording_strace/commands/check-setups/deps.strace",
           "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups/1284.tsv",
-          "tests/fixtures/recording_strace/commands/check-siblings/discover.lookups/1300.tsv",
           "tests/fixtures/recording_strace/commands/check-siblings/discover.strace",
           "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups/1278.tsv",
-          "tests/fixtures/recording_strace/commands/check-siblings/pytest.lookups/1294.tsv",
           "tests/fixtures/recording_strace/commands/check-siblings/pytest.strace",
           "tests/fixtures/recording_strace/commands/check-siblings/stat.strace",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1237.tsv",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1238.tsv",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1239.tsv",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1240.tsv",
-          "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1245.tsv",
-          "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1246.tsv",
-          "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1247.tsv",
-          "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1248.tsv",
-          "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1249.tsv",
-          "tests/fixtures/recording_strace/commands/check-toolchain/build.lookups/1250.tsv",
           "tests/fixtures/recording_strace/commands/check-toolchain/build.strace",
           "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups/1165.tsv",
-          "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups/1173.tsv",
-          "tests/fixtures/recording_strace/commands/check-two-reader/a.lookups/1175.tsv",
           "tests/fixtures/recording_strace/commands/check-two-reader/a.strace",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
@@ -9919,16 +9914,6 @@
         "tests/test_suite_selection.py": [
           "actions/dotnet-test",
           "actions/node-test",
-          "actions/pipeline",
-          "actions/pipeline/consumer-kit",
-          "actions/pipeline/consumer-kit/docs",
-          "actions/pipeline/consumer-kit/docs/agents",
-          "actions/pipeline/consumer-kit/previous",
-          "actions/pipeline/consumer-kit/previous/docs",
-          "actions/pipeline/consumer-kit/previous/docs/agents",
-          "actions/pipeline/schema",
-          "actions/pipeline/schema/v1",
-          "actions/pipeline/schema/v1/parts",
           "actions/python-language-step",
           "actions/python-language-step/consumer-kit",
           "actions/python-tests",
@@ -10801,18 +10786,6 @@
         {
           "path": "tests/test_suite_selection_recording_check",
           "kind": "directory"
-        },
-        {
-          "path": "tests/test_suite_selection_recording_check.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_suite_selection_recording_check.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_suite_selection_recording_check.so",
-          "kind": "any"
         },
         {
           "path": "tests/test_suite_selection_recording_classification",
@@ -11998,22 +11971,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/__init__.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.py",
-            "kind": "any"
-          },
-          {
-            "path": "tests/__init__.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/fixtures/recording_strace/commands/check-siblings/stat.lookups",
             "kind": "any"
           },
@@ -12022,32 +11979,8 @@
             "kind": "directory"
           },
           {
-            "path": "tests/recording_fixtures.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/recording_fixtures.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/recording_fixtures.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/strace_stand_in",
             "kind": "directory"
-          },
-          {
-            "path": "tests/strace_stand_in.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/strace_stand_in.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/strace_stand_in.so",
-            "kind": "any"
           },
           {
             "path": "tests/temporary_support",
@@ -12056,18 +11989,6 @@
           {
             "path": "tests/test_suite_selection_recording_check",
             "kind": "directory"
-          },
-          {
-            "path": "tests/test_suite_selection_recording_check.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_suite_selection_recording_check.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_suite_selection_recording_check.so",
-            "kind": "any"
           }
         ],
         "tests/test_suite_selection_recording_classification.py": [
@@ -14109,6 +14030,11 @@
             "tests"
           ]
         },
+        "tests/test_suite_selection_recording_check.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_suite_selection_recording_classification.py": {
           ".": [
             "tests"
@@ -14193,7 +14119,7 @@
         "tests/test_hygiene_push_and_reuse.py": 1.88,
         "tests/test_hygiene_repository_hygiene.py": 0.21,
         "tests/test_hygiene_reuse.py": 2.09,
-        "tests/test_hygiene_v1_promotion.py": 33.77,
+        "tests/test_hygiene_v1_promotion.py": 80.39,
         "tests/test_hygiene_workflow.py": 0.56,
         "tests/test_hygiene_zizmor.py": 1.07,
         "tests/test_hygiene_zizmor_configuration.py": 1.07,
@@ -16982,7 +16908,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_language_step.py": 9.93
+        "tests/test_python_language_step.py": 13.89
       },
       "paths": [
         ".github/workflows/pipeline.yml",
@@ -16991,42 +16917,9 @@
         "actions/dotnet-test/dotnet_test.py",
         "actions/node-test/action.yml",
         "actions/node-test/node_test.py",
-        "actions/pipeline/action.yml",
-        "actions/pipeline/consumer-kit/README.md",
-        "actions/pipeline/consumer-kit/automation.yml",
-        "actions/pipeline/consumer-kit/ci.yml",
-        "actions/pipeline/consumer-kit/docs/agents/ci.md",
-        "actions/pipeline/consumer-kit/fixed-callers.json",
-        "actions/pipeline/consumer-kit/previous/automation.yml",
-        "actions/pipeline/consumer-kit/previous/ci.yml",
-        "actions/pipeline/consumer-kit/previous/docs/agents/ci.md",
-        "actions/pipeline/consumer-kit/previous/release.yml",
-        "actions/pipeline/consumer-kit/release.yml",
-        "actions/pipeline/consumer_checks.py",
-        "actions/pipeline/plan.py",
-        "actions/pipeline/release.py",
-        "actions/pipeline/schema/v1/base.json",
-        "actions/pipeline/schema/v1/ci-config.schema.json",
-        "actions/pipeline/schema/v1/parts/additions.json",
-        "actions/pipeline/schema/v1/parts/custom.json",
-        "actions/pipeline/schema/v1/parts/dependabot-auto-merge.json",
-        "actions/pipeline/schema/v1/parts/dotnet-test.json",
-        "actions/pipeline/schema/v1/parts/full-recording.json",
-        "actions/pipeline/schema/v1/parts/github-release.json",
-        "actions/pipeline/schema/v1/parts/issue-title.json",
-        "actions/pipeline/schema/v1/parts/node-test.json",
-        "actions/pipeline/schema/v1/parts/python-test.json",
-        "actions/pipeline/schema/v1/parts/python-verify.json",
-        "actions/pipeline/schema/v1/parts/repository-hygiene.json",
-        "actions/pipeline/schema/v1/parts/suite-selection.json",
-        "actions/pipeline/schema/v1/setups.json",
         "actions/python-language-step/action.yml",
-        "actions/python-language-step/consumer-kit/README.md",
-        "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-language-step/python_language_step.py",
         "actions/python-tests/action.yml",
-        "actions/python-tests/consumer-kit/README.md",
-        "actions/python-tests/consumer-kit/python-tests.yml",
         "actions/python-tests/python_tests.py",
         "actions/recording/action.yml",
         "actions/recording/etw-consumer/EtwConsumer.csproj",
@@ -17063,16 +16956,6 @@
         ".",
         "actions/dotnet-test",
         "actions/node-test",
-        "actions/pipeline",
-        "actions/pipeline/consumer-kit",
-        "actions/pipeline/consumer-kit/docs",
-        "actions/pipeline/consumer-kit/docs/agents",
-        "actions/pipeline/consumer-kit/previous",
-        "actions/pipeline/consumer-kit/previous/docs",
-        "actions/pipeline/consumer-kit/previous/docs/agents",
-        "actions/pipeline/schema",
-        "actions/pipeline/schema/v1",
-        "actions/pipeline/schema/v1/parts",
         "actions/python-language-step",
         "actions/python-language-step/consumer-kit",
         "actions/python-tests",
@@ -17755,7 +17638,7 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_pipeline_automation_invocations.py": 3.15,
+        "tests/test_pipeline_automation_invocations.py": 1.62,
         "tests/test_pipeline_workflow.py": 9.94
       },
       "entry_selection": true,
@@ -21920,7 +21803,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_floor.py": 6.08
+        "tests/test_python_floor.py": 9.08
       },
       "paths": [
         "actions/dependabot-auto-merge/auto_merge.py",
@@ -24731,12 +24614,13 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_measurement.py": 4.62
+        "tests/test_measurement.py": 9.38
       },
       "paths": [
         "actions/measurement/measurement.py",
         "actions/pipeline/plan.py",
         "actions/repository-hygiene/dependabot_coverage.py",
+        "actions/suite-selection/suite_selection.py",
         "tests/measurement_fixtures.py",
         "tests/pipeline_fixtures.py",
         "tests/temporary_support.py",
@@ -24931,6 +24815,7 @@
       "tests"
     ],
     "actions/suite-selection": [
+      "measurement",
       "tests"
     ],
     "actions/sync": [
