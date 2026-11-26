@@ -42,7 +42,7 @@ Without `root`, the step checks the repository root.
 
 A repository that runs the suite selection as the part `suite-selection` of the pipeline installs no step: it names `python` under `language-steps` of that part in `.github/ci-config.yml`. The suite selection selects the step when a changed file is a Python file or Python configuration, and gives one shard without entry files when only the step is selected. Shard 1 of the shared suite jobs runs it after the step that checks the recording and outside the suite recording, so its reads join no suite's path list. The parts `python-verify` and `python-test` of the pipeline run the step on each project they check.
 
-Outside the pipeline, a job that already installs Python calls the step of [python-language-step.yml](python-language-step.yml) without its `if`: that condition reads the input `language-steps` of the shared suite jobs, which no other job has.
+Outside the pipeline, a job that already installs Python calls the step of [python-language-step.yml](python-language-step.yml).
 
 ## Where it runs
 
@@ -56,13 +56,15 @@ A repository that installed the step in a job of its own brings it onto the curr
 
 | Template | Install target |
 | --- | --- |
-| [python-language-step.yml](python-language-step.yml) | the step in the job that installs Python, without its `if` |
+| [python-language-step.yml](python-language-step.yml) | the step in the job that installs Python |
 
 Every difference that the template makes is taken over, apart from the repository's own values, which carry over:
 
 - the `with:` of the step, such as `format-check: "true"` or `root: backend`;
-- the step's place in its job and its omitted `if`, as [How the pipeline runs it](#how-the-pipeline-runs-it) states;
+- the step's place in its job;
 - the repository's ruff and mypy configuration, which come from no template and stay as they are.
+
+An installed step that still holds the `if` of an earlier template drops it: that condition reads the input `language-steps` of the shared suite jobs, which no other job has.
 
 The result works when the check of the job that holds the step passes on that pull request.
 

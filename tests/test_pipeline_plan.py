@@ -514,6 +514,22 @@ class UnitDecisionPlanTests(PipelineFixture):
         self.assertIn("::notice title=ci-fallback::unreadable-shared-digests: `custom` runs: `part:custom` digest could not be compared", outcome.stdout)
         self.assertIn("`unreadable-shared-digests` (2)", outcome.summary)
 
+    def test_the_plan_adds_the_hygiene_fallbacks_that_hygiene_changes_counted(self) -> None:
+        base = self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    paths: [ci/]\n", "ci/check.sh": "exit 0\n"})
+        head = self.commit({"README.md": "2\n"})
+        counted = self.directory / "hygiene-fallbacks.json"
+        counted.write_text(json.dumps({"gitleaks-range-unknown": 1, "hygiene-changed-files-unknown": 1, "ignored": 0}), encoding="utf-8")
+        outcome = self.plan("--base", base, "--head", head, "--hygiene-fallbacks", str(counted))
+        self.assertEqual(0, outcome.status, outcome.summary)
+        self.assertEqual({"gitleaks-range-unknown": 1, "hygiene-changed-files-unknown": 1}, outcome.plan["fallbacks"])
+        self.assertIn("Fallbacks: `gitleaks-range-unknown` (1), `hygiene-changed-files-unknown` (1).", outcome.summary)
+        for text in ("not json", "[1]"):
+            with self.subTest(text=text):
+                counted.write_text(text, encoding="utf-8")
+                outcome = self.plan("--base", base, "--head", head, "--hygiene-fallbacks", str(counted))
+                self.assertEqual(0, outcome.status, outcome.summary)
+                self.assertNotIn("fallbacks", outcome.plan)
+
     def test_a_plan_without_a_fallback_records_none(self) -> None:
         base = self.commit({CONFIGURATION: "version: 1\nparts:\n  custom:\n    script: ci/check.sh\n    paths: [ci/]\n", "ci/check.sh": "exit 0\n"})
         head = self.commit({"README.md": "2\n"})
@@ -937,12 +953,22 @@ class PartInputsAndDeparturesTests(PipelineFixture):
             "actions/node-test/node_test.py": "1\n",
             "actions/python-language-step/python_language_step.py": "1\n",
             "actions/repository-hygiene/pins.json": "{}\n",
+            "actions/pipeline/README.md": "1\n",
+            ".github/workflows/pipeline.yml": "name: Pipeline\n",
         })
         for changed_file, expected_running in (
             ("actions/dotnet-test/dotnet_test.py", {"dotnet-test"}),
             ("actions/node-test/node_test.py", {"node-test"}),
             ("actions/python-language-step/python_language_step.py", {"python-test"}),  # python-verify combines into python-test
             ("actions/repository-hygiene/pins.json", {"python-test"}),
+            # The part digests cover what each part's job runs, so the pipeline's own folder and workflow select none.
+            ("actions/pipeline/README.md", set()),
+            (".github/workflows/pipeline.yml", set()),
+            # A consumer kit is run by no job, so an edit of one selects no part, as it moves no part digest.
+            ("actions/dotnet-test/consumer-kit/README.md", set()),
+            ("actions/python-language-step/consumer-kit/python-language-step.yml", set()),
+            ("actions/python-tests/consumer-kit/README.md", set()),
+            ("actions/python-tests/python_tests.py", {"python-test"}),
         ):
             with self.subTest(changed_file=changed_file):
                 git(self.repository, "reset", "--quiet", "--hard", base)
@@ -952,7 +978,7 @@ class PartInputsAndDeparturesTests(PipelineFixture):
                 for part in expected_running:
                     self.assertIs(True, outcome.plan["parts"][part]["run"], f"{part} should run for {changed_file}")
                 # Unrelated parts do not run.
-                for part in {"dotnet-test", "node-test"} - expected_running:
+                for part in {"dotnet-test", "node-test", "python-test"} - expected_running:
                     self.assertIs(False, outcome.plan["parts"][part]["run"], f"{part} should not run for {changed_file}")
 
     def test_a_moved_language_digest_in_shared_lookup_selects_the_python_parts(self) -> None:

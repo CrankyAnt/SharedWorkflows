@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import unittest
 
 from tests.ci_policy_support import REPOSITORY_ROOT, ci_definition, condition_holds, expression_value, flow_items, read_workflow, tracked_files
@@ -781,6 +782,56 @@ class CallerTests(unittest.TestCase):
         callers = [path for path in sorted(tracked_files(REPOSITORY_ROOT, [".github/workflows"]))
                    if "workflows/pipeline.yml" in (REPOSITORY_ROOT / path).read_text(encoding="utf-8") and path != ".github/workflows/pipeline.yml"]
         self.assertEqual([".github/workflows/ci.yml"], callers)
+
+
+def load_module(name: str, relative: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, REPOSITORY_ROOT / relative)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # a dataclass reads its module from sys.modules while the module loads
+    spec.loader.exec_module(module)
+    return module
+
+
+class PartDigestCoverageTests(unittest.TestCase):
+    """Every shared folder that a part's job loads with ``uses: $/actions/<folder>`` is covered by a digest that the plan
+    names for that part, so that moving a part's code to a new folder without updating the digest map fails."""
+
+    def setUp(self) -> None:
+        self.plan = load_module("ci_policy_plan", "actions/pipeline/plan.py")
+        self.promote = load_module("ci_policy_promote_v1", "actions/repository-hygiene/promote_v1.py")
+        self.jobs = read_workflow(PIPELINE)[1]["jobs"]
+
+    def uncovered(self, jobs: dict) -> dict[str, set[str]]:
+        """Per part, the folders its job loads that no digest the plan names for it covers."""
+        found = {}
+        for part, digests in self.plan.PART_DIGESTS.items():
+            covered: set[str] = set()
+            for digest in digests:
+                kind, _, name = digest.partition(":")
+                if kind == "part":
+                    covered.update(self.promote.PART_DIGEST_FOLDERS[name])
+                elif kind == "language":
+                    covered.add(self.promote.LANGUAGE_STEP_FOLDERS[name])
+                else:
+                    self.fail(f"{part} names the digest {digest}, which covers no folder")
+            loaded = {step["uses"].removeprefix("$/") for step in jobs[part].get("steps", [])
+                      if isinstance(step, dict) and str(step.get("uses", "")).startswith("$/actions/")}
+            if loaded - covered:
+                found[part] = loaded - covered
+        return found
+
+    def test_every_folder_a_part_job_loads_is_covered_by_a_digest_of_that_part(self) -> None:
+        self.assertLessEqual(set(self.plan.PART_DIGESTS), set(self.jobs))
+        self.assertEqual({}, self.uncovered(self.jobs))
+
+    def test_a_part_s_code_moved_to_a_new_folder_without_its_digest_fails_the_check(self) -> None:
+        jobs = json.loads(json.dumps(self.jobs))
+        for step in jobs["dotnet-test"]["steps"]:
+            if step.get("uses") == "$/actions/dotnet-test":
+                step["uses"] = "$/actions/dotnet-tests"
+        self.assertEqual({"dotnet-test": {"actions/dotnet-tests"}}, self.uncovered(jobs))
 
 
 if __name__ == "__main__":

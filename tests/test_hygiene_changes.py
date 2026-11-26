@@ -591,6 +591,31 @@ class ReuseSelectionTests(unittest.TestCase):
         unlicensed_head = self.commit({"src/app.py": "print(2)\n"})
         self.assertEqual("false", self.reuse(unlicensed_base, unlicensed_head, "--pins", str(pins), "--reuse-marker", str(marker))[0])
 
+    def test_a_missing_or_unreadable_reuse_marker_is_a_counted_fallback_and_another_version_is_not(self) -> None:
+        base = self.licensed()
+        head = self.commit({"src/app.py": "print(3)\n"})
+        pins = self.root / "pins.json"
+        pins.write_text(json.dumps({"python": {"reuse": {"version": "6.3.0"}}}), encoding="utf-8")
+        marker = self.root / "reuse-marker.json"
+        counted = self.root / "hygiene-fallbacks.json"
+        notice = "::notice title=ci-fallback::hygiene-unreadable-reuse-marker: "
+        for label, content in (("missing", None), ("unreadable", "{not json"), ("without a version", "{}")):
+            with self.subTest(marker=label):
+                if content is None:
+                    marker.unlink(missing_ok=True)
+                else:
+                    marker.write_text(content, encoding="utf-8")
+                decision, stdout, _ = self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker), "--fallbacks", str(counted))
+                self.assertEqual("true", decision, stdout)
+                self.assertIn(notice, stdout)
+                self.assertEqual({"hygiene-unreadable-reuse-marker": 1}, json.loads(counted.read_text(encoding="utf-8")))
+        for label, version in (("another version", "6.2.0"), ("the current version", "6.3.0")):
+            with self.subTest(marker=label):
+                marker.write_text(json.dumps({"version": version}), encoding="utf-8")
+                _, stdout, _ = self.reuse(base, head, "--pins", str(pins), "--reuse-marker", str(marker), "--fallbacks", str(counted))
+                self.assertNotIn(notice, stdout, "a REUSE run because the pinned version changed is the rule")
+                self.assertEqual({}, json.loads(counted.read_text(encoding="utf-8")))
+
     def test_a_content_change_to_an_existing_file_does_not_select_reuse(self) -> None:
         base = self.licensed()
         head = self.commit({"src/app.py": "print(3)\n"})

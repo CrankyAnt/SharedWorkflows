@@ -1284,7 +1284,8 @@ class SharedDigestTests(unittest.TestCase):
         write(workflow.parent, workflow.name, self.PIPELINE)
         first = self.taken()
         for relative in ("pipeline/consumer-kit/README.md", "pipeline/schema/README.md", "pipeline/release.py", "pipeline/plan.py",
-                         "python-tests/consumer-kit/README.md", "dotnet-test/consumer-kit/README.md"):
+                         "python-tests/consumer-kit/README.md", "dotnet-test/consumer-kit/README.md",
+                         "python-language-step/consumer-kit/README.md", "python-language-step/consumer-kit/python-language-step.yml"):
             with self.subTest(file=relative):
                 path = self.shared_folder / relative
                 original = path.read_bytes() if path.is_file() else None
@@ -1375,6 +1376,57 @@ class SharedDigestScopeTests(unittest.TestCase):
                 self.assertEqual(recorded[name], promoted[name])
         for name in ("platform:linux", "platform:windows", "tool:gitleaks", "language:python", "part:custom", "part:dotnet-test"):
             self.assertIn(name, recorded)
+        self.assertFalse([entry for entries in recorded.values() for entry in entries if "/consumer-kit/" in entry],
+                         "no digest covers a consumer kit, which no job runs")
+
+    def test_a_consumer_kit_file_moves_no_digest_of_a_commit(self) -> None:
+        self.scopes()
+        before = git(self.repo, "rev-parse", "HEAD").strip()
+        for relative in ("actions/python-language-step/consumer-kit/README.md", "actions/python-tests/consumer-kit/README.md"):
+            write(self.repo, relative, "changed\n")
+        git(self.repo, "add", "-A", "-f", ".")
+        git(self.repo, "commit", "-q", "-m", "kit")
+        script = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(self.repo / 'actions' / 'repository-hygiene')!r})\n"
+            "import promote_v1\n"
+            f"print(promote_v1.moved_digests(promote_v1.Path({str(self.repo)!r}), {before!r}, 'HEAD'))\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual("[]", completed.stdout.strip())
+
+    def part_job_texts(self, workflow: str, jobs: list[str]) -> tuple[dict, dict]:
+        actions = self.repo / "actions"
+        script = (
+            "import json, sys\n"
+            f"sys.path[:0] = [{str(actions / 'recording')!r}, {str(actions / 'suite-selection')!r}, {str(actions / 'repository-hygiene')!r}]\n"
+            "import recording, promote_v1\n"
+            "workflow, jobs = json.loads(sys.stdin.read())\n"
+            "print(json.dumps({job: recording.part_job_text(workflow, job) for job in jobs}))\n"
+            "print(json.dumps({job: promote_v1.part_job_text(workflow, job) for job in jobs}))\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", script], input=json.dumps([workflow, jobs]), capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        recorded, promoted = completed.stdout.splitlines()
+        return json.loads(recorded), json.loads(promoted)
+
+    def test_both_read_the_same_job_text_and_a_comment_inside_a_job_keeps_the_rest_of_it(self) -> None:
+        pipeline = (self.repo / ".github" / "workflows" / "pipeline.yml").read_text(encoding="utf-8")
+        parts = ["custom", "dotnet-test", "node-test", "python-test", "python-verify"]
+        recorded, promoted = self.part_job_texts(pipeline, parts)
+        for part in parts:
+            with self.subTest(part=part):
+                self.assertIsNotNone(recorded[part])
+                self.assertEqual(recorded[part], promoted[part])
+        workflow = ("name: Pipeline\njobs:\n  plan:\n    runs-on: ubuntu-26.04\n\n"
+                    "  node-test:\n    needs: plan\n  # a comment at the job's indentation\n    steps:\n      - uses: $/actions/node-test\n\n"
+                    "  # a comment between jobs\n\n  python-test:\n    needs: plan\n")
+        recorded, promoted = self.part_job_texts(workflow, ["node-test", "python-test"])
+        self.assertEqual(recorded, promoted)
+        self.assertEqual("name: Pipeline\n  node-test:\n    needs: plan\n  # a comment at the job's indentation\n    steps:\n"
+                         "      - uses: $/actions/node-test\n", recorded["node-test"])
+        self.assertEqual("name: Pipeline\n  python-test:\n    needs: plan\n", recorded["python-test"])
 
     def test_promote_v1_fails_on_a_commit_whose_pipeline_workflow_does_not_hold_a_part_job_as_expected(self) -> None:
         workflow = self.repo / ".github" / "workflows" / "pipeline.yml"

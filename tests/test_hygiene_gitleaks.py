@@ -33,6 +33,8 @@ class CheckRunnerTests(unittest.TestCase):
         result = hygiene("gitleaks", repo)
         self.assertNotEqual(0, result.returncode, "the side branch secret is reachable history")
         self.assertIn("--log-opts=--all", result.stdout)
+        self.assertIn("::notice title=ci-fallback::gitleaks-range-unknown: Gitleaks scans the full history: no commit range was given",
+                      result.stdout, "a full scan for want of a range is a counted fallback")
         baseline = self.root / "baseline.json"
         directory = tools_directory()
         gitleaks = next(path for path in ([directory / "gitleaks", directory / "gitleaks.exe"] if directory else [Path(shutil.which("gitleaks") or "")]) if path.is_file())
@@ -132,6 +134,7 @@ class CheckRunnerTests(unittest.TestCase):
                          "--base", seeded, "--head", config_head, "--compare", "direct")
         self.assertNotEqual(0, result.returncode, "config change must scan whole history and find the historical secret")
         self.assertIn("--log-opts=--all", result.stdout)
+        self.assertNotIn("title=ci-fallback", result.stdout, "a full scan because the configuration changed is the rule, not a fallback")
 
         # 2. Baseline change -> full history scan.
         git(repo, "checkout", "-q", seeded)

@@ -113,7 +113,7 @@ jobs:
             push|repository_dispatch) set -- --lookup "$RUNNER_TEMP/push-lookup.json" ;;
             *) set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE" ;;
           esac
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --pins "$RESOURCE_PATH/pins.json" --reuse-marker "$RUNNER_TEMP/reuse-marker/marker.json" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude" --markdown-definition ".github/workflows/pipeline.yml#step:links" --markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/hygiene.py" changes "$@" --pins "$RESOURCE_PATH/pins.json" --reuse-marker "$RUNNER_TEMP/reuse-marker/marker.json" --definition "actions/repository-hygiene/action.yml#step:resources" --definition "actions/repository-hygiene/action.yml#key:outputs.path.value" --definition "actions/repository-hygiene/action.yml#key:runs.using" --packages-definition ".github/workflows/pipeline.yml#step:coverage" --packages-definition ".github/ci-config.yml#value:parts.repository-hygiene.coverage-exclude" --markdown-definition ".github/workflows/pipeline.yml#step:links" --markdown-definition ".github/ci-config.yml#value:parts.repository-hygiene.link-exclude" --fallbacks "$RUNNER_TEMP/hygiene-fallbacks.json" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Check the configuration file and read part configuration
         id: initial-plan
         env:
@@ -216,6 +216,9 @@ jobs:
           fi
           if [ -f "$RUNNER_TEMP/shared-lookup.json" ]; then
             set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json"
+          fi
+          if [ -f "$RUNNER_TEMP/hygiene-fallbacks.json" ]; then
+            set -- "$@" --hygiene-fallbacks "$RUNNER_TEMP/hygiene-fallbacks.json"
           fi
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --workflow-ref "$WORKFLOW_REF" --event "$EVENT" --event-action "$EVENT_ACTION" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --output "$RUNNER_TEMP/ci-plan.json" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Upload the pipeline plan

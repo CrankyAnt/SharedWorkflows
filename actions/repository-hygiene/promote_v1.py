@@ -109,6 +109,8 @@ PART_DIGEST_FOLDERS: dict[str, tuple[str, ...]] = {
     "python-verify": ("actions/python-tests",),
 }
 PART_EXCLUDED_FOLDERS = ("consumer-kit",)
+# The line that ends a job's block in the pipeline workflow, as ``recording.JOB_BOUNDARY``.
+JOB_BOUNDARY = re.compile(r"^(?:  )?[A-Za-z_][A-Za-z0-9_-]*:(?:\s|$)")
 RECORDING_MODULE_SEARCH = ("actions/suite-selection", "actions/recording")
 # GitHub's Ed25519 host key, as https://api.github.com/meta lists it under ssh_keys.
 GITHUB_HOST_KEY = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
@@ -372,8 +374,9 @@ def _digest_entries(entries: Mapping[str, str]) -> str:
 
 def part_job_text(workflow: str, job: str) -> str | None:
     """The lines of the pipeline workflow that a part's job runs under, read as ``recording.part_job_text`` reads them:
-    the lines before ``jobs:`` and the job's block up to the next line at its indentation or less, without trailing
-    blank lines; None when the workflow has no such job."""
+    the lines before ``jobs:`` and the job's block up to the next job line or top-level key (``JOB_BOUNDARY``) or the
+    end of the file, without trailing blank lines and trailing comments at the job's indentation or less; None when the
+    workflow has no such job."""
     lines = workflow.splitlines()
     try:
         jobs = lines.index("jobs:")
@@ -381,10 +384,10 @@ def part_job_text(workflow: str, job: str) -> str | None:
     except ValueError:
         return None
     end = start + 1
-    while end < len(lines) and (not lines[end].strip() or lines[end].startswith("   ")):
+    while end < len(lines) and not JOB_BOUNDARY.match(lines[end]):
         end += 1
     block = lines[start:end]
-    while block and not block[-1].strip():
+    while block and (not block[-1].strip() or (block[-1].lstrip().startswith("#") and not block[-1].startswith("   "))):
         block.pop()
     return "\n".join(lines[:jobs] + block) + "\n"
 
@@ -440,7 +443,8 @@ def commit_digest_entries(root: Path, commit: str, pins_path: str = "actions/rep
                 digests[f"tool:{name}"] = {**installer, f"pins:{section}/{name}": json.dumps(entry, sort_keys=True, separators=(",", ":"))}
     python_pins = pins.get("python") if isinstance(pins.get("python"), dict) else {}
     for name, folder in sorted(LANGUAGE_STEP_FOLDERS.items()):
-        lang_files = {path: blob for path, blob in blobs.items() if path.startswith(f"{folder}/")}
+        lang_files = {path: blob for path, blob in blobs.items()
+                      if path.startswith(f"{folder}/") and path.removeprefix(f"{folder}/").split("/")[0] not in PART_EXCLUDED_FOLDERS}
         if lang_files:
             extra = {f"pins:python/{tool}": json.dumps(python_pins[tool], sort_keys=True, separators=(",", ":"))
                      for tool in LANGUAGE_STEP_PYTHON_TOOLS.get(name, ()) if tool in python_pins}

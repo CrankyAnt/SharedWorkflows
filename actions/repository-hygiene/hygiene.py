@@ -146,6 +146,16 @@ def _reuse_marker_matches(marker: Path, version: str | None) -> bool:
     return isinstance(stored, dict) and stored == {"version": version}
 
 
+def _reuse_marker_readable(marker: Path) -> bool:
+    """Whether the default-branch REUSE version marker exists and holds a version: a missing, evicted or unreadable
+    marker is a fallback, a marker of another version is the rule."""
+    try:
+        stored = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(stored, dict) and isinstance(stored.get("version"), str)
+
+
 def _in_repo_pins_path(root: Path) -> str | None:
     try:
         folder = RESOURCES.resolve().relative_to(root.resolve()).as_posix()
@@ -194,6 +204,22 @@ def _commit_exists(root: Path, revision: str) -> bool:
     return subprocess.run(["git", "rev-parse", "--verify", f"{revision}^{{commit}}"], cwd=root, capture_output=True, text=True, check=False).returncode == 0
 
 
+# The counted reasons of the hygiene fallbacks to running more, each emitted as a notice in the form of the suite
+# selection's ``reuse.fallback_notice``: ``changes`` counts them in the file of ``--fallbacks``, which ``plan.py plan``
+# adds to the plan's fallbacks. A full Gitleaks scan because the configuration, baseline or pin changed is the rule,
+# not a fallback.
+UNREADABLE_PUSH_LOOKUP = "hygiene-unreadable-push-lookup"
+CHANGED_FILES_UNKNOWN = "hygiene-changed-files-unknown"
+GITLEAKS_UNREADABLE_PUSH_LOOKUP = "gitleaks-unreadable-push-lookup"
+GITLEAKS_RANGE_UNKNOWN = "gitleaks-range-unknown"
+UNREADABLE_REUSE_MARKER = "hygiene-unreadable-reuse-marker"
+
+
+def fallback_notice(reason: str, detail: str) -> str:
+    """The notice of one fallback, in the form of the suite selection's ``reuse.fallback_notice``."""
+    return f"::notice title=ci-fallback::{reason}: {detail}"
+
+
 def _resolve_gitleaks_range(root: Path, base: str, head: str, compare: str, lookup: Path | None) -> tuple[str | None, str | None, str]:
     if lookup is not None:
         try:
@@ -220,6 +246,19 @@ def _resolve_gitleaks_range(root: Path, base: str, head: str, compare: str, look
     if not (_commit_exists(root, start) and _commit_exists(root, target)):
         return None, None, "the commit range is not in the checkout"
     return start, target, ""
+
+
+def gitleaks_fallback(root: Path, base: str, head: str, compare: str, lookup: Path | None) -> tuple[str, str] | None:
+    """The counted reason and detail of Gitleaks's fallback to a full scan because it cannot read the range of added
+    commits, or None when it can: the push lookup cannot be read, the range cannot be resolved, or the changed files of
+    the range cannot be determined. ``changes`` counts it from the same arguments as the Gitleaks step."""
+    start, target, reason = _resolve_gitleaks_range(root, base, head, compare, lookup)
+    if start is None or target is None:
+        key = GITLEAKS_UNREADABLE_PUSH_LOOKUP if reason.startswith("push lookup could not be read") else GITLEAKS_RANGE_UNKNOWN
+        return key, f"Gitleaks scans the full history: {reason}"
+    if changed_files(root, start, target, "direct") is None:
+        return GITLEAKS_RANGE_UNKNOWN, "Gitleaks scans the full history: the changed files could not be determined"
+    return None
 
 
 def gitleaks(root: Path, tools: Path | None, config: str, baseline: str, base: str = "", head: str = "", compare: str = "direct",
@@ -254,6 +293,9 @@ def gitleaks(root: Path, tools: Path | None, config: str, baseline: str, base: s
     if full_scan:
         log_opts = "--all"
         print(f"gitleaks: full history scan ({reason})", flush=True)
+        fallback = gitleaks_fallback(root, base, head, compare, lookup)
+        if fallback is not None:
+            print(fallback_notice(*fallback), flush=True)
     else:
         count = subprocess.run(["git", "rev-list", "--count", f"{start}..{target}"], cwd=root, capture_output=True, text=True, check=False)
         if count.returncode == 0 and count.stdout.strip() == "0":
@@ -784,11 +826,16 @@ def read_results(path: Path, tree: str, reuse_version: str | None = None) -> tup
     return passed, reuse_version_changed and recorded_reuse is not None
 
 
-def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, results: Path | None = None, pins: Path | None = None, reuse_marker: Path | None = None) -> int:
+def changes(root: Path, base: str, head: str, compare: str, definition: list[str], packages_definition: list[str], markdown_definition: list[str], ecosystems: Path, output: Path | None, summary: Path | None, lookup: Path | None = None, results: Path | None = None, pins: Path | None = None, reuse_marker: Path | None = None, fallbacks_output: Path | None = None) -> int:
     """Write individual check decisions and the compatible ``workflows`` union for the workflow's gates. With
-    ``lookup``, a push decides by its case; with ``results``, a passed check of the same tested tree is reused."""
+    ``lookup``, a push decides by its case; with ``results``, a passed check of the same tested tree is reused. With
+    ``fallbacks_output``, write the hygiene fallbacks to running more as a JSON map of counts by reason: every check
+    runs because the push lookup or the changed files cannot be read, REUSE runs because the default-branch REUSE
+    version marker is missing, evicted or unreadable, and Gitleaks scans the full history because it cannot read its
+    range (``gitleaks_fallback``, whose notice the Gitleaks step emits)."""
     inputs = (definition, packages_definition, markdown_definition, ecosystems)
     heading = None
+    lookup_unreadable = False
     if lookup is None:
         changed, decisions = decisions_between(root, base, head, compare, *inputs)
     else:
@@ -797,6 +844,7 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
         except ValueError as error:
             heading = f"Push lookup could not be read: {error}."
             print(f"::notice title=push-lookup::{error}")
+            lookup_unreadable = True
             changed, decisions = None, decide_changes(None, definition, set(), set(), dependabot_coverage.load_ecosystems(ecosystems), root)
         else:
             heading = f"Push lookup: `{found['case']}`, {found.get('reason', '')}."
@@ -814,11 +862,27 @@ def changes(root: Path, base: str, head: str, compare: str, definition: list[str
                     decisions = both_sides(ours, theirs, landing_base_passed=found.get("landing_base_passed") is True)
             else:
                 changed, decisions = decisions_between(root, landing, found["head"], "direct", *inputs)
+    fallbacks: dict[str, int] = {}
+    if lookup_unreadable:
+        fallbacks[UNREADABLE_PUSH_LOOKUP] = 1
+        print(fallback_notice(UNREADABLE_PUSH_LOOKUP, "every hygiene check runs: the push lookup could not be read"))
+    elif changed is None:
+        fallbacks[CHANGED_FILES_UNKNOWN] = 1
+        print(fallback_notice(CHANGED_FILES_UNKNOWN, "every hygiene check runs: the changed files could not be determined"))
+    gitleaks_fell_back = gitleaks_fallback(root, base, head, compare, lookup)
+    if gitleaks_fell_back is not None:
+        fallbacks[gitleaks_fell_back[0]] = 1
     current_reuse_version = _reuse_pin_version(pins or (RESOURCES / "pins.json"))
     reuse_pin_changed = False
     if reuse_marker is not None and has_reuse_config(root) and not _reuse_marker_matches(reuse_marker, current_reuse_version):
         decisions["reuse"] = (True, "the pinned REUSE version changed or has no default-branch marker")
         reuse_pin_changed = True
+        if not _reuse_marker_readable(reuse_marker):
+            fallbacks[UNREADABLE_REUSE_MARKER] = 1
+            print(fallback_notice(UNREADABLE_REUSE_MARKER, "REUSE runs: the default-branch REUSE version marker is missing, evicted or unreadable"))
+    if fallbacks_output is not None:
+        fallbacks_output.parent.mkdir(parents=True, exist_ok=True)
+        fallbacks_output.write_text(json.dumps(dict(sorted(fallbacks.items()))) + "\n", encoding="utf-8")
     reused: dict[str, int] = {}
     if results is not None:
         passed, recorded_reuse_differs = read_results(results, tested_tree(root), current_reuse_version)
@@ -928,6 +992,7 @@ def build_parser() -> argparse.ArgumentParser:
     deciding.add_argument("--reuse-marker", type=Path, help="the default-branch REUSE version marker")
     deciding.add_argument("--github-output", type=Path)
     deciding.add_argument("--summary", type=Path)
+    deciding.add_argument("--fallbacks", type=Path, help="the JSON file of the hygiene fallbacks to running more, counted by reason, for plan.py plan")
     recording = subcommands.add_parser("record")
     recording.add_argument("--root", type=Path, default=Path("."))
     recording.add_argument("--run-id", type=int, required=True)
@@ -946,7 +1011,8 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("changes takes --lookup without --base and --head")
         try:
             return changes(arguments.root.resolve(), arguments.base, arguments.head, arguments.compare, arguments.definition, arguments.packages_definition, arguments.markdown_definition,
-                           arguments.ecosystems, arguments.github_output, arguments.summary, arguments.lookup, arguments.results, arguments.pins, arguments.reuse_marker)
+                           arguments.ecosystems, arguments.github_output, arguments.summary, arguments.lookup, arguments.results, arguments.pins, arguments.reuse_marker,
+                           arguments.fallbacks)
         except ValueError as error:
             print(f"::error::{error}", file=sys.stderr)
             return 2

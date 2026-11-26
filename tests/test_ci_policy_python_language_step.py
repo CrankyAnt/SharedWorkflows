@@ -64,11 +64,11 @@ class PythonLanguageStepConsumerKitTests(unittest.TestCase):
         entries = {entry["name"]: entry for entry in json.loads(CATALOGUE.read_text(encoding="utf-8"))["parts"]}
         self.assertEqual("actions/python-language-step/consumer-kit", entries["Python language step"]["consumer_kit"])
 
-    def test_the_template_is_one_step_that_calls_the_shared_step_at_v1_for_a_selected_language_step(self) -> None:
+    def test_the_template_is_one_step_that_calls_the_shared_step_at_v1_without_a_condition(self) -> None:
         self.assertEqual(["steps"], list(self.template))
         (step,) = self.template["steps"]
         self.assertEqual("CrankyAnt/SharedWorkflows/actions/python-language-step@v1", step["uses"])
-        self.assertEqual("${{ !cancelled() && fromJSON(inputs.language-steps).python == 'run' }}", step["if"])
+        self.assertNotIn("if", step, "only the shared suite jobs have the input language-steps that the retired condition read")
         self.assertNotIn("with", step, "the format check stays off unless the repository turns it on")
         self.assertNotIn("run", step)
 

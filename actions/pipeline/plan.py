@@ -90,28 +90,42 @@ REFERENCES_STEP = "Check the references to repositories of the owner"
 API_TIMEOUT = 15
 FAILING_RESULTS = ("failure", "cancelled", "timed_out")
 INPUTS_UNKNOWN_REASON = "inputs unknown"
-# Each pipeline part's own shared code and pin files in SharedWorkflows.
+# Each pipeline part's own shared code and pin files in SharedWorkflows, which select the part where this repository
+# calls the pipeline by local path. The pipeline's own folder and workflow are not among them: each part's job in the
+# workflow and the files it runs make up its part digest (``PART_DIGESTS``). A folder's consumer kit
+# (``PART_SHARED_EXCLUDED``), which no job runs, selects no part, as it moves no part digest.
 PART_SHARED_INPUTS: dict[str, tuple[str, ...]] = {
-    "custom": ("actions/pipeline/", ".github/workflows/pipeline.yml"),
     "python-verify": (
         "actions/python-language-step/",
         "actions/python-tests/",
         "actions/repository-hygiene/pins.json",
         "actions/repository-hygiene/install_tools.py",
-        "actions/pipeline/",
-        ".github/workflows/pipeline.yml",
     ),
     "python-test": (
         "actions/python-tests/",
         "actions/python-language-step/",
         "actions/repository-hygiene/pins.json",
         "actions/repository-hygiene/install_tools.py",
-        "actions/pipeline/",
-        ".github/workflows/pipeline.yml",
     ),
-    "dotnet-test": ("actions/dotnet-test/", "actions/pipeline/", ".github/workflows/pipeline.yml"),
-    "node-test": ("actions/node-test/", "actions/pipeline/", ".github/workflows/pipeline.yml"),
+    "dotnet-test": ("actions/dotnet-test/",),
+    "node-test": ("actions/node-test/",),
 }
+PART_SHARED_EXCLUDED = ("consumer-kit",)
+
+
+def shared_input_changed(name: str, changed: list[str]) -> str | None:
+    """The first changed file of a part's own shared code that its job runs: under one of its ``PART_SHARED_INPUTS``
+    and, under a folder, outside the folder's consumer kit; None when there is none."""
+    for path in changed:
+        for pattern in PART_SHARED_INPUTS.get(name, ()):
+            if pattern.endswith("/"):
+                if path.startswith(pattern) and path.removeprefix(pattern).split("/")[0] not in PART_SHARED_EXCLUDED:
+                    return path
+            elif path == pattern:
+                return path
+    return None
+
+
 # Shared CI digests (from shared-lookup.json) that select a pipeline part when moved.
 PART_DIGESTS: dict[str, tuple[str, ...]] = {
     "custom": ("part:custom",),
@@ -627,8 +641,8 @@ def decide(name: str, version: SchemaVersion, parts: dict, base_parts: dict, cha
         return True, CHANGED_FILES_UNKNOWN, False
     if base_parts.get(name) != parts[name] or (tested_base_parts is not None and tested_base_parts.get(name) != parts[name]):
         return True, "its configuration changed", False
-    all_patterns = [*patterns, *declared_input_patterns(name, parts[name]), *PART_SHARED_INPUTS.get(name, ())]
-    matched = first_match(all_patterns, changed)
+    all_patterns = [*patterns, *declared_input_patterns(name, parts[name])]
+    matched = first_match(all_patterns, changed) or shared_input_changed(name, changed)
     return (True, f"{matched} changed", False) if matched else (False, "no changed path matches its paths", False)
 
 
@@ -651,6 +665,21 @@ def own_fallbacks(decisions: dict) -> list[tuple[str, str]]:
         if key is not None:
             found.append((key, f"`{name}` runs: {reason}"))
     return found
+
+
+def read_hygiene_fallbacks(path: str | None) -> dict[str, int]:
+    """The hygiene fallbacks that ``hygiene.py changes --fallbacks`` counted by reason; none when the file is absent
+    or unreadable."""
+    if not path:
+        return {}
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {name: count for name, count in raw.items()
+            if isinstance(name, str) and isinstance(count, int) and not isinstance(count, bool) and count > 0}
 
 
 def fallback_notice(reason: str, detail: str) -> str:
@@ -808,7 +837,7 @@ def job_timeouts(version: SchemaVersion, workflow: str) -> dict[str, int]:
 def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
               workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None,
               event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0",
-              iso_week: int | None = None, shared_lookup: str | None = None) -> dict:
+              iso_week: int | None = None, shared_lookup: str | None = None, hygiene_fallbacks: str | None = None) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
         raise PlanError(f"{CONFIGURATION} does not exist. The smallest valid file is the line `version: {max(versions)}`.")
@@ -886,6 +915,8 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
                               if isinstance(name, str) and isinstance(count, int) and count > 0})
     for reason, _ in own_fallbacks(decisions):
         fallbacks[reason] = fallbacks.get(reason, 0) + 1
+    for reason, count in read_hygiene_fallbacks(hygiene_fallbacks).items():
+        fallbacks[reason] = fallbacks.get(reason, 0) + count
     if fallbacks:
         result["fallbacks"] = dict(sorted(fallbacks.items()))
     if head_results is not None:
@@ -951,7 +982,7 @@ def run_plan(options: argparse.Namespace) -> int:
         plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare,
                          options.shared_workflow, options.lookup, options.unit_decisions,
                          options.event, options.event_action, options.workflow_ref, options.run_id, options.iso_week,
-                         options.shared_lookup)
+                         options.shared_lookup, options.hygiene_fallbacks)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
         print(f"The plan failed: {CONFIGURATION} cannot be used.")
@@ -1257,6 +1288,7 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--lookup", help="the push lookup JSON file written by suite_selection.py lookup")
     planning.add_argument("--shared-lookup", help="the shared lookup JSON file written by suite_selection.py shared-lookup")
     planning.add_argument("--unit-decisions", help="the per-unit decisions JSON file written by suite_selection.py select")
+    planning.add_argument("--hygiene-fallbacks", help="the hygiene fallbacks JSON file written by hygiene.py changes --fallbacks")
     planning.add_argument("--workflow", default="pipeline", help="the name of the running workflow, for the concurrency groups")
     planning.add_argument("--workflow-ref", default="", help="the workflow_ref of the running workflow, for looking up head runs")
     planning.add_argument("--event", default="", help="the name of the event of the run")

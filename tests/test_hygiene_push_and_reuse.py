@@ -115,6 +115,35 @@ class PushLookupTests(HygieneFixture):
         self.assertEqual("true", decisions["workflows"])
 
 
+class HygieneFallbackTests(HygieneFixture):
+    """Every hygiene fallback to running more emits a counted notice by reason, and ``changes --fallbacks`` writes the
+    counts that ``plan.py plan --hygiene-fallbacks`` adds to the plan's fallbacks."""
+
+    def fallbacks(self, *arguments: str) -> tuple[dict[str, int], str]:
+        path = self.root / "hygiene-fallbacks.json"
+        _, stdout, _ = self.decide("--fallbacks", str(path), *arguments)
+        return json.loads(path.read_text(encoding="utf-8")), stdout
+
+    def test_an_unreadable_push_lookup_counts_the_hygiene_and_the_gitleaks_fallback(self) -> None:
+        counts, stdout = self.fallbacks("--lookup", str(self.root / "missing-lookup.json"))
+        self.assertEqual({"gitleaks-unreadable-push-lookup": 1, "hygiene-unreadable-push-lookup": 1}, counts)
+        self.assertIn("::notice title=ci-fallback::hygiene-unreadable-push-lookup: every hygiene check runs: the push lookup could not be read", stdout)
+
+    def test_unknown_changed_files_count_the_hygiene_and_the_gitleaks_fallback(self) -> None:
+        head = self.commit({"docs/notes.md": "n\n"})
+        counts, stdout = self.fallbacks("--base", "0" * 40, "--head", head)
+        self.assertEqual({"gitleaks-range-unknown": 1, "hygiene-changed-files-unknown": 1}, counts)
+        self.assertIn("::notice title=ci-fallback::hygiene-changed-files-unknown: every hygiene check runs: the changed files could not be determined", stdout)
+
+    def test_a_readable_range_counts_no_fallback(self) -> None:
+        head = self.commit({"docs/notes.md": "n\n"})
+        for arguments in (("--base", self.base, "--head", head), ("--lookup", self.lookup(case="own", head=head, landing_base=self.base))):
+            with self.subTest(arguments=arguments[0]):
+                counts, stdout = self.fallbacks(*arguments)
+                self.assertEqual({}, counts)
+                self.assertNotIn("title=ci-fallback", stdout)
+
+
 class EditedReuseTests(HygieneFixture):
     def record(self, tree: str, checks: dict[str, int], reuse_version: str | None = None) -> str:
         path = self.root / "record.json"
