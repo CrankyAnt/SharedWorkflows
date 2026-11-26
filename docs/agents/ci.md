@@ -40,7 +40,7 @@ This repository calls its own shared workflows and shared steps by local path, `
 - Python tests: [Python tests](../maintaining.md#python-tests), tested through `python-verify` and `python-test` in the pipeline on the fixture project.
 - Pipeline: [Pipeline](../maintaining.md#pipeline), which runs repository hygiene, the fixture parts, the suite selection and the suite jobs of [Job layout](../maintaining.md#job-layout); [The automation workflow](../maintaining.md#the-automation-workflow), which runs Dependabot auto-merge, issue-title normalisation, additions and the full recording's suite jobs.
 
-The pipeline caller `ci.yml` also runs on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event) and on `edited` pull requests (running only the title and reference checks).
+The pipeline caller `ci.yml` also runs on the [`dependabot-merged` event](../maintaining.md#the-dependabot-merged-event) and on `edited` pull requests. An edit checks the title and description and waits for the code verdict of the same head.
 
 The verdict of the pipeline, `ci / verdict`, carries the result of the suites, the hygiene check and the other parts. The one check to require in a ruleset on the default branch is `ci / verdict`; [Change a check name](../maintaining.md#change-a-check-name) changes it, and a change to the ruleset is a question to the user.
 

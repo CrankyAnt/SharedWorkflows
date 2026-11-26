@@ -18,7 +18,7 @@ CALLER = WORKFLOWS / "ci.yml"
 FRAGMENTS = "actions/pipeline/schema/v1/parts"
 HYGIENE = "repository-hygiene"
 # The jobs of the pipeline that are no shared part.
-PLAN, VERDICT = "plan", "verdict"
+PLAN, WAIT, VERDICT = "plan", "wait-for-code", "verdict"
 # The part that runs inside plan (no separate job of its own) and the jobs that follow it.
 SUITE_SELECTION = "suite-selection"
 IN_PLAN = frozenset({SUITE_SELECTION})
@@ -110,7 +110,7 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", self.text)
 
     def test_the_jobs_are_the_plan_per_shared_part_with_a_schema_fragment_its_job_and_the_jobs_that_follow_it_and_the_verdict(self) -> None:
-        expected = [PLAN, *[name for part in self.parts for name in ((() if part in IN_PLAN else (part,)) + tuple(FOLLOWING.get(part, ())))], VERDICT]
+        expected = [PLAN, *[name for part in self.parts for name in ((() if part in IN_PLAN else (part,)) + tuple(FOLLOWING.get(part, ())))], WAIT, VERDICT]
         self.assertEqual(expected, list(self.jobs))
         self.assertIn(HYGIENE, self.parts)
         self.assertLessEqual(set(FOLLOWING), set(self.parts))
@@ -154,6 +154,32 @@ class PipelineTests(unittest.TestCase):
                     self.assertIn("needs.plan.outputs.plan", timeout, f"{name} must take timeout-minutes from the plan")
                     self.assertIn("timeouts", timeout, f"{name} must read timeouts from the plan")
                     self.assertIn(name, timeout, f"{name} must read its own timeout from the plan")
+
+    def test_only_an_edit_waits_for_code_and_can_check_its_text_while_it_waits(self) -> None:
+        wait = self.jobs[WAIT]
+        self.assertEqual([PLAN], needed(wait))
+        self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' && github.event.action == 'edited' && "
+                         "(needs.plan.outputs.plan == '' || fromJSON(needs.plan.outputs.plan)['wait-for-code']) }}", wait["if"])
+        self.assertEqual("ubuntu-26.04", wait["runs-on"])
+        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan || '{}').timeouts['wait-for-code'] || 40 }}", wait["timeout-minutes"])
+        self.assertEqual("${{ fromJSON(needs.plan.outputs.plan || '{}').timeouts['verdict'] || 5 }}", self.jobs[VERDICT]["timeout-minutes"])
+        self.assertNotIn(WAIT, needed(self.jobs[HYGIENE]))
+        self.assertIn(WAIT, needed(self.jobs[VERDICT]))
+        self.assertIn("plan (edited pull request)", self.jobs[PLAN]["name"])
+        self.assertIn("plan (PR #{0})", self.jobs[PLAN]["name"])
+        self.assertFalse(any(WAIT in str(step.get("run", "")) for step in self.jobs[PLAN]["steps"]))
+        self.assertEqual({"actions": "read", "contents": "read"}, wait["permissions"])
+
+        plan_steps = {step.get("id"): step for step in self.jobs[PLAN]["steps"]}
+        self.assertIn("--commits", plan_steps["references"]["run"])
+        self.assertIn("github.event.action != 'edited'", plan_steps["references"]["if"])
+        self.assertIn("github.event.action != 'edited'", plan_steps["pr-references"]["if"])
+        hygiene = self.jobs[HYGIENE]
+        hygiene_steps = {step.get("id"): step for step in hygiene["steps"]}
+        self.assertIn("--pull-request-text", hygiene_steps["pr-references"]["run"])
+        self.assertIn("github.event.action == 'edited'", hygiene_steps["pr-references"]["if"])
+        self.assertEqual("${{ steps.pr-references.outcome }}", hygiene["outputs"]["references"])
+        self.assertEqual("${{ steps.title.outcome }}", hygiene["outputs"]["title"])
 
     def test_the_plan_gives_its_plan_as_its_output_and_runs_one_checkout_one_push_lookup_one_shared_lookup_and_light_hygiene(self) -> None:
         plan = self.jobs[PLAN]
@@ -219,7 +245,7 @@ class PipelineTests(unittest.TestCase):
         }
         self.assertEqual("${{ steps.select.outcome }}", self.jobs[PLAN]["outputs"].get("selection"))
         for name, job in self.jobs.items():
-            if PLAN not in needed(job) or name == VERDICT:
+            if PLAN not in needed(job) or name in (WAIT, VERDICT):
                 continue
             with self.subTest(job=name):
                 condition = str(job["if"])
@@ -239,6 +265,7 @@ class PipelineTests(unittest.TestCase):
             "conventions": (),
             "branch": ("conventions",),
             "references": ("conventions", "checkout"),
+            "pr-references": ("conventions", "checkout"),
             "consumer-checks": ("resources", "checkout"),
             "coverage": ("resources", "hygiene", "checkout"),
             "links": ("resources", "hygiene", "checkout"),
@@ -271,6 +298,7 @@ class PipelineTests(unittest.TestCase):
         steps = {step.get("id"): step_key(step) for step in self.jobs[PLAN]["steps"] if step.get("id")}
         for output, step_id, step_name in (("light-branch", "branch", "Check the pull request branch"),
                                            ("light-references", "references", "Check the references to repositories of the owner"),
+                                           ("light-pr-references", "pr-references", "Check the references in the pull request title and description"),
                                            ("light-consumer-checks", "consumer-checks", "Consumer checks"),
                                            ("light-coverage", "coverage", "Dependabot coverage of tracked package files"),
                                            ("light-links", "links", "Relative links in tracked Markdown")):

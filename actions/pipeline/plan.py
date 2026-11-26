@@ -47,9 +47,11 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic, sleep
 
 PART_FOLDER = Path(__file__).resolve().parent
 sys.path.insert(0, str(PART_FOLDER.parent / "repository-hygiene"))
@@ -65,6 +67,8 @@ FULL_RECORDING_JOB = "full-recording"
 PLAN_JOB = "plan"
 HYGIENE_JOB = "repository-hygiene"
 VERDICT_JOB = "verdict"
+WAIT_FOR_CODE_JOB = "wait-for-code"
+EDIT_PLAN_JOB = "plan (edited pull request)"
 SUITE_SELECTION_JOB = "suite-selection"
 SUITE_SELECTION_JOBS = "suite-selection-jobs"
 SUITE_SELECTION_LINUX = "suite-selection-linux"
@@ -86,9 +90,13 @@ def load_timeouts(path: Path = TIMEOUTS_FILE) -> dict[str, int]:
 
 JOB_TIMEOUT_MINUTES: dict[str, int] = load_timeouts()
 PLAN_CHANGES_STEP = "Decide which checks the changed files can affect"
+RECORD_TREE_STEP = "Record the checked-out commit and tree"
 TITLE_STEP = "Check the pull request title"
-REFERENCES_STEP = "Check the references to repositories of the owner"
+REFERENCES_STEP = "Check the references in the pull request title and description"
+TEXT_ONLY_FAILURE_STEP = "Record that only the pull request text checks failed"
 API_TIMEOUT = 15
+POLL_SECONDS = 10
+DISCOVERY_SECONDS = 30
 FAILING_RESULTS = ("failure", "cancelled", "timed_out")
 INPUTS_UNKNOWN_REASON = "inputs unknown"
 # Each pipeline part's own shared code and pin files in SharedWorkflows, which select the part where this repository
@@ -778,35 +786,54 @@ def combine_python_projects(decisions: dict) -> None:
             verify["reason"] = "combined into python-test"
 
 
-def github_get(api_url: str, repository: str, token: str | None, path: str) -> object:
+def github_get(api_url: str, repository: str, token: str | None, path: str, timeout: float = API_TIMEOUT) -> object:
     """Read one JSON endpoint under ``repos/<repository>/<path>``."""
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(f"{api_url.rstrip('/')}/repos/{repository}/{path}", headers=headers)
-    with urllib.request.urlopen(request, timeout=API_TIMEOUT) as response:  # noqa: S310 - the API host of the run
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - the API host of the run
         return json.loads(response.read().decode("utf-8"))
 
 
-def is_edited_run(jobs: list[dict]) -> bool:
-    """Whether a run's ``plan`` job skipped change detection, which only an ``edited`` run does."""
-    plan_job = next((job for job in jobs if str(job.get("name", "")).rsplit(" / ", 1)[-1] == PLAN_JOB), None)
-    if not isinstance(plan_job, dict):
-        return False
-    return any(step.get("name") == PLAN_CHANGES_STEP and step.get("conclusion") == "skipped"
-               for step in (plan_job.get("steps") or []) if isinstance(step, dict))
+def short_job_name(job: dict) -> str:
+    return str(job.get("name", "")).rsplit(" / ", 1)[-1]
 
 
-def code_failures_of_run(run: dict, jobs: list[dict], head: str) -> list[str]:
+def code_plan_name(pull_request: int) -> str:
+    return f"plan (PR #{pull_request})"
+
+
+def code_run_identity(jobs: list[dict], pull_request: int) -> bool | None:
+    """True for a code plan, false for an edit or a different PR, None before identification."""
+    for job in jobs:
+        name = short_job_name(job)
+        if name == EDIT_PLAN_JOB:
+            return False
+        if name.startswith("plan (PR #"):
+            return name == code_plan_name(pull_request)
+        if name == PLAN_JOB:
+            steps = {step.get("name"): step.get("conclusion") for step in (job.get("steps") or [])
+                     if isinstance(step, dict)}
+            if steps.get(RECORD_TREE_STEP) == "success" or steps.get(PLAN_CHANGES_STEP) == "success":
+                return True
+            if job.get("conclusion") == "success" and steps.get(PLAN_CHANGES_STEP) == "skipped":
+                return False
+            if steps.get(RECORD_TREE_STEP) == "skipped" and steps.get("Check the configuration file and decide which parts run") == "success":
+                return False
+    return None
+
+
+def code_failures_of_run(run: dict, jobs: list[dict], verdict: dict, head: str, pull_request: int) -> list[str]:
     """Every non-title, non-reference failure in a completed code run of ``head``."""
     run_id = run.get("id")
     failures: list[str] = []
     title_or_ref_failed = False
     for job in jobs:
-        if not isinstance(job, dict):
-            continue
         job_name = str(job.get("name", ""))
-        short_name = job_name.rsplit(" / ", 1)[-1]
+        short_name = short_job_name(job)
+        if short_name == code_plan_name(pull_request):
+            short_name = PLAN_JOB
         if short_name == VERDICT_JOB:
             continue
         conclusion = job.get("conclusion")
@@ -816,47 +843,147 @@ def code_failures_of_run(run: dict, jobs: list[dict], head: str) -> list[str]:
             allowed = REFERENCES_STEP if short_name == PLAN_JOB else TITLE_STEP
             bad_steps = [step.get("name") for step in (job.get("steps") or [])
                          if isinstance(step, dict) and step.get("conclusion") in (*FAILING_RESULTS, "action_required")]
-            if bad_steps and all(step == allowed for step in bad_steps):
+            if conclusion == "failure" and bad_steps and all(step == allowed for step in bad_steps):
                 title_or_ref_failed = True
             else:
-                failures.append(f"`{job_name}` ended {conclusion} in run {run_id}")
-        elif conclusion in (*FAILING_RESULTS, "action_required", "startup_failure"):
+                failed_checks = [step for step in bad_steps if isinstance(step, str) and step != allowed]
+                if failed_checks:
+                    failures.extend(f"`{step}` in `{job_name}` failed in run {run_id}" for step in failed_checks)
+                else:
+                    failures.append(f"`{job_name}` ended {conclusion} in run {run_id}")
+        elif conclusion not in ("success", "skipped"):
             failures.append(f"`{job_name}` ended {conclusion} in run {run_id}")
-    if not failures and not title_or_ref_failed and run.get("conclusion") != "success":
-        failures.append(f"code run {run_id} for `{head}` ended {run.get('conclusion')}")
+    if not failures and (verdict.get("conclusion") != "success" or run.get("conclusion") != "success"):
+        only_text_failed = title_or_ref_failed and any(
+            isinstance(step, dict) and step.get("name") == TEXT_ONLY_FAILURE_STEP and step.get("conclusion") == "success"
+            for step in (verdict.get("steps") or [])
+        )
+        if not only_text_failed:
+            failures.append(f"code run {run_id} for `{head}` did not pass its verdict or establish that only pull request text checks failed")
     return failures
 
 
-def head_code_results(head: str | None, workflow_ref: str, run_id: str) -> dict:
-    """Look up the code results of ``head`` from the pull request's latest non-cancelled code run."""
+def wait_for_code_results(head: str, pull_request: int, workflow_ref: str, run_id: str) -> dict:
+    """Wait for the latest eligible run and its verdict, without mistaking an unclassified run for code."""
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     token = os.environ.get("GITHUB_TOKEN") or None
-    if not head or not repository:
-        return {"run_id": None, "passed": False, "failures": ["the code results of the head could not be looked up: missing repository or head"]}
+    if not head or not repository or pull_request < 1:
+        return {"run_id": None, "passed": False, "failures": ["the code results of the head could not be looked up: missing repository, head or pull request"]}
     workflow_file = workflow_ref.split("@", 1)[0].rsplit("/", 1)[-1] if workflow_ref else "ci.yml"
+    path = f"actions/workflows/{urllib.parse.quote(workflow_file)}/runs?head_sha={urllib.parse.quote(head)}&event=pull_request&per_page=100"
+    start = monotonic()
+    deadline = start + 60 * code_wait_minutes()
+    no_code = f"no eligible code run found for pull request #{pull_request} at `{head}`"
+    detail = no_code
+    candidate = None
     try:
-        runs_doc = github_get(api_url, repository, token,
-                              f"actions/workflows/{urllib.parse.quote(workflow_file)}/runs?head_sha={urllib.parse.quote(head)}&event=pull_request&per_page=100")
-        runs = runs_doc.get("workflow_runs") if isinstance(runs_doc, dict) else None
-        if not isinstance(runs, list):
-            return {"run_id": None, "passed": False, "failures": [f"the code results of `{head}` could not be read"]}
-        for run in runs:
-            if not isinstance(run, dict) or str(run.get("id")) == str(run_id) or run.get("conclusion") == "cancelled":
-                continue
-            jobs_doc = github_get(api_url, repository, token, f"actions/runs/{run.get('id')}/jobs?per_page=100")
-            jobs = jobs_doc.get("jobs") if isinstance(jobs_doc, dict) else None
-            if not isinstance(jobs, list):
-                return {"run_id": run.get("id"), "passed": False, "failures": [f"the jobs of run {run.get('id')} could not be read"]}
-            if is_edited_run(jobs):
-                continue
+        while monotonic() < deadline:
+            try:
+                result, detail, candidate = read_code_result(api_url, repository, token, path, deadline, head, pull_request, run_id)
+            except urllib.error.HTTPError as error:
+                if error.code not in (408, 429) and error.code < 500:
+                    raise
+                detail = f"the Actions API answered HTTP {error.code}"
+            except (urllib.error.URLError, OSError) as error:
+                detail = f"the Actions API could not be read: {error}"
+            else:
+                if result is not None and monotonic() < deadline:
+                    return result
+                if not detail and monotonic() >= start + DISCOVERY_SECONDS:
+                    return {"run_id": None, "passed": False, "failures": [no_code]}
+            remaining = deadline - monotonic()
+            if remaining > 0:
+                sleep(min(POLL_SECONDS, remaining))
+    except (urllib.error.HTTPError, ValueError) as error:
+        return {"run_id": candidate, "passed": False, "failures": [f"the code results of `{head}` could not be looked up: {error}"]}
+    return {"run_id": candidate, "passed": False, "failures": [f"the wait for code results of `{head}` expired after {code_wait_minutes()} minutes: {detail or no_code}"]}
+
+
+def read_code_result(api_url: str, repository: str, token: str | None, path: str, deadline: float, head: str,
+                     pull_request: int, own_run_id: str) -> tuple[dict | None, str, int | None]:
+    def get(endpoint: str) -> object:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        return github_get(api_url, repository, token, endpoint, min(API_TIMEOUT, remaining))
+
+    def items(endpoint: str, key: str) -> Iterator[dict]:
+        seen = 0
+        for page in range(1, 11):
+            doc = get(endpoint if page == 1 else f"{endpoint}&page={page}")
+            if not isinstance(doc, dict):
+                raise ValueError(f"the Actions API returned no object for {endpoint}")
+            rows = doc.get(key)
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                raise ValueError(f"the Actions API returned invalid {key} for {endpoint}")
+            yield from rows
+            seen += len(rows)
+            total = doc.get("total_count")
+            if len(rows) < 100 or (isinstance(total, int) and seen >= total):
+                return
+        raise ValueError(f"the Actions API returned too many {key} for {endpoint}")
+
+    for run in items(path, "workflow_runs"):
+        run_id = run.get("id")
+        if (not isinstance(run_id, int) or isinstance(run_id, bool) or str(run_id) == own_run_id
+                or run.get("head_sha") != head or run.get("conclusion") == "cancelled"):
+            continue
+        associated = {pr.get("number") for pr in (run.get("pull_requests") or []) if isinstance(pr, dict)}
+        if associated and pull_request not in associated:
+            continue
+        jobs = list(items(f"actions/runs/{run_id}/jobs?per_page=100", "jobs"))
+        identity = code_run_identity(jobs, pull_request)
+        if identity is False:
+            continue
+        if identity is None:
+            detail = f"run {run_id} cannot be identified as a code run"
             if run.get("status") != "completed":
-                return {"run_id": run.get("id"), "passed": False, "failures": [f"code run {run.get('id')} for `{head}` is still {run.get('status')}"]}
-            failures = code_failures_of_run(run, jobs, head)
-            return {"run_id": run.get("id"), "passed": not failures, "failures": failures}
-    except (urllib.error.URLError, OSError, ValueError) as error:
-        return {"run_id": None, "passed": False, "failures": [f"the code results of `{head}` could not be looked up: {error}"]}
-    return {"run_id": None, "passed": False, "failures": [f"no completed code run found for `{head}`"]}
+                return None, detail, None
+            return {"run_id": None, "passed": False, "failures": [detail]}, detail, None
+        if run.get("status") != "completed":
+            return None, f"code run {run_id} is still {run.get('status')}", run_id
+        verdict = next((job for job in jobs if short_job_name(job) == VERDICT_JOB), None)
+        if verdict is None or verdict.get("status") != "completed":
+            return None, f"code run {run_id} has no completed `ci / verdict`", run_id
+        if not associated and not any(short_job_name(job) == code_plan_name(pull_request) for job in jobs):
+            failure = verify_legacy_code_run(api_url, repository, token, run_id, pull_request, head)
+            if failure:
+                return {"run_id": run_id, "passed": False, "failures": [failure]}, failure, run_id
+            if monotonic() >= deadline:
+                return None, f"could not verify the pull request of code run {run_id} within the wait", run_id
+        failures = code_failures_of_run(run, jobs, verdict, head, pull_request)
+        if verdict.get("conclusion") not in ("success", "failure"):
+            failures.append(f"`ci / verdict` ended {verdict.get('conclusion')} in code run {run_id}")
+        return {"run_id": run_id, "passed": not failures, "failures": failures}, "", run_id
+    return None, "", None
+
+
+def verify_legacy_code_run(api_url: str, repository: str, token: str | None,
+                           run_id: int, pull_request: int, head: str) -> str:
+    """Runs from before the plan name carried the PR number can prove it with their tested state."""
+    sys.path.insert(0, str(PART_FOLDER.parent / "suite-selection"))
+    try:
+        from reuse import Api, ApiError, read_tested_state_artifact
+
+        try:
+            state, _, detail = read_tested_state_artifact(Api(api_url, repository, token), run_id, pull_request, head)
+            if state is not None and state.get("run_id") != run_id:
+                detail = f"the tested state of code run {run_id} names a different run"
+        except ApiError as error:
+            detail = f"the tested state of code run {run_id} could not be read: {error}"
+        return detail
+    finally:
+        sys.path.pop(0)
+
+
+def code_wait_minutes() -> int:
+    """Bound the longest dependency chain of a code run, with time for runner handoffs."""
+    timeouts = JOB_TIMEOUT_MINUTES
+    suites = max(timeouts[SUITE_SELECTION_LINUX], timeouts[SUITE_SELECTION_WINDOWS]) + timeouts[SUITE_SELECTION_RESULTS]
+    parts = max(DEFAULT_JOB_TIMEOUT_MINUTES, *(minutes for name, minutes in timeouts.items()
+                                               if name not in (PLAN_JOB, VERDICT_JOB, WAIT_FOR_CODE_JOB)))
+    return timeouts[PLAN_JOB] + max(suites, parts) + timeouts[VERDICT_JOB] + 5
 
 
 def job_timeouts(version: SchemaVersion, workflow: str) -> dict[str, int]:
@@ -876,7 +1003,7 @@ def job_timeouts(version: SchemaVersion, workflow: str) -> dict[str, int]:
 
 def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, head: str | None, compare: str,
               workflow: str = PIPELINE, lookup: str | None = None, unit_decisions: str | None = None,
-              event: str = "", event_action: str = "", workflow_ref: str = "", run_id: str = "0",
+              event: str = "", event_action: str = "",
               iso_week: int | None = None, shared_lookup: str | None = None, hygiene_fallbacks: str | None = None) -> dict:
     path = root / CONFIGURATION
     if not path.is_file():
@@ -896,16 +1023,13 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
     ]
     unmatched = unmatched_paths(parts, workflow_parts, tracked_files(root))
     decisions = {}
-    head_results: dict | None = None
-    if event == "pull_request" and event_action == "edited" and workflow == PIPELINE:
-        head_results = head_code_results(head, workflow_ref, run_id)
+    edited = event == "pull_request" and event_action == "edited" and workflow == PIPELINE
+    if edited:
         for name in workflow_parts:
             if name == HYGIENE_JOB:
                 entry: dict = {"run": True, "reason": "title and description checks", "config": parts.get(name, {})}
             elif name not in parts:
                 entry = {"run": False, "reason": "switched off", "config": {}}
-            elif head_results["passed"]:
-                entry = {"run": False, "reason": f"took over from run {head_results['run_id']}", "config": parts.get(name, {}), "reused": True}
             else:
                 entry = {"run": False, "reason": "edited pull request", "config": parts.get(name, {})}
             if name in parts and "setups" in version.schema["properties"]["parts"]["properties"][name].get("properties", {}):
@@ -949,7 +1073,7 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
         "local-workflows-added": [workflow for workflow in registered_workflows(configuration) if workflow not in known],
     }
     fallbacks: dict[str, int] = {}
-    if head_results is None and (selected_units := read_unit_decisions(unit_decisions)) is not None:
+    if not edited and (selected_units := read_unit_decisions(unit_decisions)) is not None:
         result["units"] = selected_units["units"]
         if isinstance(selected_units.get("shards"), list):
             shards = [
@@ -972,8 +1096,9 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
         fallbacks[reason] = fallbacks.get(reason, 0) + count
     if fallbacks:
         result["fallbacks"] = dict(sorted(fallbacks.items()))
-    if head_results is not None:
-        result["head-results"] = head_results
+    if edited:
+        result["wait-for-code"] = True
+        result["timeouts"][WAIT_FOR_CODE_JOB] = JOB_TIMEOUT_MINUTES[WAIT_FOR_CODE_JOB]
     return result
 
 
@@ -1010,12 +1135,8 @@ def plan_markdown(plan: dict) -> str:
         for part_name, patterns in unmatched.items():
             for pattern in patterns:
                 lines.append(f"- `{part_name}`: `{pattern}` matches no tracked file")
-    head_results = plan.get("head-results")
-    if isinstance(head_results, dict):
-        if head_results.get("passed"):
-            lines += ["", f"Code results of the head: passed in run {head_results.get('run_id')}."]
-        else:
-            lines += ["", "Code results of the head: " + "; ".join(head_results.get("failures") or ["not passed"]) + "."]
+    if plan.get("wait-for-code"):
+        lines += ["", "The verdict waits for the code results of this head."]
     fallbacks = plan.get("fallbacks")
     if isinstance(fallbacks, dict) and fallbacks:
         counts = ", ".join(f"`{name}` ({count})" for name, count in sorted(fallbacks.items()))
@@ -1034,7 +1155,7 @@ def run_plan(options: argparse.Namespace) -> int:
         versions = schema_versions(Path(options.schemas))
         plan = make_plan(Path(options.root), versions, options.base, options.head, options.compare,
                          options.shared_workflow, options.lookup, options.unit_decisions,
-                         options.event, options.event_action, options.workflow_ref, options.run_id, options.iso_week,
+                         options.event, options.event_action, options.iso_week,
                          options.shared_lookup, options.hygiene_fallbacks)
     except (PlanError, SchemaError) as error:
         lines = str(error).splitlines()
@@ -1057,6 +1178,16 @@ def run_plan(options: argparse.Namespace) -> int:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(json.dumps(plan, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
     append(options.summary, plan_markdown(plan))
+    return 0
+
+
+def run_wait_for_code(options: argparse.Namespace) -> int:
+    result = wait_for_code_results(options.head, options.pull_request, options.workflow_ref, options.run_id)
+    append(options.github_output, f"code-results={json.dumps(result, separators=(',', ':'))}\n")
+    message = (f"Code results of the head: passed in run {result['run_id']}." if result["passed"]
+               else "Code results of the head: " + "; ".join(result["failures"]) + ".")
+    print(message)
+    append(options.summary, message + "\n")
     return 0
 
 
@@ -1172,6 +1303,7 @@ def suite_selection_followups(needs: dict, selection_job: str = SUITE_SELECTION_
 
 # The outputs of the ``plan`` job that hold the outcome of each light hygiene check that runs inside it.
 LIGHT_CHECKS = {"light-branch": "the pull request branch", "light-references": "the references to repositories of the owner",
+                "light-pr-references": "the references in the pull request title and description",
                 "light-consumer-checks": "the consumer checks", "light-coverage": "Dependabot coverage",
                 "light-links": "relative links in tracked Markdown"}
 
@@ -1183,6 +1315,23 @@ def light_check_failures(needs: dict) -> list[str]:
     if not isinstance(outputs, dict):
         return []
     return [f"the light check of {label} in `{PLAN_JOB}` failed" for output, label in LIGHT_CHECKS.items() if outputs.get(output) == "failure"]
+
+
+def edit_code_result(needs: dict) -> tuple[int | None, list[str]]:
+    job = needs.get(WAIT_FOR_CODE_JOB, {})
+    if job.get("result") != "success":
+        return None, [f"the wait for code results did not succeed: `{WAIT_FOR_CODE_JOB}` ended {job.get('result') or 'missing'}"]
+    try:
+        result = json.loads(job.get("outputs", {}).get("code-results", ""))
+    except (TypeError, ValueError):
+        result = None
+    if isinstance(result, dict):
+        if result.get("passed") is True and type(result.get("run_id")) is int and result.get("failures") == []:
+            return result["run_id"], []
+        failures = result.get("failures")
+        if result.get("passed") is False and isinstance(failures, list) and failures and all(isinstance(item, str) for item in failures):
+            return None, failures
+    return None, ["the wait job gave no usable code result"]
 
 
 def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOutcome]]:
@@ -1203,6 +1352,14 @@ def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOut
                 reasons.append(error or f"the `{PLAN_JOB}` job gave no plan output")
         else:
             checks: list[CheckOutcome] = []
+            code_run = None
+            if plan.get("wait-for-code") is True:
+                code_run, code_failures = edit_code_result(needs)
+                reasons.extend(code_failures)
+                hygiene_outputs = needs.get(HYGIENE_JOB, {}).get("outputs", {})
+                for output, label in (("title", "the pull request title"), ("references", "the references in the pull request title and description")):
+                    if hygiene_outputs.get(output) == "failure":
+                        reasons.append(f"the check of {label} failed")
             for name, part in plan["parts"].items():
                 reason = str(part.get("reason", ""))
                 if part["run"]:
@@ -1221,13 +1378,14 @@ def evaluate_verdict(needs: dict) -> tuple[list[str], dict | None, list[CheckOut
                             reasons += followup_reasons
                 else:
                     outcome = "taken over" if part.get("reused") is True else "skipped"
+                    if code_run is not None and reason == "edited pull request":
+                        outcome, reason = "taken over", f"code result from run {code_run}"
                     checks.append(CheckOutcome(name, outcome, "not run", reason))
-            head_results = plan.get("head-results")
-            if isinstance(head_results, dict) and head_results.get("passed") is False:
-                reasons.extend(str(item) for item in (head_results.get("failures") or ["the code checks of the head did not pass"]))
             return reasons, plan, checks
+    if WAIT_FOR_CODE_JOB in needs and needs[WAIT_FOR_CODE_JOB].get("result") != "skipped":
+        reasons.extend(edit_code_result(needs)[1])
     reasons += [f"`{name}` ended {job.get('result')}" for name, job in needs.items()
-                if name != PLAN_JOB and job.get("result") in FAILING_RESULTS]
+                if name not in (PLAN_JOB, WAIT_FOR_CODE_JOB) and job.get("result") in FAILING_RESULTS]
     return reasons, None, []
 
 
@@ -1252,6 +1410,19 @@ def verdict_markdown(needs: dict, reasons: list[str], plan: dict | None = None, 
     return "\n".join(lines) + "\n"
 
 
+def only_pr_text_failed(needs: dict, plan: dict | None, reasons: list[str]) -> bool:
+    """A failed code verdict can be inherited only when every reason is accounted for by the PR text checks."""
+    if plan is None or plan.get("wait-for-code") or not reasons:
+        return False
+    allowed = set()
+    if needs[PLAN_JOB].get("outputs", {}).get("light-pr-references") == "failure":
+        allowed.update({f"`{PLAN_JOB}` ended failure",
+                        f"the light check of {LIGHT_CHECKS['light-pr-references']} in `{PLAN_JOB}` failed"})
+    if needs.get(HYGIENE_JOB, {}).get("outputs", {}).get("title") == "failure":
+        allowed.add(f"`{HYGIENE_JOB}` ended failure")
+    return set(reasons) <= allowed
+
+
 def run_verdict(options: argparse.Namespace) -> int:
     try:
         needs = json.loads(Path(options.needs).read_text(encoding="utf-8"))
@@ -1266,6 +1437,8 @@ def run_verdict(options: argparse.Namespace) -> int:
     for name, job in needs.items():
         print(f"job {name}: {job.get('result')}")
     append(options.summary, verdict_markdown(needs, reasons, plan, checks))
+    if options.github_output and only_pr_text_failed(needs, plan, reasons):
+        append(options.github_output, "text-only-failure=true\n")
     return 1 if reasons else 0
 
 
@@ -1343,7 +1516,6 @@ def parser() -> argparse.ArgumentParser:
     planning.add_argument("--unit-decisions", help="the per-unit decisions JSON file written by suite_selection.py select")
     planning.add_argument("--hygiene-fallbacks", help="the hygiene fallbacks JSON file written by hygiene.py changes --fallbacks")
     planning.add_argument("--workflow", default="pipeline", help="the name of the running workflow, for the concurrency groups")
-    planning.add_argument("--workflow-ref", default="", help="the workflow_ref of the running workflow, for looking up head runs")
     planning.add_argument("--event", default="", help="the name of the event of the run")
     planning.add_argument("--event-action", default="", help="the action of the event, such as edited on pull_request")
     planning.add_argument("--pull-request", default="", help="the number of the pull request of the run, empty on another event")
@@ -1355,6 +1527,14 @@ def parser() -> argparse.ArgumentParser:
     deciding = commands.add_parser("verdict", help="pass or fail on the results of the plan and the parts")
     deciding.add_argument("--needs", required=True, help="a file with toJSON(needs) of the verdict job")
     deciding.add_argument("--summary", help="the file that receives the Markdown summary")
+    deciding.add_argument("--github-output", help="the file that receives the verdict's classification of text-check failures")
+    waiting = commands.add_parser(WAIT_FOR_CODE_JOB, help="wait for the code verdict of an edited pull request's head")
+    waiting.add_argument("--head", required=True)
+    waiting.add_argument("--pull-request", type=int, required=True)
+    waiting.add_argument("--workflow-ref", required=True)
+    waiting.add_argument("--run-id", required=True)
+    waiting.add_argument("--github-output", required=True)
+    waiting.add_argument("--summary")
     assembling = commands.add_parser("schema", help="write or check the assembled schema of each version")
     assembling.add_argument("--schemas", default=str(SCHEMAS), help="the schema folder")
     assembling.add_argument("--check", action="store_true", help="fail when an assembled schema differs instead of writing it")
@@ -1368,7 +1548,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     options = parser().parse_args(argv)
-    return {"plan": run_plan, "verdict": run_verdict, "schema": run_schema, "setting": run_setting}[options.command](options)
+    return {"plan": run_plan, "verdict": run_verdict, WAIT_FOR_CODE_JOB: run_wait_for_code,
+            "schema": run_schema, "setting": run_setting}[options.command](options)
 
 
 if __name__ == "__main__":

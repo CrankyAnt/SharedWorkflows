@@ -21,7 +21,7 @@ from measurement_api import (
 )
 
 SCHEMA_VERSION = 1
-JUDGE_VERSION = 1
+JUDGE_VERSION = 2
 DEFAULT_RETENTION_DAYS = 90
 MEASUREMENT_STORE_ARTIFACT = "measurement-records"
 MEASUREMENT_STORE_FILENAME = "measurement-records.json"
@@ -37,6 +37,7 @@ class RecordState(enum.Enum):
     VERDICT = "verdict"
     NO_VERDICT = "no-verdict"
     EXCLUDED_CANCELLED = "excluded-cancelled"
+    EXCLUDED_EDITED = "excluded-edited"
     DELETED = "deleted"
 
 
@@ -44,6 +45,7 @@ FROZEN_STATES = frozenset({
     RecordState.VERDICT,
     RecordState.NO_VERDICT,
     RecordState.EXCLUDED_CANCELLED,
+    RecordState.EXCLUDED_EDITED,
     RecordState.DELETED,
 })
 

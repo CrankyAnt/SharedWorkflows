@@ -129,6 +129,30 @@ class MeasurementThreeMinuteTargetTests(MeasurementFixture):
 
 
 class MeasurementPlanMetricsTests(MeasurementFixture):
+    def test_edit_runs_are_excluded_from_both_ci_goal_metrics_without_a_plan_artifact(self) -> None:
+        consumer = self.stand_in.repository(CONSUMER)
+        no_tests_plan = {"version": 1, "parts": {"python-test": {"run": False}}}
+        code_run = consumer.add_run(
+            "2026-03-20T10:00:00Z", verdict_completed_at="2026-03-20T10:01:15Z", plan=no_tests_plan,
+        )
+        consumer.attempt_jobs[(code_run, 1)][0]["name"] = "ci / plan (PR #123)"
+        edit_run = consumer.add_run(
+            "2026-03-21T10:00:00Z", verdict_completed_at="2026-03-21T10:00:20Z",
+        )
+        consumer.attempt_jobs[(edit_run, 1)][0]["name"] = "ci / plan (edited pull request)"
+        store = self.directory / "measurement.json"
+        measured = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--store-out", str(store))
+        reported = self.run_measurement("report", "--store", str(store), "--now", "2026-04-01T12:00:00Z")
+
+        for outcome in (measured, reported):
+            self.assertEqual(0, outcome.status, outcome.stderr)
+            assert outcome.report is not None
+            metrics = outcome.report["repositories"][CONSUMER]
+            self.assertEqual(1, metrics["verdict_runs"])
+            self.assertEqual(1, metrics["within_3m_count"])
+            self.assertEqual(1, metrics["no_tests_runs"])
+            self.assertEqual(75.0, metrics["no_tests_median_seconds"])
+
     def test_reports_median_of_runs_whose_plan_selects_no_tests(self) -> None:
         consumer = self.stand_in.repository(CONSUMER)
         no_tests_plan = {
@@ -566,7 +590,7 @@ class MeasurementFixedCostTests(MeasurementFixture):
         # lang_step skipped (0s), shard_end=10:03:31 (after 15s), results_end=10:03:45 (results 14s),
         # verdict_end=10:03:58 (verdict 13s). Total=238s, estimate=71.0s -> outside=89.0s, excess=78.0s, fixed_cost=167.0s.
         # Shard 2 finishes earlier (10:02:00) so shard 1 is the critical shard.
-        consumer.add_run(
+        code_run = consumer.add_run(
             "2026-03-20T10:00:00Z",
             plan_completed_at="2026-03-20T10:00:19Z",
             verdict_completed_at="2026-03-20T10:03:58Z",
@@ -602,6 +626,7 @@ class MeasurementFixedCostTests(MeasurementFixture):
                 },
             ],
         )
+        consumer.attempt_jobs[(code_run, 1)][0]["name"] = "ci / plan (PR #123)"
         # Run 2: fixed cost below 90s (outside=50s, lang_step=5s subtracted from outside, excess=5s -> fixed_cost=55s).
         consumer.add_run(
             "2026-03-21T10:00:00Z",
@@ -1201,6 +1226,64 @@ class MeasurementIncrementalStoreTests(MeasurementFixture):
 
 
 class MeasurementStoreDiscoveryAndMigrationTests(MeasurementFixture):
+    def test_rejudges_recent_stored_edit_runs_using_the_old_plan_artifact_or_job_steps(self) -> None:
+        consumer = self.stand_in.repository(CONSUMER)
+        no_tests_plan = {"version": 1, "parts": {"python-test": {"run": False}}}
+        edited_plan = {**no_tests_plan, "head-results": {"run_id": 123, "passed": True}}
+        consumer.add_run(
+            "2026-03-20T10:00:00Z", verdict_completed_at="2026-03-20T10:01:15Z", plan=no_tests_plan,
+        )
+        consumer.add_run(
+            "2026-03-21T10:00:00Z", verdict_completed_at="2026-03-21T10:00:20Z", plan=edited_plan,
+        )
+        expired_edit_run = consumer.add_run(
+            "2026-03-22T10:00:00Z", verdict_completed_at="2026-03-22T10:00:30Z", plan=edited_plan, plan_expired=True,
+        )
+        consumer.attempt_jobs[(expired_edit_run, 1)][0]["steps"] = [
+            {"name": "Record the checked-out commit and tree", "conclusion": "skipped"},
+        ]
+        records = {
+            str(run["id"]): {
+                "run_id": run["id"],
+                "created_at": run["created_at"],
+                "run_attempt": 1,
+                "status": "completed",
+                "state": "verdict",
+                "verdict_completed_at": run["updated_at"],
+                "duration_seconds": duration,
+                "plan_found": True,
+                "selects_no_tests": True,
+                "fixed_cost_outcome": "skip",
+                "judge_version": 1,
+            }
+            for run, duration in zip(consumer.runs, (75, 20, 30), strict=True)
+        }
+        self.management.add_store_artifact(
+            {
+                "schema_version": 1,
+                "judge_version": 1,
+                "repositories": {
+                    CONSUMER: {
+                        "listed_from": "2026-03-04T12:00:00Z",
+                        "listed_to": "2026-03-31T12:00:00Z",
+                        "records": records,
+                    },
+                },
+            },
+            created_at="2026-03-31T12:00:00Z",
+        )
+        store = self.directory / "measurement.json"
+        measured = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--store-out", str(store))
+        reported = self.run_measurement("report", "--store", str(store), "--now", "2026-04-01T12:00:00Z")
+        for outcome in (measured, reported):
+            self.assertEqual(0, outcome.status, outcome.stderr)
+            assert outcome.report is not None
+            metrics = outcome.report["repositories"][CONSUMER]
+            self.assertEqual(1, metrics["verdict_runs"])
+            self.assertEqual(1, metrics["no_tests_runs"])
+            self.assertEqual(75.0, metrics["no_tests_median_seconds"])
+            self.assertTrue(metrics["coverage"]["complete"])
+
     def test_store_listing_failure_ends_without_writing_store(self) -> None:
         self.stand_in.repository(CONSUMER).add_run("2026-03-20T10:00:00Z", verdict_completed_at="2026-03-20T10:01:00Z")
         self.stand_in.refused[f"/repos/{MANAGEMENT}/actions/artifacts"] = 502
@@ -1336,12 +1419,12 @@ class MeasurementStoreDiscoveryAndMigrationTests(MeasurementFixture):
         assert outcome.report is not None
         self.assertEqual(0, outcome.report["store"]["migrated_from"])
         self.assertIn("migrated from schema v0", outcome.summary)
-        # Recent run was re-judged to 50s (within 3m, no-tests) with judge_version=1.
+        # Recent run was re-judged to 50s (within 3m, no-tests) with the current judge version.
         self.assertEqual(1, outcome.report["repositories"][CONSUMER]["within_3m_count"])
         self.assertEqual(1, outcome.report["repositories"][CONSUMER]["no_tests_runs"])
         saved = json.loads(store_out.read_text(encoding="utf-8"))
         self.assertEqual(1, saved["schema_version"])
-        self.assertEqual(1, saved["repositories"][CONSUMER]["records"][str(recent_id)]["judge_version"])
+        self.assertEqual(2, saved["repositories"][CONSUMER]["records"][str(recent_id)]["judge_version"])
         self.assertNotIn("extra_legacy_field", saved["repositories"][CONSUMER]["records"][str(recent_id)])
         # Older run (45 days old) was NOT re-fetched and kept judge_version=0.
         self.assertEqual(0, saved["repositories"][CONSUMER]["records"]["500"]["judge_version"])

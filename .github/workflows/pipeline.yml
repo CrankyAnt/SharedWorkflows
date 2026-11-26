@@ -7,6 +7,7 @@ permissions: {}
 
 jobs:
   plan:
+    name: "${{ github.event_name == 'pull_request' && (github.event.action == 'edited' && 'plan (edited pull request)' || format('plan (PR #{0})', github.event.pull_request.number)) || 'plan' }}"
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
@@ -38,6 +39,7 @@ jobs:
       # The outcome of each light hygiene check, so that the verdict names a failed one while the parts still run.
       light-branch: ${{ steps.branch.outcome }}
       light-references: ${{ steps.references.outcome }}
+      light-pr-references: ${{ steps.pr-references.outcome }}
       light-consumer-checks: ${{ steps.consumer-checks.outcome }}
       light-coverage: ${{ steps.coverage.outcome }}
       light-links: ${{ steps.links.outcome }}
@@ -129,12 +131,10 @@ jobs:
           HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'repository_dispatch' && github.event.client_payload.sha) || github.sha }}
           COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
           WORKFLOW: ${{ github.workflow }}
-          WORKFLOW_REF: ${{ github.workflow_ref }}
           EVENT: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           RUN_ID: ${{ github.run_id }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set --
           if [ -f "$RUNNER_TEMP/push-lookup.json" ]; then
@@ -144,7 +144,7 @@ jobs:
             set -- --base "$BASE" --head "$HEAD" --compare "$COMPARE"
           fi
           set +e
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --workflow-ref "$WORKFLOW_REF" --event "$EVENT" --event-action "$EVENT_ACTION" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$RUNNER_TEMP/initial-plan-summary.md"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --event "$EVENT" --event-action "$EVENT_ACTION" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$RUNNER_TEMP/initial-plan-summary.md"
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then
@@ -191,12 +191,10 @@ jobs:
           HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'repository_dispatch' && github.event.client_payload.sha) || github.sha }}
           COMPARE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
           WORKFLOW: ${{ github.workflow }}
-          WORKFLOW_REF: ${{ github.workflow_ref }}
           EVENT: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           RUN_ID: ${{ github.run_id }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set --
           if [ -f "$RUNNER_TEMP/push-lookup.json" ]; then
@@ -215,7 +213,7 @@ jobs:
           if [ -f "$RUNNER_TEMP/hygiene-fallbacks.json" ]; then
             set -- "$@" --hygiene-fallbacks "$RUNNER_TEMP/hygiene-fallbacks.json"
           fi
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --workflow-ref "$WORKFLOW_REF" --event "$EVENT" --event-action "$EVENT_ACTION" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --output "$RUNNER_TEMP/ci-plan.json" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" plan --root . "$@" --workflow "$WORKFLOW" --event "$EVENT" --event-action "$EVENT_ACTION" --pull-request "$PULL_REQUEST" --run-id "$RUN_ID" --output "$RUNNER_TEMP/ci-plan.json" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Upload the pipeline plan
         if: ${{ !cancelled() && steps.plan.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -269,13 +267,20 @@ jobs:
         run: node "$CONVENTIONS_PATH/check-branch.cjs" "$HEAD_BRANCH"
       - name: Check the references to repositories of the owner
         id: references
-        if: ${{ !cancelled() && steps.conventions.outcome == 'success' && steps.checkout.outcome == 'success' && steps.author-decision.outputs.skip == 'false' }}
+        if: ${{ !cancelled() && steps.conventions.outcome == 'success' && steps.checkout.outcome == 'success' && steps.author-decision.outputs.skip == 'false' && github.event.action != 'edited' }}
         env:
           CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
           GITHUB_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node "$CONVENTIONS_PATH/check-references.cjs" "$BASE_SHA" "$HEAD_SHA"
+        run: node "$CONVENTIONS_PATH/check-references.cjs" --commits "$BASE_SHA" "$HEAD_SHA"
+      - name: Check the references in the pull request title and description
+        id: pr-references
+        if: ${{ !cancelled() && steps.conventions.outcome == 'success' && steps.checkout.outcome == 'success' && steps.author-decision.outputs.skip == 'false' && github.event.action != 'edited' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node "$CONVENTIONS_PATH/check-references.cjs" --pull-request-text
       - name: Consumer checks
         id: consumer-checks
         if: ${{ !cancelled() && steps.resources.outcome == 'success' && steps.checkout.outcome == 'success' && github.event_name == 'pull_request' && github.event.action != 'edited' && github.event.pull_request.user.login != 'dependabot[bot]' }}
@@ -589,6 +594,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      title: ${{ steps.title.outcome }}
+      references: ${{ steps.pr-references.outcome }}
     steps:
       - name: Load resources from this workflow revision
         id: resources
@@ -669,6 +677,13 @@ jobs:
           title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .title)"
           printf '%s\n' "$title" |
             node "$COMMITLINT_CLI" --config "$COMMITLINT_CONFIG" --cwd "$GITHUB_WORKSPACE" --verbose
+      - name: Check the references in the pull request title and description
+        id: pr-references
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.action == 'edited' && steps.conventions.outcome == 'success' }}
+        env:
+          CONVENTIONS_PATH: ${{ steps.conventions.outputs.path }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node "$CONVENTIONS_PATH/check-references.cjs" --pull-request-text
       - name: Compute the hygiene tools cache key
         id: tools-key
         if: ${{ !cancelled() && !(github.event_name == 'pull_request' && github.event.action == 'edited') }}
@@ -850,8 +865,34 @@ jobs:
           path: ${{ runner.temp }}/suite-results/record.json
           key: suite-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}
 
+  wait-for-code:
+    needs: plan
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.action == 'edited' && (needs.plan.outputs.plan == '' || fromJSON(needs.plan.outputs.plan)['wait-for-code']) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan || '{}').timeouts['wait-for-code'] || 40 }}
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      code-results: ${{ steps.wait.outputs.code-results }}
+    steps:
+      - name: Load the plan program from this workflow revision
+        id: resources
+        uses: $/actions/pipeline
+      - name: Wait for the code verdict of this pull request head
+        id: wait
+        env:
+          RESOURCE_PATH: ${{ steps.resources.outputs.path }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          RUN_ID: ${{ github.run_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" wait-for-code --head "$HEAD" --pull-request "$PULL_REQUEST" --workflow-ref "$WORKFLOW_REF" --run-id "$RUN_ID" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
   verdict:
-    needs: [plan, custom, dotnet-test, node-test, python-test, python-verify, repository-hygiene, suite-selection-jobs, suite-selection-results]
+    needs: [plan, custom, dotnet-test, node-test, python-test, python-verify, repository-hygiene, suite-selection-jobs, suite-selection-results, wait-for-code]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     timeout-minutes: ${{ fromJSON(needs.plan.outputs.plan || '{}').timeouts['verdict'] || 5 }}
@@ -868,7 +909,10 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" verdict --needs "$RUNNER_TEMP/needs.json" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/plan.py" verdict --needs "$RUNNER_TEMP/needs.json" --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT"
+      - name: Record that only the pull request text checks failed
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.action != 'edited' && steps.verdict.outputs.text-only-failure == 'true' }}
+        run: printf '%s\n' 'The code checks passed.'
       - name: Load the scripts of the suite selection from this workflow revision
         id: selection
         if: ${{ !cancelled() && steps.verdict.outcome == 'success' && (github.event_name == 'repository_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)) }}

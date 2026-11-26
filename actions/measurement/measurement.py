@@ -104,6 +104,9 @@ MANUAL_EVENTS = frozenset({"workflow_dispatch"})
 ENTRY_FILE_STEP = "Run the shard's entry files under the recording, two at a time"
 PYTHON_LANGUAGE_STEP = "Run the Python language step outside the recording"
 SHARD_JOB_PATTERN = re.compile(r"^shard (\d+)$")
+PR_PLAN_JOB_PATTERN = re.compile(r"plan \(PR #[0-9]+\)")
+EDIT_PLAN_JOB = "plan (edited pull request)"
+TESTED_REF_STEP = "Record the checked-out commit and tree"
 FIXED_COST_QUANTILE = 0.95
 SUITE_SELECTION_SCRIPT = Path(__file__).resolve().parent.parent / "suite-selection" / "suite_selection.py"
 MARKER = "<!-- measurement-finding: {key} -->"
@@ -358,6 +361,17 @@ def _step_by_name(job: dict, name: str) -> dict | None:
     return None
 
 
+def _is_edit_plan_job(job: dict) -> bool:
+    name = short_job_name(job)
+    if name == EDIT_PLAN_JOB:
+        return True
+    if name != "plan" or job.get("conclusion") != "success":
+        return False
+    # In the old pipeline this step was skipped only for edits if the plan succeeded.
+    step = _step_by_name(job, TESTED_REF_STEP)
+    return step is not None and step.get("conclusion") == "skipped"
+
+
 def _successful_step_times(job: dict, name: str) -> tuple[datetime.datetime, datetime.datetime] | None:
     """Return ``(started_at, completed_at)`` for step ``name`` when it completed with conclusion ``success``."""
     step = _step_by_name(job, name)
@@ -409,7 +423,7 @@ def fixed_cost_of_run(
         short = short_job_name(job)
         if short == "verdict":
             continue
-        if short == "plan":
+        if short == "plan" or PR_PLAN_JOB_PATTERN.fullmatch(short):
             plan_job = job
             continue
         if short == "suite-selection-results":
@@ -702,22 +716,26 @@ def judge_record(
     # Always judge through attempts/1/jobs so a concurrent re-run never leaks attempt 2 jobs.
     jobs = api.pages(f"repos/{repository}/actions/runs/{run_id}/attempts/1/jobs", "jobs", allow_missing=(attempt == 1))
     verdict = verdict_job(jobs) if jobs else None
-    if verdict is None:
-        completed_moment = (
-            _latest_job_completed_at(jobs)
-            or (moment(attempt_updated_raw) if isinstance(attempt_updated_raw, str) and attempt_updated_raw else None)
-            or created_at
-        )
-        if (now - completed_moment) < settle_delta:
-            return _mark_unfinished(updated, now)
-        return _mark_non_verdict_terminal(updated, RecordState.NO_VERDICT, now)
-
-    completed_at = moment(str(verdict["completed_at"]))
+    completed_at = moment(str(verdict["completed_at"])) if verdict is not None else (
+        _latest_job_completed_at(jobs)
+        or (moment(attempt_updated_raw) if isinstance(attempt_updated_raw, str) and attempt_updated_raw else None)
+        or created_at
+    )
     if (now - completed_at) < settle_delta:
         return _mark_unfinished(updated, now)
 
+    if any(_is_edit_plan_job(job) for job in jobs or ()):
+        return _mark_non_verdict_terminal(updated, RecordState.EXCLUDED_EDITED, now)
+    if verdict is None:
+        if is_rejudge and record_state(record) is RecordState.VERDICT:
+            # Without a verifiable verdict, keep the previously recorded one.
+            return copy.deepcopy(record)
+        return _mark_non_verdict_terminal(updated, RecordState.NO_VERDICT, now)
+
     # Always pass max_created_at = attempt 1 verdict completed_at so a later re-run's ci-plan never wins.
     plan = plan_index.read_plan(run_id, completed_at)
+    if plan is not None and "head-results" in plan:
+        return _mark_non_verdict_terminal(updated, RecordState.EXCLUDED_EDITED, now)
     # During a judge-version re-judge, if the ci-plan artifact has already expired, keep the old record intact.
     if is_rejudge and record.get("plan_found") is True and plan is None:
         return copy.deepcopy(record)
@@ -943,7 +961,7 @@ def metrics_from_store_repo(
             judge_versions.add(judge_version)
             if judge_version != JUDGE_VERSION and created_at >= rejudge_cutoff:
                 stale_judge_runs += 1
-        if state is RecordState.EXCLUDED_CANCELLED:
+        if state in (RecordState.EXCLUDED_CANCELLED, RecordState.EXCLUDED_EDITED):
             continue
         if state is RecordState.DELETED:
             metrics.deleted_runs += 1

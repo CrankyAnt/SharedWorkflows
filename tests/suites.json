@@ -69,19 +69,19 @@
         "tests/test_ci_policy_catalogue.py": 0.56,
         "tests/test_ci_policy_entry_files.py": 0.58,
         "tests/test_ci_policy_etw_consumer.py": 0.53,
-        "tests/test_ci_policy_fixed_callers.py": 0.49,
+        "tests/test_ci_policy_fixed_callers.py": 0.61,
         "tests/test_ci_policy_full_recording.py": 0.79,
         "tests/test_ci_policy_hygiene_caller.py": 0.53,
         "tests/test_ci_policy_hygiene_promotion.py": 0.62,
         "tests/test_ci_policy_hygiene_promotion_surface.py": 0.54,
         "tests/test_ci_policy_hygiene_updater.py": 0.55,
         "tests/test_ci_policy_hygiene_validate.py": 0.93,
-        "tests/test_ci_policy_measurement.py": 0.84,
+        "tests/test_ci_policy_measurement.py": 0.62,
         "tests/test_ci_policy_off_path_runners.py": 0.61,
-        "tests/test_ci_policy_pipeline.py": 1.5,
-        "tests/test_ci_policy_pipeline_parts.py": 0.93,
+        "tests/test_ci_policy_pipeline.py": 2.21,
+        "tests/test_ci_policy_pipeline_parts.py": 0.66,
         "tests/test_ci_policy_publication.py": 0.49,
-        "tests/test_ci_policy_publication_document.py": 0.41,
+        "tests/test_ci_policy_publication_document.py": 0.55,
         "tests/test_ci_policy_python_language_step.py": 0.65,
         "tests/test_ci_policy_python_tests_caller.py": 0.55,
         "tests/test_ci_policy_recording_action.py": 0.54,
@@ -5729,11 +5729,11 @@
         "tests/test_consumer_kit_automation_additions.py": 42.31,
         "tests/test_consumer_kit_automation_full_recording.py": 3.41,
         "tests/test_consumer_kit_fixed_callers.py": 0.71,
-        "tests/test_consumer_kit_install_by_need.py": 0.48,
+        "tests/test_consumer_kit_install_by_need.py": 0.61,
         "tests/test_consumer_kit_own_dependabot.py": 0.47,
         "tests/test_consumer_kit_publication.py": 0.42,
         "tests/test_consumer_kit_templates.py": 0.53,
-        "tests/test_consumer_kit_validation_workflow.py": 1.9
+        "tests/test_consumer_kit_validation_workflow.py": 1.3
       },
       "entry_selection": true,
       "paths": [
@@ -7364,10 +7364,10 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_suite_selection.py": 7.13,
-        "tests/test_suite_selection_caller_entries.py": 19.56,
+        "tests/test_suite_selection.py": 4.32,
+        "tests/test_suite_selection_caller_entries.py": 12.71,
         "tests/test_suite_selection_ci_step_precision.py": 5.48,
-        "tests/test_suite_selection_code_boundary.py": 0.71,
+        "tests/test_suite_selection_code_boundary.py": 0.48,
         "tests/test_suite_selection_part_boundary.py": 0.49,
         "tests/test_suite_selection_recording_apply.py": 58.77,
         "tests/test_suite_selection_recording_check.py": 57.77,
@@ -7382,10 +7382,10 @@
         "tests/test_suite_selection_reuse_decisions.py": 49.62,
         "tests/test_suite_selection_reuse_lookup.py": 24.99,
         "tests/test_suite_selection_rules.py": 18.84,
-        "tests/test_suite_selection_setups.py": 5.56,
-        "tests/test_suite_selection_shards.py": 11.95,
+        "tests/test_suite_selection_setups.py": 7.72,
+        "tests/test_suite_selection_shards.py": 5.5,
         "tests/test_suite_selection_unrecorded.py": 72.74,
-        "tests/test_suite_selection_workflow.py": 2.8,
+        "tests/test_suite_selection_workflow.py": 1.71,
         "tests/test_suite_selection_workflow_reader.py": 0.67
       },
       "entry_selection": true,
@@ -14237,7 +14237,7 @@
         "tests/test_hygiene_push_and_reuse.py": 18.94,
         "tests/test_hygiene_repository_hygiene.py": 0.49,
         "tests/test_hygiene_reuse.py": 5.44,
-        "tests/test_hygiene_v1_promotion.py": 26.78,
+        "tests/test_hygiene_v1_promotion.py": 12.01,
         "tests/test_hygiene_v1_promotion_manual.py": 43.1,
         "tests/test_hygiene_zizmor.py": 1.66,
         "tests/test_hygiene_zizmor_configuration.py": 2.55,
@@ -17594,16 +17594,16 @@
       "entry_durations": {
         "tests/test_pipeline_automation_invocations.py": 1.38,
         "tests/test_pipeline_callers.py": 25.83,
-        "tests/test_pipeline_custom.py": 5.75,
+        "tests/test_pipeline_custom.py": 3.16,
         "tests/test_pipeline_dependabot.py": 8.13,
         "tests/test_pipeline_issue_title.py": 11.87,
-        "tests/test_pipeline_parts.py": 11.64,
-        "tests/test_pipeline_plan.py": 32.91,
+        "tests/test_pipeline_parts.py": 14.82,
+        "tests/test_pipeline_plan.py": 21.92,
         "tests/test_pipeline_register.py": 27.99,
         "tests/test_pipeline_release.py": 61.15,
         "tests/test_pipeline_schema.py": 5.76,
         "tests/test_pipeline_steps_shell.py": 7.25,
-        "tests/test_pipeline_verdict.py": 3.66,
+        "tests/test_pipeline_verdict.py": 2.38,
         "tests/test_pipeline_workflow.py": 15.74
       },
       "entry_selection": true,
@@ -17660,6 +17660,10 @@
         "actions/repository-hygiene/update_pins.py",
         "actions/repository-hygiene/zizmor-policy.yml",
         "actions/suite-selection/ci_definition.py",
+        "actions/suite-selection/reuse.py",
+        "actions/suite-selection/revisions.py",
+        "actions/suite-selection/suite_list.py",
+        "actions/suite-selection/suite_selection.py",
         "tests/ci_policy_support.py",
         "tests/consumer_checks_fixtures.py",
         "tests/consumer_kit_support.py",
@@ -17849,6 +17853,11 @@
           "actions/pipeline/schema/v1/setups.json",
           "actions/pipeline/timeouts.json",
           "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/reuse.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
+          "actions/suite-selection/suite_selection.py",
           "tests/pipeline_fixtures.py",
           "tests/temporary_support.py",
           "tests/test_pipeline_plan.py"
@@ -18317,6 +18326,70 @@
         },
         {
           "path": "actions/suite-selection/ci_definition.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/reuse",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/reuse.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/reuse.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/revisions",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/revisions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/revisions.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_list.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_selection",
+          "kind": "directory"
+        },
+        {
+          "path": "actions/suite-selection/suite_selection.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "actions/suite-selection/suite_selection.so",
           "kind": "any"
         },
         {
@@ -19687,6 +19760,90 @@
             "kind": "any"
           },
           {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
             "path": "tests",
             "kind": "directory"
           },
@@ -20740,6 +20897,7 @@
           ".",
           "actions/pipeline",
           "actions/repository-hygiene",
+          "actions/suite-selection",
           "tests"
         ],
         "tests/test_pipeline_register.py": [
@@ -20963,7 +21121,7 @@
       "entry_durations": {
         "tests/test_sync_adoption.py": 11.71,
         "tests/test_sync_files.py": 16.83,
-        "tests/test_sync_settings.py": 16.05
+        "tests/test_sync_settings.py": 22.89
       },
       "entry_selection": true,
       "paths": [
@@ -22350,7 +22508,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_floor.py": 10.7
+        "tests/test_python_floor.py": 7.87
       },
       "paths": [
         "actions/dependabot-auto-merge/auto_merge.py",
