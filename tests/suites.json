@@ -1,5 +1,6 @@
 {
   "always": [],
+  "entry_durations_version": 2,
   "jobs": {
     "linux": {
       "fetch-depth": 0
@@ -61,35 +62,38 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_ci_policy_action_pins.py": 0.41,
-        "tests/test_ci_policy_additions.py": 0.47,
-        "tests/test_ci_policy_auto_merge_caller.py": 0.31,
-        "tests/test_ci_policy_catalogue.py": 1.83,
-        "tests/test_ci_policy_etw_consumer.py": 0.41,
-        "tests/test_ci_policy_full_recording.py": 0.36,
-        "tests/test_ci_policy_hygiene_caller.py": 0.47,
-        "tests/test_ci_policy_hygiene_core.py": 0.52,
-        "tests/test_ci_policy_hygiene_promotion.py": 0.52,
-        "tests/test_ci_policy_hygiene_promotion_surface.py": 0.31,
-        "tests/test_ci_policy_hygiene_updater.py": 0.31,
-        "tests/test_ci_policy_hygiene_validate.py": 0.47,
-        "tests/test_ci_policy_measurement.py": 0.72,
-        "tests/test_ci_policy_off_path_runners.py": 0.31,
-        "tests/test_ci_policy_pipeline.py": 1.01,
-        "tests/test_ci_policy_pipeline_parts.py": 0.56,
-        "tests/test_ci_policy_publication.py": 0.31,
-        "tests/test_ci_policy_publication_document.py": 0.41,
-        "tests/test_ci_policy_python_language_step.py": 0.36,
-        "tests/test_ci_policy_python_tests_caller.py": 0.52,
-        "tests/test_ci_policy_recording_action.py": 0.41,
-        "tests/test_ci_policy_release.py": 0.62,
-        "tests/test_ci_policy_reuse.py": 0.47,
-        "tests/test_ci_policy_shared_surface.py": 1.97,
-        "tests/test_ci_policy_suite_jobs.py": 1.02,
-        "tests/test_ci_policy_sync.py": 1.6,
-        "tests/test_ci_policy_temporary_files.py": 1.52,
-        "tests/test_ci_policy_tool_pins.py": 0.41,
-        "tests/test_ci_policy_zizmor.py": 0.47
+        "tests/test_ci_policy_action_pins.py": 0.54,
+        "tests/test_ci_policy_additions.py": 0.58,
+        "tests/test_ci_policy_auto_merge_caller.py": 0.6,
+        "tests/test_ci_policy_automation.py": 2.17,
+        "tests/test_ci_policy_catalogue.py": 0.77,
+        "tests/test_ci_policy_entry_files.py": 1.66,
+        "tests/test_ci_policy_etw_consumer.py": 0.66,
+        "tests/test_ci_policy_fixed_callers.py": 1.6,
+        "tests/test_ci_policy_full_recording.py": 0.79,
+        "tests/test_ci_policy_hygiene_caller.py": 0.53,
+        "tests/test_ci_policy_hygiene_core.py": 0.78,
+        "tests/test_ci_policy_hygiene_promotion.py": 0.54,
+        "tests/test_ci_policy_hygiene_promotion_surface.py": 0.54,
+        "tests/test_ci_policy_hygiene_updater.py": 0.55,
+        "tests/test_ci_policy_hygiene_validate.py": 0.68,
+        "tests/test_ci_policy_measurement.py": 1.1,
+        "tests/test_ci_policy_off_path_runners.py": 0.61,
+        "tests/test_ci_policy_pipeline.py": 3.09,
+        "tests/test_ci_policy_pipeline_parts.py": 0.73,
+        "tests/test_ci_policy_publication.py": 0.49,
+        "tests/test_ci_policy_publication_document.py": 0.68,
+        "tests/test_ci_policy_python_language_step.py": 0.63,
+        "tests/test_ci_policy_python_tests_caller.py": 0.55,
+        "tests/test_ci_policy_recording_action.py": 0.54,
+        "tests/test_ci_policy_release.py": 0.59,
+        "tests/test_ci_policy_reuse.py": 0.73,
+        "tests/test_ci_policy_shared_surface.py": 2.23,
+        "tests/test_ci_policy_suite_jobs.py": 1.25,
+        "tests/test_ci_policy_sync.py": 0.8,
+        "tests/test_ci_policy_temporary_files.py": 1.97,
+        "tests/test_ci_policy_tool_pins.py": 0.59,
+        "tests/test_ci_policy_zizmor.py": 0.54
       },
       "entry_selection": true,
       "paths": [
@@ -225,7 +229,6 @@
         "tests/consumer_checks_fixtures.py",
         "tests/consumer_kit_support.py",
         "tests/dependabot_auto_merge_source.py",
-        "tests/fixtures/issue_title/categories.json",
         "tests/fixtures/python_tests/pyproject.toml",
         "tests/fixtures/python_tests/tests/test_greeting.py",
         "tests/hygiene_fixtures.py",
@@ -444,7 +447,6 @@
           "actions/pipeline/schema/v1/parts/suite-selection.json",
           "actions/suite-selection/ci_definition.py",
           "tests/ci_policy_support.py",
-          "tests/fixtures/issue_title/categories.json",
           "tests/test_ci_policy_automation.py"
         ],
         "tests/test_ci_policy_catalogue.py": [
@@ -1979,6 +1981,10 @@
           "kind": "any"
         },
         {
+          "path": "tests/fixtures/issue_title/categories.json",
+          "kind": "any"
+        },
+        {
           "path": "tests/setups",
           "kind": "any"
         },
@@ -2732,6 +2738,10 @@
             "kind": "any"
           },
           {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
             "path": "tests/__init__.abi3.so",
             "kind": "any"
           },
@@ -2761,6 +2771,10 @@
           },
           {
             "path": "tests/ci_policy_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/fixtures/issue_title/categories.json",
             "kind": "any"
           },
           {
@@ -3166,6 +3180,10 @@
           {
             "path": "actions/pipeline/consumer-kit/previous",
             "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
           },
           {
             "path": "tests/__init__.abi3.so",
@@ -5408,12 +5426,27 @@
             "tests"
           ]
         },
+        "tests/test_ci_policy_automation.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_ci_policy_catalogue.py": {
           ".": [
             "tests"
           ]
         },
+        "tests/test_ci_policy_entry_files.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_ci_policy_etw_consumer.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_ci_policy_fixed_callers.py": {
           ".": [
             "tests"
           ]
@@ -5558,10 +5591,10 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_dependabot_auto_merge.py": 0.82,
-        "tests/test_dependabot_auto_merge_action.py": 0.2,
-        "tests/test_dependabot_auto_merge_workflow.py": 0.52,
-        "tests/test_dependabot_auto_merge_workflow_invocation.py": 0.24
+        "tests/test_dependabot_auto_merge.py": 0.8,
+        "tests/test_dependabot_auto_merge_action.py": 0.45,
+        "tests/test_dependabot_auto_merge_workflow.py": 0.72,
+        "tests/test_dependabot_auto_merge_workflow_invocation.py": 0.54
       },
       "entry_selection": true,
       "paths": [
@@ -6002,7 +6035,17 @@
             "tests"
           ]
         },
+        "tests/test_dependabot_auto_merge_action.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_dependabot_auto_merge_workflow.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_dependabot_auto_merge_workflow_invocation.py": {
           ".": [
             "tests"
           ]
@@ -6024,16 +6067,19 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_consumer_kit_automation_full_recording.py": 2.82,
-        "tests/test_consumer_kit_dependabot.py": 0.57,
-        "tests/test_consumer_kit_hygiene.py": 0.47,
-        "tests/test_consumer_kit_install_by_need.py": 0.52,
-        "tests/test_consumer_kit_installed_permissions.py": 0.56,
-        "tests/test_consumer_kit_installed_targets.py": 0.32,
-        "tests/test_consumer_kit_own_dependabot.py": 0.23,
-        "tests/test_consumer_kit_publication.py": 0.31,
-        "tests/test_consumer_kit_templates.py": 0.31,
-        "tests/test_consumer_kit_validation_workflow.py": 1.27
+        "tests/test_consumer_kit_automation_additions.py": 42.31,
+        "tests/test_consumer_kit_automation_full_recording.py": 4.66,
+        "tests/test_consumer_kit_dependabot.py": 0.53,
+        "tests/test_consumer_kit_fixed_callers.py": 1.66,
+        "tests/test_consumer_kit_hygiene.py": 0.75,
+        "tests/test_consumer_kit_install_by_need.py": 0.9,
+        "tests/test_consumer_kit_installed_permissions.py": 0.71,
+        "tests/test_consumer_kit_installed_targets.py": 0.54,
+        "tests/test_consumer_kit_own_dependabot.py": 0.73,
+        "tests/test_consumer_kit_publication.py": 0.65,
+        "tests/test_consumer_kit_python_tests.py": 1.55,
+        "tests/test_consumer_kit_templates.py": 0.53,
+        "tests/test_consumer_kit_validation_workflow.py": 1.41
       },
       "entry_selection": true,
       "paths": [
@@ -6062,7 +6108,6 @@
         "actions/pipeline/consumer-kit/ci.yml",
         "actions/pipeline/consumer-kit/docs/agents/ci.md",
         "actions/pipeline/consumer-kit/release.yml",
-        "actions/pipeline/schema/v1/ci-config.schema.json",
         "actions/python-language-step/consumer-kit/README.md",
         "actions/python-language-step/consumer-kit/python-language-step.yml",
         "actions/python-tests/consumer-kit/README.md",
@@ -6071,19 +6116,9 @@
         "actions/repository-hygiene/consumer-kit/README.md",
         "actions/repository-hygiene/consumer-kit/repository-hygiene.yml",
         "actions/repository-hygiene/dependabot_coverage.py",
-        "actions/repository-hygiene/hygiene.py",
-        "actions/repository-hygiene/install_tools.py",
-        "actions/repository-hygiene/link_check.py",
         "actions/repository-hygiene/package-ecosystems.json",
-        "actions/repository-hygiene/pins.json",
-        "actions/repository-hygiene/pins.py",
-        "actions/repository-hygiene/zizmor-policy.yml",
-        "actions/repository-ruleset/README.md",
         "actions/suite-selection/ci_definition.py",
         "actions/suite-selection/consumer-kit/README.md",
-        "actions/suite-selection/consumer-kit/apply-additions.yml",
-        "actions/suite-selection/consumer-kit/full-recording.yml",
-        "actions/suite-selection/consumer-kit/validation.yml",
         "actions/suite-selection/recording_modules.py",
         "actions/suite-selection/reuse.py",
         "actions/suite-selection/revisions.py",
@@ -6100,10 +6135,7 @@
         "docs/agents/ci.md",
         "tests/ci_policy_support.py",
         "tests/consumer_kit_support.py",
-        "tests/hygiene_fixtures.py",
-        "tests/hygiene_process.py",
         "tests/recording_fixtures.py",
-        "tests/setup_ci_support.py",
         "tests/strace_stand_in.py",
         "tests/temporary_support.py",
         "tests/test_consumer_kit_automation_additions.py",
@@ -6118,38 +6150,21 @@
         "tests/test_consumer_kit_publication.py",
         "tests/test_consumer_kit_python_tests.py",
         "tests/test_consumer_kit_templates.py",
-        "tests/test_consumer_kit_validation_workflow.py",
-        "tests/test_setup_ci_apply_additions.py",
-        "tests/test_setup_ci_own_dependabot.py"
+        "tests/test_consumer_kit_validation_workflow.py"
       ],
       "entry_paths": {
         "tests/test_consumer_kit_automation_additions.py": [
           ".github/workflows/automation.yml",
           ".github/workflows/rebuild-etw-consumer.yml",
           "actions/recording/recording.py",
-          "actions/repository-hygiene/dependabot_coverage.py",
-          "actions/repository-hygiene/hygiene.py",
-          "actions/repository-hygiene/install_tools.py",
-          "actions/repository-hygiene/link_check.py",
-          "actions/repository-hygiene/pins.json",
-          "actions/repository-hygiene/pins.py",
-          "actions/repository-hygiene/zizmor-policy.yml",
           "actions/suite-selection/ci_definition.py",
-          "actions/suite-selection/consumer-kit/apply-additions.yml",
-          "actions/suite-selection/consumer-kit/full-recording.yml",
-          "actions/suite-selection/consumer-kit/validation.yml",
           "actions/suite-selection/recording_modules.py",
-          "actions/suite-selection/revisions.py",
           "actions/suite-selection/suite_list.py",
-          "actions/suite-selection/suite_selection.py",
           "tests/ci_policy_support.py",
-          "tests/hygiene_fixtures.py",
-          "tests/hygiene_process.py",
           "tests/recording_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/temporary_support.py",
-          "tests/test_consumer_kit_automation_additions.py",
-          "tests/test_setup_ci_apply_additions.py"
+          "tests/test_consumer_kit_automation_additions.py"
         ],
         "tests/test_consumer_kit_automation_full_recording.py": [
           ".github/workflows/automation.yml",
@@ -6174,12 +6189,7 @@
           "actions/pipeline/consumer-kit/ci.yml",
           "actions/pipeline/consumer-kit/docs/agents/ci.md",
           "actions/pipeline/consumer-kit/release.yml",
-          "actions/pipeline/schema/v1/ci-config.schema.json",
           "actions/repository-hygiene/dependabot_coverage.py",
-          "actions/repository-hygiene/install_tools.py",
-          "actions/repository-hygiene/pins.json",
-          "actions/repository-hygiene/pins.py",
-          "actions/repository-ruleset/README.md",
           "catalogue.json",
           "docs/agents/ci.md",
           "tests/consumer_kit_support.py",
@@ -6235,13 +6245,8 @@
         "tests/test_consumer_kit_own_dependabot.py": [
           ".github/dependabot.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
-          "actions/repository-hygiene/install_tools.py",
-          "actions/repository-hygiene/pins.json",
-          "actions/repository-hygiene/pins.py",
           "tests/consumer_kit_support.py",
-          "tests/setup_ci_support.py",
-          "tests/test_consumer_kit_own_dependabot.py",
-          "tests/test_setup_ci_own_dependabot.py"
+          "tests/test_consumer_kit_own_dependabot.py"
         ],
         "tests/test_consumer_kit_publication.py": [
           "actions/dependabot-auto-merge/consumer-kit/dependabot.yml",
@@ -6257,9 +6262,6 @@
           "actions/python-tests/consumer-kit/README.md",
           "actions/python-tests/consumer-kit/python-tests.yml",
           "actions/repository-hygiene/dependabot_coverage.py",
-          "actions/repository-hygiene/install_tools.py",
-          "actions/repository-hygiene/pins.json",
-          "actions/repository-hygiene/pins.py",
           "catalogue.json",
           "tests/consumer_kit_support.py",
           "tests/test_consumer_kit_python_tests.py"
@@ -6326,18 +6328,11 @@
         "actions/pipeline/consumer-kit",
         "actions/python-language-step/consumer-kit",
         "actions/python-tests/consumer-kit",
-        "actions/repository-hygiene",
         "actions/repository-hygiene/consumer-kit",
         "actions/suite-selection/consumer-kit",
         "docs/adr"
       ],
       "entry_directory_memberships": {
-        "tests/test_consumer_kit_automation_additions.py": [
-          "actions/repository-hygiene"
-        ],
-        "tests/test_consumer_kit_fixed_callers.py": [
-          "actions/repository-hygiene"
-        ],
         "tests/test_consumer_kit_install_by_need.py": [
           "**/*.csproj",
           "**/*.csproj/**",
@@ -6363,9 +6358,6 @@
           "**/requirements*.txt/**",
           ".github/workflows/**"
         ],
-        "tests/test_consumer_kit_own_dependabot.py": [
-          "actions/repository-hygiene"
-        ],
         "tests/test_consumer_kit_publication.py": [
           "actions",
           "actions/dependabot-auto-merge/consumer-kit",
@@ -6376,8 +6368,7 @@
           "actions/suite-selection/consumer-kit"
         ],
         "tests/test_consumer_kit_python_tests.py": [
-          "actions/python-tests/consumer-kit",
-          "actions/repository-hygiene"
+          "actions/python-tests/consumer-kit"
         ],
         "tests/test_consumer_kit_templates.py": [
           "actions/dependabot-auto-merge/consumer-kit",
@@ -6435,6 +6426,10 @@
           "kind": "any"
         },
         {
+          "path": "actions/pipeline/schema/v1/ci-config.schema.json",
+          "kind": "any"
+        },
+        {
           "path": "actions/publication-checks/consumer-kit",
           "kind": "any"
         },
@@ -6457,38 +6452,6 @@
         {
           "path": "actions/repository-hygiene",
           "kind": "directory"
-        },
-        {
-          "path": "actions/repository-hygiene/dependabot_coverage",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/repository-hygiene/dependabot_coverage.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/repository-hygiene/link_check",
-          "kind": "directory"
-        },
-        {
-          "path": "actions/repository-hygiene/link_check.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/repository-hygiene/link_check.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "actions/repository-hygiene/link_check.so",
-          "kind": "any"
         },
         {
           "path": "actions/repository-ruleset/consumer-kit",
@@ -6675,38 +6638,6 @@
           "kind": "any"
         },
         {
-          "path": "tests/hygiene_fixtures",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/hygiene_fixtures.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/hygiene_fixtures.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/hygiene_fixtures.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/hygiene_process",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/hygiene_process.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/hygiene_process.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/hygiene_process.so",
-          "kind": "any"
-        },
-        {
           "path": "tests/recording_fixtures",
           "kind": "directory"
         },
@@ -6720,22 +6651,6 @@
         },
         {
           "path": "tests/recording_fixtures.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/setup_ci_support",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/setup_ci_support.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/setup_ci_support.so",
           "kind": "any"
         },
         {
@@ -6768,22 +6683,6 @@
         },
         {
           "path": "tests/temporary_support.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_apply_additions",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_consumer_kit_apply_additions.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_apply_additions.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_consumer_kit_apply_additions.so",
           "kind": "any"
         },
         {
@@ -6993,38 +6892,6 @@
         {
           "path": "tests/test_consumer_kit_validation_workflow.so",
           "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_apply_additions.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot",
-          "kind": "directory"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.abi3.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.cpython-313-x86_64-linux-gnu.so",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_setup_ci_own_dependabot.so",
-          "kind": "any"
         }
       ],
       "entry_existence_reads": {
@@ -7038,60 +6905,8 @@
             "kind": "directory"
           },
           {
-            "path": "actions/repository-hygiene",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/dependabot_coverage.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/link_check",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/repository-hygiene/link_check.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/link_check.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/repository-hygiene/link_check.so",
-            "kind": "any"
-          },
-          {
             "path": "actions/suite-selection",
             "kind": "directory"
-          },
-          {
-            "path": "actions/suite-selection/ci_definition",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/suite-selection/ci_definition.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/ci_definition.so",
-            "kind": "any"
           },
           {
             "path": "actions/suite-selection/recording_modules",
@@ -7110,22 +6925,6 @@
             "kind": "any"
           },
           {
-            "path": "actions/suite-selection/revisions",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/suite-selection/revisions.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/revisions.so",
-            "kind": "any"
-          },
-          {
             "path": "actions/suite-selection/suite_list",
             "kind": "directory"
           },
@@ -7139,22 +6938,6 @@
           },
           {
             "path": "actions/suite-selection/suite_list.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/suite_selection",
-            "kind": "directory"
-          },
-          {
-            "path": "actions/suite-selection/suite_selection.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/suite_selection.so",
             "kind": "any"
           },
           {
@@ -7191,38 +6974,6 @@
           },
           {
             "path": "tests/ci_policy_support.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/hygiene_fixtures",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/hygiene_fixtures.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/hygiene_fixtures.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/hygiene_fixtures.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/hygiene_process",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/hygiene_process.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/hygiene_process.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/hygiene_process.so",
             "kind": "any"
           },
           {
@@ -7274,22 +7025,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/test_consumer_kit_apply_additions",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_consumer_kit_apply_additions.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_apply_additions.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_consumer_kit_apply_additions.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_automation_additions",
             "kind": "directory"
           },
@@ -7303,22 +7038,6 @@
           },
           {
             "path": "tests/test_consumer_kit_automation_additions.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_apply_additions.so",
             "kind": "any"
           }
         ],
@@ -7499,6 +7218,22 @@
           }
         ],
         "tests/test_consumer_kit_fixed_callers.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/pipeline/schema/v1/ci-config.schema.json",
+            "kind": "any"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
           {
             "path": "tests/__init__.abi3.so",
             "kind": "any"
@@ -7882,22 +7617,6 @@
             "kind": "any"
           },
           {
-            "path": "tests/setup_ci_support",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/setup_ci_support.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/setup_ci_support.so",
-            "kind": "any"
-          },
-          {
             "path": "tests/test_consumer_kit_own_dependabot",
             "kind": "directory"
           },
@@ -7911,22 +7630,6 @@
           },
           {
             "path": "tests/test_consumer_kit_own_dependabot.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot",
-            "kind": "directory"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "tests/test_setup_ci_own_dependabot.so",
             "kind": "any"
           }
         ],
@@ -8039,6 +7742,10 @@
           },
           {
             "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "tests",
             "kind": "directory"
           },
           {
@@ -8338,7 +8045,6 @@
       "lookup_directories": [
         ".",
         "actions/recording",
-        "actions/repository-hygiene",
         "actions/suite-selection",
         "tests"
       ],
@@ -8346,7 +8052,6 @@
         "tests/test_consumer_kit_automation_additions.py": [
           ".",
           "actions/recording",
-          "actions/repository-hygiene",
           "actions/suite-selection",
           "tests"
         ],
@@ -8408,12 +8113,22 @@
         ]
       },
       "entry_module_lookups": {
+        "tests/test_consumer_kit_automation_additions.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_consumer_kit_automation_full_recording.py": {
           ".": [
             "tests"
           ]
         },
         "tests/test_consumer_kit_dependabot.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_consumer_kit_fixed_callers.py": {
           ".": [
             "tests"
           ]
@@ -8438,7 +8153,17 @@
             "tests"
           ]
         },
+        "tests/test_consumer_kit_own_dependabot.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_consumer_kit_publication.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_consumer_kit_python_tests.py": {
           ".": [
             "tests"
           ]
@@ -8470,22 +8195,24 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_suite_selection.py": 158.09,
-        "tests/test_suite_selection_caller_entries.py": 12.99,
-        "tests/test_suite_selection_ci_step_precision.py": 3.67,
-        "tests/test_suite_selection_code_boundary.py": 0.31,
-        "tests/test_suite_selection_part_boundary.py": 0.41,
-        "tests/test_suite_selection_recording_apply.py": 23.86,
-        "tests/test_suite_selection_recording_check.py": 43.45,
-        "tests/test_suite_selection_recording_classification.py": 11.09,
-        "tests/test_suite_selection_recording_etw.py": 12.48,
-        "tests/test_suite_selection_recording_full.py": 62.04,
-        "tests/test_suite_selection_recording_full_close.py": 8.73,
-        "tests/test_suite_selection_recording_lookups.py": 1.47,
-        "tests/test_suite_selection_recording_pathspecs.py": 9.48,
-        "tests/test_suite_selection_reuse.py": 97.4,
-        "tests/test_suite_selection_workflow.py": 2.82,
-        "tests/test_suite_selection_workflow_reader.py": 0.31
+        "tests/test_suite_selection.py": 225.52,
+        "tests/test_suite_selection_caller_entries.py": 15.21,
+        "tests/test_suite_selection_ci_step_precision.py": 5.48,
+        "tests/test_suite_selection_code_boundary.py": 0.49,
+        "tests/test_suite_selection_part_boundary.py": 0.49,
+        "tests/test_suite_selection_recording_apply.py": 45.35,
+        "tests/test_suite_selection_recording_check.py": 57.77,
+        "tests/test_suite_selection_recording_classification.py": 15.57,
+        "tests/test_suite_selection_recording_etw.py": 19.89,
+        "tests/test_suite_selection_recording_full.py": 99.69,
+        "tests/test_suite_selection_recording_full_close.py": 7.9,
+        "tests/test_suite_selection_recording_lookups.py": 1.87,
+        "tests/test_suite_selection_recording_pathspecs.py": 21.34,
+        "tests/test_suite_selection_recording_setups.py": 23.61,
+        "tests/test_suite_selection_reuse.py": 126.71,
+        "tests/test_suite_selection_setups.py": 9.63,
+        "tests/test_suite_selection_workflow.py": 2.8,
+        "tests/test_suite_selection_workflow_reader.py": 0.61
       },
       "entry_selection": true,
       "paths": [
@@ -13336,6 +13063,10 @@
             "kind": "any"
           },
           {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
             "path": "tests/__init__.abi3.so",
             "kind": "any"
           },
@@ -13950,6 +13681,7 @@
           "consumer_checks"
         ],
         "actions/suite-selection": [
+          "measurement",
           "tests"
         ]
       },
@@ -14029,7 +13761,22 @@
             "tests"
           ]
         },
+        "tests/test_suite_selection_recording_setups.py": {
+          ".": [
+            "_sysconfigdata__linux_x86_64-linux-gnu",
+            "tests"
+          ],
+          "actions/suite-selection": [
+            "measurement",
+            "tests"
+          ]
+        },
         "tests/test_suite_selection_reuse.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_suite_selection_setups.py": {
           ".": [
             "tests"
           ]
@@ -14081,22 +13828,22 @@
         ]
       },
       "entry_durations": {
-        "tests/test_hygiene_actionlint.py": 1.5,
-        "tests/test_hygiene_changes.py": 43.65,
-        "tests/test_hygiene_dependabot_coverage.py": 0.77,
-        "tests/test_hygiene_gitleaks.py": 13.04,
-        "tests/test_hygiene_installer.py": 17.1,
-        "tests/test_hygiene_link_check.py": 3.42,
-        "tests/test_hygiene_pin_updater.py": 1.77,
-        "tests/test_hygiene_pins_schema.py": 0.36,
-        "tests/test_hygiene_push_and_reuse.py": 14.84,
-        "tests/test_hygiene_repository_hygiene.py": 0.41,
-        "tests/test_hygiene_reuse.py": 4.37,
-        "tests/test_hygiene_v1_promotion.py": 80.39,
-        "tests/test_hygiene_workflow.py": 0.87,
-        "tests/test_hygiene_zizmor.py": 1.07,
-        "tests/test_hygiene_zizmor_configuration.py": 1.07,
-        "tests/test_hygiene_zizmor_surface.py": 1.82
+        "tests/test_hygiene_actionlint.py": 4.19,
+        "tests/test_hygiene_changes.py": 57.56,
+        "tests/test_hygiene_dependabot_coverage.py": 5.94,
+        "tests/test_hygiene_gitleaks.py": 19.56,
+        "tests/test_hygiene_installer.py": 19.39,
+        "tests/test_hygiene_link_check.py": 7.72,
+        "tests/test_hygiene_pin_updater.py": 1.87,
+        "tests/test_hygiene_pins_schema.py": 0.69,
+        "tests/test_hygiene_push_and_reuse.py": 18.94,
+        "tests/test_hygiene_repository_hygiene.py": 0.65,
+        "tests/test_hygiene_reuse.py": 5.44,
+        "tests/test_hygiene_v1_promotion.py": 117.35,
+        "tests/test_hygiene_workflow.py": 0.73,
+        "tests/test_hygiene_zizmor.py": 1.66,
+        "tests/test_hygiene_zizmor_configuration.py": 2.55,
+        "tests/test_hygiene_zizmor_surface.py": 3.42
       },
       "entry_selection": true,
       "paths": [
@@ -16745,7 +16492,17 @@
         ]
       },
       "entry_module_lookups": {
+        "tests/test_hygiene_actionlint.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_hygiene_changes.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_hygiene_dependabot_coverage.py": {
           ".": [
             "tests"
           ]
@@ -16839,6 +16596,9 @@
         "python",
         "gitleaks"
       ],
+      "entry_durations": {
+        "tests/test_suite_jobs_pinned_tools.py": 2.27
+      },
       "paths": [
         "actions/repository-hygiene/pins.json",
         "tests/test_suite_jobs_pinned_tools.py"
@@ -16887,7 +16647,12 @@
       "lookup_directories": [
         ".",
         "tests"
-      ]
+      ],
+      "module_lookups": {
+        ".": [
+          "tests"
+        ]
+      }
     },
     {
       "name": "python-language-step",
@@ -16906,7 +16671,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_language_step.py": 13.89
+        "tests/test_python_language_step.py": 12.97
       },
       "paths": [
         ".github/workflows/pipeline.yml",
@@ -17280,6 +17045,10 @@
       "setups": [
         "python"
       ],
+      "entry_durations": {
+        "tests/test_python_tests.py": 11.14,
+        "tests/test_python_tests_workflow.py": 0.7
+      },
       "entry_selection": true,
       "paths": [
         ".github/workflows/python-tests.yml",
@@ -17451,18 +17220,6 @@
             "kind": "directory"
           },
           {
-            "path": "actions/python-tests/python_tests.abi3.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/python-tests/python_tests.cpython-313-x86_64-linux-gnu.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/python-tests/python_tests.so",
-            "kind": "any"
-          },
-          {
             "path": "tests",
             "kind": "directory"
           },
@@ -17626,6 +17383,33 @@
           "actions/python-tests",
           "tests"
         ]
+      },
+      "module_lookups": {
+        ".": [
+          "_sysconfigdata__linux_x86_64-linux-gnu",
+          "tests"
+        ],
+        "actions/python-tests": [
+          "_sysconfigdata__linux_x86_64-linux-gnu",
+          "tests"
+        ]
+      },
+      "entry_module_lookups": {
+        "tests/test_python_tests.py": {
+          ".": [
+            "_sysconfigdata__linux_x86_64-linux-gnu",
+            "tests"
+          ],
+          "actions/python-tests": [
+            "_sysconfigdata__linux_x86_64-linux-gnu",
+            "tests"
+          ]
+        },
+        "tests/test_python_tests_workflow.py": {
+          ".": [
+            "tests"
+          ]
+        }
       }
     },
     {
@@ -17643,18 +17427,19 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_pipeline_automation_invocations.py": 1.62,
-        "tests/test_pipeline_callers.py": 24.34,
-        "tests/test_pipeline_custom.py": 4.48,
-        "tests/test_pipeline_dependabot.py": 9.49,
-        "tests/test_pipeline_parts.py": 14.22,
-        "tests/test_pipeline_plan.py": 22.52,
-        "tests/test_pipeline_register.py": 28.88,
-        "tests/test_pipeline_release.py": 49.5,
-        "tests/test_pipeline_schema.py": 4.23,
-        "tests/test_pipeline_steps_shell.py": 9.89,
-        "tests/test_pipeline_verdict.py": 3.5,
-        "tests/test_pipeline_workflow.py": 6.43
+        "tests/test_pipeline_automation_invocations.py": 2.52,
+        "tests/test_pipeline_callers.py": 25.83,
+        "tests/test_pipeline_custom.py": 5.75,
+        "tests/test_pipeline_dependabot.py": 8.13,
+        "tests/test_pipeline_issue_title.py": 11.87,
+        "tests/test_pipeline_parts.py": 17.19,
+        "tests/test_pipeline_plan.py": 32.91,
+        "tests/test_pipeline_register.py": 27.99,
+        "tests/test_pipeline_release.py": 61.15,
+        "tests/test_pipeline_schema.py": 5.76,
+        "tests/test_pipeline_steps_shell.py": 13.77,
+        "tests/test_pipeline_verdict.py": 2.53,
+        "tests/test_pipeline_workflow.py": 15.74
       },
       "entry_selection": true,
       "paths": [
@@ -19363,6 +19148,10 @@
             "kind": "directory"
           },
           {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
             "path": "tests/__init__.abi3.so",
             "kind": "any"
           },
@@ -20783,6 +20572,11 @@
             "tests"
           ]
         },
+        "tests/test_pipeline_issue_title.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_pipeline_parts.py": {
           ".": [
             "tests"
@@ -20881,9 +20675,9 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_sync_adoption.py": 13.19,
-        "tests/test_sync_files.py": 16.5,
-        "tests/test_sync_settings.py": 17.21
+        "tests/test_sync_adoption.py": 11.71,
+        "tests/test_sync_files.py": 16.83,
+        "tests/test_sync_settings.py": 16.05
       },
       "entry_selection": true,
       "paths": [
@@ -21978,6 +21772,9 @@
       "setups": [
         "python"
       ],
+      "entry_durations": {
+        "tests/test_dotnet_test.py": 3.72
+      },
       "paths": [
         "actions/dotnet-test/dotnet_test.py",
         "tests/temporary_support.py",
@@ -22049,7 +21846,12 @@
         ".",
         "actions/dotnet-test",
         "tests"
-      ]
+      ],
+      "module_lookups": {
+        ".": [
+          "tests"
+        ]
+      }
     },
     {
       "name": "node-test",
@@ -22065,6 +21867,9 @@
       "setups": [
         "python"
       ],
+      "entry_durations": {
+        "tests/test_node_test.py": 18.17
+      },
       "paths": [
         "actions/node-test/node_test.py",
         "tests/temporary_support.py",
@@ -22136,7 +21941,12 @@
         ".",
         "actions/node-test",
         "tests"
-      ]
+      ],
+      "module_lookups": {
+        ".": [
+          "tests"
+        ]
+      }
     },
     {
       "name": "python-floor",
@@ -22154,7 +21964,7 @@
         "mypy"
       ],
       "entry_durations": {
-        "tests/test_python_floor.py": 9.08
+        "tests/test_python_floor.py": 10.47
       },
       "paths": [
         "actions/dependabot-auto-merge/auto_merge.py",
@@ -22411,14 +22221,15 @@
         ]
       },
       "entry_durations": {
-        "tests/test_publication_author.py": 0.77,
-        "tests/test_publication_branch.py": 1.57,
-        "tests/test_publication_checks.py": 0.67,
-        "tests/test_publication_commits.py": 3.88,
-        "tests/test_publication_spec_fixture.py": 0.67,
-        "tests/test_publication_spec_update.py": 0.55,
-        "tests/test_publication_spec_workflow.py": 0.33,
-        "tests/test_publication_titles.py": 6.39
+        "tests/test_publication_author.py": 0.9,
+        "tests/test_publication_branch.py": 2.21,
+        "tests/test_publication_checks.py": 0.7,
+        "tests/test_publication_commits.py": 8.77,
+        "tests/test_publication_references.py": 30.36,
+        "tests/test_publication_spec_fixture.py": 0.98,
+        "tests/test_publication_spec_update.py": 1.52,
+        "tests/test_publication_spec_workflow.py": 0.76,
+        "tests/test_publication_titles.py": 10.53
       },
       "entry_selection": true,
       "paths": [
@@ -22435,7 +22246,6 @@
         "actions/publication-checks/spec.json",
         "actions/publication-checks/update_spec.py",
         "actions/publication-checks/verify-spec.cjs",
-        "actions/repository-hygiene/pins.json",
         "actions/suite-selection/ci_definition.py",
         "tests/ci_policy_support.py",
         "tests/fixtures/publication_checks/specification-cases.json",
@@ -22504,7 +22314,6 @@
         ],
         "tests/test_publication_references.py": [
           "actions/publication-checks/check-references.cjs",
-          "actions/repository-hygiene/pins.json",
           "tests/publication_fixtures.py",
           "tests/temporary_support.py",
           "tests/test_publication_references.py"
@@ -22519,7 +22328,6 @@
         ],
         "tests/test_publication_spec_update.py": [
           "actions/publication-checks/update_spec.py",
-          "actions/repository-hygiene/pins.json",
           "tests/publication_spec_module.py",
           "tests/temporary_support.py",
           "tests/test_publication_spec_update.py"
@@ -22545,17 +22353,6 @@
       "entry_extra_paths": {
         "tests/test_publication_author.py": [
           "actions/publication-checks/verify-spec.cjs"
-        ]
-      },
-      "directory_memberships": [
-        "."
-      ],
-      "entry_directory_memberships": {
-        "tests/test_publication_references.py": [
-          "."
-        ],
-        "tests/test_publication_spec_update.py": [
-          "."
         ]
       },
       "existence_reads": [
@@ -23295,6 +23092,10 @@
             "kind": "directory"
           },
           {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
             "path": "tests/__init__.abi3.so",
             "kind": "any"
           },
@@ -23762,7 +23563,22 @@
             "tests"
           ]
         },
+        "tests/test_publication_references.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_publication_spec_fixture.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_publication_spec_update.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_publication_spec_workflow.py": {
           ".": [
             "tests"
           ]
@@ -23791,7 +23607,7 @@
         "dotnet"
       ],
       "entry_durations": {
-        "tests/test_etw_consumer_build.py": 6.64
+        "tests/test_etw_consumer_build.py": 20.12
       },
       "paths": [
         "actions/recording/etw-consumer/EtwConsumer.csproj",
@@ -23905,50 +23721,6 @@
           "kind": "any"
         },
         {
-          "path": "actions/recording/etw-consumer/Directory.Build.props",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/Directory.Build.rsp",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/Directory.Build.targets",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/Directory.Packages.props",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/NuGet.Config",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/NuGet.config",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/build/NuGet.Config",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/build/NuGet.config",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/build/global.json",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/build/nuget.config",
-          "kind": "any"
-        },
-        {
-          "path": "actions/recording/etw-consumer/nuget.config",
-          "kind": "any"
-        },
-        {
           "path": "actions/recording/global.json",
           "kind": "any"
         },
@@ -23973,31 +23745,20 @@
           "kind": "directory"
         },
         {
-          "path": "tests/temporary_support.cp313-win_amd64.pyd",
-          "kind": "any"
-        },
-        {
-          "path": "tests/temporary_support.pyd",
-          "kind": "any"
-        },
-        {
           "path": "tests/test_etw_consumer_build",
           "kind": "directory"
-        },
-        {
-          "path": "tests/test_etw_consumer_build.cp313-win_amd64.pyd",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_etw_consumer_build.pyd",
-          "kind": "any"
         }
       ],
       "lookup_directories": [
         ".",
         "actions/recording",
         "tests"
-      ]
+      ],
+      "module_lookups": {
+        ".": [
+          "tests"
+        ]
+      }
     },
     {
       "name": "windows",
@@ -24016,7 +23777,8 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_windows_recording.py": 48.59
+        "tests/test_windows_recording.py": 69.06,
+        "tests/test_suite_selection_recording_setups.py": 4.58
       },
       "entry_selection": true,
       "paths": [
@@ -24698,6 +24460,10 @@
             "kind": "any"
           },
           {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
             "path": "tests/ci_policy_support",
             "kind": "directory"
           },
@@ -24778,6 +24544,38 @@
           "actions/suite-selection",
           "tests"
         ]
+      },
+      "module_lookups": {
+        ".": [
+          "_sysconfigdata__linux_x86_64-linux-gnu",
+          "tests"
+        ],
+        "actions/suite-selection": [
+          "measurement",
+          "tests"
+        ]
+      },
+      "entry_module_lookups": {
+        "tests/test_windows_recording.py": {
+          ".": [
+            "_sysconfigdata__linux_x86_64-linux-gnu",
+            "tests"
+          ],
+          "actions/suite-selection": [
+            "measurement",
+            "tests"
+          ]
+        },
+        "tests/test_suite_selection_recording_setups.py": {
+          ".": [
+            "_sysconfigdata__linux_x86_64-linux-gnu",
+            "tests"
+          ],
+          "actions/suite-selection": [
+            "measurement",
+            "tests"
+          ]
+        }
       }
     },
     {
@@ -24796,6 +24594,9 @@
         "python",
         "gitleaks"
       ],
+      "entry_durations": {
+        "tests/test_suite_jobs_pinned_tools.py": 1.04
+      },
       "paths": [
         "actions/repository-hygiene/pins.json",
         "tests/test_suite_jobs_pinned_tools.py"
@@ -24811,20 +24612,17 @@
         {
           "path": "tests/test_suite_jobs_pinned_tools",
           "kind": "directory"
-        },
-        {
-          "path": "tests/test_suite_jobs_pinned_tools.cp313-win_amd64.pyd",
-          "kind": "any"
-        },
-        {
-          "path": "tests/test_suite_jobs_pinned_tools.pyd",
-          "kind": "any"
         }
       ],
       "lookup_directories": [
         ".",
         "tests"
-      ]
+      ],
+      "module_lookups": {
+        ".": [
+          "tests"
+        ]
+      }
     },
     {
       "name": "temporary-support",
@@ -24840,6 +24638,9 @@
       "setups": [
         "python"
       ],
+      "entry_durations": {
+        "tests/test_temporary_support.py": 1.75
+      },
       "paths": [
         "tests/temporary_support.py",
         "tests/test_temporary_support.py"
@@ -24905,7 +24706,13 @@
       "lookup_directories": [
         ".",
         "tests"
-      ]
+      ],
+      "module_lookups": {
+        ".": [
+          "_sysconfigdata__linux_x86_64-linux-gnu",
+          "tests"
+        ]
+      }
     },
     {
       "name": "temporary-support-windows",
@@ -24922,6 +24729,9 @@
       "setups": [
         "python"
       ],
+      "entry_durations": {
+        "tests/test_temporary_support.py": 3.38
+      },
       "paths": [
         "tests/temporary_support.py",
         "tests/test_temporary_support.py"
@@ -24959,7 +24769,13 @@
       "lookup_directories": [
         ".",
         "tests"
-      ]
+      ],
+      "module_lookups": {
+        ".": [
+          "_sysconfigdata__linux_x86_64-linux-gnu",
+          "tests"
+        ]
+      }
     },
     {
       "name": "measurement",
@@ -24976,7 +24792,7 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_measurement.py": 12.01
+        "tests/test_measurement.py": 9.4
       },
       "paths": [
         "actions/measurement/measurement.py",
