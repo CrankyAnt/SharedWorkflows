@@ -209,18 +209,25 @@ class FullRecordingTests(unittest.TestCase):
 class TapReportTests(unittest.TestCase):
     """An entry file whose output holds a TAP report, run under the stand-in with an empty recording."""
 
-    def record(self) -> tuple[RecordingFixture, subprocess.CompletedProcess[str]]:
+    fixture: RecordingFixture
+    applied: subprocess.CompletedProcess[str]
+
+    @classmethod
+    def setUpClass(cls) -> None:
         files = {**{f"tests/tap_{name}.py": source for name, source in TAP.items()}, STALE: "", "data/ok.txt": ""}
-        fixture = RecordingFixture(self.addCleanup, files, [suite("per-entry", TAP_ENTRIES, entry_selection=True, paths=[],
-                                                                   entry_paths={entry: [entry, STALE] for entry in TAP_ENTRIES})])
+        fixture = RecordingFixture(cls.addClassCleanup, files, [suite("per-entry", TAP_ENTRIES, entry_selection=True, paths=[],
+                                                                      entry_paths={entry: [entry, STALE] for entry in TAP_ENTRIES})])
         checked = fixture.record(TAP_ENTRIES, full=True)
-        self.assertEqual(0, checked.returncode, checked.stderr)
+        if checked.returncode != 0:
+            raise AssertionError(checked.stderr or checked.stdout)
         applied = fixture.apply(fixture.output / "full-recording.json")
-        self.assertEqual(0, applied.returncode, applied.stderr)
-        return fixture, applied
+        if applied.returncode != 0:
+            raise AssertionError(applied.stderr or applied.stdout)
+        cls.fixture = fixture
+        cls.applied = applied
 
     def test_a_complete_tap_report_without_a_skip_line_replaces_the_list(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         stored = fixture.suite("per-entry")["entry_paths"]
         # The plan may come after the test lines, and a description that holds the word skip is no skip directive.
         for entry in ("tests/tap_complete.py", "tests/tap_trailing-plan.py", "tests/tap_skip-word.py"):
@@ -228,29 +235,29 @@ class TapReportTests(unittest.TestCase):
             self.assertNotIn(entry, applied.stdout)
 
     def test_an_incomplete_tap_report_leaves_a_complete_unittest_summary_to_count(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         self.assertNotIn(STALE, fixture.suite("per-entry")["entry_paths"]["tests/tap_stray-plan.py"])
         self.assertNotIn("tests/tap_stray-plan.py", applied.stdout)
 
     def test_a_plan_of_zero_skips_the_whole_entry_file(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         for entry in ("tests/tap_empty-plan.py", "tests/tap_skipped-plan.py"):
             self.assertIn(STALE, fixture.suite("per-entry")["entry_paths"][entry])
             self.assertIn(f"kept the list of {entry}: 1 test skipped", applied.stdout)
 
     def test_a_tap_report_with_skip_lines_keeps_the_list_and_reports_the_skipped_tests(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         self.assertIn(STALE, fixture.suite("per-entry")["entry_paths"]["tests/tap_skipping.py"])
         self.assertIn("kept the list of tests/tap_skipping.py: 2 tests skipped", applied.stdout)
 
     def test_a_tap_report_whose_plan_does_not_match_its_test_lines_counts_as_no_complete_report(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         self.assertIn(STALE, fixture.suite("per-entry")["entry_paths"]["tests/tap_short.py"])
         self.assertIn("kept the list of tests/tap_short.py: it printed no complete test report: its TAP plan does not match its test lines",
                       applied.stdout)
 
     def test_a_tap_report_with_more_than_one_plan_counts_as_no_complete_report(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         self.assertIn(STALE, fixture.suite("per-entry")["entry_paths"]["tests/tap_two-plans.py"])
         self.assertIn("kept the list of tests/tap_two-plans.py: it printed no complete test report: its TAP report has more than one plan",
                       applied.stdout)
@@ -274,18 +281,25 @@ PYTEST_ENTRIES = [f"tests/pytest_{name}.py" for name in PYTEST]
 class PytestReportTests(unittest.TestCase):
     """Entry files whose output holds a pytest summary, framed or quiet, with or without ANSI colour codes."""
 
-    def record(self) -> tuple[RecordingFixture, subprocess.CompletedProcess[str]]:
+    fixture: RecordingFixture
+    applied: subprocess.CompletedProcess[str]
+
+    @classmethod
+    def setUpClass(cls) -> None:
         files = {**{f"tests/pytest_{name}.py": source for name, source in PYTEST.items()}, STALE: ""}
-        fixture = RecordingFixture(self.addCleanup, files, [suite("per-entry", PYTEST_ENTRIES, entry_selection=True, paths=[],
-                                                                   entry_paths={entry: [entry, STALE] for entry in PYTEST_ENTRIES})])
+        fixture = RecordingFixture(cls.addClassCleanup, files, [suite("per-entry", PYTEST_ENTRIES, entry_selection=True, paths=[],
+                                                                      entry_paths={entry: [entry, STALE] for entry in PYTEST_ENTRIES})])
         checked = fixture.record(PYTEST_ENTRIES, full=True)
-        self.assertEqual(0, checked.returncode, checked.stderr)
+        if checked.returncode != 0:
+            raise AssertionError(checked.stderr or checked.stdout)
         applied = fixture.apply(fixture.output / "full-recording.json")
-        self.assertEqual(0, applied.returncode, applied.stderr)
-        return fixture, applied
+        if applied.returncode != 0:
+            raise AssertionError(applied.stderr or applied.stdout)
+        cls.fixture = fixture
+        cls.applied = applied
 
     def test_quiet_framed_and_colored_pytest_summaries_without_skipped_or_deselected_replace_the_list(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         stored = fixture.suite("per-entry")["entry_paths"]
         for entry in ("tests/pytest_framed.py", "tests/pytest_quiet.py", "tests/pytest_quiet-warnings.py", "tests/pytest_colored.py"):
             with self.subTest(entry=entry):
@@ -293,7 +307,7 @@ class PytestReportTests(unittest.TestCase):
                 self.assertNotIn(entry, applied.stdout)
 
     def test_pytest_runs_with_skipped_or_deselected_tests_keep_the_list_and_report_why(self) -> None:
-        fixture, applied = self.record()
+        fixture, applied = self.fixture, self.applied
         stored = fixture.suite("per-entry")["entry_paths"]
         cases = (
             ("tests/pytest_quiet-skipped.py", "1 test skipped"),

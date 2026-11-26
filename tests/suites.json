@@ -63,11 +63,11 @@
       ],
       "entry_durations": {
         "tests/test_ci_policy_action_pins.py": 0.48,
-        "tests/test_ci_policy_additions.py": 0.83,
+        "tests/test_ci_policy_additions.py": 0.42,
         "tests/test_ci_policy_auto_merge_caller.py": 0.81,
         "tests/test_ci_policy_automation.py": 0.83,
         "tests/test_ci_policy_catalogue.py": 0.56,
-        "tests/test_ci_policy_entry_files.py": 0.91,
+        "tests/test_ci_policy_entry_files.py": 0.58,
         "tests/test_ci_policy_etw_consumer.py": 0.53,
         "tests/test_ci_policy_fixed_callers.py": 0.49,
         "tests/test_ci_policy_full_recording.py": 0.79,
@@ -75,13 +75,13 @@
         "tests/test_ci_policy_hygiene_promotion.py": 0.62,
         "tests/test_ci_policy_hygiene_promotion_surface.py": 0.54,
         "tests/test_ci_policy_hygiene_updater.py": 0.55,
-        "tests/test_ci_policy_hygiene_validate.py": 0.68,
+        "tests/test_ci_policy_hygiene_validate.py": 0.93,
         "tests/test_ci_policy_measurement.py": 0.84,
         "tests/test_ci_policy_off_path_runners.py": 0.61,
         "tests/test_ci_policy_pipeline.py": 1.5,
         "tests/test_ci_policy_pipeline_parts.py": 0.93,
         "tests/test_ci_policy_publication.py": 0.49,
-        "tests/test_ci_policy_publication_document.py": 0.55,
+        "tests/test_ci_policy_publication_document.py": 0.41,
         "tests/test_ci_policy_python_language_step.py": 0.65,
         "tests/test_ci_policy_python_tests_caller.py": 0.55,
         "tests/test_ci_policy_recording_action.py": 0.54,
@@ -90,7 +90,7 @@
         "tests/test_ci_policy_shared_surface.py": 2.0,
         "tests/test_ci_policy_suite_jobs.py": 0.99,
         "tests/test_ci_policy_sync.py": 0.8,
-        "tests/test_ci_policy_temporary_files.py": 2.69,
+        "tests/test_ci_policy_temporary_files.py": 1.61,
         "tests/test_ci_policy_tool_pins.py": 0.74,
         "tests/test_ci_policy_zizmor.py": 0.54
       },
@@ -226,6 +226,7 @@
         "tests/fixtures/python_tests/tests/test_greeting.py",
         "tests/hygiene_fixtures.py",
         "tests/hygiene_process.py",
+        "tests/hygiene_v1_promotion_support.py",
         "tests/measurement_fixtures.py",
         "tests/pipeline_fixtures.py",
         "tests/publication_branch_check.py",
@@ -243,6 +244,7 @@
         "tests/setups/python.py",
         "tests/strace_stand_in.py",
         "tests/suite_selection_fixtures.py",
+        "tests/suite_selection_reuse_support.py",
         "tests/suites.json",
         "tests/sync_fixtures.py",
         "tests/temporary_support.py",
@@ -301,6 +303,7 @@
         "tests/test_hygiene_repository_hygiene.py",
         "tests/test_hygiene_reuse.py",
         "tests/test_hygiene_v1_promotion.py",
+        "tests/test_hygiene_v1_promotion_manual.py",
         "tests/test_hygiene_zizmor.py",
         "tests/test_hygiene_zizmor_configuration.py",
         "tests/test_hygiene_zizmor_surface.py",
@@ -347,7 +350,12 @@
         "tests/test_suite_selection_recording_pathspecs.py",
         "tests/test_suite_selection_recording_setups.py",
         "tests/test_suite_selection_reuse.py",
+        "tests/test_suite_selection_reuse_decisions.py",
+        "tests/test_suite_selection_reuse_lookup.py",
+        "tests/test_suite_selection_rules.py",
         "tests/test_suite_selection_setups.py",
+        "tests/test_suite_selection_shards.py",
+        "tests/test_suite_selection_unrecorded.py",
         "tests/test_suite_selection_workflow.py",
         "tests/test_suite_selection_workflow_reader.py",
         "tests/test_sync_adoption.py",
@@ -846,6 +854,7 @@
           "tests/dependabot_auto_merge_source.py",
           "tests/hygiene_fixtures.py",
           "tests/hygiene_process.py",
+          "tests/hygiene_v1_promotion_support.py",
           "tests/measurement_fixtures.py",
           "tests/pipeline_fixtures.py",
           "tests/publication_branch_check.py",
@@ -858,6 +867,7 @@
           "tests/release_fixtures.py",
           "tests/strace_stand_in.py",
           "tests/suite_selection_fixtures.py",
+          "tests/suite_selection_reuse_support.py",
           "tests/sync_fixtures.py",
           "tests/temporary_support.py",
           "tests/test_ci_policy_action_pins.py",
@@ -915,6 +925,7 @@
           "tests/test_hygiene_repository_hygiene.py",
           "tests/test_hygiene_reuse.py",
           "tests/test_hygiene_v1_promotion.py",
+          "tests/test_hygiene_v1_promotion_manual.py",
           "tests/test_hygiene_zizmor.py",
           "tests/test_hygiene_zizmor_configuration.py",
           "tests/test_hygiene_zizmor_surface.py",
@@ -961,7 +972,12 @@
           "tests/test_suite_selection_recording_pathspecs.py",
           "tests/test_suite_selection_recording_setups.py",
           "tests/test_suite_selection_reuse.py",
+          "tests/test_suite_selection_reuse_decisions.py",
+          "tests/test_suite_selection_reuse_lookup.py",
+          "tests/test_suite_selection_rules.py",
           "tests/test_suite_selection_setups.py",
+          "tests/test_suite_selection_shards.py",
+          "tests/test_suite_selection_unrecorded.py",
           "tests/test_suite_selection_workflow.py",
           "tests/test_suite_selection_workflow_reader.py",
           "tests/test_sync_adoption.py",
@@ -7348,24 +7364,29 @@
         "python"
       ],
       "entry_durations": {
-        "tests/test_suite_selection.py": 137.73,
+        "tests/test_suite_selection.py": 7.13,
         "tests/test_suite_selection_caller_entries.py": 19.56,
         "tests/test_suite_selection_ci_step_precision.py": 5.48,
         "tests/test_suite_selection_code_boundary.py": 0.71,
         "tests/test_suite_selection_part_boundary.py": 0.49,
-        "tests/test_suite_selection_recording_apply.py": 29.4,
+        "tests/test_suite_selection_recording_apply.py": 58.77,
         "tests/test_suite_selection_recording_check.py": 57.77,
         "tests/test_suite_selection_recording_classification.py": 11.12,
         "tests/test_suite_selection_recording_etw.py": 19.89,
-        "tests/test_suite_selection_recording_full.py": 56.52,
+        "tests/test_suite_selection_recording_full.py": 28.3,
         "tests/test_suite_selection_recording_full_close.py": 5.09,
         "tests/test_suite_selection_recording_lookups.py": 1.87,
         "tests/test_suite_selection_recording_pathspecs.py": 21.34,
         "tests/test_suite_selection_recording_setups.py": 23.61,
-        "tests/test_suite_selection_reuse.py": 126.71,
-        "tests/test_suite_selection_setups.py": 9.63,
+        "tests/test_suite_selection_reuse.py": 33.27,
+        "tests/test_suite_selection_reuse_decisions.py": 49.62,
+        "tests/test_suite_selection_reuse_lookup.py": 24.99,
+        "tests/test_suite_selection_rules.py": 18.84,
+        "tests/test_suite_selection_setups.py": 5.56,
+        "tests/test_suite_selection_shards.py": 11.95,
+        "tests/test_suite_selection_unrecorded.py": 72.74,
         "tests/test_suite_selection_workflow.py": 2.8,
-        "tests/test_suite_selection_workflow_reader.py": 0.43
+        "tests/test_suite_selection_workflow_reader.py": 0.67
       },
       "entry_selection": true,
       "paths": [
@@ -7775,6 +7796,7 @@
         "tests/setups/python.py",
         "tests/strace_stand_in.py",
         "tests/suite_selection_fixtures.py",
+        "tests/suite_selection_reuse_support.py",
         "tests/suites.json",
         "tests/temporary_support.py",
         "tests/test_suite_selection.py",
@@ -7792,54 +7814,19 @@
         "tests/test_suite_selection_recording_pathspecs.py",
         "tests/test_suite_selection_recording_setups.py",
         "tests/test_suite_selection_reuse.py",
+        "tests/test_suite_selection_reuse_decisions.py",
+        "tests/test_suite_selection_reuse_lookup.py",
+        "tests/test_suite_selection_rules.py",
         "tests/test_suite_selection_setups.py",
+        "tests/test_suite_selection_shards.py",
+        "tests/test_suite_selection_unrecorded.py",
         "tests/test_suite_selection_workflow.py",
         "tests/test_suite_selection_workflow_reader.py",
         "tests/workflow_commands.py"
       ],
       "entry_paths": {
         "tests/test_suite_selection.py": [
-          ".github/workflows/pipeline.yml",
-          ".github/workflows/suite-jobs.yml",
-          "actions/dotnet-test/action.yml",
-          "actions/dotnet-test/dotnet_test.py",
-          "actions/node-test/action.yml",
-          "actions/node-test/node_test.py",
-          "actions/pipeline/schema/v1/setups.json",
-          "actions/pipeline/timeouts.json",
-          "actions/python-language-step/action.yml",
-          "actions/python-language-step/python_language_step.py",
-          "actions/python-tests/action.yml",
-          "actions/python-tests/python_tests.py",
-          "actions/recording/action.yml",
-          "actions/recording/etw-consumer/EtwConsumer.csproj",
-          "actions/recording/etw-consumer/Program.cs",
-          "actions/recording/etw-consumer/build/Dia2Lib.dll",
-          "actions/recording/etw-consumer/build/EtwConsumer.deps.json",
-          "actions/recording/etw-consumer/build/EtwConsumer.dll",
-          "actions/recording/etw-consumer/build/EtwConsumer.runtimeconfig.json",
-          "actions/recording/etw-consumer/build/Microsoft.Diagnostics.FastSerialization.dll",
-          "actions/recording/etw-consumer/build/Microsoft.Diagnostics.NETCore.Client.dll",
-          "actions/recording/etw-consumer/build/Microsoft.Diagnostics.Tracing.TraceEvent.dll",
-          "actions/recording/etw-consumer/build/Microsoft.Extensions.DependencyInjection.Abstractions.dll",
-          "actions/recording/etw-consumer/build/Microsoft.Extensions.Logging.Abstractions.dll",
-          "actions/recording/etw-consumer/build/TraceReloggerLib.dll",
-          "actions/recording/etw-consumer/global.json",
-          "actions/recording/etw-consumer/packages.lock.json",
-          "actions/recording/etw_consumer_build.py",
-          "actions/recording/recording.py",
-          "actions/recording/shared_lookup_report.py",
           "actions/recording/stdlib_module_names.json",
-          "actions/recording/stdlib_names.py",
-          "actions/recording/toolchain_probes.json",
-          "actions/repository-hygiene/dependabot_coverage.py",
-          "actions/repository-hygiene/hygiene.py",
-          "actions/repository-hygiene/install_tools.py",
-          "actions/repository-hygiene/link_check.py",
-          "actions/repository-hygiene/package-ecosystems.json",
-          "actions/repository-hygiene/pins.json",
-          "actions/repository-hygiene/pins.py",
-          "actions/repository-hygiene/zizmor-policy.yml",
           "actions/suite-selection/ci_definition.py",
           "actions/suite-selection/recording_modules.py",
           "actions/suite-selection/reuse.py",
@@ -7847,8 +7834,6 @@
           "actions/suite-selection/suite_list.py",
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
-          "tests/recording_fixtures.py",
-          "tests/strace_stand_in.py",
           "tests/suite_selection_fixtures.py",
           "tests/temporary_support.py",
           "tests/test_suite_selection.py"
@@ -8481,8 +8466,52 @@
           "actions/suite-selection/suite_selection.py",
           "actions/suite-selection/unrecorded.py",
           "tests/suite_selection_fixtures.py",
+          "tests/suite_selection_reuse_support.py",
           "tests/temporary_support.py",
           "tests/test_suite_selection_reuse.py"
+        ],
+        "tests/test_suite_selection_reuse_decisions.py": [
+          "actions/recording/recording.py",
+          "actions/recording/stdlib_module_names.json",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/reuse.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
+          "actions/suite-selection/suite_selection.py",
+          "actions/suite-selection/unrecorded.py",
+          "tests/suite_selection_fixtures.py",
+          "tests/suite_selection_reuse_support.py",
+          "tests/temporary_support.py",
+          "tests/test_suite_selection_reuse_decisions.py"
+        ],
+        "tests/test_suite_selection_reuse_lookup.py": [
+          "actions/recording/stdlib_module_names.json",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/reuse.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
+          "actions/suite-selection/suite_selection.py",
+          "actions/suite-selection/unrecorded.py",
+          "tests/suite_selection_fixtures.py",
+          "tests/suite_selection_reuse_support.py",
+          "tests/temporary_support.py",
+          "tests/test_suite_selection_reuse_lookup.py"
+        ],
+        "tests/test_suite_selection_rules.py": [
+          "actions/recording/stdlib_module_names.json",
+          "actions/recording/stdlib_names.py",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/reuse.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
+          "actions/suite-selection/suite_selection.py",
+          "actions/suite-selection/unrecorded.py",
+          "tests/suite_selection_fixtures.py",
+          "tests/temporary_support.py",
+          "tests/test_suite_selection_rules.py"
         ],
         "tests/test_suite_selection_setups.py": [
           "actions/suite-selection/ci_definition.py",
@@ -8495,6 +8524,73 @@
           "tests/suite_selection_fixtures.py",
           "tests/temporary_support.py",
           "tests/test_suite_selection_setups.py"
+        ],
+        "tests/test_suite_selection_shards.py": [
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/reuse.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
+          "actions/suite-selection/suite_selection.py",
+          "actions/suite-selection/unrecorded.py",
+          "tests/suite_selection_fixtures.py",
+          "tests/temporary_support.py",
+          "tests/test_suite_selection_shards.py"
+        ],
+        "tests/test_suite_selection_unrecorded.py": [
+          ".github/workflows/pipeline.yml",
+          ".github/workflows/suite-jobs.yml",
+          "actions/dotnet-test/action.yml",
+          "actions/dotnet-test/dotnet_test.py",
+          "actions/node-test/action.yml",
+          "actions/node-test/node_test.py",
+          "actions/pipeline/schema/v1/setups.json",
+          "actions/pipeline/timeouts.json",
+          "actions/python-language-step/action.yml",
+          "actions/python-language-step/python_language_step.py",
+          "actions/python-tests/action.yml",
+          "actions/python-tests/python_tests.py",
+          "actions/recording/action.yml",
+          "actions/recording/etw-consumer/EtwConsumer.csproj",
+          "actions/recording/etw-consumer/Program.cs",
+          "actions/recording/etw-consumer/build/Dia2Lib.dll",
+          "actions/recording/etw-consumer/build/EtwConsumer.deps.json",
+          "actions/recording/etw-consumer/build/EtwConsumer.dll",
+          "actions/recording/etw-consumer/build/EtwConsumer.runtimeconfig.json",
+          "actions/recording/etw-consumer/build/Microsoft.Diagnostics.FastSerialization.dll",
+          "actions/recording/etw-consumer/build/Microsoft.Diagnostics.NETCore.Client.dll",
+          "actions/recording/etw-consumer/build/Microsoft.Diagnostics.Tracing.TraceEvent.dll",
+          "actions/recording/etw-consumer/build/Microsoft.Extensions.DependencyInjection.Abstractions.dll",
+          "actions/recording/etw-consumer/build/Microsoft.Extensions.Logging.Abstractions.dll",
+          "actions/recording/etw-consumer/build/TraceReloggerLib.dll",
+          "actions/recording/etw-consumer/global.json",
+          "actions/recording/etw-consumer/packages.lock.json",
+          "actions/recording/etw_consumer_build.py",
+          "actions/recording/recording.py",
+          "actions/recording/shared_lookup_report.py",
+          "actions/recording/stdlib_module_names.json",
+          "actions/recording/stdlib_names.py",
+          "actions/recording/toolchain_probes.json",
+          "actions/repository-hygiene/dependabot_coverage.py",
+          "actions/repository-hygiene/hygiene.py",
+          "actions/repository-hygiene/install_tools.py",
+          "actions/repository-hygiene/link_check.py",
+          "actions/repository-hygiene/package-ecosystems.json",
+          "actions/repository-hygiene/pins.json",
+          "actions/repository-hygiene/pins.py",
+          "actions/repository-hygiene/zizmor-policy.yml",
+          "actions/suite-selection/ci_definition.py",
+          "actions/suite-selection/recording_modules.py",
+          "actions/suite-selection/reuse.py",
+          "actions/suite-selection/revisions.py",
+          "actions/suite-selection/suite_list.py",
+          "actions/suite-selection/suite_selection.py",
+          "actions/suite-selection/unrecorded.py",
+          "tests/recording_fixtures.py",
+          "tests/strace_stand_in.py",
+          "tests/suite_selection_fixtures.py",
+          "tests/temporary_support.py",
+          "tests/test_suite_selection_unrecorded.py"
         ],
         "tests/test_suite_selection_workflow.py": [
           ".github/workflows/ci.yml",
@@ -8739,17 +8835,6 @@
         "tests/test_windows_recording.py/**"
       ],
       "entry_directory_memberships": {
-        "tests/test_suite_selection.py": [
-          "actions/dotnet-test",
-          "actions/node-test",
-          "actions/python-language-step",
-          "actions/python-language-step/consumer-kit",
-          "actions/python-tests",
-          "actions/recording",
-          "actions/recording/etw-consumer",
-          "actions/recording/etw-consumer/build",
-          "tests"
-        ],
         "tests/test_suite_selection_code_boundary.py": [
           "actions/suite-selection"
         ],
@@ -8951,6 +9036,17 @@
           "actions/repository-hygiene",
           "actions/suite-selection",
           "actions/suite-selection/consumer-kit"
+        ],
+        "tests/test_suite_selection_unrecorded.py": [
+          "actions/dotnet-test",
+          "actions/node-test",
+          "actions/python-language-step",
+          "actions/python-language-step/consumer-kit",
+          "actions/python-tests",
+          "actions/recording",
+          "actions/recording/etw-consumer",
+          "actions/recording/etw-consumer/build",
+          "tests"
         ],
         "tests/test_suite_selection_workflow.py": [
           ".github/workflows/ci.yml/**",
@@ -9437,6 +9533,10 @@
           "kind": "any"
         },
         {
+          "path": "tests/setups",
+          "kind": "directory"
+        },
+        {
           "path": "tests/setups/commitlint.sh",
           "kind": "any"
         },
@@ -9486,6 +9586,22 @@
         },
         {
           "path": "tests/suite_selection_fixtures.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/suite_selection_reuse_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/suite_selection_reuse_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/suite_selection_reuse_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/suite_selection_reuse_support.so",
           "kind": "any"
         },
         {
@@ -9539,6 +9655,18 @@
         {
           "path": "tests/test_suite_selection",
           "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_selection.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection.so",
+          "kind": "any"
         },
         {
           "path": "tests/test_suite_selection_caller_entries",
@@ -9733,6 +9861,54 @@
           "kind": "any"
         },
         {
+          "path": "tests/test_suite_selection_reuse_decisions",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_selection_reuse_decisions.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_reuse_decisions.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_reuse_decisions.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_reuse_lookup",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_selection_reuse_lookup.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_reuse_lookup.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_reuse_lookup.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_rules",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_selection_rules.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_rules.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_rules.so",
+          "kind": "any"
+        },
+        {
           "path": "tests/test_suite_selection_setups",
           "kind": "directory"
         },
@@ -9747,6 +9923,26 @@
         {
           "path": "tests/test_suite_selection_setups.so",
           "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_shards",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_suite_selection_shards.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_shards.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_shards.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_suite_selection_unrecorded",
+          "kind": "directory"
         },
         {
           "path": "tests/test_suite_selection_workflow",
@@ -9803,10 +9999,6 @@
         {
           "path": "tests/workflow_commands.so",
           "kind": "any"
-        },
-        {
-          "path": "tests/setups",
-          "kind": "directory"
         }
       ],
       "entry_existence_reads": {
@@ -9816,24 +10008,8 @@
             "kind": "directory"
           },
           {
-            "path": "actions/recording/recording",
-            "kind": "directory"
-          },
-          {
             "path": "actions/suite-selection",
             "kind": "directory"
-          },
-          {
-            "path": "actions/suite-selection/__future__.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/argparse.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/ast.py",
-            "kind": "any"
           },
           {
             "path": "actions/suite-selection/ci_definition",
@@ -9849,54 +10025,6 @@
           },
           {
             "path": "actions/suite-selection/ci_definition.so",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/collections.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/concurrent.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/ctypes.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/dataclasses.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/functools.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/hashlib.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/json.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/math.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/os.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/pathlib.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/posixpath.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/re.py",
             "kind": "any"
           },
           {
@@ -9948,26 +10076,6 @@
             "kind": "any"
           },
           {
-            "path": "actions/suite-selection/shutil.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/signal.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/stat.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/statistics.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/subprocess.py",
-            "kind": "any"
-          },
-          {
             "path": "actions/suite-selection/suite_list",
             "kind": "directory"
           },
@@ -10000,18 +10108,6 @@
             "kind": "any"
           },
           {
-            "path": "actions/suite-selection/sys.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/threading.py",
-            "kind": "any"
-          },
-          {
-            "path": "actions/suite-selection/time.py",
-            "kind": "any"
-          },
-          {
             "path": "actions/suite-selection/unrecorded",
             "kind": "directory"
           },
@@ -10028,24 +10124,72 @@
             "kind": "any"
           },
           {
-            "path": "tests/recording_fixtures",
+            "path": "tests",
             "kind": "directory"
           },
           {
-            "path": "tests/strace_stand_in",
-            "kind": "directory"
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
           },
           {
             "path": "tests/suite_selection_fixtures",
             "kind": "directory"
           },
           {
+            "path": "tests/suite_selection_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/temporary_support",
             "kind": "directory"
           },
           {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/test_suite_selection",
             "kind": "directory"
+          },
+          {
+            "path": "tests/test_suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection.so",
+            "kind": "any"
           }
         ],
         "tests/test_suite_selection_caller_entries.py": [
@@ -11946,6 +12090,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/setups",
+            "kind": "directory"
+          },
+          {
             "path": "tests/strace_stand_in",
             "kind": "directory"
           },
@@ -11980,10 +12128,6 @@
           {
             "path": "tests/test_suite_selection_recording_setups.so",
             "kind": "any"
-          },
-          {
-            "path": "tests/setups",
-            "kind": "directory"
           }
         ],
         "tests/test_suite_selection_reuse.py": [
@@ -12056,6 +12200,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/suite_selection_reuse_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/temporary_support",
             "kind": "directory"
           },
@@ -12085,6 +12245,616 @@
           },
           {
             "path": "tests/test_suite_selection_reuse.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_suite_selection_reuse_decisions.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/recording",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_decisions",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_decisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_decisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_decisions.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_suite_selection_reuse_lookup.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_reuse_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_lookup",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_lookup.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_lookup.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_reuse_lookup.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_suite_selection_rules.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/recording",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_rules",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_suite_selection_rules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_rules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_rules.so",
             "kind": "any"
           }
         ],
@@ -12276,6 +13046,434 @@
           {
             "path": "tests/test_suite_selection_setups.so",
             "kind": "any"
+          }
+        ],
+        "tests/test_suite_selection_shards.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/suite_selection_fixtures.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_shards",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_suite_selection_shards.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_shards.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_suite_selection_shards.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_suite_selection_unrecorded.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/recording/recording",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/__future__.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/argparse.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ast.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ci_definition.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/collections.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/concurrent.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/ctypes.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/dataclasses.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/functools.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/hashlib.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/json.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/math.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/os.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/pathlib.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/posixpath.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/re.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/recording_modules.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/reuse.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/reuse.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/revisions.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/revisions.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/shutil.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/signal.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/stat.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/statistics.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/subprocess.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_list.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/suite_selection.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/sys.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/threading.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/time.py",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "actions/suite-selection/unrecorded.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/recording_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/strace_stand_in",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/suite_selection_fixtures",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_suite_selection_unrecorded",
+            "kind": "directory"
           }
         ],
         "tests/test_suite_selection_workflow.py": [
@@ -12719,7 +13917,6 @@
       "entry_lookup_directories": {
         "tests/test_suite_selection.py": [
           ".",
-          "actions/recording",
           "actions/suite-selection",
           "tests"
         ],
@@ -12801,12 +13998,39 @@
         ],
         "tests/test_suite_selection_reuse.py": [
           ".",
+          "actions/suite-selection",
+          "tests"
+        ],
+        "tests/test_suite_selection_reuse_decisions.py": [
+          ".",
+          "actions/recording",
+          "actions/suite-selection",
+          "tests"
+        ],
+        "tests/test_suite_selection_reuse_lookup.py": [
+          ".",
+          "actions/suite-selection",
+          "tests"
+        ],
+        "tests/test_suite_selection_rules.py": [
+          ".",
           "actions/recording",
           "actions/suite-selection",
           "tests"
         ],
         "tests/test_suite_selection_setups.py": [
           ".",
+          "actions/suite-selection",
+          "tests"
+        ],
+        "tests/test_suite_selection_shards.py": [
+          ".",
+          "actions/suite-selection",
+          "tests"
+        ],
+        "tests/test_suite_selection_unrecorded.py": [
+          ".",
+          "actions/recording",
           "actions/suite-selection",
           "tests"
         ],
@@ -12837,9 +14061,6 @@
       "entry_module_lookups": {
         "tests/test_suite_selection.py": {
           ".": [
-            "tests"
-          ],
-          "actions/suite-selection": [
             "tests"
           ]
         },
@@ -12925,8 +14146,36 @@
             "tests"
           ]
         },
+        "tests/test_suite_selection_reuse_decisions.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_suite_selection_reuse_lookup.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_suite_selection_rules.py": {
+          ".": [
+            "tests"
+          ]
+        },
         "tests/test_suite_selection_setups.py": {
           ".": [
+            "tests"
+          ]
+        },
+        "tests/test_suite_selection_shards.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_suite_selection_unrecorded.py": {
+          ".": [
+            "tests"
+          ],
+          "actions/suite-selection": [
             "tests"
           ]
         },
@@ -12988,7 +14237,8 @@
         "tests/test_hygiene_push_and_reuse.py": 18.94,
         "tests/test_hygiene_repository_hygiene.py": 0.49,
         "tests/test_hygiene_reuse.py": 5.44,
-        "tests/test_hygiene_v1_promotion.py": 124.06,
+        "tests/test_hygiene_v1_promotion.py": 26.78,
+        "tests/test_hygiene_v1_promotion_manual.py": 43.1,
         "tests/test_hygiene_zizmor.py": 1.66,
         "tests/test_hygiene_zizmor_configuration.py": 2.55,
         "tests/test_hygiene_zizmor_surface.py": 5.29
@@ -13017,6 +14267,7 @@
         "tests/ci_policy_support.py",
         "tests/hygiene_fixtures.py",
         "tests/hygiene_process.py",
+        "tests/hygiene_v1_promotion_support.py",
         "tests/setups/pinned-tool.sh",
         "tests/temporary_support.py",
         "tests/test_hygiene_actionlint.py",
@@ -13031,6 +14282,7 @@
         "tests/test_hygiene_repository_hygiene.py",
         "tests/test_hygiene_reuse.py",
         "tests/test_hygiene_v1_promotion.py",
+        "tests/test_hygiene_v1_promotion_manual.py",
         "tests/test_hygiene_zizmor.py",
         "tests/test_hygiene_zizmor_configuration.py",
         "tests/test_hygiene_zizmor_surface.py",
@@ -13143,9 +14395,18 @@
           "actions/repository-hygiene/shared-surface.json",
           "docs/agents/publication.md",
           "docs/maintaining.md",
+          "tests/hygiene_v1_promotion_support.py",
           "tests/temporary_support.py",
           "tests/test_hygiene_v1_promotion.py",
           "tests/workflow_commands.py"
+        ],
+        "tests/test_hygiene_v1_promotion_manual.py": [
+          ".github/workflows/promote-v1.yml",
+          "actions/repository-hygiene/promote_v1.py",
+          "actions/repository-hygiene/shared-surface.json",
+          "tests/hygiene_v1_promotion_support.py",
+          "tests/temporary_support.py",
+          "tests/test_hygiene_v1_promotion_manual.py"
         ],
         "tests/test_hygiene_zizmor.py": [
           "actions/repository-hygiene/dependabot_coverage.py",
@@ -13214,7 +14475,7 @@
           ".",
           "actions/repository-hygiene"
         ],
-        "tests/test_hygiene_v1_promotion.py": [
+        "tests/test_hygiene_v1_promotion_manual.py": [
           "**"
         ],
         "tests/test_hygiene_zizmor.py": [
@@ -13414,6 +14675,22 @@
         },
         {
           "path": "tests/hygiene_process.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_v1_promotion_support",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/hygiene_v1_promotion_support.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_v1_promotion_support.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/hygiene_v1_promotion_support.so",
           "kind": "any"
         },
         {
@@ -13622,6 +14899,22 @@
         },
         {
           "path": "tests/test_hygiene_v1_promotion.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_hygiene_v1_promotion_manual",
+          "kind": "directory"
+        },
+        {
+          "path": "tests/test_hygiene_v1_promotion_manual.abi3.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_hygiene_v1_promotion_manual.cpython-313-x86_64-linux-gnu.so",
+          "kind": "any"
+        },
+        {
+          "path": "tests/test_hygiene_v1_promotion_manual.so",
           "kind": "any"
         },
         {
@@ -14898,6 +16191,22 @@
             "kind": "any"
           },
           {
+            "path": "tests/hygiene_v1_promotion_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/hygiene_v1_promotion_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_v1_promotion_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_v1_promotion_support.so",
+            "kind": "any"
+          },
+          {
             "path": "tests/temporary_support",
             "kind": "directory"
           },
@@ -14943,6 +16252,84 @@
           },
           {
             "path": "tests/workflow_commands.so",
+            "kind": "any"
+          }
+        ],
+        "tests/test_hygiene_v1_promotion_manual.py": [
+          {
+            "path": "actions",
+            "kind": "directory"
+          },
+          {
+            "path": "actions/repository-hygiene",
+            "kind": "directory"
+          },
+          {
+            "path": "tests",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/__init__.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.py",
+            "kind": "any"
+          },
+          {
+            "path": "tests/__init__.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_v1_promotion_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/hygiene_v1_promotion_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_v1_promotion_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/hygiene_v1_promotion_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/temporary_support.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/temporary_support.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_hygiene_v1_promotion_manual",
+            "kind": "directory"
+          },
+          {
+            "path": "tests/test_hygiene_v1_promotion_manual.abi3.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_hygiene_v1_promotion_manual.cpython-313-x86_64-linux-gnu.so",
+            "kind": "any"
+          },
+          {
+            "path": "tests/test_hygiene_v1_promotion_manual.so",
             "kind": "any"
           }
         ],
@@ -15423,6 +16810,10 @@
           "actions/repository-hygiene",
           "tests"
         ],
+        "tests/test_hygiene_v1_promotion_manual.py": [
+          ".",
+          "tests"
+        ],
         "tests/test_hygiene_zizmor.py": [
           ".",
           "actions/repository-hygiene",
@@ -15512,6 +16903,11 @@
           ]
         },
         "tests/test_hygiene_v1_promotion.py": {
+          ".": [
+            "tests"
+          ]
+        },
+        "tests/test_hygiene_v1_promotion_manual.py": {
           ".": [
             "tests"
           ]
@@ -23027,6 +24423,10 @@
           "kind": "any"
         },
         {
+          "path": "tests/setups",
+          "kind": "directory"
+        },
+        {
           "path": "tests/strace_stand_in",
           "kind": "directory"
         },
@@ -23085,10 +24485,6 @@
         {
           "path": "tests/test_windows_recording.pyd",
           "kind": "any"
-        },
-        {
-          "path": "tests/setups",
-          "kind": "directory"
         }
       ],
       "entry_existence_reads": {
@@ -23484,6 +24880,10 @@
             "kind": "any"
           },
           {
+            "path": "tests/setups",
+            "kind": "directory"
+          },
+          {
             "path": "tests/strace_stand_in",
             "kind": "directory"
           },
@@ -23518,10 +24918,6 @@
           {
             "path": "tests/test_suite_selection_recording_setups.pyd",
             "kind": "any"
-          },
-          {
-            "path": "tests/setups",
-            "kind": "directory"
           }
         ]
       },

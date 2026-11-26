@@ -1,952 +1,81 @@
-"""The push lookup, the reuse key and the result store of select, on fixture repositories with recorded API responses."""
+"""Reuse keys, default-branch records, shared CI digests and dispatch commits of select."""
 
 from __future__ import annotations
 
-import http.server
+import importlib.util
 import io
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
-import threading
 import unittest
-import zipfile
-from contextlib import redirect_stdout
-from pathlib import Path
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, redirect_stdout
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from types import ModuleType
 from unittest import mock
 
 from tests import temporary_support
-from tests.suite_selection_fixtures import force_add, git, write
-
-SHARED_FOLDER = Path(__file__).resolve().parents[1] / "actions"
-TOOL = SHARED_FOLDER / "suite-selection"
-sys.path.insert(0, str(TOOL))
-
-import reuse
-import suite_selection
-
-SUITES = {
-    "always": [],
-    "suites": [
-        {"name": "pr-only", "entries": ["tests/test_pr.py"], "paths": ["tests/test_pr.py", "src/feature.py"],
-         "command": ["python3", "-m", "unittest"], "setups": ["python"]},
-        {"name": "both", "entries": ["tests/test_both.py"], "paths": ["tests/test_both.py", "src/feature.py", "src/moved.py"],
-         "command": ["python3", "-m", "unittest"], "setups": ["python"]},
-        {"name": "main-only", "entries": ["tests/test_main.py"], "paths": ["tests/test_main.py", "src/moved.py"],
-         "command": ["python3", "-m", "unittest"], "setups": ["python"]},
-        {"name": "per-entry", "entries": ["tests/test_one.py", "tests/test_two.py"], "paths": ["tests/**", "src/**"],
-         "entry_selection": True, "entry_paths": {"tests/test_one.py": ["tests/test_one.py", "src/feature.py"],
-                                                  "tests/test_two.py": ["tests/test_two.py", "src/other.py"]},
-         "command": ["python3", "-m", "unittest"], "setups": ["python"], "entry_setups": {"tests/test_two.py": ["node"]}},
-        {"name": "windows", "entries": ["tests/test_win.py"], "paths": ["tests/test_win.py", "src/feature.py"],
-         "command": ["python", "-m", "unittest"], "setups": ["python"], "os": "windows"},
-    ],
-}
-
-
-FULL_ID = re.compile(r"[0-9a-f]{40}")
-NOT_FOUND = (404, b'{"message": "Not Found"}', {})
-
-
-class RecordedApi:
-    """A local HTTP server that answers the recorded responses by path and records every request. Like GitHub, it
-    answers the Git database read of a commit only for a full commit id."""
-
-    def __init__(self) -> None:
-        self.responses: dict[str, tuple[int, bytes, dict[str, str]]] = {}
-        self.requests: list[tuple[str, str | None]] = []
-        api = self
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                api.requests.append((self.path, self.headers.get("Authorization")))
-                status, body, headers = api.responses.get(self.path, NOT_FOUND)
-                commit = self.path.removeprefix("/repos/owner/repository/git/commits/")
-                if commit != self.path and not FULL_ID.fullmatch(commit):
-                    status, body, headers = NOT_FOUND
-                self.send_response(status)
-                for name, value in headers.items():
-                    self.send_header(name, value.replace("{url}", api.url))
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *arguments) -> None:
-                pass
-
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-
-    def close(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-
-    def json(self, path: str, document, request_id: str = "") -> None:
-        headers = {"Content-Type": "application/json"}
-        if request_id:
-            headers["X-GitHub-Request-Id"] = request_id
-        self.responses["/repos/owner/repository/" + path] = (200, json.dumps(document).encode(), headers)
-
-    def log(self, job: int, text: str) -> None:
-        # The job-log endpoint redirects to a storage URL, which must be read without the token.
-        self.responses[f"/repos/owner/repository/actions/jobs/{job}/logs"] = (302, b"", {"Location": "{url}/storage/" + str(job)})
-        self.responses[f"/storage/{job}"] = (200, text.encode(), {"Content-Type": "text/plain"})
-
-    def artifact(self, run: int, artifact_id: int, name: str, files: dict[str, bytes] | bytes, *, expired: bool = False) -> None:
-        """Serve a workflow run artifact list and redirected zip archive (read without token)."""
-        self.json(f"actions/runs/{run}/artifacts?name={name}", {
-            "total_count": 1,
-            "artifacts": [{"id": artifact_id, "name": name, "expired": expired}],
-        })
-        if isinstance(files, bytes):
-            archive = files
-        else:
-            buffer = io.BytesIO()
-            with zipfile.ZipFile(buffer, "w") as zf:
-                for member, content in files.items():
-                    zf.writestr(member, content)
-            archive = buffer.getvalue()
-        self.responses[f"/repos/owner/repository/actions/artifacts/{artifact_id}/zip"] = (
-            302, b"", {"Location": "{url}/artifact-storage/" + str(artifact_id)}
-        )
-        self.responses[f"/artifact-storage/{artifact_id}"] = (200, archive, {"Content-Type": "application/zip"})
-
-
-class FixtureRepository(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temporary = temporary_support.Directory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "repo"
-        self.root.mkdir()
-        git(self.root, "init", "-q", "-b", "main")
-        git(self.root, "config", "core.autocrlf", "false")
-        for path in ("tests/test_pr.py", "tests/test_both.py", "tests/test_main.py", "tests/test_one.py", "tests/test_two.py",
-                     "tests/test_win.py", "src/feature.py", "src/moved.py", "src/other.py", "README.md"):
-            write(self.root, path, path + "\n")
-        write(self.root, "suites.json", json.dumps(SUITES, indent=2) + "\n")
-        self.base = self.commit("base")
-
-    def commit(self, message: str, files: dict[str, str] | None = None) -> str:
-        for path, text in (files or {}).items():
-            write(self.root, path, text)
-        git(self.root, "add", "-A")
-        git(self.root, "commit", "-q", "--allow-empty", "-m", message)
-        return git(self.root, "rev-parse", "HEAD")
-
-    def select(self, *arguments: str) -> tuple[dict[str, str], str, str]:
-        outputs, summary = self.root.parent / "outputs.txt", self.root.parent / "summary.md"
-        outputs.unlink(missing_ok=True)
-        summary.unlink(missing_ok=True)
-        printed = io.StringIO()
-        with redirect_stdout(printed):
-            code = suite_selection.main(["select", "--root", str(self.root), "--suites", str(self.root / "suites.json"),
-                                         "--json-output", str(outputs), "--summary", str(summary), *arguments])
-        self.assertEqual(code, 0, printed.getvalue())
-        return dict(line.split("=", 1) for line in outputs.read_text(encoding="utf-8").splitlines()), printed.getvalue(), summary.read_text(encoding="utf-8")
-
-
-class PushLookupTests(FixtureRepository):
-    """The push lookup with structured PR tested-state artifacts and default-branch records, without log scraping."""
-
-    NUMBER = 7
-    RUN = 4100
-    ARTIFACT = 4300
-    DIGESTS = {"language:python": "e" * 64, "platform:linux": "c" * 64, "platform:windows": "d" * 64}
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.api = RecordedApi()
-        self.addCleanup(self.api.close)
-        # The pull request branches from the base and changes src/feature.py; GitHub tests its merge into the base.
-        git(self.root, "checkout", "-q", "-b", "topic")
-        self.pr_head = self.commit("feature", {"src/feature.py": "feature v2\n"})
-        git(self.root, "checkout", "-q", "main")
-        git(self.root, "merge", "-q", "--no-ff", "-m", f"Merge {self.pr_head} into {self.base}", "topic")
-        self.merge = git(self.root, "rev-parse", "HEAD")
-        git(self.root, "reset", "-q", "--hard", self.base)
-
-    def write_default_record(self, commit: str, *, run_id: int = 5100, digests: dict[str, str] | None = None, passed: dict[str, int] | None = None) -> Path:
-        path = self.root.parent / "default-record.json"
-        tree = git(self.root, "rev-parse", f"{commit}^{{tree}}")
-        payload = {
-            "version": 1,
-            "run_id": run_id,
-            "commit": commit,
-            "tree": tree,
-            "digests": self.DIGESTS if digests is None else digests,
-            "passed": passed or {},
-        }
-        path.write_text(json.dumps(payload), encoding="utf-8")
-        return path
-
-    def record(self, *, artifact: bool = True, expired: bool = False, state_override: dict | None = None,
-               raw_zip: bytes | None = None, parents: list[str] | None = None, pulls: list | None = None,
-               digests: dict[str, str] | None = DIGESTS, runs: list | None = None) -> None:
-        self.api.json(f"commits/{self.pushed}/pulls", pulls if pulls is not None else
-                      [{"number": self.NUMBER, "state": "closed", "merge_commit_sha": self.pushed, "head": {"sha": self.pr_head, "ref": "topic"}}])
-        workflow_runs = runs if runs is not None else [
-            {"id": self.RUN, "head_sha": self.pr_head, "event": "pull_request", "conclusion": "success"}
-        ]
-        self.api.json(f"actions/workflows/validate.yml/runs?head_sha={self.pr_head}&event=pull_request&status=success&per_page=20",
-                      {"total_count": len(workflow_runs), "workflow_runs": workflow_runs})
-        tree = git(self.root, "rev-parse", f"{self.merge}^{{tree}}")
-        if artifact:
-            state = {
-                "version": 1,
-                "pull_request": self.NUMBER,
-                "run_id": self.RUN,
-                "run_attempt": 1,
-                "head": self.pr_head,
-                "tested_base": self.base,
-                "tested_merge": self.merge,
-                "tree": tree,
-                "digests": digests,
-            }
-            if state_override:
-                state.update(state_override)
-            payload = raw_zip if raw_zip is not None else {"tested-state.json": json.dumps(state).encode("utf-8")}
-            self.api.artifact(self.RUN, self.ARTIFACT, "tested-state", payload, expired=expired)
-        else:
-            self.api.json(f"actions/runs/{self.RUN}/artifacts?name=tested-state", {"total_count": 0, "artifacts": []})
-        self.api.json(f"git/commits/{self.merge}", {"sha": self.merge, "tree": {"sha": tree},
-                                                    "parents": [{"sha": sha} for sha in (parents or [self.base, self.pr_head])]})
-
-    def lookup(self, sha: str, before: str, attempt: int = 1, default_record: Path | None = None) -> tuple[dict, str]:
-        output = self.root.parent / "lookup.json"
-        printed = io.StringIO()
-        environment = {"GITHUB_API_URL": self.api.url, "GITHUB_REPOSITORY": "owner/repository", "GITHUB_TOKEN": "token-for-the-test"}
-        extra = ["--default-record", str(default_record)] if default_record is not None else []
-        with mock.patch.dict(os.environ, environment), redirect_stdout(printed):
-            code = suite_selection.main(["lookup", "--root", str(self.root), "--sha", sha, "--before", before,
-                                         "--workflow", "owner/repository/.github/workflows/validate.yml@refs/heads/main",
-                                         "--run-attempt", str(attempt), *extra, "--output", str(output)])
-        self.assertEqual(code, 0)
-        return json.loads(output.read_text(encoding="utf-8")), printed.getvalue()
-
-    def squash_onto(self, base: str) -> str:
-        git(self.root, "reset", "-q", "--hard", base)
-        return self.commit("feat: the feature (#7)", {"src/feature.py": "feature v2\n"})
-
-    def test_write_tested_state_records_the_merge_commit_tree_and_digests(self) -> None:
-        git(self.root, "checkout", "-q", self.merge)
-        output = self.root.parent / "tested-state.json"
-        rendered = json.dumps(self.DIGESTS, sort_keys=True, separators=(",", ":"))
-        with redirect_stdout(io.StringIO()):
-            code = suite_selection.main([
-                "tested-state", "--root", str(self.root), "--pull-request", str(self.NUMBER),
-                "--run-id", str(self.RUN), "--run-attempt", "1", "--digests", rendered, "--output", str(output),
-            ])
-        self.assertEqual(0, code)
-        state = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual({
-            "version": 1,
-            "pull_request": self.NUMBER,
-            "run_id": self.RUN,
-            "run_attempt": 1,
-            "head": self.pr_head,
-            "tested_base": self.base,
-            "tested_merge": self.merge,
-            "tree": git(self.root, "rev-parse", f"{self.merge}^{{tree}}"),
-            "digests": self.DIGESTS,
-        }, state)
-
-    def test_the_lookup_reads_the_structured_tested_state_artifact_without_reading_logs_and_verifies_the_merge(self) -> None:
-        self.pushed = self.squash_onto(self.base)
-        self.record()
-        found, _ = self.lookup(self.pushed, self.base)
-        self.assertEqual(found["case"], "identical", found)
-        self.assertEqual((found["pull_request"], found["tested_merge"], found["tested_base"], found["tested_run"], found["tested_digests"]),
-                         (self.NUMBER, self.merge, self.base, self.RUN, self.DIGESTS))
-        self.assertIsNone(found["fallback"])
-        paths = [path for path, _ in self.api.requests]
-        self.assertEqual(paths, [
-            f"/repos/owner/repository/commits/{self.pushed}/pulls",
-            f"/repos/owner/repository/actions/workflows/validate.yml/runs?head_sha={self.pr_head}&event=pull_request&status=success&per_page=20",
-            f"/repos/owner/repository/actions/runs/{self.RUN}/artifacts?name=tested-state",
-            f"/repos/owner/repository/actions/artifacts/{self.ARTIFACT}/zip",
-            f"/artifact-storage/{self.ARTIFACT}",
-            f"/repos/owner/repository/git/commits/{self.merge}",
-        ])
-        self.assertFalse(any("/logs" in path or "/jobs" in path for path in paths), "push lookup reads no job logs")
-        tokens = dict(self.api.requests)
-        self.assertEqual(tokens[f"/repos/owner/repository/commits/{self.pushed}/pulls"], "Bearer token-for-the-test")
-        self.assertIsNone(tokens[f"/artifact-storage/{self.ARTIFACT}"], "the redirected artifact archive is read without the token")
-
-    def test_the_lookup_skips_an_edited_run_without_tested_state_and_takes_the_previous_code_run(self) -> None:
-        self.pushed = self.squash_onto(self.base)
-        self.record(runs=[
-            {"id": self.RUN + 1, "head_sha": self.pr_head, "event": "pull_request", "conclusion": "success"},
-            {"id": self.RUN, "head_sha": self.pr_head, "event": "pull_request", "conclusion": "success"},
-        ])
-        self.api.json(f"actions/runs/{self.RUN + 1}/artifacts?name=tested-state", {"total_count": 0, "artifacts": []})
-        found, _ = self.lookup(self.pushed, self.base)
-        self.assertEqual((found["case"], found["tested_run"]), ("identical", self.RUN))
-
-    def test_the_recorded_git_database_answers_only_a_full_commit_id(self) -> None:
-        self.api.json(f"git/commits/{self.merge[:7]}", {"sha": self.merge})
-        self.api.json(f"git/commits/{self.merge}", {"sha": self.merge})
-        api = reuse.Api(self.api.url, "owner/repository", None)
-        self.assertEqual(api.json(f"git/commits/{self.merge}"), {"sha": self.merge})
-        with self.assertRaisesRegex(reuse.ApiError, "answered 404"):
-            api.json(f"git/commits/{self.merge[:7]}")
-
-    def test_a_missing_expired_or_unreadable_pr_record_falls_back_with_a_counted_notice(self) -> None:
-        self.pushed = self.squash_onto(self.base)
-        for label, kwargs, expected_fallback in (
-                ("missing artifact", {"artifact": False}, "missing-pr-record"),
-                ("expired artifact", {"artifact": True, "expired": True}, "missing-pr-record"),
-                ("corrupt zip", {"artifact": True, "raw_zip": b"not a zip"}, "unreadable-pr-record"),
-                ("wrong pull request", {"artifact": True, "state_override": {"pull_request": self.NUMBER + 1}}, "unreadable-pr-record"),
-                ("unverified parents", {"artifact": True, "parents": [self.base, self.base]}, "unreadable-pr-record")):
-            with self.subTest(case=label):
-                self.api.responses.clear()
-                self.api.requests.clear()
-                self.record(**kwargs)
-                found, printed = self.lookup(self.pushed, self.base)
-                self.assertEqual("pull-request", found["case"], found)
-                self.assertEqual(expected_fallback, found["fallback"], found)
-                self.assertIn(f"::notice title=ci-fallback::{expected_fallback}:", printed)
-                lookup = self.root.parent / "lookup.json"
-                lookup.write_text(json.dumps(found), encoding="utf-8")
-                unit_decisions = self.root.parent / "unit-decisions.json"
-                _, _, summary = self.select("--lookup", str(lookup), "--unit-decisions", str(unit_decisions))
-                decisions_doc = json.loads(unit_decisions.read_text(encoding="utf-8"))
-                self.assertEqual({expected_fallback: 1}, decisions_doc["fallbacks"])
-                self.assertTrue(decisions_doc["shards"])
-                self.assertTrue(all(set(item) == {"shard", "estimate"} for item in decisions_doc["shards"]))
-                self.assertIn(f"The selection runs over the pull request's files: {found['reason']}.", summary)
-
-    def test_a_push_whose_tree_equals_the_passed_tested_tree_runs_no_suite(self) -> None:
-        self.pushed = self.squash_onto(self.base)
-        self.record()
-        lookup = self.root.parent / "lookup.json"
-        found, _ = self.lookup(self.pushed, self.base)
-        lookup.write_text(json.dumps(found), encoding="utf-8")
-        outputs, printed, summary = self.select("--lookup", str(lookup), "--language-step", "python")
-        self.assertEqual(json.loads(outputs["suites"]), {name: "skip" for name in ("pr-only", "both", "main-only", "per-entry", "windows")})
-        self.assertEqual((outputs["shards"], outputs["windows"], outputs["language-steps"]), ("[]", "", '{"python":"skip"}'))
-        self.assertIn(f"the tree equals the tested tree that passed on pull request #{self.NUMBER}", printed)
-        self.assertIn("## Push lookup\n\nNo suite runs: ", summary)
-
-    def test_a_behind_merge_onto_a_passed_newer_base_runs_only_what_both_sides_affect_and_uses_pr_digests(self) -> None:
-        moved = self.commit("main moves", {"src/moved.py": "moved v2\n"})
-        self.pushed = self.squash_onto(moved)
-        pr_digests = dict(self.DIGESTS, **{"platform:linux": "9" * 64})
-        # Main passed under old DIGESTS, while the PR was tested under pr_digests (e.g. a PR changing the recorder).
-        default_rec = self.write_default_record(moved, run_id=5200, digests=self.DIGESTS)
-        self.record(digests=pr_digests)
-        found, printed = self.lookup(self.pushed, moved, default_record=default_rec)
-        self.assertEqual(("behind", self.base, moved, True, self.RUN, pr_digests, None),
-                         (found["case"], found["tested_base"], found["landing_base"], found["landing_base_passed"],
-                          found["tested_run"], found["tested_digests"], found["fallback"]), found)
-        self.assertNotIn("::notice title=ci-fallback::", printed)
-        lookup = self.root.parent / "lookup.json"
-        lookup.write_text(json.dumps(found), encoding="utf-8")
-        shared = self.root.parent / "shared.json"
-        with redirect_stdout(io.StringIO()):
-            code = suite_selection.main(["shared-lookup", "--root", str(self.root),
-                                         "--digests", json.dumps(pr_digests, sort_keys=True, separators=(",", ":")),
-                                         "--default-record", str(default_rec), "--output", str(shared)])
-        self.assertEqual(0, code)
-        outputs, printed, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(shared))
-        self.assertEqual(json.loads(outputs["suites"]), {"pr-only": "skip", "both": "run", "main-only": "skip", "per-entry": "skip", "windows": "skip"},
-                         "only what both the change and the passed newer base affect runs; PR tested digests decide instead of old main digests")
-        self.assertIn("both: run (both sides: `src/feature.py` matches `src/feature.py`; `src/moved.py` matches `src/moved.py`)", printed)
-        self.assertEqual([entry["entry"] for shard in json.loads(outputs["shards"]) for entry in shard["entries"]], ["tests/test_both.py"])
-
-    def test_a_behind_merge_onto_an_unpassed_newer_base_takes_over_nothing_the_newer_base_can_affect(self) -> None:
-        moved = self.commit("main moves", {"src/moved.py": "moved v2\n"})
-        self.pushed = self.squash_onto(moved)
-        self.record(digests=self.DIGESTS)
-        # Default-branch record is still at self.base (moved has NOT passed yet!), or missing/evicted.
-        for label, default_rec, expected_fb in (
-                ("stale default record", self.write_default_record(self.base, run_id=5100), "unpassed-landing-base"),
-                ("missing default record", self.root.parent / "absent-default.json", "missing-default-branch-record")):
-            with self.subTest(case=label):
-                found, lookup_printed = self.lookup(self.pushed, moved, default_record=default_rec)
-                self.assertEqual(("behind", False, expected_fb),
-                                 (found["case"], found["landing_base_passed"], found["fallback"]), found)
-                self.assertIn(f"::notice title=ci-fallback::{expected_fb}:", lookup_printed)
-                lookup = self.root.parent / "lookup.json"
-                lookup.write_text(json.dumps(found), encoding="utf-8")
-                shared = self.root.parent / "shared.json"
-                with redirect_stdout(io.StringIO()):
-                    suite_selection.main(["shared-lookup", "--root", str(self.root),
-                                          "--digests", json.dumps(self.DIGESTS, sort_keys=True, separators=(",", ":")),
-                                          "--default-record", str(default_rec), "--output", str(shared)])
-                unit_decisions = self.root.parent / "unit-decisions.json"
-                outputs, _, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(shared),
-                                            "--unit-decisions", str(unit_decisions))
-                self.assertEqual({"pr-only": "skip", "both": "run", "main-only": "run", "per-entry": "skip", "windows": "skip"},
-                                 json.loads(outputs["suites"]),
-                                 "nothing the unpassed newer base can affect (both, main-only) is taken over")
-                self.assertEqual({expected_fb: 1}, json.loads(unit_decisions.read_text(encoding="utf-8"))["fallbacks"])
-
-    def test_a_push_without_a_pull_request_selects_over_its_own_changed_files(self) -> None:
-        self.pushed = self.commit("direct push", {"src/moved.py": "moved v3\n"})
-        self.record(pulls=[])
-        found, _ = self.lookup(self.pushed, self.base)
-        self.assertEqual((found["case"], found["pull_request"], found["fallback"]), ("own", None, None), found)
-        self.assertEqual(len(self.api.requests), 1)
-        lookup = self.root.parent / "lookup.json"
-        lookup.write_text(json.dumps(found), encoding="utf-8")
-        outputs, _, _ = self.select("--lookup", str(lookup))
-        self.assertEqual(json.loads(outputs["suites"]), {"pr-only": "skip", "both": "run", "main-only": "run", "per-entry": "skip", "windows": "skip"})
-
-    def test_a_dependabot_merged_run_starts_its_lookup_from_the_payload_commit(self) -> None:
-        self.pushed = self.squash_onto(self.base)
-        later = self.commit("a later commit on the default branch", {"README.md": "later\n"})
-        self.record()
-        found, _ = self.lookup(self.pushed, "")
-        self.assertEqual((found["case"], found["head"], found["landing_base"]), ("identical", self.pushed, self.base))
-        self.assertEqual(self.api.requests[0][0], f"/repos/owner/repository/commits/{self.pushed}/pulls")
-        self.assertNotIn(later, " ".join(path for path, _ in self.api.requests))
-
-    def test_a_re_run_of_a_push_makes_no_lookup_and_selects_over_its_own_changed_files(self) -> None:
-        self.pushed = self.squash_onto(self.base)
-        self.record()
-        found, _ = self.lookup(self.pushed, self.base, attempt=2)
-        self.assertEqual((found["case"], found["landing_base"]), ("own", self.base), found)
-        self.assertEqual(self.api.requests, [])
-        lookup = self.root.parent / "lookup.json"
-        lookup.write_text(json.dumps(found), encoding="utf-8")
-        outputs, _, _ = self.select("--lookup", str(lookup))
-        self.assertEqual(json.loads(outputs["suites"])["pr-only"], "run")
-
-    def test_an_unreachable_api_never_skips_and_counts_as_a_fallback(self) -> None:
-        self.pushed = self.squash_onto(self.base)
-        self.api.close()
-        found, printed = self.lookup(self.pushed, self.base)
-        self.assertEqual(("own", "push-lookup-api-error"), (found["case"], found["fallback"]))
-        self.assertIn("could not be looked up", found["reason"])
-        self.assertIn("::notice title=ci-fallback::push-lookup-api-error:", printed)
-
-
-class ReuseTests(FixtureRepository):
-    """Later heads of a pull request reuse passed results whose exact key did not change."""
-
-    LABELS = ("--runner-label", "linux=ubuntu-26.04", "--runner-label", "windows=windows-2025", "--setup-version", "python=3.13")
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.record = self.root.parent / "record.json"
-
-    def head(self, files: dict[str, str]) -> str:
-        return self.commit("head", files)
-
-    def select_head(self, head: str, *extra: str, labels: tuple[str, ...] = LABELS) -> dict[str, str]:
-        git(self.root, "checkout", "-q", head)
-        outputs, _, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base", "--results", str(self.record), *labels, *extra)
-        return outputs
-
-    def store(self, outputs: dict[str, str], passed: list[tuple[str, str]] | dict[str, list[dict]], run: int, result: str = "success",
-              job: str = "select", additions: Path | None = None) -> bool:
-        """Store a run: ``passed`` is a list of passed entry files of one job, or the passed list each job uploaded by
-        artifact name; ``additions`` the folder with the run's downloaded ``recording-additions-*`` artifacts."""
-        needs = self.root.parent / "needs.json"
-        needs.write_text(json.dumps({job: {"result": result, "outputs": outputs}, "linux": {"result": "success", "outputs": {}}}), encoding="utf-8")
-        directory = self.root.parent / f"passed-{run}"
-        if directory.exists():
-            temporary_support.remove_tree(directory)
-        lists = passed if isinstance(passed, dict) else {"suite-results-shard-1": [{"suite": suite, "entry": entry} for suite, entry in passed]}
-        for name, items in lists.items():
-            (directory / name).mkdir(parents=True)
-            (directory / name / "passed.json").write_text(json.dumps(items), encoding="utf-8")
-        github_output = self.root.parent / "store-output.txt"
-        github_output.unlink(missing_ok=True)
-        with redirect_stdout(io.StringIO()):
-            code = suite_selection.main(["store", "--needs", str(needs), "--passed", str(directory), "--run-id", str(run),
-                                         *(["--selection-job", job] if job != "select" else []),
-                                         *(["--additions", str(additions), "--root", str(self.root)] if additions is not None else []),
-                                         "--output", str(self.record), "--github-output", str(github_output)])
-        self.assertEqual(code, 0)
-        return github_output.read_text(encoding="utf-8") == "stored=true\n"
-
-    RECORDING = str(SHARED_FOLDER / "recording" / "recording.py")
-    NO_READS = {"paths": [], "existence_reads": [], "directory_memberships": [], "lookup_directories": [], "module_lookups": {}}
-
-    def job_with_additions(self, run: int, job: str, passed: list[tuple[str, str]], changes: list[dict]) -> tuple[list[dict], Path]:
-        """One job of a run whose check reported ``changes``, in the shape check writes them: its additions artifact under
-        the run's additions folder, and its passed list as ``keep`` leaves it."""
-        artifact = self.root.parent / f"additions-{run}" / f"recording-additions-{job}"
-        artifact.mkdir(parents=True, exist_ok=True)
-        document = artifact / "additions.json"
-        document.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": changes}), encoding="utf-8")
-        listed = self.root.parent / f"passed-{run}-{job}.json"
-        listed.write_text(json.dumps([{"suite": suite, "entry": entry} for suite, entry in passed]), encoding="utf-8")
-        completed = subprocess.run([sys.executable, self.RECORDING, "keep", "--additions", str(document), str(listed)], capture_output=True, text=True)
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        return json.loads(listed.read_text(encoding="utf-8")), artifact.parent
-
-    def app_commit(self, *documents: Path) -> str:
-        """The App's additions commit: the additions applied to the suite list, and no other file."""
-        before = git(self.root, "rev-parse", "HEAD")
-        completed = subprocess.run([sys.executable, self.RECORDING, "apply", "--root", str(self.root), "--suites", str(self.root / "suites.json"),
-                                    *map(str, documents)], capture_output=True, text=True)
-        self.assertEqual(0, completed.returncode, completed.stderr)
-        app = self.commit("chore: apply the recorded additions")
-        self.assertEqual("suites.json", git(self.root, "diff", "--name-only", before, app))
-        return app
-
-    @staticmethod
-    def runs(outputs: dict[str, str]) -> list[str]:
-        return sorted(name for name, result in json.loads(outputs["suites"]).items() if result == "run")
-
-    @staticmethod
-    def running(outputs: dict[str, str]) -> list[list[str]]:
-        return sorted(sorted(unit["entries"]) for unit in json.loads(outputs["units"]).values())
-
-    def make_both_read_the_suite_list(self) -> None:
-        """Make `both` read the suite list, as the entry files of this repository that read tests/suites.json do."""
-        suites = json.loads(json.dumps(SUITES))
-        suites["suites"][1]["paths"].append("suites.json")
-        git(self.root, "checkout", "-q", self.base)
-        self.base = self.commit("a suite that reads the suite list", {"suites.json": json.dumps(suites, indent=2) + "\n"})
-
-    def first_run_with_additions(self, run: int) -> tuple[str, Path]:
-        """A first head whose run passes every unit, with additions for the entry file `tests/test_one.py` of the suite
-        selected per entry file and for the pooled suite `pr-only`; it returns the head and the additions folder."""
-        first = self.head({"src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        reads = self.NO_READS | {"paths": ["README.md"]}
-        kept, additions = self.job_with_additions(run, "shard-1", self.ALL, [
-            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}},
-            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}])
-        self.assertEqual([("per-entry", "tests/test_one.py"), ("pr-only", "tests/test_pr.py")],
-                         sorted((item["suite"], item["entry"]) for item in kept if item.get("additions")), "keep marks the entry files with additions")
-        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, run, additions=additions))
-        return first, additions
-
-    ALL = [("pr-only", "tests/test_pr.py"), ("both", "tests/test_both.py"), ("per-entry", "tests/test_one.py"), ("windows", "tests/test_win.py")]
-
-    def first_head_passes(self) -> str:
-        first = self.head({"src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        self.assertEqual(json.loads(outputs["reused"]), {})
-        self.assertEqual(sorted(unit["suite"] for unit in json.loads(outputs["units"]).values()), ["both", "per-entry", "pr-only", "windows"])
-        self.assertTrue(self.store(outputs, self.ALL, 9001))
-        return first
-
-    def test_a_later_head_reuses_the_passed_results_whose_key_matches_exactly(self) -> None:
-        self.first_head_passes()
-        later = self.head({"README.md": "a change no suite reads\n"})
-        outputs = self.select_head(later)
-        self.assertEqual(json.loads(outputs["suites"]), {name: "skip" for name in ("pr-only", "both", "main-only", "per-entry", "windows")})
-        self.assertEqual(sorted(json.loads(outputs["reused"]).values()), [9001] * 4)
-        self.assertEqual((outputs["shards"], outputs["windows"], json.loads(outputs["units"])), ("[]", "", {}))
-        _, printed, _ = self.select("--base", self.base, "--head", later, "--compare", "merge-base", "--results", str(self.record), *self.LABELS)
-        self.assertIn("pr-only: skip (reuses the passed result of run 9001)", printed)
-
-    def test_a_change_to_any_single_part_of_the_key_makes_the_unit_run(self) -> None:
-        first = self.first_head_passes()
-        runs = lambda outputs: sorted(name for name, result in json.loads(outputs["suites"]).items() if result == "run")
-        git(self.root, "checkout", "-q", first)
-        self.assertEqual(runs(self.select_head(self.head({"tests/test_pr.py": "a changed read\n"}))), ["pr-only"], "the content of a read")
-        git(self.root, "checkout", "-q", first)
-        changed_command = json.loads(json.dumps(SUITES))
-        changed_command["suites"][1]["command"] = ["python3", "-m", "unittest", "-v"]
-        self.assertEqual(runs(self.select_head(self.head({"suites.json": json.dumps(changed_command)}))), ["both"], "the command")
-        git(self.root, "checkout", "-q", first)
-        self.assertEqual(runs(self.select_head(first, labels=self.LABELS[:4] + ("--setup-version", "python=3.14"))),
-                         ["both", "per-entry", "pr-only", "windows"], "the version a setup pins")
-        self.assertEqual(runs(self.select_head(first, labels=self.LABELS[:3] + ("windows=windows-2026",) + self.LABELS[4:])),
-                         ["windows"], "the runner label")
-
-    def test_a_moved_pin_of_a_pinned_tool_makes_only_the_units_that_state_it_run(self) -> None:
-        pins = self.root.parent / "pins.json"
-
-        def select_pinned(head: str, version: str) -> dict[str, str]:
-            pins.write_text(json.dumps({"node": {"version": version}}), encoding="utf-8")
-            return self.select_head(head, "--pinned-tool", "node", "--pins", str(pins))
-
-        first = self.head({"src/feature.py": "feature v2\n", "src/other.py": "other v2\n"})
-        outputs = select_pinned(first, "24.9.0")
-        self.assertTrue(self.store(outputs, self.ALL + [("per-entry", "tests/test_two.py")], 9001))
-        later = self.head({"README.md": "a change no suite reads\n"})
-        same = select_pinned(later, "24.9.0")
-        self.assertEqual((same["shards"], same["windows"]), ("[]", ""), "the same pin reuses every passed result")
-        moved = select_pinned(later, "24.10.0")
-        self.assertEqual([unit["entries"] for unit in json.loads(moved["units"]).values()], [["tests/test_two.py"]],
-                         "only the entry file that states node runs again")
-        self.assertEqual(sorted(json.loads(moved["reused"]).values()), [9001] * 4)
-        self.assertEqual(json.loads(moved["shards"])[0]["tools"], {"node": "24.10.0"})
-
-    def test_an_entry_file_of_a_suite_selected_per_entry_file_is_a_unit_of_its_own(self) -> None:
-        self.first_head_passes()
-        later = self.head({"src/other.py": "other v2\n"})
-        outputs = self.select_head(later)
-        self.assertEqual(json.loads(outputs["entries"])["per-entry"], ["tests/test_two.py"])
-        self.assertEqual([unit["entries"] for unit in json.loads(outputs["units"]).values()], [["tests/test_two.py"]])
-
-    def test_a_changed_step_of_the_calling_workflow_counts_as_a_read_of_its_suite(self) -> None:
-        workflow = ("name: Validate\non: [pull_request]\njobs:\n  select:\n    runs-on: ubuntu-latest\n    steps:\n"
-                    "      - run: python suites.py\n        id: select\n"
-                    "      - run: python -m unittest tests/test_main.py\n        if: steps.select.outputs.main-only == 'run'\n")
-        write(self.root, ".github/workflows/validate.yml", workflow)
-        self.base = self.commit("the workflow")
-        arguments = ("--workflow", ".github/workflows/validate.yml")
-        first = self.head({".github/workflows/validate.yml": workflow.replace("unittest tests", "unittest -v tests")})
-        outputs = self.select_head(first, *arguments)
-        self.assertEqual(json.loads(outputs["suites"])["main-only"], "run")
-        self.assertTrue(self.store(outputs, [("main-only", "tests/test_main.py")], 9002))
-        self.assertEqual(json.loads(self.select_head(self.head({"README.md": "unread\n"}), *arguments)["suites"])["main-only"], "skip")
-        second = self.head({".github/workflows/validate.yml": workflow.replace("unittest tests", "unittest -v -b tests")})
-        self.assertEqual(json.loads(self.select_head(second, *arguments)["suites"])["main-only"], "run")
-
-    def test_the_key_holds_the_tracked_gitignore_files_and_the_tracked_paths_that_they_match(self) -> None:
-        runs = lambda outputs: sorted(name for name, result in json.loads(outputs["suites"]).items() if result == "run")
-        every = ["both", "main-only", "per-entry", "pr-only", "windows"]
-        for label, first, later in (
-                ("a tracked .gitignore file", {".gitignore": "*.tmp\n"}, {".gitignore": "*.tmp\n*.out\n"}),
-                ("a tracked path that the rules match", {".gitignore": "*.tmp\n", "notes.tmp": "first\n"}, {"notes.tmp": "second\n"})):
-            with self.subTest(part=label):
-                git(self.root, "checkout", "-q", self.base)
-                self.record.unlink(missing_ok=True)
-                force_add(self.root, first)
-                outputs = self.select_head(self.head({}))
-                self.assertEqual(every, runs(outputs))
-                self.assertTrue(self.store(outputs, self.ALL + [("main-only", "tests/test_main.py")], 9010))
-                outputs = self.select_head(self.head(later))
-                self.assertEqual(every, runs(outputs), "the change still runs every unit")
-                self.assertEqual({}, json.loads(outputs["reused"]), "and reuses no result")
-
-    def test_the_key_holds_the_names_that_carry_a_module_lookup_in_each_lookup_directory(self) -> None:
-        suites = json.loads(json.dumps(SUITES))
-        suites["suites"][0]["lookup_directories"] = ["src"]
-        suites["module_lookups"] = {"src": ["helper"]}
-        git(self.root, "checkout", "-q", self.base)
-        self.base = self.commit("module lookups", {"suites.json": json.dumps(suites)})
-        self.first_head_passes()
-        first = git(self.root, "rev-parse", "HEAD")
-        reused = lambda outputs: sorted(unit for unit in json.loads(outputs["suites"]) if json.loads(outputs["suites"])[unit] == "skip")
-        self.assertIn("pr-only", reused(self.select_head(self.head({"src/notes.txt": "no module name\n"}))))
-        git(self.root, "checkout", "-q", first)
-        outputs = self.select_head(self.head({"src/helper.py": "a module that the suite looks up\n"}))
-        self.assertEqual("run", json.loads(outputs["suites"])["pr-only"], "a new module under a lookup name reuses no result")
-
-    def test_a_re_run_reuses_no_earlier_result(self) -> None:
-        self.first_head_passes()
-        later = self.head({"README.md": "unread\n"})
-        outputs = self.select_head(later, "--run-attempt", "2")
-        self.assertEqual(json.loads(outputs["reused"]), {})
-        self.assertEqual(sorted(name for name, result in json.loads(outputs["suites"]).items() if result == "run"),
-                         ["both", "per-entry", "pr-only", "windows"])
-
-    def test_the_store_reads_the_selection_from_the_job_that_the_caller_names(self) -> None:
-        outputs = self.select_head(self.head({"src/feature.py": "feature v2\n"}))
-        self.assertTrue(self.store(outputs, self.ALL, 9020, job="suite-selection"), "the pipeline's selection job carries the part's name")
-        self.assertEqual(len(json.loads(self.record.read_text(encoding="utf-8"))["passed"]), 4)
-        self.record.unlink()
-        needs = self.root.parent / "needs.json"
-        needs.write_text(json.dumps({"select": {"result": "success", "outputs": outputs}}), encoding="utf-8")
-        with redirect_stdout(io.StringIO()):
-            suite_selection.main(["store", "--needs", str(needs), "--selection-job", "suite-selection", "--passed", str(self.root.parent / "passed-9020"),
-                                  "--run-id", "9021", "--output", str(self.record)])
-        self.assertFalse(self.record.exists(), "a needs context without the named job stores nothing")
-
-    def test_only_passed_units_are_stored_and_a_failed_selection_stores_nothing(self) -> None:
-        first = self.head({"src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        self.assertTrue(self.store(outputs, [("pr-only", "tests/test_pr.py"), ("per-entry", "tests/test_one.py")], 9003))
-        stored = json.loads(self.record.read_text(encoding="utf-8"))["passed"]
-        units = json.loads(outputs["units"])
-        self.assertEqual(sorted(units[key]["suite"] for key in stored), ["per-entry", "pr-only"])
-        later = self.select_head(self.head({"README.md": "unread\n"}))
-        self.assertEqual(sorted(name for name, result in json.loads(later["suites"]).items() if result == "run"), ["both", "windows"])
-        self.assertTrue(self.store(later, [("both", "tests/test_both.py")], 9004))
-        carried = json.loads(self.record.read_text(encoding="utf-8"))["passed"]
-        self.assertEqual(sorted(carried.values()), [9003, 9003, 9004], "the reused results stay with the run they passed in")
-        self.record.unlink()
-        self.assertFalse(self.store(outputs, self.ALL, 9005, result="failure"))
-        self.assertFalse(self.record.exists())
-
-    def test_a_failed_plan_job_with_a_written_plan_and_passed_selection_stores_pull_request_results(self) -> None:
-        first = self.head({"src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        self.assertTrue(self.store(outputs, [("pr-only", "tests/test_pr.py")], 9070))
-        later = self.select_head(self.head({"README.md": "unread\n"}))
-        with_plan = {**later, "plan": '{"parts":{}}', "selection": "success"}
-        self.record.unlink()
-        self.assertTrue(self.store(with_plan, [("both", "tests/test_both.py")], 9071, result="failure", job="plan"))
-        carried = json.loads(self.record.read_text(encoding="utf-8"))["passed"]
-        self.assertEqual([9070, 9071], sorted(carried.values()), "keeps both reused and newly passed units after a failed light check")
-        for bad_outputs, label in (
-            ({**later, "plan": "", "selection": "success"}, "an empty plan output stores nothing"),
-            ({**later, "plan": '{"parts":{}}', "selection": "failure"}, "a failed selection stores nothing"),
-            ({**later, "plan": '{"parts":{}}'}, "a missing selection outcome stores nothing"),
-        ):
-            with self.subTest(case=label):
-                self.record.unlink(missing_ok=True)
-                self.assertFalse(self.store(bad_outputs, [("both", "tests/test_both.py")], 9072, result="failure", job="plan"), label)
-                self.assertFalse(self.record.exists(), label)
-
-    def test_a_later_head_that_does_not_apply_the_additions_reuses_the_unmarked_passes_and_runs_the_entry_files_with_additions(self) -> None:
-        self.first_run_with_additions(9007)
-        later = self.select_head(self.head({"README.md": "a change no suite reads\n"}))
-        self.assertEqual(["per-entry", "pr-only"], self.runs(later))
-        self.assertEqual([9007, 9007], sorted(json.loads(later["reused"]).values()))
-        self.assertEqual([["tests/test_one.py"], ["tests/test_pr.py"]], self.running(later), "a pass with additions counts only under the applied lists")
-
-    def test_a_later_head_that_only_applies_the_additions_reuses_the_passes_of_the_units_with_additions(self) -> None:
-        self.make_both_read_the_suite_list()
-        _, additions = self.first_run_with_additions(9008)
-        app = self.app_commit(*additions.rglob("additions.json"))
-        later = self.select_head(app)
-        self.assertEqual(["both"], self.runs(later), "only the reader of the suite list runs")
-        self.assertEqual([["tests/test_both.py"]], self.running(later))
-        self.assertEqual([9008] * 3, sorted(json.loads(later["reused"]).values()))
-        _, printed, _ = self.select("--base", self.base, "--head", app, "--compare", "merge-base", "--results", str(self.record), *self.LABELS)
-        for line in ("pr-only: skip (reuses the passed result of run 9008)", "per-entry: skip (reuses the passed result of run 9008)",
-                     "windows: skip (reuses the passed result of run 9008)"):
-            self.assertIn(line, printed)
-
-    def test_a_pooled_suite_split_over_jobs_with_additions_in_each_reuses_its_pass_on_the_head_that_applies_them(self) -> None:
-        pooled = json.loads(json.dumps(SUITES))
-        pooled["suites"][0]["entries"] = ["tests/test_pr.py", "tests/test_main.py"]
-        git(self.root, "checkout", "-q", self.base)
-        self.base = self.commit("a pooled suite of two entry files", {"suites.json": json.dumps(pooled, indent=2) + "\n"})
-
-        def run(number: int, shard_2_kept: bool) -> tuple[str, list[Path]]:
-            git(self.root, "checkout", "-q", self.base)
-            self.record.unlink(missing_ok=True)
-            first = self.head({"src/feature.py": f"feature v{number}\n"})
-            outputs = self.select_head(first)
-            one, additions = self.job_with_additions(number, "shard-1", [("pr-only", "tests/test_pr.py")], [
-                {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": self.NO_READS | {"paths": ["README.md"]}}])
-            two, _ = self.job_with_additions(number, "shard-2", [("pr-only", "tests/test_main.py")], [
-                {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_main.py"], "reads": self.NO_READS | {"paths": ["src/other.py"]}}])
-            lists = {"suite-results-shard-1": one} | ({"suite-results-shard-2": two} if shard_2_kept else {})
-            self.assertTrue(self.store(outputs, lists, number, additions=additions))
-            return first, sorted(additions.rglob("additions.json"))
-
-        _, documents = run(9030, shard_2_kept=True)
-        later = self.select_head(self.app_commit(*documents))
-        self.assertNotIn("pr-only", self.runs(later), "the pooled suite reuses its pass under the additions of both jobs")
-        self.assertIn(9030, json.loads(later["reused"]).values())
-        _, documents = run(9031, shard_2_kept=False)
-        later = self.select_head(self.app_commit(*documents))
-        self.assertIn(["tests/test_main.py", "tests/test_pr.py"], self.running(later), "a job that uploaded no passed list stores no pass of the suite")
-
-    def test_a_head_that_applies_the_additions_and_changes_a_file_a_unit_read_runs_that_unit(self) -> None:
-        _, additions = self.first_run_with_additions(9009)
-        self.app_commit(*additions.rglob("additions.json"))
-        later = self.select_head(self.head({"README.md": "a changed read of the entry files with additions\n"}))
-        self.assertEqual(["per-entry", "pr-only"], self.runs(later))
-        self.assertEqual([["tests/test_one.py"], ["tests/test_pr.py"]], self.running(later))
-
-    def test_a_head_whose_stored_list_differs_from_the_list_with_the_additions_applied_runs_the_unit(self) -> None:
-        first, _ = self.first_run_with_additions(9011)
-        reads = self.NO_READS | {"paths": ["README.md"]}
-        for label, changes, expected in (
-                ("only part of the additions", [{"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"],
-                                                 "entries": {"tests/test_one.py": reads}}], [["tests/test_pr.py"]]),
-                ("a read beyond the additions", [{"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"],
-                                                  "entries": {"tests/test_one.py": self.NO_READS | {"paths": ["README.md", "src/moved.py"]}}},
-                                                 {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}],
-                 [["tests/test_one.py"]])):
-            with self.subTest(head=label):
-                other = self.root.parent / f"other-{len(changes)}.json"
-                other.write_text(json.dumps({"kind": "additions", "suite_list": "suites.json", "suites": changes}), encoding="utf-8")
-                later = self.select_head(self.app_commit(other))
-                self.assertEqual(expected, self.running(later))
-                git(self.root, "checkout", "-q", first)
-
-    def test_a_unit_whose_stored_patterns_match_the_suite_list_runs_on_the_head_that_applies_the_additions(self) -> None:
-        self.make_both_read_the_suite_list()
-        _, additions = self.first_run_with_additions(9012)
-        later = self.select_head(self.app_commit(*additions.rglob("additions.json")))
-        self.assertEqual(["both"], self.runs(later))
-        self.assertEqual(["both"], [unit["suite"] for unit in json.loads(later["units"]).values()], "its pass under the old list is not reused")
-
-    def test_a_job_with_a_recording_error_or_a_failed_keep_stores_none_of_its_passes(self) -> None:
-        first = self.head({"src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        reads = self.NO_READS | {"paths": ["README.md"]}
-        _, additions = self.job_with_additions(9013, "shard-1", self.ALL, [
-            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}}])
-        # The job uploaded no passed list: its check failed without additions, or its keep failed.
-        self.assertTrue(self.store(outputs, {}, 9013, additions=additions))
-        self.assertEqual({}, json.loads(self.record.read_text(encoding="utf-8"))["passed"])
-        later = self.select_head(self.app_commit(*additions.rglob("additions.json")))
-        self.assertEqual({}, json.loads(later["reused"]))
-        self.assertEqual(["both", "per-entry", "pr-only", "windows"], self.runs(later))
-
-    def test_a_marked_pass_whose_additions_artifact_is_missing_is_not_stored_under_the_applied_lists(self) -> None:
-        first = self.head({"src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        reads = self.NO_READS | {"paths": ["README.md"]}
-        # Shard 1 marked tests/test_one.py, but the upload of its additions artifact failed: only shard 2's document is there.
-        kept, lost = self.job_with_additions(9016, "shard-1", self.ALL, [
-            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_one.py"], "entries": {"tests/test_one.py": reads}}])
-        temporary_support.remove_tree(lost / "recording-additions-shard-1")
-        _, additions = self.job_with_additions(9016, "shard-2", [("main-only", "tests/test_main.py")], [
-            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": reads}])
-        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9016, additions=additions))
-        units = json.loads(outputs["units"])
-        stored = json.loads(self.record.read_text(encoding="utf-8"))["passed"]
-        self.assertEqual(4, len(stored), "the unmarked passes, and pr-only also under the applied lists")
-        self.assertNotIn(["tests/test_one.py"], [units[key]["entries"] for key in stored if key in units])
-        self.assertEqual(9016, stored.get(next(key for key, unit in units.items() if unit["suite"] == "pr-only")))
-
-    def test_a_pass_with_additions_is_never_stored_under_the_key_of_the_lists_without_them(self) -> None:
-        first = self.head({"src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        kept, _ = self.job_with_additions(9014, "shard-1", self.ALL, [
-            {"suite": "pr-only", "create": False, "recorded_entries": ["tests/test_pr.py"], "reads": self.NO_READS | {"paths": ["README.md"]}}])
-        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9014))
-        units = json.loads(outputs["units"])
-        self.assertEqual(["both", "per-entry", "windows"], sorted(units[key]["suite"] for key in json.loads(self.record.read_text(encoding="utf-8"))["passed"]),
-                         "without the additions folder the marked pass is not stored")
-
-    def test_a_re_run_of_the_head_that_applies_the_additions_reuses_nothing(self) -> None:
-        _, additions = self.first_run_with_additions(9015)
-        app = self.app_commit(*additions.rglob("additions.json"))
-        later = self.select_head(app, "--run-attempt", "2")
-        self.assertEqual({}, json.loads(later["reused"]))
-        self.assertEqual(["both", "per-entry", "pr-only", "windows"], self.runs(later))
-
-    def test_a_suite_split_over_jobs_is_stored_only_when_every_entry_file_passed(self) -> None:
-        both = json.loads(json.dumps(SUITES))
-        both["suites"][0]["entries"] = ["tests/test_pr.py", "tests/test_main.py"]
-        first = self.head({"suites.json": json.dumps(both), "src/feature.py": "feature v2\n"})
-        outputs = self.select_head(first)
-        self.assertTrue(self.store(outputs, [("pr-only", "tests/test_pr.py")], 9006))
-        units = json.loads(outputs["units"])
-        self.assertNotIn("pr-only", [units[key]["suite"] for key in json.loads(self.record.read_text(encoding="utf-8"))["passed"]])
-
-    def test_a_pass_of_a_new_suite_is_stored_under_its_applied_key_and_reused_after_additions(self) -> None:
-        with_new = json.loads(json.dumps(SUITES))
-        with_new["suites"].append({
-            "name": "brand-new",
-            "entries": ["tests/test_new.py"],
-            "command": ["python3", "-m", "unittest"],
-            "setups": ["python"],
-        })
-        first = self.head({"suites.json": json.dumps(with_new, indent=2) + "\n", "tests/test_new.py": "new test\n"})
-        outputs = self.select_head(first)
-        self.assertIn("brand-new", self.runs(outputs))
-        self.assertIn("brand-new", [unit["suite"] for unit in json.loads(outputs["units"]).values()],
-                      "a new suite without paths is emitted in units so store --additions can key it")
-        # Without additions, a pass of an unlisted suite is never stored under its sentinel key.
-        self.assertTrue(self.store(outputs, [("brand-new", "tests/test_new.py")], 9040))
-        self.assertEqual({}, json.loads(self.record.read_text(encoding="utf-8"))["passed"])
-        self.record.unlink()
-
-        reads = self.NO_READS | {"paths": ["tests/test_new.py", "src/feature.py"]}
-        kept, additions = self.job_with_additions(9041, "shard-1", [("brand-new", "tests/test_new.py")], [
-            {"suite": "brand-new", "create": True, "recorded_entries": ["tests/test_new.py"], "reads": reads}])
-        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9041, additions=additions))
-
-        # Before additions are applied, a later head still runs the new suite.
-        unapplied = self.select_head(self.head({"README.md": "unread\n"}))
-        self.assertIn("brand-new", self.runs(unapplied))
-        git(self.root, "checkout", "-q", first)
-
-        # Once additions are applied, the next run takes over the pass from run 9041.
-        app = self.app_commit(*additions.rglob("additions.json"))
-        later = self.select_head(app)
-        self.assertNotIn("brand-new", self.runs(later))
-        self.assertIn(9041, json.loads(later["reused"]).values())
-
-        # Changing one of its recorded reads makes it run again.
-        changed = self.select_head(self.head({"src/feature.py": "feature changed\n"}))
-        self.assertIn("brand-new", self.runs(changed))
-
-    def test_a_pass_of_a_new_entry_file_is_stored_under_its_applied_key_and_reused_after_additions(self) -> None:
-        with_entry = json.loads(json.dumps(SUITES))
-        with_entry["suites"][3]["entries"].append("tests/test_three.py")
-        first = self.head({"suites.json": json.dumps(with_entry, indent=2) + "\n", "tests/test_three.py": "third test\n"})
-        outputs = self.select_head(first)
-        self.assertEqual(["tests/test_three.py"], json.loads(outputs["entries"])["per-entry"])
-        self.assertIn(["tests/test_three.py"], self.running(outputs),
-                      "a new entry file without a stored list is emitted in units so store --additions can key it")
-
-        reads = self.NO_READS | {"paths": ["tests/test_three.py", "src/other.py"]}
-        kept, additions = self.job_with_additions(9042, "shard-1", [("per-entry", "tests/test_three.py")], [
-            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_three.py"],
-             "entries": {"tests/test_three.py": reads}}])
-        self.assertTrue(self.store(outputs, {"suite-results-shard-1": kept}, 9042, additions=additions))
-
-        # Before additions are applied, a later head still runs the new entry file.
-        unapplied = self.select_head(self.head({"README.md": "unread\n"}))
-        self.assertEqual(["tests/test_three.py"], json.loads(unapplied["entries"])["per-entry"])
-        git(self.root, "checkout", "-q", first)
-
-        # Once additions are applied, the next run takes over the pass from run 9042.
-        app = self.app_commit(*additions.rglob("additions.json"))
-        later = self.select_head(app)
-        self.assertNotIn("per-entry", self.runs(later))
-        self.assertIn(9042, json.loads(later["reused"]).values())
-
-        # Changing one of its recorded reads makes it run again.
-        changed = self.select_head(self.head({"src/other.py": "other changed\n"}))
-        self.assertIn("tests/test_three.py", json.loads(changed["entries"])["per-entry"])
-
-    def test_a_unit_reused_in_an_additions_run_is_rekeyed_under_the_applied_lists(self) -> None:
-        suites = json.loads(json.dumps(SUITES))
-        suites["suites"][0]["lookup_directories"] = ["src"]
-        suites["module_lookups"] = {"src": ["alpha"]}
-        git(self.root, "checkout", "-q", self.base)
-        self.base = self.commit("legacy module lookup", {"suites.json": json.dumps(suites, indent=2) + "\n"})
-
-        # Run 9050 passes pr-only (and the other suites touched by src/feature.py).
-        first = self.head({"src/feature.py": "feature v2\n"})
-        first_outputs = self.select_head(first)
-        self.assertTrue(self.store(first_outputs, self.ALL, 9050))
-
-        # Run 9051 touches src/other.py: pr-only is reused from 9050, while test_two.py runs and reports
-        # a new module lookup in src/, which changes pr-only's key under the applied suite list.
-        second = self.head({"src/other.py": "other v2\n"})
-        second_outputs = self.select_head(second)
-        self.assertNotIn("pr-only", self.runs(second_outputs))
-        self.assertIn(9050, json.loads(second_outputs["reused"]).values())
-        reads = self.NO_READS | {"lookup_directories": ["src"], "module_lookups": {"src": ["beta"]}}
-        kept, additions = self.job_with_additions(9051, "shard-1", [("per-entry", "tests/test_two.py")], [
-            {"suite": "per-entry", "create": False, "recorded_entries": ["tests/test_two.py"],
-             "entries": {"tests/test_two.py": reads}}])
-        self.assertTrue(self.store(second_outputs, {"suite-results-shard-1": kept}, 9051, additions=additions))
-
-        # After applying additions, pr-only must still be reused from run 9050 (re-keyed under applied lists).
-        app = self.app_commit(*additions.rglob("additions.json"))
-        later = self.select_head(app)
-        self.assertEqual([], self.runs(later), "both the running unit with additions and the reused unit take over their passes")
-        self.assertEqual([9050, 9050, 9050, 9050, 9051], sorted(json.loads(later["reused"]).values()))
-
-    def test_adding_a_module_lookup_name_leaves_the_keys_of_units_that_did_not_look_it_up_unchanged(self) -> None:
-        suites = json.loads(json.dumps(SUITES))
-        suites["suites"][0]["lookup_directories"] = ["src"]
-        suites["suites"][0]["module_lookups"] = {"src": ["alpha"]}
-        suites["suites"][3]["lookup_directories"] = ["src"]
-        suites["suites"][3]["entry_lookup_directories"] = {"tests/test_one.py": ["src"], "tests/test_two.py": ["src"]}
-        suites["suites"][3]["module_lookups"] = {"src": ["alpha"]}
-        suites["suites"][3]["entry_module_lookups"] = {"tests/test_one.py": {"src": ["alpha"]}, "tests/test_two.py": {}}
-        suites["module_lookups"] = {"src": ["alpha"]}
-        git(self.root, "checkout", "-q", self.base)
-        self.base = self.commit("per-unit module lookups", {"suites.json": json.dumps(suites, indent=2) + "\n"})
-
-        first = self.head({"src/feature.py": "feature v2\n", "src/other.py": "other v2\n"})
-        first_outputs = self.select_head(first)
-        self.assertTrue(self.store(first_outputs, self.ALL + [("per-entry", "tests/test_two.py")], 9060))
-
-        # Add "beta" to top-level module_lookups["src"] and only to tests/test_two.py's entry_module_lookups.
-        updated = json.loads(json.dumps(suites))
-        updated["module_lookups"]["src"] = ["alpha", "beta"]
-        updated["suites"][3]["module_lookups"]["src"] = ["alpha", "beta"]
-        updated["suites"][3]["entry_module_lookups"]["tests/test_two.py"] = {"src": ["beta"]}
-        later = self.head({"suites.json": json.dumps(updated, indent=2) + "\n"})
-        later_outputs = self.select_head(later)
-        self.assertEqual(["per-entry"], self.runs(later_outputs), "units that did not look up beta keep their reuse keys")
-        self.assertEqual(["tests/test_two.py"], json.loads(later_outputs["entries"])["per-entry"])
-        self.assertEqual([9060] * 4, sorted(json.loads(later_outputs["reused"]).values()))
-
-        # Adding src/beta.py affects only tests/test_two.py, not pr-only or tests/test_one.py.
-        with_beta = self.head({"src/beta.py": "beta module\n"})
-        beta_outputs = self.select_head(with_beta)
-        self.assertEqual(["per-entry"], self.runs(beta_outputs))
-        self.assertEqual(["tests/test_two.py"], json.loads(beta_outputs["entries"])["per-entry"])
+from tests.suite_selection_fixtures import git, write
+from tests.suite_selection_reuse_support import (
+    SHARED_FOLDER,
+    FixtureRepository,
+    reuse,
+    suite_selection,
+)
+
+SHADOW_MODULES = (
+    "ci_definition",
+    "dependabot_coverage",
+    "hygiene",
+    "link_check",
+    "plan",
+    "promote_v1",
+    "recording",
+    "recording_modules",
+    "reuse",
+    "revisions",
+    "suite_list",
+    "suite_selection",
+    "unrecorded",
+)
+
+
+@contextmanager
+def isolated_imports(search_paths: Sequence[Path]) -> Iterator[Callable[[Path, str | None], ModuleType]]:
+    """Temporarily prepend ``search_paths`` to ``sys.path`` and isolate ``sys.modules`` for loaded shared scripts."""
+    resolved_roots = tuple(path.resolve() for path in search_paths)
+    saved_path = list(sys.path)
+    saved_modules = {name: sys.modules.pop(name) for name in SHADOW_MODULES if name in sys.modules}
+    loaded_names: list[str] = []
+    try:
+        sys.path[:0] = [str(path) for path in search_paths]
+
+        def load(script_path: Path, name: str | None = None) -> ModuleType:
+            target_name = name or f"_isolated_{script_path.stem}"
+            spec = importlib.util.spec_from_file_location(target_name, script_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"cannot load module from {script_path}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[target_name] = module
+            loaded_names.append(target_name)
+            spec.loader.exec_module(module)
+            return module
+
+        yield load
+    finally:
+        for name, module in list(sys.modules.items()):
+            if name in loaded_names or name in SHADOW_MODULES:
+                sys.modules.pop(name, None)
+                continue
+            module_file = getattr(module, "__file__", None)
+            if module_file:
+                resolved = Path(module_file).resolve()
+                if any(resolved.is_relative_to(root) for root in resolved_roots):
+                    sys.modules.pop(name, None)
+        sys.modules.update(saved_modules)
+        sys.path[:] = saved_path
 
 
 class DefaultBranchRecordTests(FixtureRepository):
@@ -1137,16 +266,21 @@ class SharedDigestTests(unittest.TestCase):
         self.shared_folder = Path(self.temporary.name) / "shared-ci"
         for part in ("recording", "suite-selection", "python-language-step", "repository-hygiene"):
             shutil.copytree(SHARED_FOLDER / part, self.shared_folder / part, ignore=shutil.ignore_patterns("__pycache__"))
+        with isolated_imports((self.shared_folder / "suite-selection", self.shared_folder / "recording")) as load:
+            self.recording = load(self.shared_folder / "recording" / "recording.py", "recording")
 
     def digest(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run([sys.executable, str(self.shared_folder / "recording" / "recording.py"), "digest", *arguments],
                               capture_output=True, text=True)
 
+    def run_digest_main(self, *arguments: str) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), mock.patch.object(sys, "stderr", stderr):
+            code = self.recording.main(["digest", *arguments])
+        return code, stdout.getvalue(), stderr.getvalue()
+
     def taken(self) -> dict[str, str]:
-        completed = self.digest()
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        (raw,) = re.findall(r"^shared CI digests (\{[^\r\n]+\})$", completed.stdout, re.MULTILINE)
-        digests = json.loads(raw)
+        digests = self.recording.shared_digests()
         self.assertIsInstance(digests, dict)
         for name, value in digests.items():
             self.assertRegex(value, r"^[0-9a-f]{64}$", f"{name} must be a SHA-256 hex digest")
@@ -1155,6 +289,10 @@ class SharedDigestTests(unittest.TestCase):
     def test_the_digests_separate_platforms_tools_language_steps_and_exclude_selection_code(self) -> None:
         first = self.taken()
         self.assertEqual(first, self.taken(), "the same files give the same digests")
+        completed = self.digest()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        (raw,) = re.findall(r"^shared CI digests (\{[^\r\n]+\})$", completed.stdout, re.MULTILINE)
+        self.assertEqual(first, json.loads(raw))
         self.assertLessEqual({"platform:linux", "platform:windows", "tool:node", "tool:gitleaks", "language:python"}, set(first))
 
         # Windows-only recording files change only platform:windows.
@@ -1356,9 +494,9 @@ class SharedDigestTests(unittest.TestCase):
                            ("indented", self.PIPELINE.replace("  node-test:\n", "    node-test:\n"))):
             with self.subTest(case=name):
                 write(workflow.parent, workflow.name, text)
-                completed = self.digest()
-                self.assertNotEqual(0, completed.returncode)
-                self.assertIn("the job of the part node-test cannot be found in ../.github/workflows/pipeline.yml", completed.stdout + completed.stderr)
+                code, stdout, stderr = self.run_digest_main()
+                self.assertNotEqual(0, code)
+                self.assertIn("the job of the part node-test cannot be found in ../.github/workflows/pipeline.yml", stdout + stderr)
 
     def test_a_part_digest_fails_loudly_when_its_part_folder_or_pipeline_workflow_is_missing(self) -> None:
         for part in ("pipeline", "dotnet-test", "node-test", "python-tests"):
@@ -1366,16 +504,16 @@ class SharedDigestTests(unittest.TestCase):
         workflow = self.shared_folder.parent / ".github" / "workflows" / "pipeline.yml"
         write(workflow.parent, workflow.name, self.PIPELINE)
         # Missing part folder while pipeline.yml is present fails loudly.
-        shutil.rmtree(self.shared_folder / "dotnet-test")
-        completed = self.digest()
-        self.assertNotEqual(0, completed.returncode)
-        self.assertIn("dotnet-test", completed.stdout + completed.stderr)
+        temporary_support.remove_tree(self.shared_folder / "dotnet-test")
+        code, stdout, stderr = self.run_digest_main()
+        self.assertNotEqual(0, code)
+        self.assertIn("dotnet-test", stdout + stderr)
         shutil.copytree(SHARED_FOLDER / "dotnet-test", self.shared_folder / "dotnet-test", ignore=shutil.ignore_patterns("__pycache__"))
         # Missing pipeline.yml while part folders are present fails loudly.
         workflow.unlink()
-        completed = self.digest()
-        self.assertNotEqual(0, completed.returncode)
-        self.assertIn("pipeline.yml", completed.stdout + completed.stderr)
+        code, stdout, stderr = self.run_digest_main()
+        self.assertNotEqual(0, code)
+        self.assertIn("pipeline.yml", stdout + stderr)
         write(workflow.parent, workflow.name, self.PIPELINE)
         # Missing or unreadable timeouts.json while part digests are taken fails loudly.
         timeouts_path = self.shared_folder / "pipeline" / "timeouts.json"
@@ -1387,9 +525,9 @@ class SharedDigestTests(unittest.TestCase):
         ):
             with self.subTest(timeouts=label):
                 action()
-                completed = self.digest()
-                self.assertNotEqual(0, completed.returncode)
-                self.assertIn("timeouts.json", completed.stdout + completed.stderr)
+                code, stdout, stderr = self.run_digest_main()
+                self.assertNotEqual(0, code)
+                self.assertIn("timeouts.json", stdout + stderr)
                 timeouts_path.write_bytes(original_timeouts)
 
     def test_part_digests_include_time_limits_and_custom_setups(self) -> None:
@@ -1443,19 +581,15 @@ class SharedDigestTests(unittest.TestCase):
     def test_the_digest_is_the_same_whichever_order_a_platform_sorts_the_shared_files_in(self) -> None:
         # Windows orders paths case-insensitively and Linux by code point, so the same revision lists its shared
         # files in two orders: recording/etw-consumer/EtwConsumer.csproj comes after build/ on Windows, before it on Linux.
-        script = (
-            "import json, sys; from pathlib import PurePosixPath, PureWindowsPath\n"
-            f"sys.path.insert(0, {str(self.shared_folder / 'recording')!r})\n"
-            "import recording\n"
-            "files = recording.platform_files('windows')\n"
-            "for flavour in (PurePosixPath, PureWindowsPath):\n"
-            "    order = sorted(files, key=lambda path: flavour(recording.shared_name(path)))\n"
-            "    print(' '.join(recording.shared_name(path) for path in order))\n"
-            "    print(recording.files_digest(order))\n"
-        )
-        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        linux_order, linux_digest, windows_order, windows_digest = completed.stdout.splitlines()
+        files = self.recording.platform_files("windows")
+        orders = []
+        digests = []
+        for flavour in (PurePosixPath, PureWindowsPath):
+            order = sorted(files, key=lambda path: flavour(self.recording.shared_name(path)))
+            orders.append(" ".join(self.recording.shared_name(path) for path in order))
+            digests.append(self.recording.files_digest(order))
+        linux_order, windows_order = orders
+        linux_digest, windows_digest = digests
         self.assertNotEqual(linux_order, windows_order, "the shared files sort differently on the two platforms")
         self.assertEqual(linux_digest, windows_digest)
         self.assertEqual(self.taken()["platform:windows"], linux_digest)
@@ -1481,36 +615,53 @@ class SharedDigestScopeTests(unittest.TestCase):
 
     PARTS = ("recording", "suite-selection", "python-language-step", "repository-hygiene", "pipeline", "dotnet-test", "node-test", "python-tests")
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._template_temporary = temporary_support.Directory()
+        cls.addClassCleanup(cls._template_temporary.cleanup)
+        cls._template_repo = Path(cls._template_temporary.name) / "repo"
+        for part in cls.PARTS:
+            shutil.copytree(SHARED_FOLDER / part, cls._template_repo / "actions" / part, ignore=shutil.ignore_patterns("__pycache__"))
+        for name in ("pipeline.yml", "suite-jobs.yml"):
+            target = cls._template_repo / ".github" / "workflows" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SHARED_FOLDER.parent / ".github" / "workflows" / name, target)
+        git(cls._template_repo, "init", "-q")
+        git(cls._template_repo, "add", "-A", "-f", ".")
+        git(cls._template_repo, "commit", "-q", "--allow-empty", "-m", "fixture")
+
     def setUp(self) -> None:
         self.temporary = temporary_support.Directory()
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name) / "repo"
-        for part in self.PARTS:
-            shutil.copytree(SHARED_FOLDER / part, self.repo / "actions" / part, ignore=shutil.ignore_patterns("__pycache__"))
-        for name in ("pipeline.yml", "suite-jobs.yml"):
-            target = self.repo / ".github" / "workflows" / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(SHARED_FOLDER.parent / ".github" / "workflows" / name, target)
+        shutil.copytree(self._template_repo, self.repo)
+
+    def _load_recording_and_promote(self, repo: Path):
+        actions = repo / "actions"
+        with isolated_imports((actions / "recording", actions / "suite-selection", actions / "repository-hygiene")) as load:
+            recording_mod = load(actions / "recording" / "recording.py", "recording")
+            promote_mod = load(actions / "repository-hygiene" / "promote_v1.py", "promote_v1")
+        return recording_mod, promote_mod
+
+    def _load_promote(self, repo: Path):
+        hygiene_dir = repo / "actions" / "repository-hygiene"
+        with isolated_imports((hygiene_dir,)) as load:
+            return load(hygiene_dir / "promote_v1.py", "promote_v1")
 
     def scopes(self) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
         """The scopes of recording.py on the copy's files and of promote_v1.py on its commit, both by repository path."""
-        git(self.repo, "init", "-q")
-        git(self.repo, "add", "-A", "-f", ".")
-        git(self.repo, "commit", "-q", "--allow-empty", "-m", "fixture")
-        actions = self.repo / "actions"
-        script = (
-            "import json, sys\n"
-            f"sys.path[:0] = [{str(actions / 'recording')!r}, {str(actions / 'suite-selection')!r}, {str(actions / 'repository-hygiene')!r}]\n"
-            "import recording, promote_v1\n"
-            "def by_path(name):\n"
-            "    return name[3:] if name.startswith('../') else name if name.startswith('pins:') else 'actions/' + name\n"
-            "print(json.dumps({name: sorted(by_path(entry) for entry in entries) for name, entries in recording.shared_digest_scopes().items()}))\n"
-            f"print(json.dumps(promote_v1.commit_digest_scopes(promote_v1.Path({str(self.repo)!r}), 'HEAD')))\n"
-        )
-        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        recorded, promoted = completed.stdout.splitlines()
-        return json.loads(recorded), json.loads(promoted)
+        if git(self.repo, "status", "--porcelain"):
+            git(self.repo, "add", "-A", "-f", ".")
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", "fixture")
+        recording_mod, promote_mod = self._load_recording_and_promote(self.repo)
+
+        def by_path(name: str) -> str:
+            return name[3:] if name.startswith("../") else name if name.startswith("pins:") else "actions/" + name
+
+        recorded = {name: sorted(by_path(entry) for entry in entries) for name, entries in recording_mod.shared_digest_scopes().items()}
+        promoted = promote_mod.commit_digest_scopes(self.repo, "HEAD")
+        return recorded, promoted
 
     def test_both_take_the_same_digests_over_the_same_files(self) -> None:
         recorded, promoted = self.scopes()
@@ -1525,36 +676,18 @@ class SharedDigestScopeTests(unittest.TestCase):
                          "no digest covers a consumer kit, which no job runs")
 
     def test_a_consumer_kit_file_moves_no_digest_of_a_commit(self) -> None:
-        self.scopes()
         before = git(self.repo, "rev-parse", "HEAD").strip()
         for relative in ("actions/python-language-step/consumer-kit/README.md", "actions/pipeline/consumer-kit/README.md"):
             write(self.repo, relative, "changed\n")
         git(self.repo, "add", "-A", "-f", ".")
         git(self.repo, "commit", "-q", "-m", "kit")
-        script = (
-            "import sys\n"
-            f"sys.path.insert(0, {str(self.repo / 'actions' / 'repository-hygiene')!r})\n"
-            "import promote_v1\n"
-            f"print(promote_v1.moved_digests(promote_v1.Path({str(self.repo)!r}), {before!r}, 'HEAD'))\n"
-        )
-        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual("[]", completed.stdout.strip())
+        promote_mod = self._load_promote(self.repo)
+        self.assertEqual([], promote_mod.moved_digests(self.repo, before, "HEAD"))
 
     def part_job_texts(self, workflow: str, jobs: list[str]) -> tuple[dict, dict]:
-        actions = self.repo / "actions"
-        script = (
-            "import json, sys\n"
-            f"sys.path[:0] = [{str(actions / 'recording')!r}, {str(actions / 'suite-selection')!r}, {str(actions / 'repository-hygiene')!r}]\n"
-            "import recording, promote_v1\n"
-            "workflow, jobs = json.loads(sys.stdin.read())\n"
-            "print(json.dumps({job: recording.part_job_text(workflow, job) for job in jobs}))\n"
-            "print(json.dumps({job: promote_v1.part_job_text(workflow, job) for job in jobs}))\n"
-        )
-        completed = subprocess.run([sys.executable, "-c", script], input=json.dumps([workflow, jobs]), capture_output=True, text=True)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        recorded, promoted = completed.stdout.splitlines()
-        return json.loads(recorded), json.loads(promoted)
+        recording_mod, promote_mod = self._load_recording_and_promote(self.repo)
+        return ({job: recording_mod.part_job_text(workflow, job) for job in jobs},
+                {job: promote_mod.part_job_text(workflow, job) for job in jobs})
 
     def test_both_read_the_same_job_text_and_a_comment_inside_a_job_keeps_the_rest_of_it(self) -> None:
         pipeline = (self.repo / ".github" / "workflows" / "pipeline.yml").read_text(encoding="utf-8")
@@ -1576,23 +709,12 @@ class SharedDigestScopeTests(unittest.TestCase):
     def test_promote_v1_fails_on_a_commit_whose_pipeline_workflow_does_not_hold_a_part_job_as_expected(self) -> None:
         workflow = self.repo / ".github" / "workflows" / "pipeline.yml"
         workflow.write_text(workflow.read_text(encoding="utf-8").replace("\n  dotnet-test:\n", "\n   dotnet-test:\n", 1), encoding="utf-8")
-        git(self.repo, "init", "-q")
         git(self.repo, "add", "-A", "-f", ".")
         git(self.repo, "commit", "-q", "-m", "fixture")
-        script = (
-            "import sys\n"
-            f"sys.path.insert(0, {str(self.repo / 'actions' / 'repository-hygiene')!r})\n"
-            "import promote_v1\n"
-            "try:\n"
-            f"    promote_v1.commit_digests(promote_v1.Path({str(self.repo)!r}), 'HEAD')\n"
-            "except promote_v1.DigestScopeError as error:\n"
-            "    print(error)\n"
-            "else:\n"
-            "    print('no error')\n"
-        )
-        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("the job of the part dotnet-test cannot be found in .github/workflows/pipeline.yml", completed.stdout)
+        promote_mod = self._load_promote(self.repo)
+        with self.assertRaises(promote_mod.DigestScopeError) as context:
+            promote_mod.commit_digests(self.repo, "HEAD")
+        self.assertIn("the job of the part dotnet-test cannot be found in .github/workflows/pipeline.yml", str(context.exception))
 
     def test_promote_v1_fails_loudly_when_a_part_folder_or_pipeline_workflow_is_missing(self) -> None:
         for case, remove in (("missing folder", self.repo / "actions" / "dotnet-test"),
@@ -1603,28 +725,16 @@ class SharedDigestScopeTests(unittest.TestCase):
                 shutil.copytree(self.repo, copy)
                 target = copy / remove.relative_to(self.repo)
                 if target.is_dir():
-                    shutil.rmtree(target)
+                    temporary_support.remove_tree(target)
                 else:
                     target.unlink()
-                git(copy, "init", "-q")
                 git(copy, "add", "-A", "-f", ".")
                 git(copy, "commit", "-q", "-m", "fixture")
-                script = (
-                    "import sys\n"
-                    f"sys.path.insert(0, {str(copy / 'actions' / 'repository-hygiene')!r})\n"
-                    "import promote_v1\n"
-                    "try:\n"
-                    f"    promote_v1.commit_digests(promote_v1.Path({str(copy)!r}), 'HEAD')\n"
-                    "except promote_v1.DigestScopeError as error:\n"
-                    "    print(error)\n"
-                    "else:\n"
-                    "    print('no error')\n"
-                )
-                completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-                self.assertEqual(completed.returncode, 0, completed.stderr)
-                self.assertNotEqual("no error", completed.stdout.strip())
+                promote_mod = self._load_promote(copy)
+                with self.assertRaises(promote_mod.DigestScopeError) as context:
+                    promote_mod.commit_digests(copy, "HEAD")
                 expected_name = "dotnet-test" if "folder" in case else "timeouts.json" if "timeouts" in case else "pipeline.yml"
-                self.assertIn(expected_name, completed.stdout)
+                self.assertIn(expected_name, str(context.exception))
 
     def test_promote_v1_fails_loudly_on_unreadable_timeouts_and_handles_historical_base_commits(self) -> None:
         # Unreadable/malformed timeouts.json fails loudly in promote_v1.commit_digests.
@@ -1633,23 +743,12 @@ class SharedDigestScopeTests(unittest.TestCase):
                 copy = Path(self.temporary.name) / f"bad-timeouts-{label.replace(' ', '-')}"
                 shutil.copytree(self.repo, copy)
                 (copy / "actions" / "pipeline" / "timeouts.json").write_text(bad_content, encoding="utf-8")
-                git(copy, "init", "-q")
                 git(copy, "add", "-A", "-f", ".")
                 git(copy, "commit", "-q", "-m", "fixture")
-                script = (
-                    "import sys\n"
-                    f"sys.path.insert(0, {str(copy / 'actions' / 'repository-hygiene')!r})\n"
-                    "import promote_v1\n"
-                    "try:\n"
-                    f"    promote_v1.commit_digests(promote_v1.Path({str(copy)!r}), 'HEAD')\n"
-                    "except promote_v1.DigestScopeError as error:\n"
-                    "    print(error)\n"
-                    "else:\n"
-                    "    print('no error')\n"
-                )
-                completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-                self.assertEqual(completed.returncode, 0, completed.stderr)
-                self.assertIn("timeouts.json", completed.stdout)
+                promote_mod = self._load_promote(copy)
+                with self.assertRaises(promote_mod.DigestScopeError) as context:
+                    promote_mod.commit_digests(copy, "HEAD")
+                self.assertIn("timeouts.json", str(context.exception))
         # Historical old_commit predating timeouts.json and plan light-check steps still compares in moved_digests.
         hist = Path(self.temporary.name) / "historical-base"
         shutil.copytree(self.repo, hist)
@@ -1660,7 +759,6 @@ class SharedDigestScopeTests(unittest.TestCase):
             workflow_saved.decode("utf-8").replace("        id: coverage\n", "").replace("        id: links\n", ""),
             encoding="utf-8",
         )
-        git(hist, "init", "-q")
         git(hist, "add", "-A", "-f", ".")
         git(hist, "commit", "-q", "-m", "historical v1")
         old_sha = git(hist, "rev-parse", "HEAD").strip()
@@ -1668,42 +766,34 @@ class SharedDigestScopeTests(unittest.TestCase):
         (hist / ".github" / "workflows" / "pipeline.yml").write_bytes(workflow_saved)
         git(hist, "add", "-A", "-f", ".")
         git(hist, "commit", "-q", "-m", "new main")
-        script = (
-            "import json, sys\n"
-            f"sys.path.insert(0, {str(hist / 'actions' / 'repository-hygiene')!r})\n"
-            "import promote_v1\n"
-            f"print(json.dumps(promote_v1.moved_digests(promote_v1.Path({str(hist)!r}), {old_sha!r}, 'HEAD')))\n"
-        )
-        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        moved = set(json.loads(completed.stdout))
+        promote_mod = self._load_promote(hist)
+        moved = set(promote_mod.moved_digests(hist, old_sha, "HEAD"))
         self.assertLessEqual({"part:custom", "part:dotnet-test", "hygiene:packages", "hygiene:markdown"}, moved)
 
     def test_hygiene_check_digests_and_shared_digest_helpers_stay_in_step_across_part_folders(self) -> None:
         recorded, promoted = self.scopes()
         actions = self.repo / "actions"
-        script = (
-            "import json, sys\n"
-            f"sys.path[:0] = [{str(actions / 'repository-hygiene')!r}, {str(actions / 'pipeline')!r}, {str(actions / 'suite-selection')!r}]\n"
-            "import hygiene, plan, reuse\n"
-            "print(json.dumps({'check_keys': sorted(hygiene.CHECK_DIGESTS), 'checks': sorted(c for c in hygiene.CHECKS if c != 'workflows'), "
-            "'digest_names': sorted({name for names in hygiene.CHECK_DIGESTS.values() for name in names})}))\n"
-            "good = {'a': '0' * 64, 'b': '1' * 64}\n"
-            "other = {'a': '0' * 64, 'c': '2' * 64}\n"
-            "for sample in (good, {}, None, 'bad', {'': '0' * 64}, {'a': 'not-hex'}):\n"
-            "    vals = [reuse.parse_digests(sample), plan.parse_digests(sample), hygiene.parse_digests(sample)]\n"
-            "    assert vals[0] == vals[1] == vals[2], (sample, vals)\n"
-            "diffs = [reuse.moved_digest_names(good, other), plan.moved_digest_names(good, other), hygiene.moved_digest_names(good, other)]\n"
-            "assert diffs[0] == diffs[1] == diffs[2] == {'b', 'c'}, diffs\n"
-        )
-        completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        info = json.loads(completed.stdout.splitlines()[0])
-        self.assertEqual(info["checks"], info["check_keys"])
+        with isolated_imports((actions / "repository-hygiene", actions / "pipeline", actions / "suite-selection")) as load:
+            hygiene_mod = load(actions / "repository-hygiene" / "hygiene.py", "hygiene")
+            plan_mod = load(actions / "pipeline" / "plan.py", "plan")
+            reuse_mod = load(actions / "suite-selection" / "reuse.py", "reuse")
+        check_keys = sorted(hygiene_mod.CHECK_DIGESTS)
+        checks = sorted(c for c in hygiene_mod.CHECKS if c != "workflows")
+        digest_names = sorted({name for names in hygiene_mod.CHECK_DIGESTS.values() for name in names})
+        good = {"a": "0" * 64, "b": "1" * 64}
+        other = {"a": "0" * 64, "c": "2" * 64}
+        for sample in (good, {}, None, "bad", {"": "0" * 64}, {"a": "not-hex"}):
+            vals = [reuse_mod.parse_digests(sample), plan_mod.parse_digests(sample), hygiene_mod.parse_digests(sample)]
+            self.assertEqual(vals[0], vals[1], sample)
+            self.assertEqual(vals[1], vals[2], sample)
+        self.assertEqual(reuse_mod.moved_digest_names(good, other), {"b", "c"})
+        self.assertEqual(plan_mod.moved_digest_names(good, other), {"b", "c"})
+        self.assertEqual(hygiene_mod.moved_digest_names(good, other), {"b", "c"})
+        self.assertEqual(checks, check_keys)
         recorded_hygiene = sorted(name for name in recorded if name.startswith("hygiene:"))
         promoted_hygiene = sorted(name for name in promoted if name.startswith("hygiene:"))
-        self.assertEqual(recorded_hygiene, info["digest_names"])
-        self.assertEqual(promoted_hygiene, info["digest_names"])
+        self.assertEqual(recorded_hygiene, digest_names)
+        self.assertEqual(promoted_hygiene, digest_names)
 
     def test_a_folder_added_to_one_side_only_breaks_the_tie(self) -> None:
         recording_script = self.repo / "actions" / "recording" / "recording.py"
@@ -1719,315 +809,6 @@ class SharedDigestScopeTests(unittest.TestCase):
         recorded, promoted = self.scopes()
         self.assertIn("language:node", promoted)
         self.assertNotIn("language:node", recorded)
-
-
-class SharedLookupFixture(FixtureRepository):
-    """A fixture repository with a default-branch record for the shared lookup, and the commands that run it and select over it."""
-
-    DIGESTS = {"language:python": "3" * 64, "platform:linux": "a" * 64, "platform:windows": "1" * 64, "tool:gitleaks": "2" * 64}
-    MOVED = {"language:python": "3" * 64, "platform:linux": "b" * 64, "platform:windows": "9" * 64, "tool:gitleaks": "2" * 64}
-    RUN = 5100
-    ALL = ["both", "main-only", "per-entry", "pr-only", "windows"]
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.record = self.root.parent / "record.json"
-        self.default_record = self.root.parent / "default-record.json"
-
-    def write_default_record(self, *, run_id: int = RUN, commit: str | None = None, digests: dict[str, str] | None = DIGESTS,
-                             passed: dict[str, int] | None = None, raw_text: str | None = None) -> Path:
-        if raw_text is not None:
-            self.default_record.write_text(raw_text, encoding="utf-8")
-            return self.default_record
-        tip = commit or self.base
-        tree = git(self.root, "rev-parse", f"{tip}^{{tree}}")
-        document = {"version": 1, "run_id": run_id, "commit": tip, "tree": tree, "digests": digests, "passed": passed or {}}
-        self.default_record.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
-        return self.default_record
-
-    def shared_lookup(self, digests: dict[str, str] | None = None, default_record: Path | None = None) -> Path:
-        self.printed = io.StringIO()
-        output = self.root.parent / "shared.json"
-        rendered = json.dumps(self.DIGESTS if digests is None else digests, sort_keys=True, separators=(",", ":"))
-        record_path = self.default_record if default_record is None else default_record
-        with redirect_stdout(self.printed):
-            code = suite_selection.main(["shared-lookup", "--root", str(self.root), "--digests", rendered,
-                                         "--default-record", str(record_path), "--output", str(output)])
-        self.assertEqual(code, 0)
-        return output
-
-    def looked_up(self, digests: dict[str, str] | None = None, default_record: Path | None = None) -> dict:
-        return json.loads(self.shared_lookup(digests, default_record).read_text(encoding="utf-8"))
-
-    def runs(self, outputs: dict[str, str]) -> list[str]:
-        return sorted(name for name, result in json.loads(outputs["suites"]).items() if result == "run")
-
-    def every_suite_runs(self, base: str) -> str:
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        outputs, printed, _ = self.select("--base", base, "--head", head, "--compare", "merge-base",
-                                          "--shared-lookup", str(self.root.parent / "shared.json"))
-        self.assertEqual(self.runs(outputs), self.ALL)
-        return printed
-
-
-class SharedLookupTests(SharedLookupFixture):
-    """In a consumer, shared CI digests come from the default-branch record with no log scraping and no commit-walk
-    bound. Missing, evicted or unreadable records or digests fail closed and emit counted fallback notices."""
-
-    def test_the_digest_of_the_default_branch_record_decides_whether_every_suite_runs(self) -> None:
-        self.write_default_record()
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        outputs, _, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
-                                          "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
-        self.assertEqual(self.runs(outputs), [])
-        self.assertIn("The selection runs as usual: the shared CI digests equal those of run 5100", summary)
-        outputs, printed, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
-                                                "--shared-lookup", str(self.shared_lookup(self.MOVED)))
-        self.assertEqual(self.runs(outputs), self.ALL)
-        self.assertEqual(sorted(entry["entry"] for shard in json.loads(outputs["shards"]) for entry in shard["entries"]),
-                         ["tests/test_both.py", "tests/test_main.py", "tests/test_one.py", "tests/test_pr.py", "tests/test_two.py"])
-        self.assertIn("pr-only: run (`platform:linux` digest moved:", printed)
-        self.assertIn("## Shared CI digests\n\nMoved digests (`platform:linux`, `platform:windows`): ", summary)
-
-    def test_a_windows_only_digest_move_runs_only_windows_suites_and_reuses_linux_units(self) -> None:
-        self.write_default_record()
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        windows_moved = dict(self.DIGESTS, **{"platform:windows": "9" * 64})
-        outputs, printed, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
-                                          "--shared-lookup", str(self.shared_lookup(windows_moved)))
-        self.assertEqual(self.runs(outputs), ["windows"], "only Windows suites run when only platform:windows moves")
-        self.assertIn("windows: run (`platform:windows` digest moved:", printed)
-
-        # Reuse keys: Linux units keep their keys when only platform:windows moves; Windows units get new keys.
-        first = self.commit("first", {"src/feature.py": "feature v2\n"})
-        arguments = ("--base", self.base, "--compare", "merge-base", "--results", str(self.record), "--runner-label", "linux=ubuntu-26.04")
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
-        units = json.loads(outputs["units"])
-        self.record.write_text(json.dumps({"passed": {key: 9101 for key in units}}), encoding="utf-8")
-        self.write_default_record(digests=windows_moved)
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(windows_moved)))
-        self.assertEqual(self.runs(outputs), ["windows"], "Linux units are reused when only platform:windows changes")
-        self.assertTrue(json.loads(outputs["reused"]), "Linux passes are reused")
-
-    def test_a_pinned_tool_digest_move_runs_and_rekeys_only_units_that_use_that_tool(self) -> None:
-        suites_doc = json.loads((self.root / "suites.json").read_text(encoding="utf-8"))
-        for item in suites_doc["suites"]:
-            if item["name"] == "pr-only":
-                item["setups"] = ["gitleaks"]
-        self.commit("add gitleaks setup", {"suites.json": json.dumps(suites_doc, indent=2) + "\n"})
-        tip = git(self.root, "rev-parse", "HEAD")
-        self.write_default_record(commit=tip, digests=self.DIGESTS)
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        gitleaks_moved = dict(self.DIGESTS, **{"tool:gitleaks": "f" * 64})
-        outputs, printed, _ = self.select("--base", tip, "--head", head, "--compare", "merge-base",
-                                          "--shared-lookup", str(self.shared_lookup(gitleaks_moved)))
-        self.assertEqual(self.runs(outputs), ["pr-only"], "only the suite using gitleaks runs")
-        self.assertIn("pr-only: run (`tool:gitleaks` digest moved:", printed)
-
-        # Reuse keys: only the unit using gitleaks loses its cached pass when tool:gitleaks changes.
-        first = self.commit("first", {"src/feature.py": "feature v2\n"})
-        arguments = ("--base", tip, "--compare", "merge-base", "--results", str(self.record), "--runner-label", "linux=ubuntu-26.04")
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
-        units = json.loads(outputs["units"])
-        self.record.write_text(json.dumps({"passed": {key: 9101 for key in units}}), encoding="utf-8")
-        self.write_default_record(commit=tip, digests=gitleaks_moved)
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(gitleaks_moved)))
-        self.assertEqual(self.runs(outputs), ["pr-only"], "units not using gitleaks are reused")
-
-    def test_a_language_step_digest_move_runs_only_that_language_step_and_not_suites(self) -> None:
-        self.write_default_record()
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        lang_moved = dict(self.DIGESTS, **{"language:python": "e" * 64})
-        outputs, _, _ = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
-                                    "--language-step", "python", "--shared-lookup", str(self.shared_lookup(lang_moved)))
-        self.assertEqual(self.runs(outputs), [], "no test suite runs when only language:python moves")
-        self.assertEqual(json.loads(outputs["language-steps"]), {"python": "run"})
-        self.assertEqual(len(json.loads(outputs["shards"])), 1, "shard 1 runs to execute the language step")
-
-        # On an identical push whose PR ran under the old digests, a moved language step still runs and clears identical.
-        lookup = self.root.parent / "lookup.json"
-        lookup.write_text(json.dumps({"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested",
-                                      "pull_request": 7, "tested_run": 4100, "tested_digests": self.DIGESTS}), encoding="utf-8")
-        outputs, _, _ = self.select("--lookup", str(lookup), "--language-step", "python", "--shared-lookup", str(self.shared_lookup(lang_moved)))
-        self.assertEqual(self.runs(outputs), [])
-        self.assertEqual(json.loads(outputs["language-steps"]), {"python": "run"})
-        self.assertNotIn("identical", outputs)
-
-    def test_the_shared_lookup_has_no_commit_walk_limit_and_makes_no_api_calls(self) -> None:
-        self.write_default_record(commit=self.base, digests=self.DIGESTS)
-        # 25 commits later (more than the old 20-commit walk limit), the default-branch record still resolves directly.
-        for index in range(25):
-            self.commit(f"commit {index}")
-        tip = git(self.root, "rev-parse", "HEAD")
-        found = self.looked_up(self.DIGESTS)
-        self.assertEqual((found["run"], found["previous"], found["commit"], found["fallback"]), (self.RUN, self.DIGESTS, self.base, None))
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        outputs, _, _ = self.select("--base", tip, "--head", head, "--compare", "merge-base",
-                                    "--shared-lookup", str(self.root.parent / "shared.json"))
-        self.assertEqual(self.runs(outputs), [])
-
-    def test_missing_evicted_or_unreadable_default_branch_record_or_digests_runs_every_suite_and_counts_fallback(self) -> None:
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-        cases = [
-            ("missing", None, "missing-default-branch-record"),
-            ("corrupt json", "{not-json", "unreadable-default-branch-record"),
-            ("wrong version", json.dumps({"version": 99, "run_id": 1, "commit": self.base, "tree": self.base, "passed": {}}),
-             "unreadable-default-branch-record"),
-            ("no digests", "NO_DIGESTS", "unreadable-default-branch-digests"),
-        ]
-        for label, payload, expected_fallback in cases:
-            with self.subTest(label=label):
-                if self.default_record.exists():
-                    self.default_record.unlink()
-                if payload == "NO_DIGESTS":
-                    self.write_default_record(digests=None)
-                elif payload is not None:
-                    self.write_default_record(raw_text=payload)
-                found = self.looked_up(self.DIGESTS)
-                self.assertEqual((found["digests"], found["previous"], found["fallback"]), (self.DIGESTS, None, expected_fallback))
-                self.assertIn(f"::notice title=ci-fallback::{expected_fallback}:", self.printed.getvalue())
-                decisions = self.root.parent / "decisions.json"
-                outputs, _, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
-                                                  "--shared-lookup", str(self.root.parent / "shared.json"),
-                                                  "--unit-decisions", str(decisions))
-                self.assertEqual(self.runs(outputs), self.ALL)
-                self.assertEqual(json.loads(decisions.read_text(encoding="utf-8"))["fallbacks"], {expected_fallback: 1})
-                self.assertIn(f"Fallbacks: `{expected_fallback}` (1).", summary)
-
-    def test_a_push_whose_tree_passed_under_the_same_digest_runs_no_suite_after_a_move(self) -> None:
-        self.write_default_record(digests=self.DIGESTS)
-        lookup = self.root.parent / "lookup.json"
-        tested = {"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested", "pull_request": 7, "tested_run": 4100}
-        lookup.write_text(json.dumps({**tested, "tested_digests": self.MOVED}), encoding="utf-8")
-        outputs, printed, summary = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.MOVED)))
-        self.assertEqual(self.runs(outputs), [], printed)
-        self.assertEqual("true", outputs["identical"], "the verdict skips a push that runs nothing but select and hygiene")
-        self.assertIn("the tested tree took the same shared CI digests in run 4100 of pull request #7", summary)
-
-        lookup.write_text(json.dumps({**tested, "tested_digests": self.DIGESTS}), encoding="utf-8")
-        for digests in (self.MOVED, self.DIGESTS):
-            with self.subTest(digests=digests):
-                self.write_default_record(digests=digests)
-                outputs, printed, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.MOVED)))
-                self.assertEqual(self.runs(outputs), self.ALL, "a tree that passed under other platform digests runs every suite")
-                self.assertNotIn("identical", outputs)
-                self.assertIn("pr-only: run (`platform:linux` digest moved:", printed)
-
-    def test_a_push_with_unreadable_tested_digests_runs_every_suite_instead_of_falling_back_to_base_digests(self) -> None:
-        # Even when the default-branch record has matching digests, missing tested_digests on an identical or behind
-        # push must fail closed (never silently fall back to base-branch digests).
-        self.write_default_record(digests=self.DIGESTS)
-        shared_path = self.shared_lookup(self.DIGESTS)
-        for case, extra in (("identical", {}),
-                            ("behind", {"tested_base": self.base, "landing_base_passed": True})):
-            with self.subTest(case=case):
-                lookup = self.root.parent / "lookup.json"
-                lookup.write_text(json.dumps({"case": case, "head": self.base, "landing_base": self.base,
-                                              "reason": "tested", "pull_request": 7, "tested_run": 4100,
-                                              "tested_digests": None, **extra}), encoding="utf-8")
-                decisions = self.root.parent / "decisions.json"
-                outputs, printed, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(shared_path),
-                                                  "--unit-decisions", str(decisions))
-                self.assertEqual(self.runs(outputs), self.ALL)
-                self.assertNotIn("identical", outputs)
-                self.assertIn("::notice title=ci-fallback::unreadable-tested-digests:", printed)
-                self.assertEqual(json.loads(decisions.read_text(encoding="utf-8"))["fallbacks"], {"unreadable-tested-digests": 1})
-
-    def test_a_behind_push_compares_against_its_tested_digests_not_only_the_default_branch_record(self) -> None:
-        # PR was tested under DIGESTS; v1 moved to MOVED before merge; default branch already has a passed record under MOVED.
-        # The behind push must still run every suite because its own PR tested_digests are DIGESTS.
-        on_main = self.commit("main moves on", {"src/other.py": "other v2\n"})
-        self.write_default_record(commit=on_main, digests=self.MOVED)
-        shared_path = self.shared_lookup(self.MOVED)
-        git(self.root, "checkout", "-q", "-b", "topic", self.base)
-        self.commit("pr changes feature", {"src/feature.py": "feature v2\n"})
-        git(self.root, "checkout", "-q", "main")
-        git(self.root, "merge", "-q", "--no-ff", "-m", "merge", "topic")
-        landed = git(self.root, "rev-parse", "HEAD")
-        lookup = self.root.parent / "lookup.json"
-        lookup.write_text(json.dumps({"case": "behind", "head": landed, "landing_base": on_main, "tested_base": self.base,
-                                      "reason": "behind", "pull_request": 7, "tested_run": 4100,
-                                      "tested_digests": self.DIGESTS, "landing_base_passed": True}), encoding="utf-8")
-        outputs, printed, _ = self.select("--lookup", str(lookup), "--shared-lookup", str(shared_path))
-        self.assertEqual(self.runs(outputs), self.ALL)
-        self.assertIn("`platform:linux` digest moved:", printed)
-
-    def test_a_digest_present_on_either_side_and_missing_on_the_other_counts_as_moved(self) -> None:
-        # Missing from current digests (present in previous) counts as moved and reports "differ from".
-        self.write_default_record(digests=self.DIGESTS)
-        without_linux = {k: v for k, v in self.DIGESTS.items() if k != "platform:linux"}
-        found = self.looked_up(without_linux)
-        self.assertIn("differ from", found["reason"])
-        head = self.commit("head", {"README.md": "unrelated\n"})
-        outputs, printed, summary = self.select("--base", self.base, "--head", head, "--compare", "merge-base",
-                                                "--shared-lookup", str(self.root.parent / "shared.json"))
-        self.assertEqual(self.runs(outputs), ["both", "main-only", "per-entry", "pr-only"])
-        self.assertIn("`platform:linux`", summary)
-        self.assertIn("`platform:linux` digest moved:", printed)
-
-        # Same for identical push against tested_digests: present in T, missing in D.
-        lookup = self.root.parent / "lookup.json"
-        lookup.write_text(json.dumps({"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested",
-                                      "pull_request": 7, "tested_run": 4100, "tested_digests": self.DIGESTS}), encoding="utf-8")
-        outputs, printed, summary = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(without_linux)))
-        self.assertEqual(self.runs(outputs), ["both", "main-only", "per-entry", "pr-only"])
-        self.assertNotIn("identical", outputs)
-        self.assertIn("differ from", summary)
-        self.assertIn("`platform:linux`", summary)
-
-        # Present in D, missing in T also counts as moved.
-        lookup.write_text(json.dumps({"case": "identical", "head": self.base, "landing_base": self.base, "reason": "tested",
-                                      "pull_request": 7, "tested_run": 4100, "tested_digests": without_linux}), encoding="utf-8")
-        outputs, printed, summary = self.select("--lookup", str(lookup), "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
-        self.assertEqual(self.runs(outputs), ["both", "main-only", "per-entry", "pr-only"])
-        self.assertIn("differ from", summary)
-
-    def test_the_reuse_key_holds_the_digest(self) -> None:
-        self.write_default_record(digests=self.DIGESTS)
-        first = self.commit("first", {"src/feature.py": "feature v2\n"})
-        arguments = ("--base", self.base, "--compare", "merge-base", "--results", str(self.record), "--runner-label", "linux=ubuntu-26.04")
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
-        units = json.loads(outputs["units"])
-        self.record.write_text(json.dumps({"passed": {key: 9101 for key in units}}), encoding="utf-8")
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.DIGESTS)))
-        self.assertEqual((self.runs(outputs), sorted(set(json.loads(outputs["reused"]).values()))), ([], [9101]))
-        self.write_default_record(digests=self.MOVED)
-        outputs, _, _ = self.select("--head", first, *arguments, "--shared-lookup", str(self.shared_lookup(self.MOVED)))
-        self.assertEqual((json.loads(outputs["reused"]), self.runs(outputs)), ({}, ["both", "per-entry", "pr-only", "windows"]),
-                         "the same reads under other platform digests reuse no pass")
-
-
-class OffDefaultBaseLookupTests(SharedLookupFixture):
-    """A pull request onto a non-default base branch still uses only the default-branch record for shared digests and
-    passed-unit takeover (never trusting another pull request's run)."""
-
-    def test_pull_request_onto_integration_branch_uses_only_the_default_branch_record(self) -> None:
-        self.write_default_record(commit=self.base, digests=self.DIGESTS)
-        git(self.root, "checkout", "-q", "-b", "integration")
-        tip = self.commit("integration commit", {"src/other.py": "integration\n"})
-        git(self.root, "checkout", "-q", "-b", "next", tip)
-        head = self.commit("head", {"README.md": "a change no suite reads\n"})
-
-        found = self.looked_up(self.DIGESTS)
-        self.assertEqual((found["previous"], found["run"], found["fallback"]), (self.DIGESTS, self.RUN, None))
-        outputs, _, summary = self.select("--base", tip, "--head", head, "--compare", "merge-base",
-                                          "--shared-lookup", str(self.root.parent / "shared.json"))
-        self.assertEqual(self.runs(outputs), [])
-        self.assertIn(f"the shared CI digests equal those of run {self.RUN}", summary)
-
-        # When the default-branch record is absent, every suite runs instead of looking up another PR's run.
-        self.default_record.unlink()
-        found = self.looked_up(self.DIGESTS)
-        self.assertEqual((found["previous"], found["fallback"]), (None, "missing-default-branch-record"))
-        outputs, _, _ = self.select("--base", tip, "--head", head, "--compare", "merge-base",
-                                    "--shared-lookup", str(self.root.parent / "shared.json"))
-        self.assertEqual(self.runs(outputs), self.ALL)
-
-    def test_both_sides_preserves_undetermined_when_either_side_is_undetermined(self) -> None:
-        a = suite_selection.Selection((), (), undetermined="files could not be listed")
-        b = suite_selection.Selection((), (), undetermined=None)
-        self.assertEqual(suite_selection.both_sides(a, b).undetermined, "files could not be listed")
-        self.assertEqual(suite_selection.both_sides(b, a).undetermined, "files could not be listed")
 
 
 class DispatchCommitTests(FixtureRepository):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import textwrap
 import unittest
@@ -143,6 +144,58 @@ class FixtureRepositoryTests(unittest.TestCase):
     def write_templates(self) -> None:
         for name in ("a.md", "b.md", "c.md"):
             write(self.root, f"data/templates/{name}", name + "\n")
+
+
+class TemplateRepoTests(unittest.TestCase):
+    """Build a template Git repository once per class and copy it for each test."""
+
+    prefix = "tmp"
+    template_prefix = "template-"
+    use_fixture_repository = False
+
+    @classmethod
+    def initialize_template(cls, root: Path) -> str | None:
+        raise NotImplementedError
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        if cls in (TemplateRepoTests, FixtureTemplateTests):
+            return
+        template_dir = temporary_support.make_directory(cls.addClassCleanup, prefix=cls.template_prefix)
+        cls._template = template_dir / "repo"
+        cls._template.mkdir()
+        if cls.use_fixture_repository:
+            fixture_repository(cls._template)
+        git(cls._template, "init", "-q", "-b", "main")
+        git(cls._template, "config", "core.autocrlf", "false")
+        cls._base_sha = cls.initialize_template(cls._template)
+
+    def setUp(self) -> None:
+        self.temporary = temporary_support.Directory(prefix=self.prefix)
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / "repo"
+        shutil.copytree(self._template, self.root)
+        if self._base_sha is not None:
+            self.base = self._base_sha
+
+
+class FixtureTemplateTests(TemplateRepoTests):
+    """Build a fixture Git repository with an initial commit once per class and copy it for each test."""
+
+    template_prefix = "fixture-template-"
+    use_fixture_repository = True
+
+    @classmethod
+    def populate(cls, root: Path) -> None:
+        raise NotImplementedError
+
+    @classmethod
+    def initialize_template(cls, root: Path) -> str:
+        cls.populate(root)
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "base")
+        return git(root, "rev-parse", "HEAD")
 
 
 FIXTURE_UNIT = """\
