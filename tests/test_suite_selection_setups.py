@@ -23,10 +23,14 @@ SETUPS = {
     "node": {"script": "ci/setups/node.py", "recorded": False, "tool": "node", "version-file": "ci/pins.json#/node/version"},
     "linter": {"script": "ci/setups/linter.sh"},
 }
+# Linux entry files carry measured durations so selection packs them into one shard; unmeasured entries get a shard each.
 SUITES = [
     {"name": "unit", "entries": ["checks/test_a.py", "checks/test_b.py"], "command": ["python3"], "setups": ["python"],
-     "entry_setups": {"checks/test_b.py": ["linter"]}, "entry_selection": True, "paths": ["src/**"], "entry_paths": {"checks/test_a.py": ["src/**"], "checks/test_b.py": ["src/**"]}},
-    {"name": "web", "entries": ["checks/test_c.py"], "command": ["node"], "setups": ["node"], "paths": ["web/**"]},
+     "entry_setups": {"checks/test_b.py": ["linter"]},
+     "entry_durations": {"checks/test_a.py": 1.0, "checks/test_b.py": 1.0},
+     "entry_selection": True, "paths": ["src/**"], "entry_paths": {"checks/test_a.py": ["src/**"], "checks/test_b.py": ["src/**"]}},
+    {"name": "web", "entries": ["checks/test_c.py"], "command": ["node"], "setups": ["node"],
+     "entry_durations": {"checks/test_c.py": 1.0}, "paths": ["web/**"]},
     {"name": "desktop", "entries": ["checks/test_win.py"], "os": "windows", "command": ["python"], "setups": ["python"], "paths": ["src/**"]},
 ]
 
@@ -226,9 +230,12 @@ PINS = {"node": {"version": "24.9.0"},
 PINNED_SETUPS = {"python": SETUPS["python"], "linter": SETUPS["linter"]}
 PINNED_SUITES = [
     {"name": "unit", "entries": ["checks/test_a.py", "checks/test_b.py"], "command": ["python3"], "setups": ["python"],
-     "entry_setups": {"checks/test_b.py": ["linter", "gitleaks"]}, "entry_selection": True, "paths": ["src/**"],
+     "entry_setups": {"checks/test_b.py": ["linter", "gitleaks"]},
+     "entry_durations": {"checks/test_a.py": 1.0, "checks/test_b.py": 1.0},
+     "entry_selection": True, "paths": ["src/**"],
      "entry_paths": {"checks/test_a.py": ["src/**"], "checks/test_b.py": ["src/**"]}},
-    {"name": "web", "entries": ["checks/test_c.py"], "command": ["node"], "setups": ["node"], "paths": ["web/**"]},
+    {"name": "web", "entries": ["checks/test_c.py"], "command": ["node"], "setups": ["node"],
+     "entry_durations": {"checks/test_c.py": 1.0}, "paths": ["web/**"]},
     {"name": "desktop", "entries": ["checks/test_win.py"], "os": "windows", "command": ["python"], "setups": ["python", "gitleaks"], "paths": ["src/**"]},
 ]
 BOTH = ("--pinned-tool", "node", "--pinned-tool", "gitleaks")

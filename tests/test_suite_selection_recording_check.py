@@ -871,37 +871,31 @@ class KeepPassedTests(unittest.TestCase):
 
 class EntryTimeoutTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.recording = load_recording()
-        self.temp = temporary_support.Directory(prefix="recording-timeout-")
-        self.addCleanup(self.temp.cleanup)
-        self.base = Path(self.temp.name)
-        self.root = self.base / "repo"
-        self.output = self.base / "out"
-        (self.root / "tests").mkdir(parents=True)
-        (self.root / "tests" / "slow.py").write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
-        (self.root / "tests" / "fast.py").write_text("print('Ran 1 test in 0.001s\\n\\nOK')\n", encoding="utf-8")
-        (self.root / "suites.json").write_text(
-            json.dumps({"always": [], "suites": [suite("unit", ["tests/slow.py", "tests/fast.py"])]}),
-            encoding="utf-8",
+        self.fixture = RecordingFixture(
+            self.addCleanup,
+            {"tests/slow.py": "import time\ntime.sleep(30)\n",
+             "tests/fast.py": "print('Ran 1 test in 0.001s\\n\\nOK')\n"},
+            [suite("unit", ["tests/slow.py", "tests/fast.py"])],
         )
-        subprocess.run(["git", "-C", str(self.root), "init", "-q", "-b", "main"], check=True)
-        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                        "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base"], check=True)
-        for sub in ("units", "traces", "logs", "lookups", "setups"):
-            (self.output / sub).mkdir(parents=True, exist_ok=True)
-        (self.output / "environment.json").write_text(json.dumps(dict(os.environ)), encoding="utf-8")
         if sys.platform == "win32":
+            for sub in ("units", "traces", "logs", "lookups", "setups"):
+                (self.fixture.output / sub).mkdir(parents=True, exist_ok=True)
+            (self.fixture.output / "environment.json").write_text(json.dumps(dict(os.environ)), encoding="utf-8")
             settings = {"mode": "pull-request", "trace_set": "etw", "events": "events.tsv"}
+            (self.fixture.output / "recording.json").write_text(json.dumps(settings), encoding="utf-8")
         else:
-            settings = {"mode": "pull-request", "trace_set": "mid", "strace": shutil.which("strace") or "strace"}
-        (self.output / "recording.json").write_text(json.dumps(settings), encoding="utf-8")
+            started = self.fixture.start()
+            self.assertEqual(0, started.returncode, started.stderr)
 
     def run_exec(self, *args: str) -> subprocess.CompletedProcess:
+        path = os.environ.get("PATH", "")
+        if self.fixture.stand_in is not None:
+            path = str(self.fixture.stand_in / "bin") + os.pathsep + path
         return subprocess.run(
-            [sys.executable, str(ROOT / "actions" / "recording" / "recording.py"), "exec", "--output", str(self.output),
-             "--root", str(self.root), "--suites", str(self.root / "suites.json"), *args],
-            cwd=self.root, capture_output=True, text=True, encoding="utf-8", check=False, timeout=15,
+            self.fixture.command("exec", "--output", str(self.fixture.output), "--root", str(self.fixture.root),
+                                 "--suites", str(self.fixture.root / "suites.json"), *args),
+            cwd=self.fixture.root, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=self.fixture.environment(path), check=False, timeout=15,
         )
 
     def test_an_entry_file_that_runs_past_its_timeout_fails_and_is_named(self) -> None:
@@ -910,7 +904,7 @@ class EntryTimeoutTests(unittest.TestCase):
         combined = ran.stdout + ran.stderr
         self.assertIn("tests/slow.py", combined)
         self.assertIn("timed out", combined.lower())
-        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.output / "units").glob("*.json")]
+        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.fixture.output / "units").glob("*.json")]
         self.assertEqual(1, len(records))
         self.assertEqual(124, records[0]["exit_code"])
         self.assertTrue(records[0].get("timed_out"))
@@ -919,7 +913,7 @@ class EntryTimeoutTests(unittest.TestCase):
     def test_an_entry_file_within_its_timeout_passes_and_records_its_duration(self) -> None:
         ran = self.run_exec("--entry", "tests/fast.py", "--suite", "unit", "--timeout", "30", "--", sys.executable, "tests/fast.py")
         self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
-        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.output / "units").glob("*.json")]
+        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.fixture.output / "units").glob("*.json")]
         self.assertEqual(1, len(records))
         self.assertEqual(0, records[0]["exit_code"])
         self.assertFalse(records[0].get("timed_out", False))

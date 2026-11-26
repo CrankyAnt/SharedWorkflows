@@ -25,8 +25,6 @@ PYTHON_VERIFY = "python-verify"
 PYTHON_TEST = "python-test"
 DOTNET_TEST = "dotnet-test"
 NODE_TEST = "node-test"
-# The paths that each project part names in this repository's configuration file besides its own.
-COMMON_PATHS = [".github/workflows/ci.yml", ".github/workflows/pipeline.yml", "actions/pipeline/"]
 
 
 @dataclass(frozen=True)
@@ -46,7 +44,7 @@ class Part:
     fixture: str
     """The name of the part's fixture folder under tests/fixtures, which no fragment names."""
     paths: list[str]
-    """The paths that the part names in this repository's configuration file besides COMMON_PATHS."""
+    """The paths that the part names in this repository's configuration file."""
 
 
 # The project parts: adding a part to the checks of this file is one entry here.
@@ -56,14 +54,14 @@ PARTS = {
         several=[{"python-version": "3.13", "working-directory": "backend", "install": "dev", "format-check": True},
                  {"python-version": "3.12.4", "working-directory": "tools"}],
         runner_label=False, fixture="python_tests",
-        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
+        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
     PYTHON_TEST: Part(
         settings=["install", "python-version", "runner-label", "working-directory"], required=["python-version"], smallest={"python-version": "3.13"},
         several=[{"python-version": "3.14", "working-directory": "services/api", "install": "requirements-dev.txt", "runner-label": "windows-2025"},
                  {"python-version": "3.14", "working-directory": "services/api", "install": "requirements-dev.txt"},
                  {"python-version": "3.11"}],
         runner_label=True, fixture="python_tests",
-        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/", "actions/repository-hygiene/"]),
+        paths=["tests/fixtures/python_tests/", "actions/python-language-step/", "actions/python-tests/"]),
     DOTNET_TEST: Part(
         settings=["console-runner", "project", "runner-label", "sdk-version"], required=["project", "sdk-version"], smallest={"sdk-version": "10.0.x", "project": "Shop.sln"},
         several=[{"sdk-version": "10.0.x", "project": "tests/Shop.Tests/Shop.Tests.csproj", "runner-label": "windows-2025"},
@@ -378,7 +376,7 @@ class OwnConfigurationTests(unittest.TestCase):
         for part, entry in PARTS.items():
             with self.subTest(part=part):
                 self.assertIn(f"tests/fixtures/{entry.fixture}/", entry.paths)
-                self.assertEqual(sorted([*COMMON_PATHS, *entry.paths]), sorted(self.parts[part]["paths"]))
+                self.assertEqual(sorted(entry.paths), sorted(self.parts[part]["paths"]))
 
 
 class InvocationTests(unittest.TestCase):
