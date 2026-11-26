@@ -199,7 +199,7 @@ _Avoid_: Admin repository, control repository, sync repository
 ### Measurement
 
 **Measurement**:
-The scheduled run in the management repository that reads every consumer's runs and reports, per repository, how far CI meets the goal, opening an issue for each missed target.
+The daily scheduled run in the management repository that incrementally records every consumer's runs for 90 days, reports per repository how far CI meets the four-week goal, and opens at most one issue per week for each missed target.
 _Avoid_: Metrics run, CI statistics
 
 **Measurement App**:
