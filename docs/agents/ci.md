@@ -2,7 +2,7 @@
 
 ## Goal
 
-CI gives every proposed change and every change on the default branch a trustworthy verdict, fast. Trustworthy: green only when every gating check would pass if it ran, apart from the accepted risks under Reuse. Fast: from trigger to verdict, over a rolling four weeks of runs that reach a verdict, manual re-runs and pull request edits excluded, 99% finish within 3 minutes and half of those that select no tests within 1 minute; speed before billed minutes. No run does avoidable work: work that cannot change the verdict, work done twice, or work Reuse lets it take over. Checks not specific to one product are shared. This keeps holding as repositories grow.
+CI gives every proposed change and every change on the default branch a trustworthy verdict, fast. Trustworthy: green only when every gating check would pass if it ran, apart from the accepted risks under Reuse. Fast: from trigger to verdict, over a rolling four weeks of runs that reach a verdict, manual re-runs excluded, 99% finish within 3 minutes and half of those that select no tests within 1 minute; speed before billed minutes. No run does avoidable work: work that cannot change the verdict, work done twice, or work Reuse lets it take over. Checks not specific to one product are shared. This keeps holding as repositories grow.
 
 ## Principles
 
