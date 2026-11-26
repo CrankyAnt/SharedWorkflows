@@ -129,14 +129,22 @@ class SyncWorkflowTests(unittest.TestCase):
         self.assertFalse(options.local)
         self.assertIsNone(options.repository)
         self.assertTrue(options.own_repository)
-        self.assertIn("api.pages(\"installation/repositories\", \"repositories\")", (REPOSITORY_ROOT / PART / "sync.py").read_text(encoding="utf-8"))
+
+    def test_only_a_successful_run_closes_its_failure_issue_with_the_token_of_the_run(self) -> None:
+        success = self.job["steps"][-2]
+        self.assertEqual("${{ success() }}", success["if"])
+        self.assertEqual("${{ github.token }}", success["env"]["GITHUB_TOKEN"])
+        self.assertNotIn("GH_TOKEN", success["env"])
+        options = sync_program.parser().parse_args(script_invocations(WORKFLOW, "sync.py")[-2])
+        self.assertEqual("success", options.command)
+        self.assertTrue(options.own_repository)
 
     def test_a_failed_run_opens_its_issue_with_the_token_of_the_run(self) -> None:
         failure = self.job["steps"][-1]
         self.assertEqual("${{ failure() }}", failure["if"])
         self.assertEqual("${{ github.token }}", failure["env"]["GITHUB_TOKEN"])
         self.assertNotIn("GH_TOKEN", failure["env"])
-        options = sync_program.parser().parse_args(script_invocations(WORKFLOW, "sync.py")[1])
+        options = sync_program.parser().parse_args(script_invocations(WORKFLOW, "sync.py")[-1])
         self.assertEqual("failure", options.command)
 
     def test_the_program_loads_from_the_workflow_s_own_revision_and_one_run_at_a_time(self) -> None:

@@ -974,6 +974,8 @@ With `--own-repository`, the sync opens issues there with the token of the run, 
 
 Each issue carries the marker `<!-- sync-finding: <key> -->` in its body, by which a later run finds it among all issues of the repository. The key of a settings difference or of unwanted workflows holds a digest of its findings, so changed findings open a new issue. A run without findings opens none.
 
+The sync comments on and closes its own finding issues when it confirms the referenced request or pull request closed, the relevant check matches again, or a new issue supersedes the old one. It leaves a repository's issues open after a read or sync failure, and leaves settings issues open when it skips the settings check. It closes a repository's findings when GitHub confirms that the repository is archived or a complete installation listing confirms that it has left the installation. The final step of a successful run closes the sync's failure issue.
+
 #### Adoption
 
 `sync.py adopt --repository <owner>/<name>` makes the adoption pull request of a repository without a configuration file, with the owner's own token, on the branch `chore/adopt-shared-pipeline` and without auto-merge. It holds the fixed callers, the CI guide, the derived `.github/ci-config.yml` and the generated `.github/dependabot.yml`.
@@ -1007,6 +1009,8 @@ From the stored records over the rolling four weeks (28 days), `measure` reports
 - parts that ran with unknown inputs.
 
 A repository whose listing does not cover the full window or that still has `pending`, unchecked `unfinished`, or stale-`judge_version` runs in the window is reported as partial coverage and opens no finding except `no-workflow`. For fully covered repositories, a missed target, a p95 fixed cost above `FIXED_COST_SECONDS`, a Python language-step p95 above `LANGUAGE_STEP_ALLOWANCE_SECONDS`, an installed repository without `ci.yml`, or a repository with completed runs none of which reached a verdict opens an issue in the management repository with the run's `GITHUB_TOKEN`, naming the repository and the finding. Issues are deduplicated by an HTML marker against both open issues and issues closed within the last 7 days, so a persisting miss opens at most one issue per week. A repository that raises an error gets a report row stating the reason. When the measurement job fails or is cancelled (`failure() || cancelled()`), `measurement.py failure` opens one failure issue while none is open.
+
+The measurement comments on and closes its own finding issues when complete coverage confirms the workflow exists again, a run reached a verdict in the current window, or the affected target is met with current data. A skipped repository, a read error or partial coverage leaves its issues open. A complete installation listing also lets the measurement close findings for repositories that have left the installation. Automatic and manual closures both start the seven-day cooldown. The final step of a successful run closes the measurement's failure issue.
 
 `measurement.py measure --local --repository <owner>/<name>` runs with the owner's own token on named repositories without opening issues and accepts `--store-in FILE` and `--store-out FILE`. `measurement.py report --store FILE --window-days <days>` computes the same report offline over any chosen window up to 90 days from a downloaded store artifact, reporting per-repository coverage and judge versions (including repositories removed from the installation whose records remain in the store).
 

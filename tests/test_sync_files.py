@@ -7,7 +7,7 @@ import unittest
 
 from tests.consumer_checks_fixtures import SHARED, SYNC_BRANCH, WORKFLOWS, template
 from tests.pipeline_fixtures import CONFIGURATION, PART_FOLDER, write
-from tests.sync_fixtures import APP_TOKEN, CONSUMER, DEPENDABOT, MANAGEMENT, OTHER, CI_GUIDE, CI_GUIDE_TEXT, SyncFixture
+from tests.sync_fixtures import APP_TOKEN, CONSUMER, DEPENDABOT, MANAGEMENT, OTHER, RUN_TOKEN, CI_GUIDE, CI_GUIDE_TEXT, SyncFixture
 from tests.test_pipeline_dependabot import GENERATED, STATED
 
 CI = f"{WORKFLOWS}/ci.yml"
@@ -115,13 +115,16 @@ class FileDifferenceTests(SyncFixture):
         self.api.repository(MANAGEMENT, {"README.md": "The management repository.\n"}, installed=False)
         synced = self.run_sync("sync", "--own-repository", MANAGEMENT)
         self.assertEqual(0, synced.status, synced.stderr)
-        self.assertEqual(5, len(self.api.requests))
+        self.assertEqual(5, sum(token == APP_TOKEN for _, _, token in self.api.requests))
+        issue_listing = ("GET", f"/repos/{MANAGEMENT}/issues?state=all&per_page=100&page=1", RUN_TOKEN)
+        self.assertEqual([issue_listing], [request for request in self.api.requests if request[2] != APP_TOKEN])
         self.api.requests.clear()
         self.consumer({CI: "name: other\n"}, name=OTHER)
         synced = self.run_sync("sync", "--own-repository", MANAGEMENT)
         self.assertEqual(0, synced.status, synced.stderr)
         # 1 installation/repositories + 4 for matching consumer + 10 for differing consumer = 15 total.
-        self.assertEqual(15, len(self.api.requests))
+        self.assertEqual(15, sum(token == APP_TOKEN for _, _, token in self.api.requests))
+        self.assertEqual([issue_listing], [request for request in self.api.requests if request[2] != APP_TOKEN])
 
 
 class RepositoryChoicesTests(SyncFixture):

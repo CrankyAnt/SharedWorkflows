@@ -5,6 +5,7 @@
     python3 measurement.py measure --local --repository OWNER/NAME [--repository ...] [common options]
     python3 measurement.py report --store FILE [--window-days DAYS] [--now TIME]
                                   [--repository OWNER/NAME ...] [--summary FILE] [--json-output FILE]
+    python3 measurement.py success --own-repository OWNER/NAME [--api-url URL] [--summary FILE]
     python3 measurement.py failure --own-repository OWNER/NAME --run-url URL [--api-url URL] [--summary FILE]
 
     common options: [--api-url URL] [--workflow FILE] [--window-days DAYS] [--now TIME]
@@ -107,6 +108,13 @@ FIXED_COST_QUANTILE = 0.95
 SUITE_SELECTION_SCRIPT = Path(__file__).resolve().parent.parent / "suite-selection" / "suite_selection.py"
 MARKER = "<!-- measurement-finding: {key} -->"
 MARKER_PATTERN = re.compile(r"<!-- measurement-finding: (\S+) -->")
+OWN_MARKER_PATTERN = re.compile(rf"^{MARKER_PATTERN.pattern}\r?$", re.MULTILINE)
+WORKFLOW_BOT = "github-actions[bot]"
+REPOSITORY_NAME = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+REPOSITORY_FINDING_PATTERN = re.compile(
+    rf"(?:no-workflow|no-verdict):({REPOSITORY_NAME})|"
+    rf"miss:({REPOSITORY_NAME}):(?:within-3m|no-tests-median-1m|fixed-cost|language-step)"
+)
 
 __all__ = [
     "API_TIMEOUT",
@@ -1210,6 +1218,24 @@ def misses_of(
     return findings
 
 
+def recovery_reasons(item: RepositoryMetrics, workflow: str, active_keys: set[str]) -> dict[str, str]:
+    """Use the existing miss checks once each target has current data to compare."""
+    if item.error is not None or not item.has_workflow or not item.coverage.complete:
+        return {}
+    repository = item.repository
+    reasons = {f"no-workflow:{repository}": f"The `{workflow}` workflow exists again in `{repository}`."}
+    if not item.verdict_runs:
+        return reasons
+    reasons[f"no-verdict:{repository}"] = f"A `{workflow}` run in the current window reached a verdict in `{repository}`."
+    reasons[f"miss:{repository}:within-3m"] = f"`{repository}` meets the target of 99% of verdict runs within 3 minutes again."
+    if item.no_tests_durations:
+        reasons[f"miss:{repository}:no-tests-median-1m"] = f"`{repository}` meets the 1-minute no-tests median target again."
+    if item.fixed_cost_samples:
+        reasons[f"miss:{repository}:fixed-cost"] = f"The measured fixed cost in `{repository}` is within the assumed fixed cost again."
+        reasons[f"miss:{repository}:language-step"] = f"The Python language step in `{repository}` is within its allowance again."
+    return {key: reason for key, reason in reasons.items() if key not in active_keys}
+
+
 def report_findings(
     api: Api,
     repository: str,
@@ -1217,14 +1243,15 @@ def report_findings(
     *,
     now: datetime.datetime | None = None,
     cooldown_days: int = 0,
+    resolutions: dict[str, str] | None = None,
+    installation: set[str] | None = None,
 ) -> list[str]:
-    """Open one issue per finding unless an issue with the same marker is open or closed within ``cooldown_days``."""
-    if not findings:
+    """Open unsuppressed finding issues and close findings with a confirmed resolution."""
+    if not findings and not resolutions and installation is None:
         return []
-    suppressed: set[str] = set()
-    for issue in api.pages(f"repos/{repository}/issues?state=open") or []:
-        suppressed.update(MARKER_PATTERN.findall(issue.get("body") or ""))
-    if cooldown_days > 0 and now is not None:
+    open_issues = api.pages(f"repos/{repository}/issues?state=open") or []
+    suppressed = {key for issue in open_issues for key in MARKER_PATTERN.findall(issue.get("body") or "")}
+    if findings and cooldown_days > 0 and now is not None:
         cooldown_cutoff = now - datetime.timedelta(days=cooldown_days)
         since = urllib.parse.quote(format_moment(cooldown_cutoff), safe="")
         for issue in api.pages(f"repos/{repository}/issues?state=closed&since={since}") or []:
@@ -1236,7 +1263,7 @@ def report_findings(
                     continue
                 if closed_at >= cooldown_cutoff:
                     suppressed.update(MARKER_PATTERN.findall(issue.get("body") or ""))
-    opened: list[str] = []
+    changes: list[str] = []
     for finding in findings:
         if finding.key in suppressed:
             continue
@@ -1245,8 +1272,49 @@ def report_findings(
             "body": f"{finding.body}\n\n{MARKER.format(key=finding.key)}\n",
         })
         suppressed.add(finding.key)
-        opened.append(f"Opened issue #{created.get('number')}: {finding.title}")
-    return opened
+        changes.append(f"Opened issue #{created.get('number')}: {finding.title}")
+
+    if resolutions or installation is not None:
+        changes.extend(close_resolved_issues(api, repository, open_issues, resolutions or {}, installation))
+    return changes
+
+
+def written_by_workflow(entry: dict) -> bool:
+    author = entry.get("user")
+    return isinstance(author, dict) and author.get("login") == WORKFLOW_BOT
+
+
+def close_resolved_issues(
+    api: Api,
+    repository: str,
+    issues: list[dict],
+    resolutions: dict[str, str],
+    installation: set[str] | None = None,
+) -> list[str]:
+    closed: list[str] = []
+    for issue in issues:
+        if issue.get("state") != "open" or "pull_request" in issue or not written_by_workflow(issue):
+            continue
+        keys = OWN_MARKER_PATTERN.findall(issue.get("body") or "")
+        number = issue.get("number")
+        if len(keys) != 1 or not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            continue
+        key = keys[0]
+        reason = resolutions.get(key)
+        match = REPOSITORY_FINDING_PATTERN.fullmatch(key)
+        if reason is None and installation is not None and match is not None:
+            consumer = match[1] or match[2]
+            if consumer.casefold() not in installation and consumer.casefold() != repository.casefold():
+                reason = f"The Measurement App is no longer installed on `{consumer}`."
+        if reason is None:
+            continue
+        path = f"repos/{repository}/issues/{number}"
+        comments = api.pages(f"{path}/comments") or []
+        if not any(comment.get("body") == reason and written_by_workflow(comment) for comment in comments):
+            api.send("POST", f"{path}/comments", {"body": reason})
+        api.send("PATCH", path, {"state": "closed", "state_reason": "completed"})
+        closed.append(f"Closed issue #{number}: {reason}")
+    return closed
 
 
 def append_file(path: str | None, text: str) -> None:
@@ -1328,7 +1396,7 @@ class _MeasureSession:
             repo: copy.deepcopy(store["repositories"].get(repo) or empty_repo_entry()) for repo in repositories
         }
         self.repo_errors: dict[str, str] = {}
-        self.seen_in_overlap: dict[str, set[int]] = {repo: set() for repo in repositories}
+        self.seen_in_overlap: dict[str, set[int]] = {}
         self.progress_by_repo: dict[str, _RepoProgress] = {
             repo: _RepoProgress(repository=repo, started_at=time.monotonic()) for repo in repositories
         }
@@ -1432,7 +1500,7 @@ class _MeasureSession:
                 if repo in self.repo_errors or self.budget.stop_event.is_set():
                     return
                 record = self.staged_repos[repo]["records"][key]
-                in_overlap = int(record["run_id"]) in self.seen_in_overlap[repo]
+                in_overlap = int(record["run_id"]) in self.seen_in_overlap.get(repo, set())
             try:
                 judged = judge_record(
                     self.api,
@@ -1545,6 +1613,7 @@ def run_measure(options: argparse.Namespace) -> int:
 
         prune_store(store, now, DEFAULT_RETENTION_DAYS)
 
+        installation: set[str] | None = None
         if options.local:
             if not options.repository:
                 raise SetupError("the local mode names its repositories with --repository")
@@ -1553,12 +1622,20 @@ def run_measure(options: argparse.Namespace) -> int:
             if options.repository:
                 raise SetupError("without --local the repositories come from the App's installation; --repository belongs to the local mode")
             try:
-                found = api.pages("installation/repositories", "repositories") or []
+                found = []
+                page_counts = set()
+                for _, total_count, items in api.iter_pages("installation/repositories", "repositories"):
+                    page_counts.add(total_count)
+                    found.extend(items)
             except RateLimitError as error:
                 budget.handle_rate_limit(error)
                 raise MeasurementError(str(error)) from error
             except BudgetStoppedError as error:
                 raise MeasurementError(str(error)) from error
+            names = {str(item["full_name"]).casefold() for item in found}
+            valid_names = all(re.fullmatch(REPOSITORY_NAME, name) for name in names)
+            if valid_names and page_counts == {len(found)} and len(names) == len(found):
+                installation = names
             repositories = [
                 str(item["full_name"])
                 for item in found
@@ -1591,9 +1668,17 @@ def run_measure(options: argparse.Namespace) -> int:
             for item in results
             for finding in misses_of(item, window.window_days, thresholds, workflow=options.workflow)
         ]
-        opened: list[str] = []
+        changes: list[str] = []
         if own_api is not None:
-            opened = report_findings(own_api, options.own_repository, findings, now=now, cooldown_days=FINDING_COOLDOWN_DAYS)
+            active_keys = {finding.key for finding in findings}
+            resolutions: dict[str, str] = {}
+            for item in results:
+                if item.repository in session.seen_in_overlap and session.progress_by_repo[item.repository].remaining == 0:
+                    resolutions.update(recovery_reasons(item, options.workflow, active_keys))
+            changes = report_findings(
+                own_api, options.own_repository, findings, now=now, cooldown_days=FINDING_COOLDOWN_DAYS,
+                resolutions=resolutions, installation=installation,
+            )
 
         total_pending = sum(item.coverage.pending_runs for item in results if item.error is None)
         total_elapsed = time.monotonic() - start_monotonic
@@ -1612,8 +1697,8 @@ def run_measure(options: argparse.Namespace) -> int:
             store_info=store_info,
             budget_stop_reason=budget.stop_reason,
         )
-        if opened:
-            markdown += "\n" + "\n".join(f"- {line}" for line in opened) + "\n"
+        if changes:
+            markdown += "\n" + "\n".join(f"- {line}" for line in changes) + "\n"
         print(markdown, end="")
         append_file(options.summary, markdown)
         write_json_report(options.json_output, {
@@ -1694,6 +1779,22 @@ def run_failure(options: argparse.Namespace) -> int:
     return 0
 
 
+def run_success(options: argparse.Namespace) -> int:
+    own_api = Api(options.api_url, token("GITHUB_TOKEN"))
+    try:
+        issues = own_api.pages(f"repos/{options.own_repository}/issues?state=open") or []
+        closed = close_resolved_issues(
+            own_api, options.own_repository, issues, {"failure": "A later CI goal measurement run succeeded."},
+        )
+    finally:
+        own_api.close()
+    if closed:
+        text = "\n".join(f"- {line}" for line in closed) + "\n"
+        print(text, end="")
+        append_file(options.summary, text)
+    return 0
+
+
 def _add_report_arguments(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument("--workflow", default=DEFAULT_WORKFLOW, help="the pipeline caller workflow file name")
     subparser.add_argument("--window-days", type=int, default=DEFAULT_WINDOW_DAYS, help="rolling window length in days")
@@ -1705,9 +1806,9 @@ def parser() -> argparse.ArgumentParser:
     main_parser = argparse.ArgumentParser(description="Measure the shared CI goal for every consumer repository.")
     commands = main_parser.add_subparsers(dest="command", required=True)
 
-    measure = commands.add_parser("measure", help="measure every consumer repository incrementally and open issues on missed targets")
+    measure = commands.add_parser("measure", help="measure every consumer repository incrementally and reconcile finding issues")
     measure.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
-    measure.add_argument("--own-repository", default="", help="the repository of the run, as OWNER/NAME: excluded from measurement and receives miss issues")
+    measure.add_argument("--own-repository", default="", help="the repository of the run, as OWNER/NAME: excluded from measurement and receives finding issues")
     measure.add_argument("--local", action="store_true", help="run with the owner's own token on the named repositories")
     measure.add_argument("--repository", action="append", help="a repository of the local mode, as OWNER/NAME")
     measure.add_argument("--now", type=moment, default=datetime.datetime.now(datetime.timezone.utc), help="the reference UTC timestamp of the measurement")
@@ -1727,18 +1828,20 @@ def parser() -> argparse.ArgumentParser:
     report.add_argument("--repository", action="append", help="limit the report to named repositories, as OWNER/NAME")
     _add_report_arguments(report)
 
+    success = commands.add_parser("success", help="close the failure finding after a successful measurement run")
     failure = commands.add_parser("failure", help="open an issue for a failed measurement run")
-    failure.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
-    failure.add_argument("--own-repository", required=True, help="the repository of the run, as OWNER/NAME")
     failure.add_argument("--run-url", required=True, help="the address of the failed run")
-    failure.add_argument("--summary", help="the file that receives the Markdown summary")
+    for outcome in (success, failure):
+        outcome.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="the address of the GitHub API")
+        outcome.add_argument("--own-repository", required=True, help="the repository of the run, as OWNER/NAME")
+        outcome.add_argument("--summary", help="the file that receives the Markdown summary")
     return main_parser
 
 
 def main(argv: list[str] | None = None) -> int:
     options = parser().parse_args(argv)
     try:
-        return {"measure": run_measure, "report": run_report, "failure": run_failure}[options.command](options)
+        return {"measure": run_measure, "report": run_report, "success": run_success, "failure": run_failure}[options.command](options)
     except SetupError as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2

@@ -71,6 +71,7 @@ class Repository:
         self.rulesets: list[dict] = [{"id": 7, **expected_ruleset()}]
         self.pulls: list[dict] = []
         self.issues: list[dict] = []
+        self.issue_comments: dict[int, list[dict]] = {}
         self.auto_merge_allowed = True
         self.refs["heads/main"] = self.commit(self.tree(files), [], "initial")
 
@@ -99,7 +100,7 @@ class Repository:
     def pull_request(self, branch: str, created_at: str, auto_merge: bool = True) -> dict:
         number = 30 + len(self.pulls) + 1
         pull = {"number": number, "node_id": f"PR_{number}", "html_url": f"https://github.example/{self.full_name}/pull/{number}", "state": "open",
-                "head": {"ref": branch}, "base": {"ref": self.default_branch}, "created_at": created_at, "title": "", "body": "",
+                "head": {"ref": branch}, "base": {"ref": self.default_branch}, "created_at": created_at, "title": "", "body": "", "merged": False,
                 "auto_merge": {"merge_method": "squash"} if auto_merge else None}
         self.pulls.append(pull)
         return pull
@@ -107,6 +108,7 @@ class Repository:
     def issue(self, title: str, body: str = "", labels: tuple[str, ...] = (), state: str = "open", pull_request: bool = False) -> dict:
         number = 100 + len(self.issues) + 1
         issue = {"number": number, "title": title, "body": body, "state": state, "labels": [{"name": label} for label in labels],
+                 "closed_at": NOW if state == "closed" else None,
                  "html_url": f"https://github.example/{self.full_name}/issues/{number}", **({"pull_request": {"url": "x"}} if pull_request else {})}
         self.issues.append(issue)
         return issue
@@ -129,6 +131,8 @@ class GitHubStandIn:
     def __init__(self) -> None:
         self.repositories: dict[str, Repository] = {}
         self.installed: list[str] = []
+        self.installation_total_count: int | None = None
+        self.now = NOW
         self.writes: list[Write] = []
         self.requests: list[tuple[str, str, str]] = []
         self.refused: dict[str, int] = {}
@@ -197,7 +201,8 @@ class GitHubStandIn:
         if path == "/installation/repositories":
             page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
             names = self.installed[(page - 1) * size:page * size]
-            return 200, {"total_count": len(self.installed), "repositories": [self.summary(self.repositories[name]) for name in names]}
+            total = len(self.installed) if self.installation_total_count is None else self.installation_total_count
+            return 200, {"total_count": total, "repositories": [self.summary(self.repositories[name]) for name in names]}
         if path == "/graphql":
             return self.graphql(body)
         match = re.fullmatch(r"/repos/([^/]+/[^/]+)(?:/(.*))?", path)
@@ -253,15 +258,41 @@ class GitHubStandIn:
                 return 201, pull
             head = query.get("head", "")
             return 200, [pull for pull in repository.pulls if pull["state"] == query.get("state", "open") and f"{repository.full_name.split('/')[0]}:{pull['head']['ref']}" == head]
+        pull_match = re.fullmatch(r"pulls/(\d+)", rest)
+        if pull_match and method == "GET":
+            number = int(pull_match.group(1))
+            pull = next((item for item in repository.pulls if item["number"] == number), None)
+            return (200, pull) if pull is not None else (404, {"message": "Not Found"})
         if rest == "issues":
             if method == "POST":
                 issue = repository.issue(body["title"], body.get("body", ""))
+                issue["user"] = {"login": "github-actions[bot]" if token == RUN_TOKEN else OWNER}
                 return 201, issue
             found = [issue for issue in repository.issues
                      if query.get("state", "open") in ("all", issue["state"])
                      and ("labels" not in query or query["labels"] in [label["name"] for label in issue["labels"]])]
             page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
             return 200, found[(page - 1) * size:page * size]
+        issue_match = re.fullmatch(r"issues/(\d+)(/comments)?", rest)
+        if issue_match:
+            number = int(issue_match.group(1))
+            issue = next((item for item in repository.issues if item["number"] == number), None)
+            if issue is None:
+                return 404, {"message": "Not Found"}
+            if issue_match.group(2):
+                if method == "POST":
+                    comments = repository.issue_comments.setdefault(number, [])
+                    comment = {"id": len(comments) + 1, "body": body["body"], "created_at": self.now,
+                               "user": {"login": "github-actions[bot]" if token == RUN_TOKEN else OWNER}}
+                    comments.append(comment)
+                    return 201, comment
+                page, size = int(query.get("page", 1)), int(query.get("per_page", 30))
+                return 200, repository.issue_comments.get(number, [])[(page - 1) * size:page * size]
+            if method == "PATCH":
+                if "state" in body and body["state"] != issue["state"]:
+                    issue["closed_at"] = self.now if body["state"] == "closed" else None
+                issue.update(body)
+            return 200, issue
         if rest == "rulesets":
             if method == "POST":
                 if not administers:
@@ -421,7 +452,7 @@ class SyncFixture(PipelineFixture):
         summary = self.directory / "summary.md"
         summary.unlink(missing_ok=True)
         options = ["--api-url", self.api.url, "--summary", str(summary)]
-        if command != "failure":
+        if command not in {"failure", "success"}:
             options += ["--kit", str(self.kit), "--schemas", str(self.schemas), "--adoption", str(self.adoption), "--now", NOW]
         return [command, *options, *arguments], summary
 
