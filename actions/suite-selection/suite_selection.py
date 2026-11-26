@@ -30,6 +30,7 @@ import argparse
 import contextlib
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -45,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci_definition  # noqa: E402
 from revisions import ALL_ZERO, commit_id, git  # noqa: E402
 from suite_list import (  # noqa: E402, F401
+    ENTRY_DURATIONS_VERSION,
     GLOB_CHARACTERS,
     IGNORE_FILE,
     JOB_DEFAULTS,
@@ -60,7 +62,6 @@ from suite_list import (  # noqa: E402, F401
     TOOLS,
     TOP_LEVEL_KEYS,
     VERSION_FILE,
-    WIDE_TO_MID,
     ExistenceRead,
     IgnorePattern,
     IgnoreRules,
@@ -73,7 +74,6 @@ from suite_list import (  # noqa: E402, F401
     check_stated_setups,
     expand_entries,
     first_match,
-    full_recording_scale,
     glob_entries,
     ignore_patterns,
     ignore_regex,
@@ -99,11 +99,15 @@ if TYPE_CHECKING:
 SELECTION_JOB = "select"
 GOAL_SECONDS = 180.0
 FIXED_COST_SECONDS = 90.0
-SHARD_BOUND = GOAL_SECONDS - FIXED_COST_SECONDS  # seconds of estimated traced test time per Linux shard on its workers
-FULL_SHARD_BOUND = 300.0  # seconds of estimated wide-traced test time per Linux shard of the full recording
+LANGUAGE_STEP_ALLOWANCE_SECONDS = 15.0  # reserved in shard 1 when a language step runs after the entry-file step
+SHARD_BOUND = GOAL_SECONDS - FIXED_COST_SECONDS  # seconds of estimated entry-file step time per Linux shard on its workers
+FULL_SHARD_BOUND = 300.0  # seconds of estimated entry-file step time per Linux shard of the full recording
 ENTRY_TIMEOUT_FLOOR = 180  # minimum per-entry timeout in seconds for normal runs
 FULL_ENTRY_TIMEOUT_FLOOR = 300  # minimum per-entry timeout in seconds for full recordings
 ENTRY_TIMEOUT_MULTIPLIER = 3
+ASSUMED_ESTIMATE_SECONDS = ENTRY_TIMEOUT_FLOOR / ENTRY_TIMEOUT_MULTIPLIER  # packing weight for unmeasured entries on normal runs
+FULL_ASSUMED_ESTIMATE_SECONDS = FULL_ENTRY_TIMEOUT_FLOOR / ENTRY_TIMEOUT_MULTIPLIER  # packing weight for unmeasured entries on full runs
+MAX_LINUX_SHARDS = 20  # hard cap on Linux shards, within GitHub's 256-job matrix limit and at the lowest concurrent-job limit of a GitHub personal plan
 FULL_REASON = "the full recording runs every entry file"
 SHARD_WORKERS = 2
 LANGUAGE_STEPS = {
@@ -683,22 +687,84 @@ def entry_timeout(estimate: float | None, full: bool = False) -> int:
     return floor if estimate is None else max(floor, math.ceil(estimate * ENTRY_TIMEOUT_MULTIPLIER))
 
 
-def assign_shards(units: list[tuple[Suite, str, float | None]], bound: float = SHARD_BOUND) -> list[list[tuple[Suite, str, float | None]]]:
-    """As few shards as keep each shard's two-worker time within the bound, filled longest first by estimate; an entry
-    file over the bound, or without a measured duration, gets a shard of its own."""
-    measured = sorted([unit for unit in units if unit[2] is not None], key=lambda unit: -unit[2])  # type: ignore[operator]
-    unmeasured = [unit for unit in units if unit[2] is None]
-    measured_shards: list[list[tuple[Suite, str, float | None]]] = []
-    if measured:
-        for count in range(1, len(measured) + 1):
-            shards: list[list[tuple[Suite, str, float | None]]] = [[] for _ in range(count)]
-            for unit in measured:
-                loads = [sum(item[2] for item in shard if item[2] is not None) for shard in shards]
-                shards[loads.index(min(loads))].append(unit)
-            if all(len(shard) == 1 or two_worker_time([item[2] for item in shard if item[2] is not None]) <= bound for shard in shards):
-                measured_shards = shards
-                break
-    return measured_shards + [[unit] for unit in unmeasured]
+def _packing_weight(unit: tuple[Suite, str, float | None], assumed: float) -> float:
+    return unit[2] if unit[2] is not None else assumed
+
+
+def assign_shards(units: list[tuple[Suite, str, float | None]], bound: float = SHARD_BOUND, *,
+                  assumed: float = ASSUMED_ESTIMATE_SECONDS, language_allowance: float = 0.0,
+                  max_shards: int = MAX_LINUX_SHARDS) -> list[list[tuple[Suite, str, float | None]]]:
+    """As few shards (up to ``max_shards``) as keep each shard's two-worker time within ``bound``, filled longest first
+    by estimate (unmeasured entry files pack with ``assumed`` while keeping ``None`` in the unit). A single entry file
+    over ``bound`` stays allowed. When ``language_allowance`` is positive, the least-loaded measured shard becomes
+    shard 1 (falling back to the least-loaded shard only when no shard has a measured entry) and its two-worker time
+    plus ``language_allowance`` fits within ``bound`` wherever splitting can reduce it. Beyond ``max_shards``, remaining
+    entry files spread across the existing shards."""
+    if not units:
+        return []
+    ordered = sorted(units, key=lambda unit: (-_packing_weight(unit, assumed), unit[2] is None))
+    measured_units = [unit for unit in ordered if unit[2] is not None]
+    min_shard_1_weight = _packing_weight(measured_units[-1] if measured_units else ordered[-1], assumed)
+    limit = min(len(ordered), max(1, max_shards))
+    shards: list[list[tuple[Suite, str, float | None]]] = []
+    for count in range(1, limit + 1):
+        shards = [[] for _ in range(count)]
+        loads = [0.0] * count
+        for unit in ordered:
+            target = loads.index(min(loads))
+            shards[target].append(unit)
+            loads[target] += _packing_weight(unit, assumed)
+        times = [two_worker_time([_packing_weight(item, assumed) for item in shard]) for shard in shards]
+        if language_allowance > 0:
+            measured_indices = [index for index, shard in enumerate(shards) if any(item[2] is not None for item in shard)]
+            candidates = measured_indices if measured_indices else range(count)
+            lightest = min(candidates, key=lambda index: times[index])
+            if lightest != 0:
+                shards = [shards[lightest], *shards[:lightest], *shards[lightest + 1:]]
+                times = [times[lightest], *times[:lightest], *times[lightest + 1:]]
+        shard_1_limit = max(bound - language_allowance, min_shard_1_weight) if language_allowance > 0 else bound
+        fits = all(
+            len(shard) == 1 or (time <= bound and (index > 0 or time <= shard_1_limit))
+            for index, (shard, time) in enumerate(zip(shards, times))
+        )
+        if fits:
+            return shards
+    return shards
+
+
+def shard_departures(shards: list[list[tuple[Suite, str, float | None]]], bound: float, *,
+                     assumed: float = ASSUMED_ESTIMATE_SECONDS, language_allowance: float = 0.0) -> list[tuple[int, str]]:
+    """One ``(shard number, detail)`` pair for every planned Linux shard whose two-worker packing time (plus
+    language-step allowance on shard 1) exceeds ``bound``."""
+    departures: list[tuple[int, str]] = []
+    for index, shard in enumerate(shards):
+        time = two_worker_time([_packing_weight(item, assumed) for item in shard])
+        allowance = language_allowance if index == 0 else 0.0
+        effective = time + allowance
+        if effective > bound:
+            if allowance > 0:
+                departures.append((index + 1, f"exceeds the {bound:g} s bound ({time:.1f} s + {allowance:g} s language step = {effective:.1f} s)"))
+            else:
+                departures.append((index + 1, f"exceeds the {bound:g} s bound ({time:.1f} s)"))
+    return departures
+
+
+def report_shard_departures(departures: list[tuple[int, str]]) -> None:
+    """Print each shard-bound departure and emit a warning annotation on a runner."""
+    for number, detail in departures:
+        message = f"Departure: shard {number} {detail}"
+        print(message)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::warning::{escaped}", flush=True)
+
+
+def shard_departures_summary(departures: list[tuple[int, str]]) -> str:
+    if not departures:
+        return ""
+    lines = ["", "### Departures", "", "| Shard | Over-bound departure |", "| --- | --- |"]
+    lines += [f"| `shard {number}` | {detail} |" for number, detail in departures]
+    return "\n".join(lines) + "\n"
 
 
 def shard_document(units: list[tuple[Suite, str, float | None]], estimate: float, suite_list: SuiteList | None = None,
@@ -724,9 +790,9 @@ def shard_document(units: list[tuple[Suite, str, float | None]], estimate: float
                         for suite, entry, duration in units]}
 
 
-def selected_units(selection: Selection, suite_list: SuiteList, operating_system: str, scale: float = 1.0) -> list[tuple[Suite, str, float | None]]:
-    """The selected entry files of one operating system with their estimates times ``scale``, or None when an entry file
-    has no measured duration yet."""
+def selected_units(selection: Selection, suite_list: SuiteList, operating_system: str) -> list[tuple[Suite, str, float | None]]:
+    """The selected entry files of one operating system with their duration estimates, or None when an entry file has no
+    stored estimate yet."""
     by_name = {suite.name: suite for suite in suite_list.suites}
     units: list[tuple[Suite, str, float | None]] = []
     for decision in selection.decisions:
@@ -734,27 +800,42 @@ def selected_units(selection: Selection, suite_list: SuiteList, operating_system
         if decision.run and suite.os == operating_system:
             estimates = dict(suite.entry_durations)
             for entry in decision.entries:
-                stored = estimates.get(entry)
-                units.append((suite, entry, None if stored is None else (stored * scale if scale != 1.0 else stored)))
+                units.append((suite, entry, estimates.get(entry)))
     return units
+
+
+def plan_linux_shards(selection: Selection, suite_list: SuiteList, steps: dict[str, str],
+                      full: bool = False) -> tuple[list[list[tuple[Suite, str, float | None]]], list[tuple[int, str]]]:
+    """The planned Linux shards and any shard-bound departures for ``selection``."""
+    bound = FULL_SHARD_BOUND if full else SHARD_BOUND
+    assumed = FULL_ASSUMED_ESTIMATE_SECONDS if full else ASSUMED_ESTIMATE_SECONDS
+    allowance = 0.0 if full or "run" not in steps.values() else LANGUAGE_STEP_ALLOWANCE_SECONDS
+    units = selected_units(selection, suite_list, "linux")
+    assigned = assign_shards(units, bound, assumed=assumed, language_allowance=allowance)
+    return assigned, shard_departures(assigned, bound, assumed=assumed, language_allowance=allowance)
+
+
+def _shards_document(assigned: list[list[tuple[Suite, str, float | None]]], suite_list: SuiteList, steps: dict[str, str],
+                     full: bool = False, tools: dict[str, str] | None = None) -> list[dict]:
+    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard if estimate is not None]), suite_list, tools, full=full)
+              for shard in assigned]
+    if not shards and "run" in steps.values():
+        shards = [shard_document([], 0.0, suite_list, tools, full=full)]
+    return [{"shard": number, **shard} for number, shard in enumerate(shards, start=1)]
 
 
 def shards_json(selection: Selection, suite_list: SuiteList, steps: dict[str, str], full: bool = False,
                 tools: dict[str, str] | None = None) -> str:
     """The Linux shard matrix as a JSON list on one line; one shard without suites when only a language step runs. The
-    full recording counts each estimate under the wide set and bounds each shard by ``FULL_SHARD_BOUND``."""
-    units = selected_units(selection, suite_list, "linux", full_recording_scale("linux") if full else 1.0)
-    shards = [shard_document(shard, two_worker_time([estimate for _, _, estimate in shard if estimate is not None]), suite_list, tools, full=full)
-              for shard in assign_shards(units, FULL_SHARD_BOUND if full else SHARD_BOUND)]
-    if not shards and "run" in steps.values():
-        shards = [shard_document([], 0.0, suite_list, tools, full=full)]
-    return json.dumps([{"shard": number, **shard} for number, shard in enumerate(shards, start=1)], separators=(",", ":"))
+    full recording uses the same entry-time scale and bounds each shard by ``FULL_SHARD_BOUND``."""
+    assigned, _ = plan_linux_shards(selection, suite_list, steps, full)
+    return json.dumps(_shards_document(assigned, suite_list, steps, full, tools), separators=(",", ":"))
 
 
 def windows_json(selection: Selection, suite_list: SuiteList, full: bool = False, tools: dict[str, str] | None = None) -> str:
     """The selected Windows entry files as one job's JSON object on one line, or empty when none is selected. The job
     runs its entry files one after another, so its estimate is the sum of their measured estimates."""
-    units = selected_units(selection, suite_list, "windows", full_recording_scale("windows") if full else 1.0)
+    units = selected_units(selection, suite_list, "windows")
     return json.dumps(shard_document(units, sum(estimate for _, _, estimate in units if estimate is not None), suite_list, tools, full=full),
                       separators=(",", ":")) if units else ""
 
@@ -1316,15 +1397,23 @@ def run_select(options: argparse.Namespace) -> int:
         else:
             steps = {name: "run" if (name in selection.started or language_steps([name], sides[1][1], sides[1][0])[name] == "run") else "skip"
                      for name in options.language_step}
-    write_selection(options, suite_list, selection, changed, steps=steps)
+    effective_steps = steps if steps is not None else language_steps(options.language_step, selection, changed)
+    planned_shards: list[dict] | None = None
+    planned_windows: str | None = None
+    planned_departures: list[tuple[int, str]] | None = None
+    if options.json_output is not None or options.summary is not None or options.unit_decisions is not None:
+        assigned, planned_departures = plan_linux_shards(selection, suite_list, effective_steps, False)
+        if options.json_output is not None or options.unit_decisions is not None:
+            tools = tool_versions(suite_list, root)
+            planned_shards = _shards_document(assigned, suite_list, effective_steps, False, tools)
+            planned_windows = windows_json(selection, suite_list, False, tools)
+    write_selection(options, suite_list, selection, changed, steps=effective_steps,
+                    planned=(planned_shards, planned_windows, planned_departures))
     if options.unit_decisions is not None:
-        effective_steps = steps if steps is not None else language_steps(options.language_step, selection, changed)
-        tools = tool_versions(suite_list, root)
-        shards = json.loads(shards_json(selection, suite_list, effective_steps, False, tools))
-        windows = windows_json(selection, suite_list, False, tools)
+        assert planned_shards is not None and planned_windows is not None
         options.unit_decisions.parent.mkdir(parents=True, exist_ok=True)
         pr_reused = (reused or {}) if options.results is not None else {}
-        doc = unit_decisions_document(suite_list, selection, pr_reused, identical, shards, windows)
+        doc = unit_decisions_document(suite_list, selection, pr_reused, identical, planned_shards, planned_windows)
         doc["fallbacks"] = dict(sorted(fallbacks.items()))
         options.unit_decisions.write_text(json.dumps(doc, separators=(",", ":")) + "\n", encoding="utf-8")
     if options.json_output is not None and running is not None:
@@ -1431,7 +1520,8 @@ def differs_in_estimates_only(before: str | None, after: str | None) -> bool:
 
     def without_estimates(text: str) -> dict:
         raw = json.loads(text)
-        return {**raw, "suites": [{key: value for key, value in suite.items() if key != "entry_durations"} for suite in raw["suites"]]}
+        return {**{key: value for key, value in raw.items() if key != "entry_durations_version"},
+                "suites": [{key: value for key, value in suite.items() if key != "entry_durations"} for suite in raw["suites"]]}
     return without_estimates(before) == without_estimates(after)
 
 
@@ -1536,27 +1626,40 @@ def unit_decisions_document(suite_list: SuiteList, selection: Selection, reused:
 
 
 def write_selection(options: argparse.Namespace, suite_list: SuiteList, selection: Selection, changed: list[str] | None,
-                    full: bool = False, steps: dict[str, str] | None = None) -> int:
+                    full: bool = False, steps: dict[str, str] | None = None,
+                    planned: tuple[list[dict] | None, str | None, list[tuple[int, str]] | None] | None = None) -> int:
     sys.stdout.write(text_report(selection, changed))
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(github_outputs(selection, suite_list))
-    if options.json_output is not None:
-        with options.json_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"suites={suites_json(selection)}\n")
-            if any(suite.entry_selection for suite in suite_list.suites):
-                handle.write(f"entries={entries_json(selection, suite_list)}\n")
-            if steps is None:
-                steps = language_steps(options.language_step, selection, changed)
-            if options.language_step:
-                handle.write(f"language-steps={json.dumps(steps, separators=(',', ':'))}\n")
-            tools = tool_versions(suite_list, options.root.resolve())
-            handle.write(f"shards={shards_json(selection, suite_list, steps, full, tools)}\n")
-            handle.write(f"windows={windows_json(selection, suite_list, full, tools)}\n")
-            handle.write(f"jobs={json.dumps({name: suite_list.job(name) for name in OPERATING_SYSTEMS}, separators=(',', ':'))}\n")
+    departures: list[tuple[int, str]] = []
+    if options.json_output is not None or options.summary is not None:
+        effective_steps = steps if steps is not None else language_steps(options.language_step, selection, changed)
+        if planned is not None:
+            shards_doc, windows_doc, planned_departures = planned
+            departures = planned_departures or []
+        else:
+            assigned, departures = plan_linux_shards(selection, suite_list, effective_steps, full)
+            shards_doc = windows_doc = None
+            if options.json_output is not None:
+                tools = tool_versions(suite_list, options.root.resolve())
+                shards_doc = _shards_document(assigned, suite_list, effective_steps, full, tools)
+                windows_doc = windows_json(selection, suite_list, full, tools)
+        report_shard_departures(departures)
+        if options.json_output is not None:
+            assert shards_doc is not None and windows_doc is not None
+            with options.json_output.open("a", encoding="utf-8") as handle:
+                handle.write(f"suites={suites_json(selection)}\n")
+                if any(suite.entry_selection for suite in suite_list.suites):
+                    handle.write(f"entries={entries_json(selection, suite_list)}\n")
+                if options.language_step:
+                    handle.write(f"language-steps={json.dumps(effective_steps, separators=(',', ':'))}\n")
+                handle.write(f"shards={json.dumps(shards_doc, separators=(',', ':'))}\n")
+                handle.write(f"windows={windows_doc}\n")
+                handle.write(f"jobs={json.dumps({name: suite_list.job(name) for name in OPERATING_SYSTEMS}, separators=(',', ':'))}\n")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
-            handle.write(summary_markdown(selection, changed))
+            handle.write(summary_markdown(selection, changed) + shard_departures_summary(departures))
     return 0
 
 
@@ -1627,7 +1730,11 @@ def keys_under_additions(root: Path, additions: Path, units: dict) -> tuple[dict
             return None, set(), f"No key under the additions: {document} cannot be read: {error}."
         paths.add(raw.get("suite_list") if isinstance(raw, dict) else None)
         for item in raw.get("suites", []) if isinstance(raw, dict) and isinstance(raw.get("suites"), list) else []:
-            entries = (item.get("entries") if "entries" in item else item.get("recorded_entries")) if isinstance(item, dict) else None
+            if not isinstance(item, dict):
+                continue
+            entries = item.get("entries") if "entries" in item else (
+                item.get("recorded_entries") if "reads" in item or item.get("create") else None
+            )
             if isinstance(entries, (dict, list)):
                 named |= {(item.get("suite"), entry) for entry in entries if isinstance(entry, str)}
     if len(paths) != 1 or not all(isinstance(path, str) and path for path in paths):

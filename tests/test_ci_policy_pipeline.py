@@ -297,6 +297,17 @@ class PipelineTests(unittest.TestCase):
                 self.assertFalse(expression_value("needs.plan.outputs.plan != ''", without_plan), "no job runs without a written plan")
         self.assertEqual("${{ !cancelled() }}", self.jobs[VERDICT]["if"], "the verdict judges the jobs after a failed light check")
 
+    def test_suite_selection_results_downloads_entry_times_and_checks_out_only_when_additions_were_reported(self) -> None:
+        steps = self.jobs["suite-selection-results"]["steps"]
+        by_name = {step.get("id") or step.get("name") or step.get("uses"): step for step in steps}
+        self.assertEqual("recording-additions-*", by_name["Download the additions of the run"]["with"]["pattern"])
+        entry_times = by_name["Download the entry times of the run"]
+        self.assertEqual("steps.additions.outputs.found == 'true'", entry_times["if"])
+        self.assertEqual("recording-entry-times-*", entry_times["with"]["pattern"])
+        self.assertEqual("${{ runner.temp }}/suite-results/additions/entry-times", entry_times["with"]["path"])
+        checkout = next(step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@"))
+        self.assertEqual("steps.additions.outputs.found == 'true'", checkout["if"])
+
     def test_the_plan_gives_the_outcome_of_each_light_check_to_the_verdict(self) -> None:
         outputs = self.jobs[PLAN]["outputs"]
         steps = {step.get("id"): step_key(step) for step in self.jobs[PLAN]["steps"] if step.get("id")}

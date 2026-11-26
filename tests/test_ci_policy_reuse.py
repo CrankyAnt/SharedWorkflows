@@ -202,13 +202,17 @@ class StoreStepTests(unittest.TestCase):
                          "the artifacts that the additions workflow applies")
         self.assertEqual("additions", steps[found]["id"])
         self.assertIn('-name additions.json', steps[found]["run"])
-        checkout = steps[found + 1]
+        entry_times = steps[found + 1]
+        self.assertTrue(entry_times["uses"].startswith("actions/download-artifact@"))
+        self.assertIn("steps.additions.outputs.found == 'true'", entry_times["if"])
+        self.assertEqual({"pattern": "recording-entry-times-*", "path": "${{ runner.temp }}/suite-results/additions/entry-times"}, entry_times["with"])
+        checkout = steps[found + 2]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertIn("steps.additions.outputs.found == 'true'", checkout["if"])
         self.assertEqual("false", str(checkout["with"]["persist-credentials"]).lower(), "the tested tree of the run, without a token")
         self.assertIn(checkout["with"].get("ref", ""), ("", "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || '' }}"),
                       "the commit that select checked out")
-        store = steps[found + 2]
+        store = steps[found + 3]
         self.assertEqual("store", store["id"])
         self.assertEqual("${{ steps.additions.outputs.found }}", store["env"]["ADDITIONS"])
         self.assertIn('if [ "$ADDITIONS" = true ]; then set -- --additions "$RUNNER_TEMP/suite-results/additions" --root .; else set --; fi',

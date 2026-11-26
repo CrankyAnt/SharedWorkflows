@@ -77,12 +77,13 @@ class MeasurementWorkflowContractTests(unittest.TestCase):
         failure_step = self.job["steps"][-1]
         self.assertEqual("${{ failure() || cancelled() }}", failure_step["if"])
 
-    def test_step_name_constants_match_suite_jobs_and_assumed_fixed_cost_matches_suite_selection(self) -> None:
+    def test_step_name_constants_match_suite_jobs_and_assumed_constants_match_suite_selection(self) -> None:
         _, suite_jobs = read_workflow(SUITE_JOBS)
         linux_steps = {step.get("name") for step in suite_jobs["jobs"]["linux"]["steps"] if isinstance(step, dict)}
         self.assertIn(measurement_program.ENTRY_FILE_STEP, linux_steps)
         self.assertIn(measurement_program.PYTHON_LANGUAGE_STEP, linux_steps)
         self.assertEqual(suite_selection.FIXED_COST_SECONDS, measurement_program.assumed_fixed_cost_seconds())
+        self.assertEqual(suite_selection.LANGUAGE_STEP_ALLOWANCE_SECONDS, measurement_program.language_step_allowance_seconds())
 
 
 class MeasurementAppDocumentTests(unittest.TestCase):

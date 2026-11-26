@@ -39,7 +39,8 @@ class RecordingActionTests(unittest.TestCase):
         check = self.steps[2]
         self.assertIn("id: check", check)
         self.assertIn("if: inputs.check == 'true'", check)
-        self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" '
+        self.assertIn("ARTIFACT_NAME: ${{ inputs.artifact-name }}", check)
+        self.assertIn('PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --artifact-name "$ARTIFACT_NAME" --summary "$GITHUB_STEP_SUMMARY" '
                       '--github-output "$GITHUB_OUTPUT" || status=$?', check)
         self.assertIn("PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}", check)
         self.assertIn("set -uo pipefail", check)
@@ -57,7 +58,7 @@ class RecordingActionTests(unittest.TestCase):
         self.assertRegex(upload, action_pin_pattern("actions/upload-artifact").replace(r"^[ \t]*- uses: ", r"^[ \t]*uses: "))
         self.assertIn("if: inputs.check == 'true' && steps.check.outputs.file != ''", upload)
         self.assertIn("path: ${{ steps.check.outputs.file }}", upload)
-        self.assertIn("name: ${{ inputs.artifact-name }}", upload)
+        self.assertIn("name: ${{ steps.check.outputs.artifact-name }}", upload)
         self.assertIn("if: inputs.check == 'true' && steps.check.outputs.status != '0'", fail)
         self.assertIn('exit "$STATUS"', fail)
         self.assertEqual(7, len(self.steps))

@@ -115,11 +115,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/additions"
-          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name | startswith("recording-additions-")) | .name')"
-          while IFS= read -r name; do
-            [ -n "$name" ] || continue
-            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$name" --dir "$RUNNER_TEMP/additions/$name"
-          done <<<"$names"
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.expired | not) | .name')"
+          if grep -q '^recording-additions-' <<<"$names"; then
+            while IFS= read -r name; do
+              case "$name" in
+                recording-additions-*|recording-entry-times-*)
+                  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$name" --dir "$RUNNER_TEMP/additions/$name"
+                  ;;
+              esac
+            done <<<"$names"
+          fi
       - name: Apply the additions to the suite list and replace the consumer's build with the rebuild
         run: |
           set -euo pipefail

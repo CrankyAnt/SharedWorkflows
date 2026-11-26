@@ -1,8 +1,8 @@
 name: Shared recording step
-description: Expose the recording command, fail the job when its digest differs from the one select took, write the job's environment before its setups, and run its check with the additions uploaded as an artifact.
+description: Expose the recording command, fail the job when its digest differs from the one select took, write the job's environment before its setups, and run its check, uploading additions, entry times or full-recording results as an artifact.
 inputs:
   check:
-    description: Run `check` against the suite list, upload its additions or full-recording result, and fail on additions.
+    description: Run `check` against the suite list, upload its additions, entry times or full-recording result, and fail on read additions.
     required: false
     default: "false"
   suites:
@@ -10,7 +10,7 @@ inputs:
     required: false
     default: ""
   artifact-name:
-    description: The name of the artifact that holds the additions or the full-recording result, unique in the run.
+    description: The artifact name for read additions or full-recording results, unique in the run; documents with entry times or list replacements alone switch a `recording-additions*` prefix to `recording-entry-times*`.
     required: false
     default: recording-additions
   digests:
@@ -51,16 +51,17 @@ runs:
       env:
         RESOURCE_PATH: ${{ github.action_path }}
         SUITES: ${{ inputs.suites }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
         PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
       run: |
         set -uo pipefail
         status=0
-        PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT" || status=$?
+        PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" "$PYTHON" "$RESOURCE_PATH/recording.py" check --suites "$SUITES" --artifact-name "$ARTIFACT_NAME" --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT" || status=$?
         printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
     - if: inputs.check == 'true' && steps.check.outputs.file != ''
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: ${{ inputs.artifact-name }}
+        name: ${{ steps.check.outputs.artifact-name }}
         path: ${{ steps.check.outputs.file }}
         if-no-files-found: error
     - if: inputs.check == 'true' && steps.check.outputs.status != '0'

@@ -52,13 +52,23 @@ MARKER = "<!-- measurement-finding: {key} -->"
 MARKER_PATTERN = re.compile(r"<!-- measurement-finding: (\S+) -->")
 
 
+def _suite_selection_constant(name: str) -> float:
+    """Read a numeric constant from the shared suite-selection code of this checkout."""
+    text = SUITE_SELECTION_SCRIPT.read_text(encoding="utf-8")
+    match = re.search(rf"(?m)^{re.escape(name)}\s*=\s*([0-9]+(?:\.[0-9]+)?)\b", text)
+    if match is None:
+        raise SetupError(f"{name} not found in {SUITE_SELECTION_SCRIPT}")
+    return float(match.group(1))
+
+
 def assumed_fixed_cost_seconds() -> float:
     """Read ``FIXED_COST_SECONDS`` from the shared suite-selection code of this checkout."""
-    text = SUITE_SELECTION_SCRIPT.read_text(encoding="utf-8")
-    match = re.search(r"(?m)^FIXED_COST_SECONDS\s*=\s*([0-9]+(?:\.[0-9]+)?)\b", text)
-    if match is None:
-        raise SetupError(f"FIXED_COST_SECONDS not found in {SUITE_SELECTION_SCRIPT}")
-    return float(match.group(1))
+    return _suite_selection_constant("FIXED_COST_SECONDS")
+
+
+def language_step_allowance_seconds() -> float:
+    """Read ``LANGUAGE_STEP_ALLOWANCE_SECONDS`` from the shared suite-selection code of this checkout."""
+    return _suite_selection_constant("LANGUAGE_STEP_ALLOWANCE_SECONDS")
 
 
 class SetupError(Exception):
@@ -481,7 +491,7 @@ class RepositoryMetrics:
         index = math.ceil(FIXED_COST_QUANTILE * len(ordered)) - 1
         return ordered[index]
 
-    def document(self, assumed_fixed_cost: float) -> dict:
+    def document(self, assumed_fixed_cost: float, language_step_allowance: float) -> dict:
         sample = self.fixed_cost_p95
         language_step_p95 = self.language_step_p95_seconds
         return {
@@ -502,6 +512,7 @@ class RepositoryMetrics:
                 "outside_entry_step_seconds": round(sample.outside_entry_step, 1) if sample is not None else None,
                 "step_excess_seconds": round(sample.step_excess, 1) if sample is not None else None,
                 "language_step_p95_seconds": round(language_step_p95, 1) if language_step_p95 is not None else None,
+                "language_step_allowance_seconds": language_step_allowance,
                 "phases": sample.phases_document() if sample is not None else None,
             },
             "fallbacks": dict(sorted(self.fallbacks.items())),
@@ -608,7 +619,7 @@ def format_unknown_inputs(parts: set[str]) -> str:
     return ", ".join(f"`{part}`" for part in sorted(parts))
 
 
-def format_fixed_cost(item: RepositoryMetrics) -> str:
+def format_fixed_cost(item: RepositoryMetrics, language_step_allowance: float) -> str:
     extras: list[str] = []
     if item.non_shard_decided_runs:
         extras.append(f"{item.non_shard_decided_runs} non-shard")
@@ -624,7 +635,11 @@ def format_fixed_cost(item: RepositoryMetrics) -> str:
         f"shard->entry {sample.shard_to_entry_seconds:.1f}s, after {sample.after_entry_seconds:.1f}s, "
         f"results {sample.results_seconds:.1f}s, verdict {sample.verdict_seconds:.1f}s"
     )
-    lang_text = f"; language step p95 {language_step_p95:.1f}s" if language_step_p95 is not None else ""
+    lang_text = (
+        f"; language step p95 {language_step_p95:.1f}s (allowance {language_step_allowance:.0f}s)"
+        if language_step_p95 is not None
+        else ""
+    )
     return (
         f"{sample.fixed_cost:.1f}s (outside {sample.outside_entry_step:.1f}s + "
         f"excess {sample.step_excess:+.1f}s; {len(item.fixed_cost_samples)} runs{suffix}{lang_text}; phases: {phases})"
@@ -637,6 +652,7 @@ def report_markdown(
     cutoff: datetime.datetime,
     now: datetime.datetime,
     assumed_fixed_cost: float,
+    language_step_allowance: float,
     workflow: str = DEFAULT_WORKFLOW,
 ) -> str:
     lines = [
@@ -663,7 +679,7 @@ def report_markdown(
         lines.append(
             f"| `{item.repository}` | {item.verdict_runs} | {format_share(item.within_3m_share, item.within_3m_count, item.verdict_runs)} "
             f"| {format_median(item.no_tests_median_seconds, len(item.no_tests_durations))} "
-            f"| {format_fixed_cost(item)} "
+            f"| {format_fixed_cost(item, language_step_allowance)} "
             f"| {format_fallbacks(item.fallbacks)} | {format_unknown_inputs(item.unknown_input_parts)} |"
         )
     return "\n".join(lines) + "\n"
@@ -680,6 +696,7 @@ def misses_of(
     item: RepositoryMetrics,
     window_days: int,
     assumed_fixed_cost: float,
+    language_step_allowance: float,
     workflow: str = DEFAULT_WORKFLOW,
 ) -> list[Finding]:
     """Return one Finding for each goal target or coverage gap that ``item`` reports."""
@@ -742,15 +759,19 @@ def misses_of(
             body=body,
         ))
     sample = item.fixed_cost_p95
+    language_step_p95 = item.language_step_p95_seconds
     if sample is not None and sample.fixed_cost > assumed_fixed_cost:
-        language_step_p95 = item.language_step_p95_seconds
         body = "\n".join([
             f"`{item.repository}` exceeded the assumed fixed cost ({assumed_fixed_cost:.0f}s) at p95 over runs decided by a Linux shard with entry files.",
             "",
             f"- Measured p95 fixed cost: {sample.fixed_cost:.1f}s ({len(item.fixed_cost_samples)} runs)",
             f"- Outside entry-file step (excluding Python language step): {sample.outside_entry_step:.1f}s",
             f"- Entry-file step excess over planned estimate: {sample.step_excess:+.1f}s",
-            f"- Python language step p95: {language_step_p95:.1f}s" if language_step_p95 is not None else "- Python language step p95: n/a",
+            (
+                f"- Python language step p95: {language_step_p95:.1f}s (allowance {language_step_allowance:.0f}s)"
+                if language_step_p95 is not None
+                else "- Python language step p95: n/a"
+            ),
             f"- Phases: plan {sample.plan_seconds:.1f}s, queue {sample.queue_seconds:.1f}s, "
             f"shard start to entry step {sample.shard_to_entry_seconds:.1f}s, "
             f"after entry step {sample.after_entry_seconds:.1f}s, results {sample.results_seconds:.1f}s, verdict {sample.verdict_seconds:.1f}s",
@@ -762,6 +783,20 @@ def misses_of(
         findings.append(Finding(
             key=f"miss:{item.repository}:fixed-cost",
             title=f"CI fixed cost above assumed {assumed_fixed_cost:.0f}s: {item.repository}",
+            body=body,
+        ))
+    if language_step_p95 is not None and language_step_p95 > language_step_allowance:
+        body = "\n".join([
+            f"`{item.repository}` exceeded the Python language-step allowance ({language_step_allowance:.0f}s) at p95 over runs decided by a Linux shard with entry files.",
+            "",
+            f"- Measured Python language step p95: {language_step_p95:.1f}s ({len(item.fixed_cost_samples)} runs)",
+            f"- Stated allowance: {language_step_allowance:.1f}s",
+            "",
+            *context,
+        ])
+        findings.append(Finding(
+            key=f"miss:{item.repository}:language-step",
+            title=f"Python language step above allowance {language_step_allowance:.0f}s: {item.repository}",
             body=body,
         ))
     return findings
@@ -818,15 +853,24 @@ def run_measure(options: argparse.Namespace) -> int:
             results.append(RepositoryMetrics(repository=repository, error=str(error)))
             print(f"::error::{repository}: {error}", file=sys.stderr)
     assumed_fixed_cost = assumed_fixed_cost_seconds()
+    language_step_allowance = language_step_allowance_seconds()
     findings = [
         finding
         for item in results
-        for finding in misses_of(item, options.window_days, assumed_fixed_cost, workflow=options.workflow)
+        for finding in misses_of(item, options.window_days, assumed_fixed_cost, language_step_allowance, workflow=options.workflow)
     ]
     opened: list[str] = []
     if options.own_repository and not options.local:
         opened = report_findings(Api(options.api_url, token("GITHUB_TOKEN")), options.own_repository, findings)
-    markdown = report_markdown(results, options.window_days, cutoff, now, assumed_fixed_cost, workflow=options.workflow)
+    markdown = report_markdown(
+        results,
+        options.window_days,
+        cutoff,
+        now,
+        assumed_fixed_cost,
+        language_step_allowance,
+        workflow=options.workflow,
+    )
     if opened:
         markdown += "\n" + "\n".join(f"- {line}" for line in opened) + "\n"
     print(markdown, end="")
@@ -838,7 +882,7 @@ def run_measure(options: argparse.Namespace) -> int:
             "window_days": options.window_days,
             "cutoff": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "repositories": {item.repository: item.document(assumed_fixed_cost) for item in results},
+            "repositories": {item.repository: item.document(assumed_fixed_cost, language_step_allowance) for item in results},
         }
         destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     return 1 if failed else 0

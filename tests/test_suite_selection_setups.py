@@ -23,7 +23,7 @@ SETUPS = {
     "node": {"script": "ci/setups/node.py", "recorded": False, "tool": "node", "version-file": "ci/pins.json#/node/version"},
     "linter": {"script": "ci/setups/linter.sh"},
 }
-# Linux entry files carry measured durations so selection packs them into one shard; unmeasured entries get a shard each.
+# Linux entry files carry small measured durations so selection packs them into one shard under the 90 s bound.
 SUITES = [
     {"name": "unit", "entries": ["checks/test_a.py", "checks/test_b.py"], "command": ["python3"], "setups": ["python"],
      "entry_setups": {"checks/test_b.py": ["linter"]},

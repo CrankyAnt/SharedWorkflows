@@ -498,6 +498,7 @@ class PipelinePartTests(unittest.TestCase):
             "Download the entry files that passed in the run",
             "Download the additions of the run",
             "Find the additions of the run",
+            "Download the entry times of the run",
             "actions/checkout",
             "Write the record of the passed results",
             "Store the passed results in the pull request's cache",

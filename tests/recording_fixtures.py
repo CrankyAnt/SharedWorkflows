@@ -213,7 +213,8 @@ class RecordingFixture:
     """A Git repository with a suite list in a temporary directory, and the recording's output directory beside it."""
 
     @temporary_support.measured("recording-fixture")
-    def __init__(self, cleanup, files: dict[str, str], suites: list[dict], *, commit: bool = True, stand_in: bool = True) -> None:
+    def __init__(self, cleanup, files: dict[str, str], suites: list[dict], *, commit: bool = True, stand_in: bool = True,
+                 entry_durations_version: int | None = None) -> None:
         """``cleanup`` registers the removal of the fixture: a case's addCleanup or a class's addClassCleanup. Off Windows,
         ``stand_in`` puts the stand-in ``strace`` first on the ``PATH`` of the recording's commands."""
         self.wrapper: list[str] = []
@@ -226,7 +227,7 @@ class RecordingFixture:
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(textwrap.dedent(text), encoding="utf-8")
-        self.write_suites(suites)
+        self.write_suites(suites, entry_durations_version=entry_durations_version)
         self.git("init", "-q")
         self.git("add", "-A")
         if commit:
@@ -257,10 +258,14 @@ class RecordingFixture:
         calls = self.stand_in / "calls.jsonl"
         return [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()] if calls.is_file() else []
 
-    def write_suites(self, suites: list[dict]) -> None:
+    def write_suites(self, suites: list[dict], *, entry_durations_version: int | None = None) -> None:
         path = self.root / "suites.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"always": [], "suites": suites}, indent=2) + "\n", encoding="utf-8")
+        document: dict = {"always": []}
+        if entry_durations_version is not None:
+            document["entry_durations_version"] = entry_durations_version
+        document["suites"] = suites
+        path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
     def suites(self) -> dict:
         return json.loads((self.root / "suites.json").read_text(encoding="utf-8"))

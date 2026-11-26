@@ -300,8 +300,12 @@ _Avoid_: Install step, prepare step
 A tool whose exact version the pins file holds. The suite jobs give Node.js and Gitleaks as a setup at that version when the configuration file names them under `pinned-tools` of the suite selection.
 _Avoid_: Shared tool, built-in setup
 
+**Entry time**:
+The time one run of an entry file takes under the recording step, which the run measures. Applied additions and the full recording turn it into a duration estimate.
+_Avoid_: Duration, test time
+
 **Duration estimate**:
-The traced test time that one entry file is expected to take, stored in the suite list. Every run records the duration of each clean entry file, and `apply` writes it when absent or differing from the stored estimate by more than 25% (with the full recording also correcting for the shard job's speed).
+The entry time stored in the suite list for an entry file. Applied additions (raw entry time, without speed correction) and the full recording (speed-corrected over clean entry files, or raw without speed correction when upgrading the scale version) renew it for each entry file that exited with 0 when absent or differing by more than 25%.
 _Avoid_: Duration, test timing
 
 **Fixed cost**:
@@ -317,11 +321,11 @@ A job that runs entry files in a validation run or a full recording: on Linux th
 _Avoid_: Runner, worker, test job
 
 **Speed factor**:
-How much slower or faster one shard job ran in a full recording than the duration estimates expect: the median ratio of its clean entry files' measured times to their stored estimates, or 1 when it has no such entry file.
+How much slower or faster one shard job ran in a full recording than the duration estimates expect: the median ratio of its clean entry files' entry times to their stored estimates, or 1 when it has no such entry file.
 _Avoid_: Machine speed, runner speed
 
 **Corrected value**:
-An entry file's traced time in a full recording, brought to the trace set of the duration estimates and divided by the speed factor of its shard job, which is what the full recording compares with the stored duration estimate.
+An entry file's entry time in a full recording divided by the speed factor of its shard job, which is what the full recording compares with the stored duration estimate.
 _Avoid_: Adjusted duration, normalised time
 
 **Entry file**:
@@ -361,11 +365,11 @@ The shared step that records what a job's entry files and setups read, and compa
 _Avoid_: Tracer, recorder
 
 **Full recording**:
-The periodic run that records every entry file of a repository and, for each clean entry file, replaces its stored lists and renews its duration estimate, while every other entry file keeps both; its close fails visibly and opens no pull request when a shard result is missing, applies complete suites, and reports partly recorded suites whose lists stay.
+The periodic run that records every entry file of a repository, replaces the stored lists of each clean entry file, and renews the duration estimate of each entry file that exited with 0, while every other entry file keeps its stored lists or estimate; its close fails visibly and opens no pull request when a shard result is missing, applies complete suites, and reports partly recorded suites whose lists stay.
 _Avoid_: Re-seed, seeding, full trace
 
 **Clean entry file**:
-An entry file that exited with 0 and whose test report in an accepted format (unittest, framed or quiet pytest, or complete TAP) shows no skipped or deselected test; only a clean entry file can replace its stored lists or get a new duration estimate.
+An entry file that exited with 0 and whose test report in an accepted format (unittest, framed or quiet pytest, or complete TAP) shows no skipped or deselected test; only a clean entry file can replace its stored lists or enter a shard job's speed factor.
 _Avoid_: Passing entry file, green entry file
 
 **Stored lists**:

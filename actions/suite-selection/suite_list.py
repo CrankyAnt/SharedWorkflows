@@ -1,7 +1,7 @@
 """The suite list model, parser, renderer, pattern matcher and ignore rules shared by selection and recording.
 
-This module holds only the data structures, suite-list I/O, glob matching, standard-library lookup names,
-``.gitignore`` rules and full-recording scale factor that both ``recording.py`` and ``suite_selection.py`` use,
+This module holds only the data structures, suite-list I/O, glob matching, standard-library lookup names and
+``.gitignore`` rules that both ``recording.py`` and ``suite_selection.py`` use,
 without the selection, sharding or lookup logic. Changes to ``suite_selection.py`` therefore do not enter the
 recording step's loaded modules or digests.
 """
@@ -21,7 +21,8 @@ from pathlib import Path
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 GLOB_CHARACTERS = ("*", "?")
 OPERATING_SYSTEMS = ("linux", "windows")
-WIDE_TO_MID = 1.65  # traced test time under the wide set divided by the time under the mid set
+# Scale version of stored entry_durations: 1 was Popen..wait with Linux /1.65; 2 is full process wall time at scale 1.
+ENTRY_DURATIONS_VERSION = 2
 SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_selection", "entry_paths",
                         "entry_extra_paths", "directory_memberships", "entry_directory_memberships", "existence_reads", "entry_existence_reads",
                         "extra_directory_memberships", "extra_existence_reads", "lookup_directories", "entry_lookup_directories",
@@ -30,7 +31,7 @@ SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_select
 # The per-entry fields that the recording writes; the repository writes entry_extra_paths and entry_setups.
 RECORDED_ENTRY_FIELDS = ("entry_paths", "entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories",
                          "entry_module_lookups", "entry_durations")
-TOP_LEVEL_KEYS = ("always", "jobs", "setups", "suites", "module_lookups")
+TOP_LEVEL_KEYS = ("always", "entry_durations_version", "jobs", "setups", "suites", "module_lookups")
 TOOLS = ("python", "node", "dotnet")  # the tools that a suite job installs with its pinned action, outside the recording
 # The pinned tools: the setups that the suite jobs give at the version of the pins file when the configuration file names
 # them under pinned-tools of the suite selection. A suite list defines no setup of such a name.
@@ -261,6 +262,7 @@ class SuiteList:
     setups: tuple[Setup, ...] | None = None  # the setups as data, in the order they run; None when the suite list states none
     jobs: tuple[tuple[str, tuple[tuple[str, object], ...]], ...] = ()  # per operating system, what the suite list states of its job
     pinned: tuple[PinnedTool, ...] = ()  # the pinned tools that the configuration file names
+    entry_durations_version: int = 1  # scale version of stored entry_durations; omitted in v1 suite lists
 
     @functools.cached_property
     def setups_by_name(self) -> dict[str, Setup]:
@@ -385,7 +387,10 @@ def parse_suite_list(text: str, source: str = "the suite list") -> SuiteList:
 
 def parse_suite_list_document(raw: object, source: str = "the suite list") -> SuiteList:
     if not isinstance(raw, dict) or not {"always", "suites"} <= set(raw) <= set(TOP_LEVEL_KEYS):
-        raise SuiteListError(f"{source} must be an object with the keys always and suites, and optionally jobs, setups and module_lookups")
+        raise SuiteListError(f"{source} must be an object with the keys always and suites, and optionally entry_durations_version, jobs, setups and module_lookups")
+    durations_version = raw.get("entry_durations_version", 1)
+    if not isinstance(durations_version, int) or isinstance(durations_version, bool) or durations_version < 1:
+        raise SuiteListError(f"{source}: entry_durations_version must be a positive whole number")
     job_data = _jobs(raw["jobs"], f"{source}: jobs") if "jobs" in raw else ()
     setup_data = _setups(raw["setups"], f"{source}: setups") if "setups" in raw else None
     always = _strings(raw["always"], f"{source}: always")
@@ -470,7 +475,7 @@ def parse_suite_list_document(raw: object, source: str = "the suite list") -> Su
     if setup_data is not None:
         # A pinned tool is no setup of the suite list: select decides on it with the configuration file's names.
         check_stated_setups(suites, {setup.name for setup in setup_data} | set(PINNED_TOOLS), source)
-    return SuiteList(always, tuple(suites), module_lookups, setup_data, job_data)
+    return SuiteList(always, tuple(suites), module_lookups, setup_data, job_data, entry_durations_version=durations_version)
 
 
 def check_stated_setups(suites, known: set[str], source: str) -> None:
@@ -578,9 +583,13 @@ def render_suite_list(suite_list: SuiteList) -> str:
                                           {directory: list(names) for directory, names in suite_list.module_lookups}), indent=2) + "\n"
 
 
-def suite_list_document(suite_list: SuiteList, suites: list[dict], module_lookups: dict[str, list[str]]) -> dict:
+def suite_list_document(suite_list: SuiteList, suites: list[dict], module_lookups: dict[str, list[str]], *,
+                        entry_durations_version: int | None = None) -> dict:
     """The JSON document of a suite list with the given suite entries and module lookups, its keys in their fixed order."""
+    version = suite_list.entry_durations_version if entry_durations_version is None else entry_durations_version
     document: dict = {"always": list(suite_list.always)}
+    if version > 1:
+        document["entry_durations_version"] = version
     if suite_list.jobs:
         document["jobs"] = {name: dict(item) for name, item in suite_list.jobs}
     if suite_list.setups is not None:
@@ -630,12 +639,6 @@ def module_name(name: str) -> str:
 def standard_library_names() -> frozenset[str]:
     """The standard-library module names of every Python version that the shared CI supports."""
     return frozenset(json.loads(STANDARD_LIBRARY.read_text(encoding="utf-8"))["names"])
-
-
-def full_recording_scale(operating_system: str) -> float:
-    """The traced seconds of an entry file in the full recording divided by its duration estimate: the wide-to-mid
-    ratio on Linux, and 1 on Windows, which records under its one ETW session in every run."""
-    return WIDE_TO_MID if operating_system == "linux" else 1.0
 
 
 # --- patterns -------------------------------------------------------------------------------------------------

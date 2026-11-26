@@ -542,7 +542,61 @@ def terminate_process_tree(process: subprocess.Popen) -> None:
             process.kill()
 
 
+def process_elapsed_seconds() -> float | None:
+    """Wall seconds elapsed since the OS created this process, or None when unavailable."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.windll.kernel32
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            kernel32.GetProcessTimes.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME),
+            ]
+            kernel32.GetProcessTimes.restype = wintypes.BOOL
+            kernel32.GetSystemTimePreciseAsFileTime.argtypes = [ctypes.POINTER(wintypes.FILETIME)]
+            creation, exited, kernel, user, now = (
+                wintypes.FILETIME(),
+                wintypes.FILETIME(),
+                wintypes.FILETIME(),
+                wintypes.FILETIME(),
+                wintypes.FILETIME(),
+            )
+            if not kernel32.GetProcessTimes(
+                kernel32.GetCurrentProcess(), ctypes.byref(creation), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)
+            ):
+                return None
+            kernel32.GetSystemTimePreciseAsFileTime(ctypes.byref(now))
+            created_100ns = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+            now_100ns = (now.dwHighDateTime << 32) | now.dwLowDateTime
+            return max(0.0, (now_100ns - created_100ns) / 1e7)
+        except (AttributeError, OSError, ValueError):
+            return None
+    if sys.platform.startswith("linux"):
+        try:
+            boottime_clock = getattr(time, "CLOCK_BOOTTIME", None)
+            if boottime_clock is None:
+                return None
+            stat_text = Path("/proc/self/stat").read_text(encoding="utf-8")
+            fields = stat_text[stat_text.rindex(")") + 2:].split()
+            start_ticks = int(fields[19])
+            clk_tck = os.sysconf("SC_CLK_TCK")
+            if clk_tck <= 0:
+                return None
+            return max(0.0, time.clock_gettime(boottime_clock) - start_ticks / clk_tck)
+        except (AttributeError, IndexError, OSError, ValueError):
+            return None
+    return None
+
+
 def run_exec(options: argparse.Namespace) -> int:
+    started = time.perf_counter()
+    startup = getattr(options, "_process_startup_seconds", 0.0)
     output = output_directory(options.output)
     settings = read_settings(output)
     command = list(options.arguments)
@@ -574,7 +628,6 @@ def run_exec(options: argparse.Namespace) -> int:
         trace_set = TRACE_SETS[settings["trace_set"]]
         recorder = [settings["strace"], *STRACE[1:], "-o", str(trace), "-e", "trace=" + ",".join("?" + call for call in trace_set), *FULL_EXEC_ENVIRONMENT, "--"]
         environment = dict(base, TMPDIR=str(temporary))
-    started = time.perf_counter()
     log = bytearray()
     timeout = getattr(options, "timeout", None)
     timed_out = False
@@ -604,7 +657,6 @@ def run_exec(options: argparse.Namespace) -> int:
             code = TIMEOUT_EXIT_CODE
         finally:
             reader.join(timeout=5)
-    seconds = time.perf_counter() - started
     if timed_out:
         unit_name = options.setup or normalize_entry(options.entry)
         label = f"{unit_name} ({options.suite})" if options.suite else unit_name
@@ -614,6 +666,8 @@ def run_exec(options: argparse.Namespace) -> int:
     text = log.decode("utf-8", "replace")
     skipped, deselected, incomplete = skip_count(text)
     (output / "logs" / f"{unit}.log").write_text(text, encoding="utf-8")
+    remove_work(work)
+    seconds = startup + (time.perf_counter() - started)
     record = {"unit": unit, "kind": "setup" if options.setup else "entry", "name": options.setup or normalize_entry(options.entry),
               "suite": options.suite, "command": command, "exit_code": code, "seconds": round(seconds, 3), "skipped": skipped,
               "deselected": deselected, "incomplete_report": incomplete,
@@ -628,7 +682,6 @@ def run_exec(options: argparse.Namespace) -> int:
     else:
         record["recorder"] = [*STRACE, *recorder[len(STRACE) + 2:-1]]
     (output / "units" / f"{unit}.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    remove_work(work)
     if options.setup and code == 0 and options.setup not in provisions(output):
         write_provision(output, options.setup, no_provision())
     return code
@@ -2362,6 +2415,7 @@ def additions_document(list_path: str, suite_list: suite_selection.SuiteList, re
             item["reads"] = total.document()
         if kept_reason(unit.record) is None:
             item.setdefault("replace_entries", {})[entry] = reads.document()
+        if unit.record.get("exit_code") == 0:
             seconds = unit.record.get("seconds")
             if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and math.isfinite(seconds) and seconds >= 0:
                 item.setdefault("durations", {})[entry] = seconds
@@ -2470,6 +2524,13 @@ def departures_summary(departures: list[tuple[str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def entry_times_artifact_name(name: str) -> str:
+    """The artifact name for a document that holds entry times or list replacements without read additions."""
+    if not name.startswith("recording-additions"):
+        raise RecordingError(f"--artifact-name {name!r} must start with recording-additions")
+    return "recording-entry-times" + name[len("recording-additions"):]
+
+
 def run_check(options: argparse.Namespace) -> int:
     output = output_directory(options.output)
     settings = read_settings(output)
@@ -2486,6 +2547,7 @@ def run_check(options: argparse.Namespace) -> int:
     target = options.additions or output / "additions.json"
     target.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     lines = additions_lines(document)
+    has_changes = bool(document["suites"])
     if lines:
         print(f"The recording reads outside the stored lists of {options.suites}. Apply the additions with:")
         print(f"  python3 recording.py apply {target}")
@@ -2499,8 +2561,13 @@ def run_check(options: argparse.Namespace) -> int:
                                     holds_automation_caller(root))
             handle.write(check_summary(lines, len(recorded), route) + departures_summary(departures) + etw_summary(settings))
     if options.github_output is not None:
+        artifact = ""
+        if options.artifact_name:
+            artifact = options.artifact_name if lines else (entry_times_artifact_name(options.artifact_name) if has_changes else "")
         with options.github_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"mode=pull-request\nfile={target if lines else ''}\n")
+            handle.write(f"mode=pull-request\nfile={target if has_changes else ''}\n")
+            if options.artifact_name:
+                handle.write(f"artifact-name={artifact}\n")
     return 1 if lines else 0
 
 
@@ -2588,6 +2655,8 @@ def write_full_result(options: argparse.Namespace, output: Path, list_path: str,
     if options.github_output is not None:
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"mode=full\nfile={target}\n")
+            if options.artifact_name:
+                handle.write(f"artifact-name={options.artifact_name}\n")
     return 0
 
 
@@ -2952,6 +3021,7 @@ def run_apply(options: argparse.Namespace) -> int:
     resolved = {suite.name: suite for suite in suite_selection.resolve_entries(raw, tracked, str(suites_path)).suites}
     items = {suite.name: suite.entry() for suite in raw.suites}
     lookups = {directory: list(names) for directory, names in raw.module_lookups}
+    durations_version = raw.entry_durations_version
     if documents[0]["kind"] == "additions":
         if options.keep_lists is not None or options.keep_all_lists:
             raise RecordingError("--keep-lists and --keep-all-lists go with full-recording results")
@@ -2965,12 +3035,14 @@ def run_apply(options: argparse.Namespace) -> int:
             if missing_jobs:
                 raise RecordingError(f"the full recording is missing the result of: {', '.join(missing_jobs)}")
         report = apply_full(documents, raw, resolved, items, lookups, kept_lists(options, resolved))
+        durations_version = suite_selection.ENTRY_DURATIONS_VERSION
     for name, item in items.items():
         report += [f"{name}: removed the stored lists and the estimate of {entry}: no entry names it" for entry in drop_stale_keys(item, resolved[name])]
         join_entry_lists(item)
         canonical_order(item)
     document = suite_selection.suite_list_document(raw, [items[suite.name] for suite in raw.suites],
-                                                   {directory: sorted(lookups[directory]) for directory in sorted(lookups)})
+                                                   {directory: sorted(lookups[directory]) for directory in sorted(lookups)},
+                                                   entry_durations_version=durations_version)
     rendered = suite_selection.render_suite_list(suite_selection.parse_suite_list_document(document, str(suites_path)))
     if rendered != text:
         suites_path.write_text(rendered, encoding="utf-8", newline="\n")
@@ -3103,19 +3175,22 @@ ESTIMATE_THRESHOLD = 0.25
 
 
 def corrected_durations(entries: dict[tuple[str, str], dict], jobs: dict[tuple[str, str], tuple], resolved: dict,
-                        items: dict) -> dict[tuple[str, str], float]:
-    """The corrected value of each recorded entry file: its seconds divided by the full-recording scale of its operating
-    system, then by the speed factor of its shard job. A job's factor is the median, over its entry files that ran clean
-    (``kept_reason`` gives none) and have a stored estimate, of the converted seconds divided by that estimate; a job
-    without such an entry file, or whose median is not positive, has factor 1."""
-    converted = {key: entry["seconds"] / suite_selection.full_recording_scale(known_suite(resolved, key[0]).os) for key, entry in entries.items()}
+                        items: dict, *, rescale: bool = False) -> dict[tuple[str, str], float]:
+    """The corrected value of each recorded entry file: its measured entry time divided by the speed factor of its shard
+    job. A job's factor is the median, over its entry files that ran clean (``kept_reason`` gives none) and have a stored
+    estimate, of the measured entry time divided by that estimate; a job without such an entry file, or whose median is
+    not positive, has factor 1. When ``rescale`` is True (stored ``entry_durations_version`` is older than the code's),
+    no speed factor is applied across versions."""
+    measured = {key: entry["seconds"] for key, entry in entries.items()}
+    if rescale:
+        return measured
     ratios: dict[tuple, list[float]] = {}
-    for key, value in converted.items():
+    for key, value in measured.items():
         stored = items[key[0]].get("entry_durations", {}).get(key[1])
         if stored and kept_reason(entries[key]) is None:
             ratios.setdefault(jobs[key], []).append(value / stored)
     factors = {job: median for job, values in ratios.items() if (median := statistics.median(values)) > 0}
-    return {key: value / factors.get(jobs[key], 1.0) for key, value in converted.items()}
+    return {key: value / factors.get(jobs[key], 1.0) for key, value in measured.items()}
 
 
 def new_estimate(corrected: float, stored: float | None) -> float:
@@ -3156,10 +3231,10 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
     """Replace the lists of every recorded entry file that exited with 0 and whose test report in an accepted format
     shows no skipped test, unless ``kept`` names it with a reason to keep its stored reads. The module lookups of a
     directory become those of the recorded entry files, and keep the stored ones while an entry file whose lists stay
-    looks up modules there. The duration estimate of each entry file that ran clean follows its corrected value as
-    ``corrected_durations`` and ``new_estimate`` say, judged per entry file, also in a suite selected as a whole; every
-    other entry file keeps its stored estimate, or stays without one. Results for a suite or an entry file that the
-    suite list lacks are left out and reported."""
+    looks up modules there. The duration estimate of each entry file that exited with 0 follows its corrected value as
+    ``corrected_durations`` (whose speed factor uses clean entry files only) and ``new_estimate`` say, judged per entry
+    file, also in a suite selected as a whole; every other entry file keeps its stored estimate, or stays without one.
+    Results for a suite or an entry file that the suite list lacks are left out and reported."""
     entries: dict[tuple[str, str], dict] = {}
     jobs: dict[tuple[str, str], tuple] = {}
     report: list[str] = []
@@ -3180,7 +3255,8 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
             if line not in seen_report:
                 seen_report.add(line)
                 report.append(line)
-    corrected = corrected_durations(entries, jobs, resolved, items)
+    rescale = raw.entry_durations_version < suite_selection.ENTRY_DURATIONS_VERSION
+    corrected = corrected_durations(entries, jobs, resolved, items, rescale=rescale)
     recorded_lookups: dict[str, set[str]] = {}
     for entry in entries.values():
         for directory, names in entry["reads"].get("module_lookups", {}).items():
@@ -3201,8 +3277,9 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
         list_reasons = {entry: reason if reason is not None else kept.get((name, entry)) for entry, reason in reasons.items()}
         durations = dict(item.get("entry_durations", {}))
         for entry in suite.entries:
-            if reasons[entry] is None:
-                durations[entry] = new_estimate(corrected[(name, entry)], durations.get(entry))
+            result = recorded[entry]
+            if result is not None and result.get("exit_code") == 0:
+                durations[entry] = round(corrected[(name, entry)], 2) if rescale else new_estimate(corrected[(name, entry)], durations.get(entry))
             elif entry in durations:
                 report.append(f"{name}: kept the estimate of {entry}: {reasons[entry]}")
         if durations:
@@ -3656,8 +3733,9 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     checking.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")
     checking.add_argument("--suites", type=Path, required=True, help="the suite list")
     checking.add_argument("--additions", type=Path, help="where to write the additions or the full-recording result")
+    checking.add_argument("--artifact-name", help="artifact name for uploads; entry-times-only uploads switch recording-additions* to recording-entry-times*")
     checking.add_argument("--summary", type=Path, help="append the Markdown summary to this file")
-    checking.add_argument("--github-output", type=Path, help="append mode= and file= lines to this file, and error= on a recording error")
+    checking.add_argument("--github-output", type=Path, help="append mode=, file= and artifact-name= lines to this file, and error= on a recording error")
     keeping = commands.add_parser("keep", help="mark the entry files that check's additions name in a passed list")
     keeping.add_argument("--additions", type=Path, required=True, help="the additions document that check wrote")
     keeping.add_argument("passed", type=Path, help="the passed list of the job, a JSON list of suites and entry files, rewritten in place")
@@ -3687,8 +3765,10 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     return options
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, include_process_startup: bool = False) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
+    if include_process_startup and options.command == "exec":
+        options._process_startup_seconds = process_elapsed_seconds() or 0.0
     handlers = {"base": run_base, "start": run_start, "exec": run_exec, "provide": run_provide, "setups": run_setups, "check": run_check, "keep": run_keep, "apply": run_apply, "digest": run_digest}
     try:
         return handlers[options.command](options)
@@ -3703,4 +3783,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(include_process_startup=True))

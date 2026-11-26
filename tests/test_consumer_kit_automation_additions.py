@@ -137,7 +137,7 @@ class AdditionsJobTest(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertEqual("${{ steps.app-token.outputs.token }}", step(self.steps, name)["env"]["GH_TOKEN"])
         readers = [item for item in self.steps if "${{ github.token }}" in json.dumps(item)]
-        self.assertEqual(["run", "additions"], [item["id"] for item in readers], "the workflow token only reads the run and its artifacts")
+        self.assertEqual(["run", "additions", "entry-times"], [item["id"] for item in readers], "the workflow token only reads the run and its artifacts")
         self.assertEqual("false", step(self.steps, "checkout")["with"]["persist-credentials"])
 
     def test_only_the_comment_job_writes_with_the_workflow_token_and_it_checks_out_nothing(self) -> None:
@@ -163,7 +163,7 @@ class AdditionsJobTest(unittest.TestCase):
 
     def test_each_action_is_pinned_and_the_shared_steps_come_from_the_workflow_s_own_revision(self) -> None:
         references = [item["uses"] for item in self.steps if "uses" in item]
-        self.assertEqual(["actions/checkout", "actions/download-artifact", "$/actions/recording", "actions/create-github-app-token", "$/actions/repository-hygiene"],
+        self.assertEqual(["actions/checkout", "actions/download-artifact", "actions/download-artifact", "$/actions/recording", "actions/create-github-app-token", "$/actions/repository-hygiene"],
                          [reference.split("@")[0] for reference in references])
         for reference in references:
             if not reference.startswith("$/"):
@@ -174,13 +174,15 @@ class AdditionsJobTest(unittest.TestCase):
                          step(self.steps, "checkout")["with"])
         self.assertEqual({"pattern": "recording-additions-*", "path": "${{ runner.temp }}/additions", "run-id": "${{ env.RUN_ID }}",
                           "github-token": "${{ github.token }}"}, step(self.steps, "additions")["with"])
+        self.assertEqual({"pattern": "recording-entry-times-*", "path": "${{ runner.temp }}/additions/entry-times", "run-id": "${{ env.RUN_ID }}",
+                          "github-token": "${{ github.token }}"}, step(self.steps, "entry-times")["with"])
         # One matching artifact lands directly in the download folder, several each in a folder named after it.
         apply = step(self.steps, "apply")["run"]
         self.assertIn("shopt -s globstar\n", apply)
         self.assertIn('"$RUNNER_TEMP"/additions/**/additions.json', apply)
 
     def test_the_steps_up_to_the_change_check_run_only_when_the_run_has_additions_to_apply(self) -> None:
-        for key in ("checkout", "additions", "recording", "apply", "changes"):
+        for key in ("checkout", "additions", "entry-times", "recording", "apply", "changes"):
             with self.subTest(step=key):
                 self.assertEqual("steps.run.outputs.apply == 'true'", step(self.steps, key)["if"])
 
@@ -352,7 +354,8 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
         self.assertEqual({"apply": "true", "ref": self.head_sha, "head-branch": HEAD_BRANCH, "head-sha": self.head_sha, "pull-request": "7"}, outputs)
 
     def test_a_run_without_an_additions_artifact_fails_and_names_the_reason(self) -> None:
-        for artifacts, expired in (([], False), (["suite-results-linux"], False), (["recording-additions-shard-1"], True)):
+        for artifacts, expired in (([], False), (["suite-results-linux"], False), (["recording-entry-times-shard-1"], False),
+                                   (["recording-additions-shard-1"], True)):
             with self.subTest(artifacts=artifacts, expired=expired):
                 self.given_run(artifacts=artifacts, expired=expired)
                 ran, outputs = self.run_find_step()
@@ -408,7 +411,8 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
         self.assertEqual({"apply": "true", "ref": self.head_sha, "head-branch": HEAD_BRANCH, "head-sha": self.head_sha, "pull-request": "7"}, outputs)
 
     def test_a_run_without_additions_artifacts_ends_without_a_commit_and_without_a_comment(self) -> None:
-        for artifacts, expired in (([], False), (["suite-results-linux"], False), (["recording-additions-shard-1"], True)):
+        for artifacts, expired in (([], False), (["suite-results-linux"], False), (["recording-entry-times-shard-1"], False),
+                                   (["recording-additions-shard-1"], True)):
             with self.subTest(artifacts=artifacts, expired=expired):
                 self.given_run(artifacts=artifacts, expired=expired)
                 self.given_open_pull_requests(self.head_sha)
@@ -523,8 +527,10 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
     def test_the_additions_of_every_job_are_applied_and_proposed_onto_the_head_branch_changing_only_the_suite_list(self) -> None:
         remote, work = self.consumer(suite_list())
         self.given_open_pull_requests(self.head_sha)
+        durations_only = {"kind": "additions", "suite_list": ".github/suites.json",
+                          "suites": [{"suite": "lint", "create": False, "recorded_entries": ["checks/lint.py"], "durations": {"checks/lint.py": 12.5}}]}
         self.downloaded({"recording-additions-shard-1": additions("unit", "checks/test_a.py", ["lib/data.txt"]),
-                         "recording-additions-shard-2": additions("lint", "checks/lint.py", ["lib/rules.toml"]),
+                         "recording-entry-times-shard-2": durations_only,
                          "recording-additions-windows": additions("unit", "checks/test_a.py", ["lib/rules.toml"])})
         self.assertEqual({"changed": "true"}, self.apply(work))
         ran, _ = self.run_step("Check the changed files", work)
@@ -535,8 +541,10 @@ class ApplyAdditionsRunTest(ApplyAdditionsSteps):
         changed = subprocess.run(["git", "-C", str(remote), "diff", "--name-only", HEAD_BRANCH, PROPOSAL], capture_output=True, text=True, check=True)
         self.assertEqual(".github/suites.json\n", changed.stdout)
         proposed = json.loads(git(remote, "show", f"{PROPOSAL}:.github/suites.json"))
-        self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt", "lib/rules.toml"], "lint": ["checks/lint.py", "lib/rules.toml"]},
+        self.assertEqual({"unit": ["checks/test_a.py", "lib/data.txt", "lib/rules.toml"], "lint": ["checks/lint.py"]},
                          {item["name"]: item["paths"] for item in proposed["suites"]})
+        self.assertEqual({"lint": {"checks/lint.py": 12.5}},
+                         {item["name"]: item["entry_durations"] for item in proposed["suites"] if "entry_durations" in item})
         self.assertEqual(SUBJECT, git(remote, "log", "-1", "--format=%B", PROPOSAL).strip(), "the proposal's commit keeps its one-line message")
 
         ran, _ = self.run_step("Create or update the proposal pull request", work, outputs=self.run_outputs())

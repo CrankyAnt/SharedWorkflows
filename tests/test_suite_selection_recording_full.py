@@ -127,7 +127,7 @@ class FullRecordingTests(unittest.TestCase):
         self.assertNotIn(STALE, stored["paths"])
         for name in ("ok", "skip", "plain"):
             self.assertIn(f"data/{name}.txt", stored["entry_paths"][f"tests/{name}.py"])
-        self.assertEqual(["tests/ok.py"], list(stored["entry_durations"]))
+        self.assertEqual(sorted(ENTRIES), list(stored["entry_durations"]))
         # The written suite list loads: a second apply of the same result reads it and exits 0.
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
 
@@ -149,7 +149,7 @@ class FullRecordingTests(unittest.TestCase):
         self.assertEqual(ENTRIES, list(stored["entry_paths"]))
         for field in ("entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories"):
             self.assertNotIn(gone, stored.get(field, {}))
-        self.assertEqual(["tests/ok.py"], list(stored["entry_durations"]))
+        self.assertEqual(ENTRIES, list(stored["entry_durations"]))
         self.assertNotIn(STALE, stored["paths"])
         # The written suite list loads: a second apply of the same result reads it and exits 0.
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
@@ -193,14 +193,16 @@ class FullRecordingTests(unittest.TestCase):
         self.assertEqual(2, refused.returncode)
         self.assertIn("--job goes with --full", refused.stderr)
 
-    def test_it_writes_a_duration_estimate_only_for_an_entry_file_that_ran_clean(self) -> None:
-        # tests/skip.py skipped a test and tests/plain.py reports no skip count; neither has a stored estimate to keep.
+    def test_it_writes_a_duration_estimate_for_every_entry_file_that_exited_with_zero(self) -> None:
+        # tests/skip.py skipped a test and tests/plain.py reports no skip count; all three exited with 0 so all three
+        # get duration estimates, while only clean tests/ok.py replaces its stored list.
         fixture = self.fixture()
         self.assertEqual(0, fixture.record(ENTRIES, full=True).returncode)
         self.assertEqual(0, fixture.apply(fixture.output / "full-recording.json").returncode)
         durations = fixture.suite("per-entry")["entry_durations"]
-        self.assertEqual(["tests/ok.py"], list(durations))
-        self.assertGreater(durations["tests/ok.py"], 0)
+        self.assertEqual(ENTRIES, list(durations))
+        for entry in ENTRIES:
+            self.assertGreater(durations[entry], 0)
 
 
 @requires_linux

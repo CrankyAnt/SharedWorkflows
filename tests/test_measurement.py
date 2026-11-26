@@ -628,17 +628,65 @@ class MeasurementFixedCostTests(MeasurementFixture):
         self.assertAlmostEqual(50.0, other_fixed_cost["outside_entry_step_seconds"], places=1)
         self.assertAlmostEqual(5.0, other_fixed_cost["step_excess_seconds"], places=1)
         self.assertAlmostEqual(5.0, other_fixed_cost["language_step_p95_seconds"], places=1)
+        self.assertAlmostEqual(15.0, fixed_cost["language_step_allowance_seconds"], places=1)
+        self.assertAlmostEqual(15.0, other_fixed_cost["language_step_allowance_seconds"], places=1)
 
-        # Finding opened for CONSUMER fixed cost > 90s, not for OTHER.
+        # Finding opened for CONSUMER fixed cost > 90s, not for OTHER, and no language-step finding (5s <= 15s).
         fixed_cost_issues = [issue for issue in self.management.issues if "fixed cost" in issue["title"].lower()]
         self.assertEqual(1, len(fixed_cost_issues), [i["title"] for i in self.management.issues])
         self.assertIn(CONSUMER, fixed_cost_issues[0]["title"])
         self.assertIn("167.0s", fixed_cost_issues[0]["body"])
         self.assertIn("89.0s", fixed_cost_issues[0]["body"])
         self.assertIn("78.0s", fixed_cost_issues[0]["body"])
-        self.assertIn("language step p95: 5.0s", fixed_cost_issues[0]["body"].lower())
+        self.assertIn("language step p95: 5.0s (allowance 15s)", fixed_cost_issues[0]["body"].lower())
         self.assertIn("167.0s", outcome.summary)
-        self.assertIn("language step p95 5.0s", outcome.summary)
+        self.assertIn("language step p95 5.0s (allowance 15s)", outcome.summary)
+        self.assertEqual([], [issue for issue in self.management.issues if "language step" in issue["title"].lower()])
+
+    def test_language_step_p95_above_allowance_opens_and_deduplicates_finding(self) -> None:
+        consumer = self.stand_in.repository(CONSUMER)
+        # Fixed cost stays within 90s (50s outside + 5s excess = 55s), while Python language step takes 22s (> 15s allowance).
+        consumer.add_run(
+            "2026-03-21T10:00:00Z",
+            plan_completed_at="2026-03-21T10:00:15Z",
+            verdict_completed_at="2026-03-21T10:01:47Z",
+            plan={
+                "version": 1,
+                "parts": {"repository-hygiene": {"run": True, "reason": "always runs"}, "suite-selection": {"run": True, "reason": "1 Linux shard"}},
+                "units": {"a": {"run": True, "reason": "changed"}},
+                "shards": [{"shard": 1, "estimate": 30.0}],
+                "departures": [],
+            },
+            extra_jobs=[
+                self._shard_job(
+                    1,
+                    started_at="2026-03-21T10:00:18Z",
+                    entry_started_at="2026-03-21T10:00:30Z",
+                    entry_completed_at="2026-03-21T10:01:05Z",
+                    completed_at="2026-03-21T10:01:37Z",
+                    lang_step=("success", "2026-03-21T10:01:10Z", "2026-03-21T10:01:32Z"),
+                ),
+            ],
+        )
+
+        first = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, first.status, first.stderr)
+        assert first.report is not None
+        fixed_cost = first.report["repositories"][CONSUMER]["fixed_cost"]
+        self.assertAlmostEqual(55.0, fixed_cost["p95_seconds"], places=1)
+        self.assertAlmostEqual(22.0, fixed_cost["language_step_p95_seconds"], places=1)
+        self.assertAlmostEqual(15.0, fixed_cost["language_step_allowance_seconds"], places=1)
+        self.assertIn("language step p95 22.0s (allowance 15s)", first.summary)
+        lang_issues = [issue for issue in self.management.issues if "language step" in issue["title"].lower()]
+        self.assertEqual(1, len(lang_issues), [i["title"] for i in self.management.issues])
+        self.assertIn("allowance 15s", lang_issues[0]["title"])
+        self.assertIn("22.0s", lang_issues[0]["body"])
+        self.assertIn(f"<!-- measurement-finding: miss:{CONSUMER}:language-step -->", lang_issues[0]["body"])
+        self.assertEqual([], [issue for issue in self.management.issues if "fixed cost" in issue["title"].lower()])
+
+        second = self.run_measurement("measure", "--own-repository", MANAGEMENT)
+        self.assertEqual(0, second.status, second.stderr)
+        self.assertEqual(1, len([issue for issue in self.management.issues if "language step" in issue["title"].lower()]))
 
 
 if __name__ == "__main__":

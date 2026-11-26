@@ -160,7 +160,9 @@ class RecordingCheckTests(unittest.TestCase):
         fixture = READING.fixture(self.addCleanup, [suite("a", ["tests/a.py"], paths=["tests/*.py", "lib/**"], lookup_directories=["tests"])])
         checked = fixture.record(["tests/a.py"])
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
-        self.assertEqual([], fixture.additions()["suites"])
+        additions = fixture.additions()
+        self.assertEqual([], load_recording().additions_lines(additions))
+        self.assertEqual(["tests/a.py"], list(additions["suites"][0]["durations"]))
         self.assertIn("lies inside the stored lists", fixture.summary.read_text(encoding="utf-8"))
 
     def test_check_fails_names_the_exact_additions_and_apply_makes_the_same_recording_pass(self) -> None:
@@ -168,10 +170,12 @@ class RecordingCheckTests(unittest.TestCase):
         fixture.ci_run(event="pull_request", run_id="123")
         checked = fixture.record(["tests/a.py"])
         self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
+        actual = fixture.additions()
+        self.assertEqual(["tests/a.py"], list(actual["suites"][0].pop("durations")))
         self.assertEqual({"kind": "additions", "suite_list": "suites.json", "suites": [
             {"suite": "a", "create": False, "recorded_entries": ["tests/a.py"],
              "reads": {"paths": ["lib/other.txt"], "existence_reads": [], "directory_memberships": [], "lookup_directories": ["tests"],
-                       "module_lookups": {}}}]}, fixture.additions())
+                       "module_lookups": {}}}]}, actual)
         self.assertIn("`lib/other.txt`", checked.stdout)
         summary = fixture.summary.read_text(encoding="utf-8")
         self.assertIn("| `a` | path `lib/other.txt` |", summary)
@@ -234,7 +238,9 @@ class RecordingCheckTests(unittest.TestCase):
         checked = fixture.check()
         self.assertEqual(1, checked.returncode, checked.stdout + checked.stderr)
         changes = {item["suite"]: item for item in fixture.additions()["suites"]}
-        self.assertEqual(["whole-with-setup", "per-entry"], [name for name in ("whole-with-setup", "whole-without-setup", "per-entry") if name in changes])
+        with_reads = [name for name in ("whole-with-setup", "whole-without-setup", "per-entry")
+                      if name in changes and ("reads" in changes[name] or "entries" in changes[name] or changes[name].get("create"))]
+        self.assertEqual(["whole-with-setup", "per-entry"], with_reads)
         self.assertEqual(["requirements.txt"], changes["whole-with-setup"]["reads"]["paths"])
         self.assertEqual({"tests/c1.py"}, set(changes["per-entry"]["entries"]))
         self.assertEqual(["requirements.txt"], changes["per-entry"]["entries"]["tests/c1.py"]["paths"])
@@ -475,7 +481,9 @@ class RecordingCheckTests(unittest.TestCase):
         github_output = fixture.base / "github-output.txt"
         checked = fixture.run("check", "--output", str(fixture.output), "--suites", "suites.json", "--github-output", str(github_output))
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
-        self.assertIn("file=\n", github_output.read_text(encoding="utf-8"))
+        output_text = github_output.read_text(encoding="utf-8")
+        self.assertIn(f"file={fixture.output / 'additions.json'}\n", output_text)
+        self.assertNotIn("reported=", output_text)
         self.assertEqual(0, fixture.apply().returncode)
         self.assertEqual(["tests/a.py"], fixture.suite("per-entry")["entry_paths"]["tests/a.py"])
 
@@ -813,18 +821,88 @@ class KeepPassedTests(unittest.TestCase):
         self.assertEqual([("per-entry", "tests/a.py"), ("clean", "tests/q.py")], self.kept(passed))
         self.assertEqual([], self.marked(passed))
 
-    def test_additions_document_records_durations_for_clean_entry_files_without_failing_check(self) -> None:
+    def test_additions_document_records_durations_for_every_exit_zero_entry_file_without_failing_check(self) -> None:
         selection = self.recording.suite_selection
         suite_list = selection.resolve_entries(selection.parse_suite_list(json.dumps(KEEP_SUITES)), set(KEEP_TRACKED))
         clean = self.recording.Unit({"kind": "entry", "name": "tests/a.py", "exit_code": 0, "skipped": 0, "deselected": 0, "seconds": 3.456},
                                     self.recording.Reads(paths={"tests/a.py"}))
         skipped = self.recording.Unit({"kind": "entry", "name": "tests/b.py", "exit_code": 0, "skipped": 1, "deselected": 0, "seconds": 2.0},
                                       self.recording.Reads(paths={"tests/b.py"}))
-        recorded = [(self.recording.suite_of(suite_list, u.record), u, u.reads) for u in (clean, skipped)]
+        no_report = self.recording.Unit({"kind": "entry", "name": "tests/c.py", "exit_code": 0, "skipped": None, "deselected": 0, "seconds": 1.25},
+                                        self.recording.Reads(paths={"tests/c.py"}))
+        failed = self.recording.Unit({"kind": "entry", "name": "tests/q.py", "exit_code": 1, "skipped": 0, "deselected": 0, "seconds": 0.2},
+                                     self.recording.Reads(paths={"tests/q.py"}))
+        recorded = [(self.recording.suite_of(suite_list, u.record), u, u.reads) for u in (clean, skipped, no_report, failed)]
         document = self.recording.additions_document("suites.json", suite_list, recorded, KEEP_TRACKED)
         self.assertEqual([], self.recording.additions_lines(document), "durations alone are not read additions")
         by_suite = {item["suite"]: item for item in document["suites"]}
-        self.assertEqual({"tests/a.py": 3.456}, by_suite["per-entry"].get("durations"))
+        self.assertEqual({"tests/a.py": 3.456, "tests/b.py": 2.0, "tests/c.py": 1.25}, by_suite["per-entry"].get("durations"))
+        self.assertEqual(["tests/a.py"], sorted(by_suite["per-entry"].get("replace_entries", {})), "only clean entries replace stored lists")
+        self.assertNotIn("clean", by_suite, "a failing entry records neither replacement nor duration")
+
+    def test_check_outputs_name_entry_times_artifacts_separately_and_refuse_unknown_prefixes(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/a.py": "", "tests/b.py": "", "lib/other.txt": ""}, [
+            suite("unit", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=["tests/a.py", "tests/b.py"],
+                  entry_paths={"tests/a.py": ["tests/a.py"], "tests/b.py": ["tests/b.py"]}),
+        ])
+        (fixture.output / "units").mkdir(parents=True, exist_ok=True)
+        (fixture.output / "recording.json").write_text(json.dumps({"mode": "pull-request", "trace_set": "mid"}), encoding="utf-8")
+
+        def run_with_units(units: list, artifact_name: str = "recording-additions-shard-2") -> tuple[int, dict[str, str]]:
+            out_file = fixture.base / "github-output.txt"
+            out_file.unlink(missing_ok=True)
+            with (mock.patch.object(self.recording, "load_units", return_value=[]),
+                  mock.patch.object(self.recording, "classify_units", return_value=units),
+                  mock.patch("sys.stdout"), mock.patch("sys.stderr")):
+                code = self.recording.main([
+                    "check", "--output", str(fixture.output), "--root", str(fixture.root),
+                    "--suites", str(fixture.root / "suites.json"),
+                    "--artifact-name", artifact_name,
+                    "--github-output", str(out_file),
+                ])
+            lines = out_file.read_text(encoding="utf-8").splitlines() if out_file.is_file() else []
+            return code, dict(line.split("=", 1) for line in lines if "=" in line)
+
+        # Entry times / replacements without read additions: exit 0, uploaded under recording-entry-times-*.
+        clean_unit = self.recording.Unit(
+            {"kind": "entry", "name": "tests/a.py", "exit_code": 0, "skipped": 0, "deselected": 0, "seconds": 1.5,
+             "temporary": str(fixture.base / "tmp"), "cache": str(fixture.base / "cache")},
+            self.recording.Reads(paths={"tests/a.py"}),
+        )
+        code, outputs = run_with_units([clean_unit])
+        self.assertEqual(0, code)
+        self.assertEqual("pull-request", outputs["mode"])
+        self.assertNotIn("reported", outputs)
+        self.assertEqual(str(fixture.output / "additions.json"), outputs["file"])
+        self.assertEqual("recording-entry-times-shard-2", outputs["artifact-name"])
+
+        # Unexpected --artifact-name prefix without recording-additions fails with exit 2.
+        code, _ = run_with_units([clean_unit], artifact_name="other-name")
+        self.assertEqual(2, code)
+
+        # Read additions reported: exit 1, uploaded under recording-additions-*.
+        added_unit = self.recording.Unit(
+            {"kind": "entry", "name": "tests/b.py", "exit_code": 0, "skipped": 0, "deselected": 0, "seconds": 2.0,
+             "temporary": str(fixture.base / "tmp"), "cache": str(fixture.base / "cache")},
+            self.recording.Reads(paths={"tests/b.py", "lib/other.txt"}),
+        )
+        code, outputs = run_with_units([added_unit])
+        self.assertEqual(1, code)
+        self.assertNotIn("reported", outputs)
+        self.assertEqual(str(fixture.output / "additions.json"), outputs["file"])
+        self.assertEqual("recording-additions-shard-2", outputs["artifact-name"])
+
+        # Neither read additions nor exit-0 entry times / replacements: exit 0, nothing uploaded.
+        failed_unit = self.recording.Unit(
+            {"kind": "entry", "name": "tests/a.py", "exit_code": 1, "skipped": 0, "deselected": 0, "seconds": 0.2,
+             "temporary": str(fixture.base / "tmp"), "cache": str(fixture.base / "cache")},
+            self.recording.Reads(paths={"tests/a.py"}),
+        )
+        code, outputs = run_with_units([failed_unit])
+        self.assertEqual(0, code)
+        self.assertNotIn("reported", outputs)
+        self.assertEqual("", outputs["file"])
+        self.assertEqual("", outputs["artifact-name"])
 
     def test_a_suite_without_a_stored_path_list_marks_every_recorded_entry_file_whatever_it_read(self) -> None:
         additions = self.additions({"tests/n1.py": {"tests/n1.py"}, "tests/n2.py": {"tests/n2.py"}, "tests/m.py": {"tests/m.py"},
@@ -918,6 +996,48 @@ class EntryTimeoutTests(unittest.TestCase):
         self.assertEqual(0, records[0]["exit_code"])
         self.assertFalse(records[0].get("timed_out", False))
         self.assertIsInstance(records[0]["seconds"], (int, float))
+
+    def test_recorded_seconds_include_exec_setup_post_processing_and_work_cleanup(self) -> None:
+        import argparse
+        import time
+
+        recording = load_recording()
+        real_remove = recording.remove_work
+
+        def slow_remove(work: Path) -> None:
+            time.sleep(0.15)
+            real_remove(work)
+
+        options = argparse.Namespace(
+            output=self.fixture.output, setup=None, entry="tests/fast.py", suite="unit",
+            suites=self.fixture.root / "suites.json", root=self.fixture.root, timeout=30.0,
+            arguments=[sys.executable, "tests/fast.py"], directory=self.fixture.root,
+        )
+        with mock.patch.object(recording, "remove_work", side_effect=slow_remove), mock.patch("sys.stdout"):
+            code = recording.run_exec(options)
+        self.assertEqual(0, code)
+        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.fixture.output / "units").glob("*.json")]
+        self.assertEqual(1, len(records))
+        self.assertGreaterEqual(records[0]["seconds"], 0.14)
+
+    def test_process_elapsed_seconds_measures_from_process_start(self) -> None:
+        recording = load_recording()
+        elapsed = recording.process_elapsed_seconds()
+        self.assertIsNotNone(elapsed)
+        assert elapsed is not None
+        self.assertGreaterEqual(elapsed, 0.0)
+        # Invoked as a subprocess, main(include_process_startup=True) adds startup elapsed time to run_exec.
+        options_args = [
+            "exec", "--output", str(self.fixture.output), "--entry", "tests/fast.py",
+            "--suites", str(self.fixture.root / "suites.json"), "--root", str(self.fixture.root),
+            "--suite", "unit", "--timeout", "30", "--", sys.executable, str(self.fixture.root / "tests/fast.py"),
+        ]
+        with mock.patch.object(recording, "process_elapsed_seconds", return_value=0.25), mock.patch("sys.stdout"):
+            code = recording.main(options_args, include_process_startup=True)
+        self.assertEqual(0, code)
+        records = [json.loads(path.read_text(encoding="utf-8")) for path in (self.fixture.output / "units").glob("*.json")]
+        self.assertEqual(1, len(records))
+        self.assertGreaterEqual(records[0]["seconds"], 0.25)
 
     def test_a_non_positive_timeout_is_rejected(self) -> None:
         for bad in ("0", "-1"):
