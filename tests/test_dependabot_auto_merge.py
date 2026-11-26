@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -83,6 +84,18 @@ def read(text: str, branch: str = BRANCH, title: str = "") -> tuple:
 
 
 class MetadataTests(unittest.TestCase):
+    def test_the_pip_title_fallback_compares_both_range_bounds_in_either_order(self) -> None:
+        text = message("- dependency-name: fastapi", "  dependency-version: 0.162.5", intro="Updates the FastAPI requirement.")
+        branch = "dependabot/pip/backend/fastapi-0.162.5"
+        for old, new, expected in (
+            ("<1,>=0.162.0", ">=0.162.5,<1", PATCH),
+            (">=0.162.0,<1", "<1,>=0.162.5", PATCH),
+            ("<1,>=0.162.5", ">=0.162.5,<2", MAJOR),
+        ):
+            with self.subTest(old=old, new=new):
+                title = f"chore(deps): update fastapi requirement from {old} to {new} in /backend"
+                self.assertEqual((dependency("fastapi", expected, "pip"),), read(text, branch, title))
+
     def test_the_metadata_of_the_three_pull_requests_is_what_fetch_metadata_yields(self) -> None:
         for (text, branch, title), expected in (
             (PR_SETUP_NODE, (dependency("actions/setup-node", MAJOR, "github_actions"),)),
@@ -327,11 +340,12 @@ class FakeGitHub:
                  failures: tuple[str, ...] = (), merge_errors: list[auto_merge.GitHubError] | None = None, listed: list[dict] | None = None,
                  files: dict[str, list[str]] | None = None, dispatch_errors: list[auto_merge.GitHubError] | None = None,
                  dispatch_runs_sequence: list[list[dict]] | None = None,
-                 dispatch_runs_error: auto_merge.GitHubError | None = None) -> None:
+                 dispatch_runs_error: auto_merge.GitHubError | None = None, changes: dict[str, list[dict]] | None = None) -> None:
         self.pull = pull() if pull_request is None else pull_request
         self.listed = [self.pull] if listed is None else listed
         self.commit_list = [commit()] if commits is None else commits
         self.files = files or {}
+        self.changes = changes or {}
         self.rules = REQUIRED_CHECKS if rules is None else rules
         self.failures = failures
         self.merge_errors = list(merge_errors or [])
@@ -361,6 +375,10 @@ class FakeGitHub:
     def commit_files(self, repository: str, sha: str) -> list[str]:
         self._record("commit_files", repository, sha)
         return self.files[sha]
+
+    def commit_changes(self, repository: str, sha: str) -> list[dict]:
+        self._record("commit_changes", repository, sha)
+        return self.changes[sha]
 
     def branch_rules(self, repository: str, branch: str) -> list[dict]:
         self._record("branch_rules", repository, branch)
@@ -402,7 +420,152 @@ def merge_run(github: FakeGitHub) -> auto_merge.Result:
     return result
 
 
+PIP_BRANCH = "dependabot/pip/per-dependency/ruff-0.17.5"
+RUFF_OLD = "ruff>=0.17.4,<0.18"
+RUFF_NEW = "ruff>=0.17.5,<0.18"
+
+
+def requirement_change(path: str, before: str, after: str) -> dict:
+    return {"filename": path, "status": "modified", "additions": 1, "deletions": 1, "patch": f"@@ -1 +1 @@\n-{before}\n+{after}"}
+
+
+def pip_update(changes: list[dict], *, name: str = "ruff", version: str = "0.17.5", branch: str = PIP_BRANCH,
+               title: str = "chore(deps): bump ruff in /", later_changes: list[dict] | None = None) -> FakeGitHub:
+    text = message(f"- dependency-name: {name}", f"  dependency-version: {version}", "  dependency-group: per-dependency",
+                   intro=f"Bumps the per-dependency group.\n\nUpdates `{name}` to {version}")
+    first = HEAD if later_changes is None else FIRST
+    commits = [commit(text=text, sha=first) | {"parents": [{"sha": "c" * 40}]}]
+    by_sha = {first: changes}
+    if later_changes is not None:
+        commits.append(commit(sha=HEAD) | {"parents": [{"sha": FIRST}]})
+        by_sha[HEAD] = later_changes
+    return FakeGitHub(pull_request=pull(branch=branch, title=title), commits=commits, changes=by_sha)
+
+
 class WorkflowRunTests(unittest.TestCase):
+    def test_a_grouped_pip_update_reads_every_directory_at_the_verified_first_sha_and_merges_the_evaluated_head(self) -> None:
+        github = pip_update([
+            requirement_change("requirements.txt", RUFF_OLD, RUFF_NEW),
+            requirement_change("backend/requirements-dev.txt", RUFF_OLD, RUFF_NEW),
+        ], later_changes=[{"filename": "README.md", "status": "modified"}])
+        (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+        self.assertEqual("automatic", result.decision.outcome, result.summary)
+        self.assertEqual([
+            ("open_pull_requests", REPOSITORY, f"CrankyAnt:{PIP_BRANCH}"),
+            ("commits", REPOSITORY, 7),
+            ("commit_changes", REPOSITORY, FIRST),
+            ("commit_changes", REPOSITORY, HEAD),
+            ("branch_rules", REPOSITORY, "main"),
+            ("merge", REPOSITORY, 7, HEAD, "squash"),
+            ("dispatch", REPOSITORY, "dependabot-merged", MERGED),
+            ("dispatch_runs", REPOSITORY, MERGED),
+        ], github.calls)
+
+    def test_a_pin_or_the_fastapi_range_qualifies_from_the_first_commit(self) -> None:
+        for name, version, title, before, after, kind in (
+            ("ruff", "0.18.0", "bump ruff", "ruff==0.17.5", "ruff==0.18.0", MINOR),
+            ("fastapi", "0.162.5", "update fastapi requirement from <1,>=0.162.0 to >=0.162.5,<1 in /backend",
+             "fastapi<1,>=0.162.0", "fastapi>=0.162.5,<1", PATCH),
+        ):
+            with self.subTest(title=title):
+                github = pip_update([requirement_change("backend/requirements.txt", before, after)], name=name, version=version, title=title)
+                if name == "fastapi":
+                    github.commit_list[0]["commit"]["message"] = message("- dependency-name: fastapi", "  dependency-version: 0.162.5",
+                                                                       intro="Updates the FastAPI requirement.")
+                (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+                self.assertEqual((dependency(name, kind, "pip"),), result.decision.dependencies, result.summary)
+                self.assertEqual([("merge", REPOSITORY, 7, HEAD, "squash"), ("dispatch", REPOSITORY, "dependabot-merged", MERGED)], mutations(github))
+
+    def test_a_major_bound_or_pin_in_any_directory_stays_manual(self) -> None:
+        for changes, version in (
+            ([requirement_change("requirements.txt", "ruff>=1.17.4,<2", "ruff>=1.17.5,<2"),
+              requirement_change("backend/requirements.txt", "ruff>=0.17.4,<2", "ruff>=1.17.5,<2")], "1.17.5"),
+            ([requirement_change("requirements.txt", "ruff>=0.17.5,<1", "ruff>=0.17.5,<2")], "0.17.5"),
+            ([requirement_change("requirements.txt", "ruff==0.17.5", "ruff==1.0.0")], "1.0.0"),
+        ):
+            with self.subTest(changes=changes):
+                github = pip_update(changes, version=version)
+                (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+                self.assertEqual("manual", result.decision.outcome, result.summary)
+                self.assertEqual((dependency("ruff", MAJOR, "pip"),), result.decision.dependencies)
+                self.assertEqual([], mutations(github))
+
+    def test_a_later_commit_cannot_supply_or_revise_a_requirement(self) -> None:
+        first = requirement_change("requirements.txt", RUFF_OLD, RUFF_NEW)
+        for later_path in ("backend/requirements.txt", "requirements.txt", "backend/pyproject.toml"):
+            with self.subTest(path=later_path):
+                github = pip_update([first], later_changes=[requirement_change(later_path, RUFF_NEW, "ruff>=0.17.6,<1")])
+                (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+                self.assertEqual("manual", result.decision.outcome, result.summary)
+                self.assertIn(f"later commit `{HEAD[:7]}`", result.summary)
+                self.assertEqual([], mutations(github))
+
+    def test_other_ecosystems_cannot_use_the_requirement_diff_as_fallback(self) -> None:
+        for ecosystem in ("npm_and_yarn", "nuget", "github_actions", "bundler"):
+            with self.subTest(ecosystem=ecosystem):
+                branch = f"dependabot/{ecosystem}/per-dependency/ruff-0.17.5"
+                name = "actions/checkout" if ecosystem == "github_actions" else "ruff"
+                github = pip_update([requirement_change("requirements.txt", RUFF_OLD, RUFF_NEW)], branch=branch, name=name,
+                                    title="update ruff requirement from >=0.17.4,<0.18 to >=0.17.5,<0.18 in /")
+                github.commit_list[0]["commit"]["message"] = message(f"- dependency-name: {name}", "  dependency-version: 0.17.5",
+                                                                   intro=f"Updates `{name}` from 0.17.4 to 0.17.5")
+                (result,) = auto_merge.run_workflow_run(github, REPOSITORY, branch)
+                self.assertEqual("manual", result.decision.outcome, result.summary)
+                self.assertEqual([], mutations(github))
+                self.assertFalse(any(call[0] == "commit_changes" for call in github.calls))
+
+    def test_an_unsupported_requirement_change_stays_manual(self) -> None:
+        for before, after in (
+            ("ruff~=0.17.4", "ruff~=0.17.5"), ("ruff!=0.17.4", "ruff!=0.17.5"),
+            ('ruff==0.17.4; python_version < "3.14"', 'ruff==0.17.5; python_version < "3.14"'),
+            ("ruff[dev]==0.17.4", "ruff[dev]==0.17.5"), ("ruff @ https://example.test/ruff.whl", RUFF_NEW),
+            ("ruff==1!0.17.4", "ruff==1!0.17.5"), ("ruff==0.17.4rc1", "ruff==0.17.5rc1"),
+            ("ruff==0.17.4+abc", "ruff==0.17.5+abc"), ("ruff==0.17.*", "ruff==0.18.*"),
+            ("ruff==0.17.4", RUFF_NEW), ("ruff>=0.17.4", "ruff>=0.17.5"),
+        ):
+            with self.subTest(before=before, after=after):
+                github = pip_update([requirement_change("requirements.txt", before, after)])
+                (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+                self.assertEqual("manual", result.decision.outcome, result.summary)
+                self.assertEqual([], mutations(github))
+
+    def test_absent_partial_or_conflicting_first_commit_evidence_stays_manual(self) -> None:
+        valid = requirement_change("requirements.txt", RUFF_OLD, RUFF_NEW)
+        for changes, reason in (
+            ([], "do not match the dependencies"),
+            ([valid, requirement_change("backend/requirements.txt", RUFF_OLD, RUFF_NEW) | {"patch": None}], "patch is missing"),
+            ([valid | {"deletions": 2}], "patch is incomplete"),
+            ([valid | {"patch": "@@ -1,2 +1,2 @@\n-" + RUFF_OLD + "\n+" + RUFF_NEW}], "patch is incomplete"),
+            ([valid, requirement_change("backend/pyproject.toml", RUFF_OLD, RUFF_NEW)], "file outside the supported pip requirement forms"),
+            ([valid, requirement_change("backend/uv.lock", RUFF_OLD, RUFF_NEW)], "file outside the supported pip requirement forms"),
+            ([requirement_change("requirements.txt", RUFF_OLD, "ruff>=0.17.6,<0.18")], "conflicting versions"),
+            ([requirement_change("requirements.txt", "ruff==0.17.4", "ruff==0.17.6")], "conflicting versions"),
+            ([valid, requirement_change("backend/requirements.txt", "pytest==1.0.0", "pytest==2.0.0")], "do not match the dependencies"),
+        ):
+            with self.subTest(changes=changes):
+                github = pip_update(changes, title="update ruff requirement from >=0.17.4,<0.18 to >=0.17.5,<0.18 in /")
+                (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+                self.assertEqual("manual", result.decision.outcome, result.summary)
+                self.assertIn(reason, result.summary)
+                self.assertEqual([], mutations(github))
+
+    def test_pip_evidence_cannot_bypass_signature_head_or_status_checks(self) -> None:
+        change = requirement_change("requirements.txt", RUFF_OLD, RUFF_NEW)
+        for status, explanation in ((405, "Required status check is pending"), (405, "Required status check is failing"), (409, "Head moved")):
+            with self.subTest(explanation=explanation):
+                github = pip_update([change])
+                github.merge_errors.append(refused(status, explanation))
+                (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+                self.assertEqual("automatic", result.decision.outcome, result.summary)
+                self.assertEqual([("merge", REPOSITORY, 7, HEAD, "squash")], mutations(github))
+
+        github = pip_update([change])
+        github.commit_list[0]["commit"]["verification"]["verified"] = False
+        (result,) = auto_merge.run_workflow_run(github, REPOSITORY, PIP_BRANCH)
+        self.assertEqual("error", result.decision.outcome, result.summary)
+        self.assertFalse(any(call[0] == "commit_changes" for call in github.calls))
+        self.assertEqual([], mutations(github))
+
     def test_the_last_required_check_merges_with_squash_bound_to_the_head_read_and_dispatches_the_merged_commit_once(self) -> None:
         github = FakeGitHub()
         result = merge_run(github)
@@ -654,6 +817,28 @@ class WorkflowRunDisableTests(unittest.TestCase):
 
 
 class CommandLineTests(unittest.TestCase):
+    def test_commit_changes_reads_every_page_at_the_given_sha_and_rejects_partial_file_lists(self) -> None:
+        first = requirement_change("requirements.txt", RUFF_OLD, RUFF_NEW)
+        second = requirement_change("backend/requirements.txt", RUFF_OLD, RUFF_NEW)
+        valid_page = {"sha": FIRST, "files": [first]}
+        command = ["gh-fixture", "api", "--paginate", "--slurp", f"repos/{REPOSITORY}/commits/{FIRST}"]
+        client = auto_merge.GitHub("gh-fixture")
+        for pages, expected in (
+            ([valid_page, {"sha": FIRST, "files": [second]}], [first, second]),
+            ([valid_page, {"sha": HEAD, "files": [second]}], None),
+            ([valid_page, {"sha": FIRST}], None),
+            ([valid_page, valid_page], None),
+            ([valid_page, {"sha": FIRST, "files": [{"filename": "new.txt", "status": "renamed"}]}], None),
+        ):
+            with self.subTest(pages=pages), mock.patch.object(auto_merge.subprocess, "run") as gh:
+                gh.return_value = subprocess.CompletedProcess(command, 0, json.dumps(pages), "")
+                if expected is None:
+                    with self.assertRaises(ValueError):
+                        client.commit_changes(REPOSITORY, FIRST)
+                else:
+                    self.assertEqual(expected, client.commit_changes(REPOSITORY, FIRST))
+                gh.assert_called_once_with(command, capture_output=True, text=True, check=False)
+
     def test_the_gh_client_issues_the_documented_commands(self) -> None:
         issued: list[list[str]] = []
         responses = {
