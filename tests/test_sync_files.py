@@ -189,6 +189,14 @@ class GeneratedDependabotTests(SyncFixture):
         self.assertEqual(0, self.run_sync().status)
         self.assertEqual([], consumer.pulls)
 
+    def test_a_consumer_without_either_dependabot_file_syncs_normally(self) -> None:
+        consumer = self.consumer()
+        self.assertNotIn(DEPENDABOT, consumer.files())
+        self.assertNotIn(".github/dependabot.yaml", consumer.files())
+        synced = self.run_sync()
+        self.assertEqual(0, synced.status, synced.stdout + synced.stderr)
+        self.assertEqual([], consumer.pulls)
+
     def test_a_dependabot_configuration_without_stated_ecosystems_stays_and_is_said(self) -> None:
         consumer = self.consumer({DEPENDABOT: GENERATED})
         synced = self.run_sync()
@@ -251,6 +259,21 @@ class ReachTests(SyncFixture):
         self.assertEqual(1, len(behind.pulls))
         self.assertIn(f"`{CONSUMER}` could not be synced", synced.summary)
         self.assertIn("HTTP 500", synced.summary)
+
+    def test_another_graphql_error_in_the_snapshot_still_fails_the_consumer(self) -> None:
+        self.consumer()
+        cases = (
+            {"type": "FORBIDDEN", "path": ["repository", "pullRequests"], "message": "Resource not accessible by integration"},
+            {"type": "INTERNAL", "path": ["repository", "defaultBranchRef", "target", "f0"], "message": "Something went wrong"},
+        )
+        for error in cases:
+            with self.subTest(error=error):
+                self.api.snapshot_errors[CONSUMER] = [error]
+                synced = self.run_sync()
+                self.assertEqual(1, synced.status)
+                self.assertIn(f"`{CONSUMER}` could not be synced", synced.summary)
+                self.assertIn(error["message"], synced.summary)
+                self.assertNotIn("Could not resolve file for path", synced.summary)
 
     def test_without_a_token_the_sync_refuses(self) -> None:
         synced = self.run_sync(token="")
