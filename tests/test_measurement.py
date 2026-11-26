@@ -721,7 +721,7 @@ class MeasurementIncrementalStoreTests(MeasurementFixture):
         self.assertEqual(0, first.status, first.stderr)
         self.assertTrue(store_path.is_file())
         assert first.report is not None
-        # Build-up is reported as store/coverage status, never counted as a fallback (F10).
+        # Build-up is reported as store/coverage status, never counted as a fallback.
         self.assertEqual({}, first.report["repositories"][CONSUMER]["fallbacks"])
         self.assertEqual(1, first.report["repositories"][CONSUMER]["verdict_runs"])
 
@@ -1298,7 +1298,8 @@ class MeasurementBudgetsRateLimitsAndCapSplitTests(MeasurementFixture):
             )
         self.assertEqual(1, outcome.status)
         self.assertTrue(store_path.is_file(), "store must still be saved after secondary rate limit")
-        self.assertEqual([60.0], sleeps, "secondary rate limit must back off once for max(retry-after, 60s)")
+        # Secondary rate limit with Retry-After waits for the full Retry-After value (12s) when within deadline.
+        self.assertEqual([12.0], sleeps, "secondary rate limit must back off once for the response Retry-After")
         assert outcome.report is not None
         # run_2 (newer) finished and was kept; run_1 stayed pending.
         self.assertEqual(1, outcome.report["repositories"][CONSUMER]["verdict_runs"])
@@ -1556,6 +1557,300 @@ class MeasurementCooldownReportAndProgressTests(MeasurementFixture):
         run_art_calls = [p for _, p, _ in self.stand_in.requests if f"/repos/{CONSUMER}/actions/runs/" in p and "/artifacts" in p]
         self.assertEqual(1, len(repo_art_calls), repo_art_calls)
         self.assertEqual([], run_art_calls)
+
+
+class MeasurementSpecReviewFixTests(MeasurementFixture):
+    NO_TESTS_PLAN = {
+        "version": 1,
+        "parts": {
+            "repository-hygiene": {"run": True, "reason": "always runs"},
+            "python-test": {"run": False, "reason": "no changed path matches its paths"},
+        },
+        "departures": [],
+    }
+
+    def test_periodic_checkpoint_persists_completed_details_before_any_repository_finishes(self) -> None:
+        # Spread 30 runs across two repositories so newest-first order interleaves them and neither repo finishes before item 26.
+        consumer = self.stand_in.repository(CONSUMER)
+        other = self.stand_in.repository(OTHER)
+        for index in range(15):
+            day = 10 + index
+            consumer.add_run(f"2026-03-{day:02d}T10:00:00Z", verdict_completed_at=f"2026-03-{day:02d}T10:01:00Z")
+            other.add_run(f"2026-03-{day:02d}T10:30:00Z", verdict_completed_at=f"2026-03-{day:02d}T10:31:00Z")
+        store_out = self.directory / "periodic.json"
+        observed_verdicts_mid_run: list[int] = []
+        jobs_seen = 0
+
+        def observe_mid_run(method: str, path: str, query: dict[str, str]):
+            nonlocal jobs_seen
+            if "/attempts/1/jobs" in path:
+                jobs_seen += 1
+                if jobs_seen == 27 and store_out.is_file():
+                    snapshot = json.loads(store_out.read_text(encoding="utf-8"))
+                    verdicts = sum(
+                        1
+                        for repo_doc in snapshot["repositories"].values()
+                        for rec in repo_doc["records"].values()
+                        if rec["state"] == "verdict"
+                    )
+                    observed_verdicts_mid_run.append(verdicts)
+            return None
+
+        self.stand_in.on_request = observe_mid_run
+        outcome = self.run_measurement(
+            "measure",
+            "--own-repository",
+            MANAGEMENT,
+            "--store-out",
+            str(store_out),
+            "--workers",
+            "1",
+        )
+        self.assertEqual(0, outcome.status, outcome.stderr)
+        self.assertTrue(observed_verdicts_mid_run, "expected mid-run checkpoint observation at job 27")
+        self.assertGreaterEqual(
+            observed_verdicts_mid_run[0],
+            25,
+            "store must checkpoint periodically during a build-up before any repository finishes",
+        )
+
+    def test_malformed_unexpired_store_artifact_entry_is_unreadable_not_absent(self) -> None:
+        self.stand_in.repository(CONSUMER)
+        # An unexpired measurement-records artifact missing workflow_run.head_branch must not trigger a fresh build-up.
+        self.management.repo_artifacts.append({
+            "id": 9001,
+            "name": "measurement-records",
+            "expired": False,
+            "created_at": "2026-03-31T12:00:00Z",
+            "workflow_run": {},
+        })
+        store_out = self.directory / "should-not-exist.json"
+
+        outcome = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--store-out", str(store_out))
+        self.assertEqual(1, outcome.status)
+        self.assertFalse(store_out.exists(), "malformed unexpired store metadata must never trigger a replacement build-up")
+        self.assertIn("unreadable", outcome.stderr)
+
+    def test_store_zip_download_5xx_fails_without_writing_store_while_404_and_410_fall_back(self) -> None:
+        self.stand_in.repository(CONSUMER)
+        valid_store = {
+            "schema_version": 1,
+            "judge_version": 1,
+            "retention_days": 90,
+            "generated_at": "2026-03-30T12:00:00Z",
+            "repositories": {
+                CONSUMER: {
+                    "has_workflow": True,
+                    "listed_from": "2026-03-01T12:00:00Z",
+                    "listed_to": "2026-03-30T12:00:00Z",
+                    "records": {},
+                },
+            },
+        }
+        valid_id = self.management.add_store_artifact(valid_store, created_at="2026-03-30T12:00:00Z", head_branch="main")
+        gone_id = self.management.add_store_artifact(valid_store, created_at="2026-03-31T12:00:00Z", head_branch="main")
+        missing_id = self.management.add_store_artifact(valid_store, created_at="2026-04-01T06:00:00Z", head_branch="main")
+
+        # 404 on newest and 410 on second-newest fall back to valid_id.
+        self.stand_in.refused[f"/repos/{MANAGEMENT}/actions/artifacts/{missing_id}/zip"] = 404
+        self.stand_in.refused[f"/repos/{MANAGEMENT}/actions/artifacts/{gone_id}/zip"] = 410
+        store_out = self.directory / "fallback.json"
+        fallback = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--store-out", str(store_out))
+        self.assertEqual(0, fallback.status, fallback.stderr)
+        assert fallback.report is not None
+        self.assertEqual(valid_id, fallback.report["store"]["artifact_id"])
+        self.assertEqual([missing_id, gone_id], fallback.report["store"]["skipped_invalid_ids"])
+
+        # 503 on newest zip download fails immediately without writing store_out.
+        self.stand_in.refused[f"/repos/{MANAGEMENT}/actions/artifacts/{missing_id}/zip"] = 503
+        store_out_5xx = self.directory / "fail-5xx.json"
+        failed = self.run_measurement("measure", "--own-repository", MANAGEMENT, "--store-out", str(store_out_5xx))
+        self.assertEqual(1, failed.status)
+        self.assertFalse(store_out_5xx.exists(), "a 5xx during store zip download must abort before writing store")
+
+    def test_rejudge_keeps_old_record_and_version_when_plan_artifact_has_expired(self) -> None:
+        consumer = self.stand_in.repository(CONSUMER)
+        # Run at the 29-day edge whose ci-plan artifact has already expired.
+        run_id = consumer.add_run(
+            "2026-03-03T10:00:00Z",
+            verdict_completed_at="2026-03-03T10:00:45Z",
+            plan=self.NO_TESTS_PLAN,
+            plan_expired=True,
+        )
+        old_store = {
+            "schema_version": 1,
+            "judge_version": 0,
+            "retention_days": 90,
+            "generated_at": "2026-03-31T12:00:00Z",
+            "repositories": {
+                CONSUMER: {
+                    "has_workflow": True,
+                    "listed_from": "2026-03-01T12:00:00Z",
+                    "listed_to": "2026-03-31T12:00:00Z",
+                    "records": {
+                        str(run_id): {
+                            "run_id": run_id,
+                            "created_at": "2026-03-03T10:00:00Z",
+                            "run_attempt": 1,
+                            "status": "completed",
+                            "state": "verdict",
+                            "verdict_completed_at": "2026-03-03T10:00:45Z",
+                            "duration_seconds": 45.0,
+                            "plan_found": True,
+                            "selects_no_tests": True,
+                            "fallbacks": {"old-fallback": 1},
+                            "unknown_input_parts": ["custom"],
+                            "fixed_cost_outcome": "skip",
+                            "fixed_cost_sample": None,
+                            "judged_at": "2026-03-04T12:00:00Z",
+                            "judge_version": 0,
+                        },
+                    },
+                },
+            },
+        }
+        store_in = self.directory / "old.json"
+        store_out = self.directory / "kept.json"
+        store_in.write_text(json.dumps(old_store), encoding="utf-8")
+
+        outcome = self.run_measurement(
+            "measure",
+            "--own-repository",
+            MANAGEMENT,
+            "--store-in",
+            str(store_in),
+            "--store-out",
+            str(store_out),
+            "--now",
+            "2026-04-01T12:00:00Z",
+        )
+        self.assertEqual(0, outcome.status, outcome.stderr)
+        saved = json.loads(store_out.read_text(encoding="utf-8"))
+        kept_rec = saved["repositories"][CONSUMER]["records"][str(run_id)]
+        self.assertTrue(kept_rec["plan_found"])
+        self.assertTrue(kept_rec["selects_no_tests"])
+        self.assertEqual({"old-fallback": 1}, kept_rec["fallbacks"])
+        self.assertEqual(0, kept_rec["judge_version"])
+
+    def test_report_window_days_rejects_values_above_90(self) -> None:
+        store_file = self.directory / "store.json"
+        store_file.write_text(json.dumps({
+            "schema_version": 1,
+            "judge_version": 1,
+            "retention_days": 90,
+            "generated_at": "2026-04-01T12:00:00Z",
+            "repositories": {},
+        }), encoding="utf-8")
+        outcome = self.run_measurement("report", "--store", str(store_file), "--window-days", "91")
+        self.assertEqual(2, outcome.status)
+        self.assertIn("90", outcome.stderr)
+
+    def test_deleted_unfinished_run_404_uses_deleted_state_and_is_counted_separately(self) -> None:
+        self.stand_in.repository(CONSUMER)
+        store_in = self.directory / "with-unfinished.json"
+        store_out = self.directory / "after-delete.json"
+        store_in.write_text(json.dumps({
+            "schema_version": 1,
+            "judge_version": 1,
+            "retention_days": 90,
+            "generated_at": "2026-03-31T12:00:00Z",
+            "repositories": {
+                CONSUMER: {
+                    "has_workflow": True,
+                    "listed_from": "2026-03-04T12:00:00Z",
+                    "listed_to": "2026-03-31T12:00:00Z",
+                    "records": {
+                        "4040": {
+                            "run_id": 4040,
+                            "created_at": "2026-03-20T10:00:00Z",
+                            "run_attempt": 1,
+                            "status": "in_progress",
+                            "state": "unfinished",
+                            "judged_at": "2026-03-31T12:00:00Z",
+                            "judge_version": None,
+                        },
+                    },
+                },
+            },
+        }), encoding="utf-8")
+
+        outcome = self.run_measurement(
+            "measure",
+            "--own-repository",
+            MANAGEMENT,
+            "--store-in",
+            str(store_in),
+            "--store-out",
+            str(store_out),
+            "--now",
+            "2026-04-01T12:00:00Z",
+        )
+        self.assertEqual(0, outcome.status, outcome.stderr)
+        saved = json.loads(store_out.read_text(encoding="utf-8"))
+        self.assertEqual("deleted", saved["repositories"][CONSUMER]["records"]["4040"]["state"])
+        assert outcome.report is not None
+        metrics = outcome.report["repositories"][CONSUMER]
+        self.assertEqual(0, metrics["verdict_runs"])
+        self.assertEqual(0, metrics["non_verdict_runs"])
+        self.assertEqual(1, metrics["deleted_runs"])
+        self.assertIn("1 deleted", outcome.summary)
+
+    def test_secondary_rate_limit_waits_full_retry_after_within_deadline_and_skips_wait_when_deadline_too_short(self) -> None:
+        consumer = self.stand_in.repository(CONSUMER)
+        run_1 = consumer.add_run("2026-03-20T10:00:00Z", verdict_completed_at="2026-03-20T10:01:00Z")
+        consumer.add_run("2026-03-25T10:00:00Z", verdict_completed_at="2026-03-25T10:01:00Z")
+
+        def hit_secondary_long(method: str, path: str, query: dict[str, str]):
+            if f"/runs/{run_1}/attempts/1/jobs" in path:
+                return self.stand_in._json(
+                    403,
+                    {"message": "You have exceeded a secondary rate limit."},
+                    headers={"Retry-After": "180", "X-RateLimit-Remaining": "4000"},
+                )
+            return None
+
+        self.stand_in.on_request = hit_secondary_long
+        # Case A: 480s deadline allows waiting the full 180s Retry-After (not capped at 120s).
+        store_a = self.directory / "retry-full.json"
+        sleeps_a: list[float] = []
+        with mock.patch("time.sleep", side_effect=lambda secs: sleeps_a.append(secs)):
+            outcome_a = self.run_measurement(
+                "measure",
+                "--own-repository",
+                MANAGEMENT,
+                "--store-out",
+                str(store_a),
+                "--workers",
+                "1",
+                "--time-budget",
+                "480",
+                "--min-secondary-wait",
+                "60",
+            )
+        self.assertEqual(1, outcome_a.status)
+        self.assertEqual([180.0], sleeps_a)
+        self.assertTrue(store_a.is_file())
+
+        # Case B: 30s deadline cannot accommodate a 180s Retry-After -> skip sleeping, checkpoint and fail.
+        store_b = self.directory / "retry-short-deadline.json"
+        sleeps_b: list[float] = []
+        with mock.patch("time.sleep", side_effect=lambda secs: sleeps_b.append(secs)):
+            outcome_b = self.run_measurement(
+                "measure",
+                "--own-repository",
+                MANAGEMENT,
+                "--store-out",
+                str(store_b),
+                "--workers",
+                "1",
+                "--time-budget",
+                "30",
+                "--min-secondary-wait",
+                "60",
+            )
+        self.assertEqual(1, outcome_b.status)
+        self.assertEqual([], sleeps_b)
+        self.assertTrue(store_b.is_file())
 
 
 if __name__ == "__main__":
