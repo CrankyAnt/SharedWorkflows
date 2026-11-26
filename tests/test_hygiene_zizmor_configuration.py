@@ -12,7 +12,7 @@ from tests.zizmor_fixtures import CALLER_HEAD, WORKFLOW_HEAD, caller_job
 
 HYGIENE = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "hygiene.py"
 SHARED_POLICY = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "zizmor-policy.yml"
-SHARED_WORKFLOW_V1 = "CrankyAnt/SharedWorkflows/.github/workflows/repository-hygiene.yml@v1"
+SHARED_WORKFLOW_V1 = "CrankyAnt/SharedWorkflows/.github/workflows/pipeline.yml@v1"
 
 
 def configured_hygiene(root: Path, policy: Path) -> subprocess.CompletedProcess[str]:

@@ -223,8 +223,8 @@ class PageTests(CatalogueFixture):
         for text in (page["purpose"], page["needs"]):
             self.assertNotRegex(text, r"takes no settings|has no settings|nothing under parts")
 
-    def test_the_entry_repository_hygiene_names_enabled_auto_merge_under_needs(self) -> None:
-        self.assertIn("whose auto-merge is enabled", self.entries["Repository hygiene"]["needs"])
+    def test_the_entry_pipeline_names_enabled_auto_merge_under_needs(self) -> None:
+        self.assertIn("whose auto-merge is enabled", self.entries["Pipeline"]["needs"])
 
     def test_a_page_names_the_shared_workflow_of_a_part_outside_the_pipeline(self) -> None:
         for part, fragment in self.fragments.items():

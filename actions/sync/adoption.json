@@ -1,5 +1,3 @@
 {
-  "shared-workflows": {
-    "repository-hygiene.yml": "repository-hygiene"
-  }
+  "shared-workflows": {}
 }

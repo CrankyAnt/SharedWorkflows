@@ -42,15 +42,6 @@ MARKER_SAVE_WITH = {
     "path": "${{ runner.temp }}/gitleaks-marker/marker.json",
     "key": "gitleaks-marker-${{ github.run_id }}-${{ github.run_attempt }}",
 }
-REUSE_MARKER_SAVE_IF = (
-    "${{ !cancelled() && steps.install-reuse.outcome == 'success'"
-    " && steps.reuse.outputs.recorded-marker == 'true'"
-    f" && {DEFAULT_BRANCH_ONLY} }}}}"
-)
-REUSE_MARKER_SAVE_WITH = {
-    "path": "${{ runner.temp }}/reuse-marker/marker.json",
-    "key": "reuse-marker-${{ github.run_id }}-${{ github.run_attempt }}",
-}
 
 
 def steps_of(workflow: dict, job: str) -> list[dict]:
@@ -107,9 +98,9 @@ class SelectionStepTests(unittest.TestCase):
 
 
 class StoreStepTests(unittest.TestCase):
-    def test_only_the_pipeline_and_hygiene_store_results_on_pull_requests_and_the_gitleaks_marker_on_the_default_branch(self) -> None:
+    def test_only_the_pipeline_stores_results_on_pull_requests_and_the_gitleaks_marker_on_the_default_branch(self) -> None:
         for path in sorted(WORKFLOWS.glob("*.yml")):
-            if path.name not in ("repository-hygiene.yml", "pipeline.yml"):
+            if path.name != "pipeline.yml":
                 with self.subTest(workflow=path.name):
                     self.assertNotIn("actions/cache/save", path.read_text(encoding="utf-8"))
         pipeline_text, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")
@@ -157,39 +148,13 @@ class StoreStepTests(unittest.TestCase):
             "key": PREFIX + "${{ github.run_id }}-${{ github.run_attempt }}",
         }, results["steps"][-1]["with"], "the pipeline stores under the key that the selection restores")
         self.assertEqual(results["steps"][-1], pipeline_saves["suite-selection-results"][0])
-        hygiene_text, hygiene = read_workflow(WORKFLOWS / "repository-hygiene.yml")
-        self.assertEqual(3, hygiene_text.count("uses: actions/cache/save"))
-        hygiene_saves = {
-            job: [step for step in body.get("steps", ()) if str(step.get("uses", "")).startswith("actions/cache/save@")]
-            for job, body in hygiene["jobs"].items()
-            if any(str(step.get("uses", "")).startswith("actions/cache/save@") for step in body.get("steps", ()))
-        }
-        self.assertEqual({"hygiene"}, set(hygiene_saves))
-        self.assertEqual(3, len(hygiene_saves["hygiene"]))
-        hygiene_steps = steps_of(hygiene, "hygiene")
-        reuse = next(step for step in hygiene_steps if step.get("id") == "reuse")
-        reuse_marker_save = hygiene_saves["hygiene"][0]
-        self.assertLess(hygiene_steps.index(reuse), hygiene_steps.index(reuse_marker_save))
-        self.assertEqual("Store the default-branch REUSE version marker", reuse_marker_save["name"])
-        self.assertEqual(REUSE_MARKER_SAVE_IF, reuse_marker_save["if"])
-        self.assertEqual(REUSE_MARKER_SAVE_WITH, reuse_marker_save["with"])
-        for label, wf_steps, marker_save in (
-            ("pipeline", steps_of(pipeline, "repository-hygiene"), pipeline_saves["repository-hygiene"][0]),
-            ("repository-hygiene", hygiene_steps, hygiene_saves["hygiene"][1]),
-        ):
-            with self.subTest(workflow=label):
-                gitleaks = next(step for step in wf_steps if step.get("id") == "gitleaks")
-                self.assertLess(wf_steps.index(gitleaks), wf_steps.index(marker_save))
-                self.assertEqual("Store the default-branch Gitleaks scan marker", marker_save["name"])
-                self.assertEqual(MARKER_SAVE_IF, marker_save["if"])
-                self.assertEqual(MARKER_SAVE_WITH, marker_save["with"])
-        hygiene_pr_save = hygiene_saves["hygiene"][2]
-        self.assertEqual("Store the passed checks in the pull request's cache", hygiene_pr_save["name"])
-        self.assertEqual("${{ !cancelled() && github.event_name == 'pull_request' }}", hygiene_pr_save["if"])
-        self.assertEqual({
-            "path": "${{ runner.temp }}/hygiene-results/record.json",
-            "key": "hygiene-results-${{ github.event.pull_request.number }}-run-${{ github.run_id }}-${{ github.run_attempt }}",
-        }, hygiene_pr_save["with"])
+        wf_steps = steps_of(pipeline, "repository-hygiene")
+        marker_save = pipeline_saves["repository-hygiene"][0]
+        gitleaks = next(step for step in wf_steps if step.get("id") == "gitleaks")
+        self.assertLess(wf_steps.index(gitleaks), wf_steps.index(marker_save))
+        self.assertEqual("Store the default-branch Gitleaks scan marker", marker_save["name"])
+        self.assertEqual(MARKER_SAVE_IF, marker_save["if"])
+        self.assertEqual(MARKER_SAVE_WITH, marker_save["with"])
 
     def test_store_keys_the_passed_units_under_the_run_s_additions_in_a_checkout_of_the_tested_tree(self) -> None:
         _, pipeline = read_workflow(WORKFLOWS / "pipeline.yml")

@@ -1,6 +1,6 @@
 # Dependabot auto-merge
 
-The consumer kit of Dependabot auto-merge, a shared part of the [catalogue](../../../catalogue.json). A repository adopts it by switching the part `dependabot-auto-merge` on in its configuration file, `.github/ci-config.yml`, and through the Dependabot configuration [dependabot.yml](dependabot.yml). It holds no workflow of its own for the part: the fixed caller `automation.yml` of the [pipeline's consumer kit](../../pipeline/consumer-kit/README.md) calls the shared workflow `CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1`, whose job `dependabot-auto-merge` runs it.
+The consumer kit of Dependabot auto-merge, a shared part of the [catalogue](../../../catalogue.json). A repository adopts it by switching the part `dependabot-auto-merge` on in its configuration file, `.github/ci-config.yml`, and declaring its ecosystems under `dependabot` there. It holds no workflow of its own for the part: the fixed caller `automation.yml` of the [pipeline's consumer kit](../../pipeline/consumer-kit/README.md) calls the shared workflow `CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1`, whose job `dependabot-auto-merge` runs it.
 
 ## Switching it on
 
@@ -33,9 +33,7 @@ Dependabot security updates arrive without the cooldown of the configuration and
 
 ## The Dependabot configuration
 
-A repository with the fixed callers states its ecosystems under `dependabot` in the configuration file; `.github/dependabot.yml` is generated from them, and repository hygiene fails while the file differs, as the [pipeline's consumer kit](../../pipeline/consumer-kit/README.md#what-repository-hygiene-checks-in-these-files) says.
-
-A repository without the fixed callers copies [dependabot.yml](dependabot.yml) to `.github/dependabot.yml`. It holds the `github-actions` entry: weekly, a cooldown of 7 days, one group `minor-and-patch` for minor and patch updates, and an ignore entry for `CrankyAnt/SharedWorkflows`, so that Dependabot does not replace the moving `@v1` of the shared workflows. Add one entry per ecosystem of the repository's package files, each with the same schedule and cooldown: with `directory` and the same group for one directory, or with `directories` for several and one group `per-dependency` with `group-by: dependency-name` and `patterns: ["*"]`, so that one update of a package arrives as one pull request across them. When the repository has a configuration already, keep its entries and add what is missing.
+A repository states its ecosystems under `dependabot` in `.github/ci-config.yml`. `.github/dependabot.yml` is generated from them with an ignore entry for `CrankyAnt/SharedWorkflows`, and repository hygiene fails while the file differs, as the [pipeline's consumer kit](../../pipeline/consumer-kit/README.md#what-repository-hygiene-checks-in-these-files) says.
 
 ## Repository settings
 
@@ -51,12 +49,4 @@ A repository adopts it when it has a dependency of its own: a package file that 
 
 ## When a repository adopted it earlier
 
-A repository that adopted Dependabot auto-merge earlier holds a caller of its own, `.github/workflows/dependabot-auto-merge.yml`, which calls `CrankyAnt/SharedWorkflows/.github/workflows/dependabot-auto-merge.yml@v1`. That shared workflow stays at `v1` while a repository calls it, so the caller keeps working, and the kit holds no template for it any more. In the pull request that brings the fixed callers, the repository switches the part on as [Switching it on](#switching-it-on) says, with the suite list that its caller passed as `suites`, and removes its caller.
-
-The Dependabot configuration comes from one template:
-
-| Template | Install target |
-| --- | --- |
-| [dependabot.yml](dependabot.yml) | `.github/dependabot.yml` |
-
-A repository without the fixed callers compares its installed file with the template, read at `v1`, and takes over every difference that the template makes, apart from its own `updates` entries, one per ecosystem of its package files with its `directory` or `directories`, and each entry the configuration held before the adoption, each with its own settings. The template's `github-actions` entry, with its ignore entry for `CrankyAnt/SharedWorkflows`, comes from the template, as [The Dependabot configuration](#the-dependabot-configuration) states. The result works when hygiene passes on that pull request, where the Dependabot coverage check runs over the changed configuration.
+The kit holds no template: the fixed caller `automation.yml` of the [pipeline's consumer kit](../../pipeline/consumer-kit/README.md) runs the part, and `.github/dependabot.yml` is generated from `dependabot` in `.github/ci-config.yml`. A repository that switches the part on or updates its configuration keeps `parts.dependabot-auto-merge` and `dependabot` in `.github/ci-config.yml` in step with its ecosystems and suite list.

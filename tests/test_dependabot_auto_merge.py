@@ -1,8 +1,8 @@
 """Dependabot auto-merge decisions, update metadata, GitHub calls and command-line behavior over fixture inputs.
 
-The seams are ``auto_merge.run_pull_request`` and ``auto_merge.run_workflow_run`` against a fake GitHub client that
-records every call, the metadata reader and the decision helpers over fixture inputs, and the command line. The
-expected metadata of three Dependabot pull requests is what ``dependabot/fetch-metadata`` v3.1.0 yields for them.
+The seams are ``auto_merge.run_workflow_run`` against a fake GitHub client that records every call, the metadata reader
+and the decision helpers over fixture inputs, and the command line. The expected metadata of three Dependabot pull
+requests is what ``dependabot/fetch-metadata`` v3.1.0 yields for them.
 """
 
 from __future__ import annotations
@@ -402,135 +402,6 @@ def merge_run(github: FakeGitHub) -> auto_merge.Result:
     return result
 
 
-class PullRequestRunTests(unittest.TestCase):
-    def test_a_qualifying_pull_request_gets_no_auto_merge_and_the_run_succeeds_with_the_decision_summary(self) -> None:
-        github = FakeGitHub()
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual(0, result.exit_code, result.summary)
-        self.assertEqual([], mutations(github))
-        self.assertEqual([("pull_request", REPOSITORY, 7), ("commits", REPOSITORY, 7), ("branch_rules", REPOSITORY, "main")], github.calls)
-        self.assertIn("| `lodash` | npm_and_yarn | version-update:semver-patch |", result.summary)
-        self.assertIn("**Decision:** automatic: every update is a patch or minor update", result.summary)
-        self.assertIn("**Action:** nothing enabled and nothing to disable.", result.summary)
-
-    def test_the_summary_lists_the_metadata_of_the_fast_uri_update_as_fetch_metadata_yields_it(self) -> None:
-        text, branch, title = PR_FAST_URI
-        result = auto_merge.run_pull_request(FakeGitHub(pull_request=pull(branch=branch, title=title), commits=[commit(text=text)]), REPOSITORY, 7)
-        self.assertIn("| Dependency | Ecosystem | Update type |\n| --- | --- | --- |\n| `fast-uri` | npm_and_yarn | version-update:semver-patch |\n", result.summary)
-
-    def test_the_summary_shows_quoted_values_without_their_quotes(self) -> None:
-        text = message("- dependency-name: \"@types/node\"", "  dependency-version: '20.1.0'", f"  update-type: '{MINOR}'")
-        result = auto_merge.run_pull_request(FakeGitHub(pull_request=pull(branch="dependabot/npm_and_yarn/types/node-20.1.0"), commits=[commit(text=text)]), REPOSITORY, 7)
-        self.assertIn("| `@types/node` | npm_and_yarn | version-update:semver-minor |", result.summary)
-        self.assertNotIn("'", result.summary.split("**Decision:**")[0])
-
-    def test_a_pull_request_that_still_has_auto_merge_gets_it_disabled_whatever_the_method(self) -> None:
-        for state in ({"enabled_by": {"login": "github-actions[bot]"}, "merge_method": "squash"}, {"merge_method": "merge"}):
-            with self.subTest(state=state):
-                github = FakeGitHub(pull_request=pull(auto_merge_state=state))
-                result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-                self.assertEqual(0, result.exit_code, result.summary)
-                self.assertEqual("automatic", result.decision.outcome)
-                self.assertEqual([("disable_auto_merge", URL)], mutations(github))
-                self.assertIn("**Action:** auto-merge disabled; nothing enabled.", result.summary)
-
-    def test_running_again_on_an_unchanged_pull_request_changes_nothing_and_reports_the_same_decision(self) -> None:
-        github = FakeGitHub()
-        first = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        second = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual([], mutations(github))
-        self.assertEqual(first.summary, second.summary)
-
-    def test_a_later_event_that_no_longer_meets_the_rules_disables_auto_merge(self) -> None:
-        github = FakeGitHub(pull_request=pull(auto_merge_state={"merge_method": "squash"}), commits=[commit(), commit("octocat")])
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual(0, result.exit_code, result.summary)
-        self.assertEqual([("disable_auto_merge", URL)], mutations(github))
-        self.assertIn("auto-merge disabled", result.summary)
-        github = FakeGitHub(commits=[commit(), commit("octocat")])
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual([], mutations(github), "a manual pull request without auto-merge is left alone")
-        self.assertIn("**Action:** nothing to disable; the pull request is left to the user.", result.summary)
-
-    def test_a_blocked_pull_request_fails_without_enabling_or_merging_anything(self) -> None:
-        github = FakeGitHub(rules=[])
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual(1, result.exit_code)
-        self.assertEqual([], mutations(github))
-        self.assertIn("no active ruleset rule on the base branch requires `ci / verdict`", result.summary)
-        self.assertIn("**Action:** nothing enabled and nothing merged; the user settles the ruleset first.", result.summary)
-        github = FakeGitHub(rules=[], pull_request=pull(auto_merge_state={"merge_method": "squash"}))
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual(1, result.exit_code)
-        self.assertEqual([("disable_auto_merge", URL)], mutations(github))
-        self.assertIn("**Action:** auto-merge disabled; nothing merged; the user settles the ruleset first.", result.summary)
-
-    def test_unverified_metadata_fails_and_disables_auto_merge(self) -> None:
-        for pull_request, commits, fragment in ((pull(), [commit(verified=False)], "is not verified"), (pull(), [commit(text="chore: x")], "has no `updated-dependencies` block"),
-                                                (pull(user="octocat"), [commit()], "the pull request is authored by `octocat`, not by `dependabot[bot]`"),
-                                                (pull(), [commit("octocat"), commit()], "the first commit `aaaaaaa` is authored by `octocat`, not by `dependabot[bot]`")):
-            with self.subTest(fragment=fragment):
-                github = FakeGitHub(pull_request={**pull_request, "auto_merge": {"merge_method": "squash"}}, commits=commits)
-                result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-                self.assertEqual(1, result.exit_code)
-                self.assertEqual("error", result.decision.outcome)
-                self.assertEqual([("disable_auto_merge", URL)], mutations(github))
-                self.assertIn(fragment, result.summary)
-                self.assertIn("No updated dependency was reported.", result.summary)
-
-    def test_a_failed_api_call_fails_and_disables_auto_merge_when_it_can(self) -> None:
-        for failure in ("commits", "branch_rules"):
-            with self.subTest(failure=failure):
-                github = FakeGitHub(pull_request=pull(auto_merge_state={"merge_method": "squash"}), failures=(failure,))
-                result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-                self.assertEqual(1, result.exit_code)
-                self.assertEqual([("disable_auto_merge", URL)], mutations(github))
-                self.assertIn(f"{failure} failed: HTTP 500", result.summary)
-        result = auto_merge.run_pull_request(FakeGitHub(failures=("branch_rules",)), REPOSITORY, 7)
-        self.assertIn("| `lodash` | npm_and_yarn | version-update:semver-patch |", result.summary, "the read metadata stays in the summary")
-        github = FakeGitHub(failures=("pull_request",))
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual(1, result.exit_code)
-        self.assertEqual([], mutations(github), "without the pull request nothing can be disabled")
-        self.assertIn("pull_request failed: HTTP 500", result.summary)
-        github = FakeGitHub(pull_request=pull(auto_merge_state={"merge_method": "squash"}), failures=("disable_auto_merge",))
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertEqual(1, result.exit_code)
-        self.assertEqual("error", result.decision.outcome)
-        self.assertIn("disable_auto_merge failed: HTTP 500", result.summary)
-
-    def test_the_summary_lists_every_dependency_with_ecosystem_and_update_type_and_the_decision_with_its_reason(self) -> None:
-        text = message("- dependency-name: actions/checkout", f"  update-type: {MINOR}", "- dependency-name: docker/login-action", f"  update-type: {PATCH}")
-        github = FakeGitHub(pull_request=pull(branch="dependabot/github_actions/minor-and-patch-a1b2c3"), commits=[commit(text=text)])
-        result = auto_merge.run_pull_request(github, REPOSITORY, 7)
-        self.assertIn("## Dependabot auto-merge", result.summary)
-        self.assertIn("| `actions/checkout` | github_actions | version-update:semver-minor |", result.summary)
-        self.assertIn("| `docker/login-action` | github_actions | version-update:semver-patch |", result.summary)
-        self.assertIn("**Decision:** manual: `docker/login-action` is a GitHub Action whose owner is not `actions`.", result.summary)
-        self.assertIn("**Action:** nothing to disable; the pull request is left to the user.", result.summary)
-
-
-    def test_a_rebuilt_head_with_configured_updater_paths_is_decided_automatic_and_still_gets_no_auto_merge(self) -> None:
-        for files, outcome in ((REBUILT, "automatic"), ([*REBUILT, "README.md"], "manual")):
-            with self.subTest(outcome=outcome):
-                github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, REBUILD, sha=HEAD)], files={HEAD: files},
-                                    pull_request=pull(auto_merge_state={"merge_method": "squash"}))
-                result = auto_merge.run_pull_request(github, THIS_REPOSITORY, 7, "tests/suites.json", (CONSUMER_BUILD,))
-                self.assertEqual((outcome, 0), (result.decision.outcome, result.exit_code), result.summary)
-                self.assertEqual([("disable_auto_merge", URL)], mutations(github))
-
-
-    def test_in_a_consumer_that_passes_its_suite_list_a_head_with_the_app_s_applied_additions_is_decided_automatic(self) -> None:
-        for suite_list, outcome in ((CONSUMER_SUITES, "automatic"), (None, "manual")):
-            with self.subTest(suite_list=suite_list):
-                github = FakeGitHub(commits=[commit(sha=FIRST), commit(UPDATER, APPLIED, sha=HEAD)], files={HEAD: [CONSUMER_SUITES]},
-                                    pull_request=pull(auto_merge_state={"merge_method": "squash"}))
-                result = auto_merge.run_pull_request(github, REPOSITORY, 7, suite_list)
-                self.assertEqual((outcome, 0), (result.decision.outcome, result.exit_code), result.summary)
-                self.assertEqual([("disable_auto_merge", URL)], mutations(github), "the pull request event enables nothing")
-                self.assertEqual(suite_list is not None, any(call[0] == "commit_files" for call in github.calls))
-
-
 class WorkflowRunTests(unittest.TestCase):
     def test_the_last_required_check_merges_with_squash_bound_to_the_head_read_and_dispatches_the_merged_commit_once(self) -> None:
         github = FakeGitHub()
@@ -762,7 +633,7 @@ class WorkflowRunDisableTests(unittest.TestCase):
     def test_without_the_request_to_disable_a_completed_run_leaves_the_auto_merge_as_it_is(self) -> None:
         github = FakeGitHub(pull_request=pull(auto_merge_state=ENABLED), commits=[commit(sha=FIRST), commit("someone", "fix: adjust")])
         result = merge_run(github)
-        self.assertEqual([], mutations(github), "the merge job of dependabot-auto-merge.yml may not write pull requests")
+        self.assertEqual([], mutations(github))
         self.assertIn("**Action:** nothing merged and nothing dispatched.", result.summary)
 
     def test_a_refused_disabling_fails_the_run_and_names_it(self) -> None:
@@ -852,23 +723,17 @@ class CommandLineTests(unittest.TestCase):
         self.assertIsNone(caught.exception.status)
         self.assertIn("`gh pr merge --disable-auto u` failed (exit 1): HTTP 403", str(caught.exception))
 
-    def test_the_command_line_runs_either_event_and_appends_the_summary(self) -> None:
+    def test_the_command_line_runs_workflow_run_and_appends_the_summary(self) -> None:
         with temporary_support.Directory() as directory:
             summary = Path(directory) / "summary.md"
             summary.write_text("earlier\n", encoding="utf-8")
             github = FakeGitHub()
             with mock.patch.object(auto_merge, "GitHub", lambda: github), contextlib.redirect_stdout(io.StringIO()) as stdout:
-                code = auto_merge.main(["--repository", REPOSITORY, "--summary", str(summary), "pull-request", "--number", "7"])
-            self.assertEqual(0, code)
-            self.assertEqual([], mutations(github))
-            self.assertTrue(summary.read_text(encoding="utf-8").startswith("earlier\n## Dependabot auto-merge\n"))
-            self.assertIn("| `lodash` | npm_and_yarn | version-update:semver-patch |", stdout.getvalue())
-            github = FakeGitHub()
-            with mock.patch.object(auto_merge, "GitHub", lambda: github), contextlib.redirect_stdout(io.StringIO()):
                 code = auto_merge.main(["--repository", REPOSITORY, "--summary", str(summary), "workflow-run", "--head-branch", BRANCH])
             self.assertEqual(0, code)
             self.assertEqual(["merge", "dispatch"], [call[0] for call in mutations(github)])
-            self.assertEqual(2, summary.read_text(encoding="utf-8").count("## Dependabot auto-merge"))
+            self.assertTrue(summary.read_text(encoding="utf-8").startswith("earlier\n## Dependabot auto-merge\n"))
+            self.assertIn("| `lodash` | npm_and_yarn | version-update:semver-patch |", stdout.getvalue())
             github = FakeGitHub(rules=[])
             with mock.patch.object(auto_merge, "GitHub", lambda: github), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(1, auto_merge.main(["--repository", REPOSITORY, "workflow-run", "--head-branch", BRANCH]))
@@ -882,9 +747,13 @@ class CommandLineTests(unittest.TestCase):
                 merged = [call for call in mutations(github) if call[0] == "merge"]
                 self.assertEqual(expected is not None, bool(merged))
 
-    def test_the_command_line_takes_no_metadata_outcome(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            auto_merge.build_parser().parse_args(["--repository", REPOSITORY, "pull-request", "--number", "7", "--metadata-outcome", "success"])
+    def test_the_command_line_takes_no_pull_request_subcommand_or_metadata_outcome(self) -> None:
+        for arguments in (
+            ["--repository", REPOSITORY, "pull-request", "--number", "7"],
+            ["--repository", REPOSITORY, "workflow-run", "--head-branch", BRANCH, "--metadata-outcome", "success"],
+        ):
+            with self.subTest(arguments=arguments), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                auto_merge.build_parser().parse_args(arguments)
 
 
 if __name__ == "__main__":

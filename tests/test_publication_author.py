@@ -21,7 +21,7 @@ class PublicationAuthorTests(BranchCheckMixin, PublicationFixture):
         with temporary_support.Directory() as temporary_directory:
             temporary_path = Path(temporary_directory)
             decision = temporary_path / "decide-author.cjs"
-            workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "repository-hygiene.yml").read_text(encoding="utf-8")
+            workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "pipeline.yml").read_text(encoding="utf-8")
             start = workflow.index("node <<'EOF'") + len("node <<'EOF'")
             end = workflow.index("\n          EOF", start)
             content = textwrap.dedent(workflow[start:end]).lstrip("\n") + "\n"

@@ -15,7 +15,7 @@ CATALOGUE = REPOSITORY_ROOT / "catalogue.json"
 PARTS = ("publication-checks", "repository-hygiene", "dependabot-auto-merge", "suite-selection", "recording", "python-language-step", "python-tests", "pipeline", "dotnet-test", "node-test", "issue-title", "sync", "measurement")
 ENTRY_TEXTS = ("name", "purpose", "needs", "applies")
 # The consumer kits whose README leads to the ruleset template.
-LEADING_KITS = ("actions/repository-hygiene/consumer-kit", "actions/pipeline/consumer-kit")
+LEADING_KITS = ("actions/pipeline/consumer-kit",)
 # The header of the pin-source table of a consumer kit's README, which consumers follow and the pin-source test reads.
 PIN_SOURCE_HEADER = "| Template | Pin source |"
 
@@ -263,9 +263,12 @@ class CatalogueTests(unittest.TestCase):
         self.assertNotIn("Suite selection", entries, "the legacy suite-selection entry is retired")
         self.assertEqual("actions/suite-selection/consumer-kit", entries["suite-selection"]["consumer_kit"])
 
-    def test_repository_hygiene_names_its_consumer_kit_and_an_entry_without_one_says_so(self) -> None:
+    def test_the_removed_standalone_entries_are_absent_and_an_entry_without_consumer_kit_says_so(self) -> None:
         entries = {entry["name"]: entry for entry in self.catalogue["parts"]}
-        self.assertEqual("actions/repository-hygiene/consumer-kit", entries["Repository hygiene"]["consumer_kit"])
+        for removed in ("Repository hygiene", "Dependabot auto-merge", "Python tests"):
+            self.assertNotIn(removed, entries)
+        self.assertEqual("actions/pipeline/consumer-kit", entries["Pipeline"]["consumer_kit"])
+        self.assertEqual("actions/pipeline/consumer-kit", entries["repository-hygiene"]["consumer_kit"])
         self.assertIn("consumer_kit", entries["Python language step"])
         without = {**entries["Python language step"]}
         del without["consumer_kit"]
@@ -273,11 +276,11 @@ class CatalogueTests(unittest.TestCase):
                       catalogue_problems({"parts": [*self.catalogue["parts"], without]}, self.surface, self.tracked))
 
 
-class HygieneConsumerKitRulesetTests(unittest.TestCase):
+class PipelineConsumerKitRulesetTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.readme = REPOSITORY_ROOT / "actions" / "repository-hygiene" / "consumer-kit" / "README.md"
+        self.readme = REPOSITORY_ROOT / "actions" / "pipeline" / "consumer-kit" / "README.md"
 
-    def test_the_hygiene_consumer_kit_leads_to_the_ruleset_template_on_the_shared_surface(self) -> None:
+    def test_the_pipeline_consumer_kit_leads_to_the_ruleset_template_on_the_shared_surface(self) -> None:
         template = "actions/repository-ruleset/ruleset-main-template.json"
         self.assertIn(template, led_to(self.readme))
         self.assertIn("actions/repository-ruleset/README.md", led_to(self.readme))
@@ -288,16 +291,16 @@ class HygieneConsumerKitRulesetTests(unittest.TestCase):
 class AutoMergeConsumerKitTests(unittest.TestCase):
     def setUp(self) -> None:
         entries = {entry["name"]: entry for entry in json.loads(CATALOGUE.read_text(encoding="utf-8"))["parts"]}
-        self.entry = entries["Dependabot auto-merge"]
+        self.entry = entries["dependabot-auto-merge"]
         self.kit = REPOSITORY_ROOT / self.entry["consumer_kit"]
         self.readme = (self.kit / "README.md").read_text(encoding="utf-8")
 
     def test_the_catalogue_entry_names_the_consumer_kit_beside_the_part(self) -> None:
         self.assertEqual("actions/dependabot-auto-merge/consumer-kit", self.entry["consumer_kit"])
-        self.assertEqual(["dependabot.yml"], sorted(path.name for path in self.kit.glob("*.yml")), "the part has no caller template: the fixed caller reaches it")
+        self.assertEqual([], sorted(path.name for path in self.kit.glob("*.yml")), "the part has no template: the fixed caller reaches it and .github/dependabot.yml is generated")
 
     def test_the_readme_names_what_a_consumer_installs_needs_and_when_it_applies(self) -> None:
-        for text in ("`dependabot-auto-merge`", "dependabot.yml", ".github/ci-config.yml", "dependabot-auto-merge: {}",
+        for text in ("`dependabot-auto-merge`", ".github/ci-config.yml", "dependabot-auto-merge: {}",
                      ".github/dependabot.yml", "contents: write", "pull-requests: write", "without a runner",
                      "CrankyAnt/SharedWorkflows/.github/workflows/automation.yml@v1", "patch", "minor", "actions/*",
                      "ruleset", "Dependabot alerts", "security updates", "When a repository adopts it"):
@@ -309,14 +312,12 @@ class AutoMergeConsumerKitTests(unittest.TestCase):
                      "maintaining.md", "$/.github", "in SharedWorkflows only"):
             with self.subTest(text=text):
                 self.assertNotIn(text, self.readme)
-        self.assertNotIn("$/actions", (self.kit / "dependabot.yml").read_text(encoding="utf-8"))
 
-    def test_the_readme_states_the_rights_of_the_part_s_job_and_the_ignore_entry_that_the_template_holds(self) -> None:
+    def test_the_readme_states_the_rights_of_the_part_s_job_and_the_ignore_entry(self) -> None:
         automation = ci_definition().read_yaml((REPOSITORY_ROOT / ".github" / "workflows" / "automation.yml").read_text(encoding="utf-8"), "automation.yml")
         self.assertEqual({"actions": "read", "contents": "write", "pull-requests": "write"}, automation["jobs"]["dependabot-auto-merge"]["permissions"])
         self.assertIn("the part's job takes both", self.readme)
         self.assertIn("an auto-merge that it still has is disabled", self.readme)
-        self.assertIn("dependency-name: CrankyAnt/SharedWorkflows", (self.kit / "dependabot.yml").read_text(encoding="utf-8"))
         self.assertIn("CrankyAnt/SharedWorkflows", self.readme)
 
 
@@ -468,7 +469,7 @@ class PromotionClassTests(unittest.TestCase):
     def test_no_shared_workflow_that_writes_and_no_step_that_a_workflow_outside_the_read_class_loads_is_in_the_read_class(self) -> None:
         workflows = tracked_workflows(REPOSITORY_ROOT)
         self.assertEqual([], write_class_problems(workflows, self.classes))
-        for path in (".github/workflows/automation.yml", ".github/workflows/release.yml", ".github/workflows/dependabot-auto-merge.yml"):
+        for path in (".github/workflows/automation.yml", ".github/workflows/release.yml"):
             with self.subTest(path=path):
                 self.assertEqual("write", class_of(path, self.classes))
         # The part folders that automation.yml and release.yml load beside the read workflows.

@@ -8,7 +8,7 @@ This repository owns the shared implementations and their consumer kits. Each co
 
 ## Start here
 
-Read the [catalogue at `v1`](https://github.com/CrankyAnt/SharedWorkflows/blob/v1/catalogue.json), choose the shared part that fits your repository, and follow its linked consumer kit at the same tag. Copy and configure the caller templates as the kit describes. The repository-hygiene kit also explains the required merge settings and default-branch ruleset.
+Read the [catalogue at `v1`](https://github.com/CrankyAnt/SharedWorkflows/blob/v1/catalogue.json), choose the shared part that fits your repository, and follow its linked consumer kit at the same tag. Copy and configure the caller templates as the kit describes. The pipeline kit also explains the required merge settings and default-branch ruleset.
 
 To update an existing consumer, follow "When a repository adopted it earlier" in the relevant [consumer kit](#shared-parts).
 
@@ -24,17 +24,15 @@ Consumer kits contain templates to copy into a consuming repository. The committ
 
 These links describe the current checkout. Use their `v1` versions when adopting a published part.
 
-- [Pipeline](actions/pipeline/consumer-kit/README.md): the fixed callers, the configuration file and the CI guide
+- [Pipeline](actions/pipeline/consumer-kit/README.md): the fixed callers, the configuration file, the CI guide and the [ruleset template](actions/repository-ruleset/README.md) for the default branch
 - [Sync](docs/maintaining.md#sync): the private management repository that keeps consumers on the fixed callers
-- [Repository hygiene](actions/repository-hygiene/consumer-kit/README.md), with the [ruleset template](actions/repository-ruleset/README.md) for the default branch
 - [Dependabot auto-merge](actions/dependabot-auto-merge/consumer-kit/README.md)
 - [Suite selection](actions/suite-selection/consumer-kit/README.md)
 - [Python language step](actions/python-language-step/consumer-kit/README.md)
-- [Python tests](actions/python-tests/consumer-kit/README.md)
 
 ## Validation
 
-Pull-request CI runs repository hygiene, the Python tests and, through the pipeline, the suite selection. The required checks are `hygiene / hygiene`, `tests / tests` and `ci / verdict`. See the [test-suite guide](tests/README.md) for local entry-file commands and prerequisites, and [Validation](docs/maintaining.md#validation) for the completion procedure.
+Pull-request CI runs repository hygiene, the fixture parts and the suite selection through the pipeline. The one required check is `ci / verdict`. See the [test-suite guide](tests/README.md) for local entry-file commands and prerequisites, and [Validation](docs/maintaining.md#validation) for the completion procedure.
 
 ## Publication
 

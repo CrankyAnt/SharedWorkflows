@@ -1,5 +1,5 @@
-"""The command of Python tests on fixture repositories and projects: whether the tests run, how the dependencies are
-installed and which test runner runs, with its failures for a missing pytest and for no tests."""
+"""The command of Python tests on fixture projects: how the dependencies are installed and which test runner runs, with
+its failures for a missing pytest and for no tests."""
 
 from __future__ import annotations
 
@@ -38,12 +38,6 @@ def write(root: Path, files: dict[str, str]) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8", newline="\n")
     return root
-
-
-def git(root: Path, *arguments: str) -> str:
-    result = subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "-c", "commit.gpgsign=false",
-                             *arguments], cwd=root, capture_output=True, text=True, check=True)
-    return result.stdout.strip()
 
 
 class Interpreter:
@@ -93,139 +87,6 @@ class Fixture(unittest.TestCase):
 
     def project(self, files: dict[str, str], name: str = "project") -> Path:
         return write(self.root / name, files)
-
-
-class DecideFixture(unittest.TestCase):
-    """A fixture repository with a base commit on ``main`` and a branch ``change``."""
-
-    def setUp(self) -> None:
-        temporary = temporary_support.Directory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / "repository"
-        self.root.mkdir()
-        git(self.root, "init", "-q", "-b", "main")
-        write(self.root, {"README.md": "# Fixture\n", "app.py": "print(1)\n", "docs/guide.md": "Guide\n"})
-        git(self.root, "add", "-A")
-        git(self.root, "commit", "-q", "-m", "base")
-        self.base = git(self.root, "rev-parse", "HEAD")
-        git(self.root, "checkout", "-q", "-b", "change")
-
-    def commit(self, files: dict[str, str], removed: tuple[str, ...] = (), renamed: tuple[tuple[str, str], ...] = ()) -> str:
-        write(self.root, files)
-        for path in removed:
-            git(self.root, "rm", "-q", path)
-        for old, new in renamed:
-            git(self.root, "mv", old, new)
-        git(self.root, "add", "-A")
-        git(self.root, "commit", "-q", "--allow-empty", "-m", "change")
-        return git(self.root, "rev-parse", "HEAD")
-
-    def decide(self, *arguments: str) -> tuple[subprocess.CompletedProcess[str], dict[str, str], str]:
-        output = self.root.parent / "github-output"
-        summary = self.root.parent / "summary.md"
-        output.unlink(missing_ok=True)
-        summary.unlink(missing_ok=True)
-        result = subprocess.run([sys.executable, str(SCRIPT), "decide", "--root", str(self.root), *arguments, "--github-output", str(output),
-                                 "--summary", str(summary)], capture_output=True, text=True, check=False)
-        values = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines()) if output.exists() else {}
-        return result, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
-
-    def lookup(self, document: dict) -> str:
-        path = self.root.parent / "push-lookup.json"
-        path.write_text(json.dumps(document), encoding="utf-8")
-        return str(path)
-
-
-class DecideOnAPullRequestTests(DecideFixture):
-    def pull_request(self, head: str) -> tuple[subprocess.CompletedProcess[str], dict[str, str], str]:
-        return self.decide("--base", self.base, "--head", head, "--compare", "merge-base")
-
-    def test_a_pull_request_whose_changed_files_all_end_in_md_still_runs_the_tests(self) -> None:
-        head = self.commit({"README.md": "# Changed\n", "docs/NOTES.MD": "Notes\n", "CHANGELOG.Md": "Log\n"}, removed=("docs/guide.md",))
-        result, values, summary = self.pull_request(head)
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual({"run": "true"}, values)
-        self.assertIn("run=true", result.stdout)
-        self.assertIn("The tests run", summary)
-
-    def test_a_pull_request_with_any_other_changed_file_runs_the_tests(self) -> None:
-        for name, files in (("python", {"app.py": "print(2)\n"}), ("markdown and python", {"README.md": "# Changed\n", "app.py": "print(2)\n"}),
-                            ("workflow", {".github/workflows/python-tests.yml": "name: Python tests\n"}), ("markdown-like name", {"notes.mdx": "x\n"})):
-            with self.subTest(change=name):
-                git(self.root, "checkout", "-q", "-B", "change", self.base)
-                result, values, summary = self.pull_request(self.commit(files))
-                self.assertEqual(0, result.returncode, result.stderr)
-                self.assertEqual({"run": "true"}, values)
-                self.assertIn("The tests run", summary)
-
-    def test_a_renamed_file_counts_under_its_old_path(self) -> None:
-        result, values, _ = self.pull_request(self.commit({}, renamed=(("app.py", "app.md"),)))
-        self.assertEqual({"run": "true"}, values, result.stdout)
-
-    def test_a_pull_request_compares_from_the_merge_base_so_a_newer_base_branch_adds_nothing(self) -> None:
-        head = self.commit({"README.md": "# Changed\n"})
-        git(self.root, "checkout", "-q", "main")
-        newer_base = self.commit({"app.py": "print(3)\n"})
-        _, values, summary = self.decide("--base", newer_base, "--head", head, "--compare", "merge-base")
-        self.assertEqual({"run": "true"}, values)
-        self.assertIn("1 changed file.", summary)
-
-    def test_changed_files_that_cannot_be_determined_or_an_empty_change_run_the_tests(self) -> None:
-        head = self.commit({"README.md": "# Changed\n"})
-        for name, base, reason in (("empty base", "", "could not be determined"), ("all-zero base", "0" * 40, "could not be determined"),
-                                   ("absent base", "1" * 40, "could not be determined"), ("no change", head, "no file changed")):
-            with self.subTest(case=name):
-                result, values, _ = self.decide("--base", base, "--head", head, "--compare", "direct")
-                self.assertEqual(0, result.returncode, result.stderr)
-                self.assertEqual({"run": "true"}, values)
-                self.assertIn(reason, result.stdout)
-
-
-class DecideOnAPushTests(DecideFixture):
-    def test_a_push_whose_tree_passed_on_its_pull_request_skips_the_tests(self) -> None:
-        head = self.commit({"app.py": "print(2)\n"})
-        lookup = self.lookup({"case": "identical", "head": head, "landing_base": self.base, "pull_request": 7,
-                              "reason": "the tree equals the tested tree"})
-        result, values, summary = self.decide("--lookup", lookup)
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual({"run": "false"}, values)
-        self.assertIn("passed `tests / tests` on pull request #7", result.stdout)
-        self.assertIn("Push lookup: `identical`", summary)
-
-    def test_any_other_push_decides_over_the_landing_base_to_the_pushed_commit(self) -> None:
-        markdown = self.commit({"README.md": "# Changed\n"})
-        for case in ("pull-request", "own", "behind"):
-            with self.subTest(case=case, change="markdown"):
-                document = {"case": case, "head": markdown, "landing_base": self.base, "tested_base": self.base}
-                self.assertEqual({"run": "true"}, self.decide("--lookup", self.lookup(document))[1])
-        python = self.commit({"app.py": "print(2)\n"})
-        for case in ("pull-request", "own", "behind"):
-            with self.subTest(case=case, change="python"):
-                document = {"case": case, "head": python, "landing_base": markdown, "tested_base": self.base}
-                self.assertEqual({"run": "true"}, self.decide("--lookup", self.lookup(document))[1])
-
-    def test_a_push_without_a_landing_base_runs_the_tests(self) -> None:
-        head = self.commit({"README.md": "# Changed\n"})
-        result, values, _ = self.decide("--lookup", self.lookup({"case": "own", "head": head, "landing_base": None}))
-        self.assertEqual({"run": "true"}, values)
-        self.assertIn("could not be determined", result.stdout)
-
-    def test_a_lookup_that_cannot_be_read_fails_and_writes_no_decision(self) -> None:
-        for name, content in (("missing", None), ("no case", '{"head": "abc"}'), ("not json", "{")):
-            with self.subTest(lookup=name):
-                path = self.root.parent / "broken-lookup.json"
-                path.unlink(missing_ok=True)
-                if content is not None:
-                    path.write_text(content, encoding="utf-8")
-                result, values, _ = self.decide("--lookup", str(path))
-                self.assertEqual(2, result.returncode)
-                self.assertIn("push lookup", result.stderr)
-                self.assertEqual({}, values)
-
-    def test_the_decision_takes_either_commits_or_the_lookup(self) -> None:
-        for arguments in ((), ("--base", "x"), ("--lookup", "x", "--base", "x", "--head", "x")):
-            with self.subTest(arguments=arguments), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                python_tests.parse_arguments(["decide", *arguments])
 
 
 class InstallTests(Fixture):
@@ -402,8 +263,9 @@ class CommandLineTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output), self.assertRaises(SystemExit):
             python_tests.parse_arguments(["--help"])
-        for command in ("decide", "install", "test"):
+        for command in ("install", "cache-key", "test"):
             self.assertIn(command, output.getvalue())
+        self.assertNotIn("decide", output.getvalue())
 
 
 if __name__ == "__main__":

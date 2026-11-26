@@ -2,10 +2,7 @@
   "pins": "actions/repository-hygiene/pins.json",
   "updater_branch": "chore/update-ci-pins",
   "paths": [
-    ".github/workflows/repository-hygiene.yml",
-    ".github/workflows/dependabot-auto-merge.yml",
     ".github/workflows/suite-jobs.yml",
-    ".github/workflows/python-tests.yml",
     ".github/workflows/pipeline.yml",
     ".github/workflows/automation.yml",
     ".github/workflows/release.yml",
@@ -28,10 +25,7 @@
     "actions/repository-ruleset"
   ],
   "classes": {
-    ".github/workflows/repository-hygiene.yml": "read",
-    ".github/workflows/dependabot-auto-merge.yml": "write",
     ".github/workflows/suite-jobs.yml": "write",
-    ".github/workflows/python-tests.yml": "read",
     ".github/workflows/pipeline.yml": "read",
     ".github/workflows/automation.yml": "write",
     ".github/workflows/release.yml": "write",
@@ -40,7 +34,6 @@
     "catalogue.json": "read",
     "actions/publication-checks": "read",
     "actions/repository-hygiene": "write",
-    "actions/repository-hygiene/consumer-kit": "template",
     "actions/dependabot-auto-merge": "write",
     "actions/dependabot-auto-merge/consumer-kit": "template",
     "actions/suite-selection": "write",
@@ -49,7 +42,6 @@
     "actions/python-language-step": "write",
     "actions/python-language-step/consumer-kit": "template",
     "actions/python-tests": "read",
-    "actions/python-tests/consumer-kit": "template",
     "actions/pipeline": "write",
     "actions/pipeline/consumer-kit": "template",
     "actions/pipeline/consumer_checks.py": "template",
