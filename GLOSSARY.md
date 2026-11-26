@@ -185,8 +185,18 @@ The GitHub App whose installation token the sync uses in the management reposito
 _Avoid_: Updater App, bot
 
 **Management repository**:
-The private repository that only runs the sync on a schedule and holds the sync App's key.
+The private repository that only runs the sync and the measurement on a schedule and holds the keys of their Apps.
 _Avoid_: Admin repository, control repository, sync repository
+
+### Measurement
+
+**Measurement**:
+The scheduled run in the management repository that reads every consumer's runs and reports, per repository, how far CI meets the goal, opening an issue for each missed target.
+_Avoid_: Metrics run, CI statistics
+
+**Measurement App**:
+The GitHub App whose installation token the measurement uses, which may only read the consumers' runs.
+_Avoid_: Sync App, metrics bot
 
 ### Checks
 
@@ -223,6 +233,14 @@ _Avoid_: Violation
 **Tested tree**:
 The tree that a pull-request run checked out: the head merged with the base at the moment of the run.
 _Avoid_: PR tree, head tree
+
+**Tested state**:
+What a pull-request run keeps of what it tested: its head, the base it was merged with and the tested tree, which the push lookup reads for that pull request's merge.
+_Avoid_: PR record, checkout log
+
+**Default-branch record**:
+What a passed run on the default branch keeps of its passed units, the commit and tree it tested and the digests it ran under; pull requests may take over passes from it and never write it.
+_Avoid_: Main cache, base record
 
 **Dispatch run**:
 A run on the default branch that a `repository_dispatch` event starts and that selects and checks as a push of one commit would: a `dependabot-merged` run on the commit of a Dependabot merge, which Dependabot auto-merge starts in its own repository.
