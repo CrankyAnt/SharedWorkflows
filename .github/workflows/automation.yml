@@ -411,7 +411,7 @@ jobs:
           {
             printf 'The additions workflow did not commit the recorded additions of [run %s](%s) onto this branch: %s\n\n' "$RUN_ID" "$RUN_URL" "$why"
             if [ -n "${SKIPPED_WHOLE_TREE_REPORT:-}" ]; then
-              printf 'Whole-tree reads (`**`) left out without a recorded reason:\n\n%s\n\n' "$SKIPPED_WHOLE_TREE_REPORT"
+              printf 'Whole-tree reads (\140**\140) left out without a recorded reason:\n\n%s\n\n' "$SKIPPED_WHOLE_TREE_REPORT"
             fi
             printf 'Apply them by hand from the default branch:\n\n%ssh\ngh workflow run %s -f part=additions -f run-id=%s\n%s\n\n' "$fence" "$caller" "$RUN_ID" "$fence"
             printf 'The workflow then opens a pull request onto this branch whose only change is the suite list; merge it once its checks pass.\n'
