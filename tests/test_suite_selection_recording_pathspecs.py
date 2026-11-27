@@ -70,20 +70,31 @@ LISTINGS = {
     "a literal directory with a long exclude": ((), ("src", ":(exclude)src/lib"), (), "", True),
     "a literal directory with a short exclude": ((), ("src", ":!src/app.py"), (), "", True),
     "icase magic": ((), (":(icase)mypy.ini",), (), "", False),
-    "short top magic": ((), (":/src",), (), "", False),
-    "literal magic": ((), (":(literal)src",), (), "", False),
-    "top magic": ((), (":(top)src",), (), "", False),
+    "short top magic": ((), (":/src",), (), "", True),
+    "literal magic": ((), (":(literal)src",), (), "", True),
+    "top magic": ((), (":(top)src",), (), "", True),
+    "top magic from a subdirectory": ((), (":(top)docs",), (), "src", True),
+    "short top magic from a subdirectory": ((), (":/docs",), (), "src", True),
+    "dot-dot from a subdirectory": ((), ("../docs",), (), "src", True),
+    "dot in a subdirectory": ((), (".",), (), "src", True),
+    "dot-dot beside a file": ((), ("src/../mypy.ini",), (), "", True),
+    "literal wildcard": ((), (":(literal)*.py",), (), "", True),
+    "literal bracket": ((), (":(literal)src/[x].py",), (), "", True),
+    "exclude beside top magic": ((), (":/src", ":(exclude)src/lib"), (), "docs", True),
     "attr magic": ((), (":(attr:text)src",), (), "", False),
     "glob and icase magic": ((), (":(glob,icase)**/*.py",), (), "", False),
     "a bracket class": ((), ("src/[al]*",), (), "", False),
     "only an exclude": ((), (":(exclude)src",), (), "", False),
     "the icase variable": ((), ("mypy.ini",), ("GIT_ICASE_PATHSPECS",), "", False),
-    "the literal variable": ((), ("*.py",), ("GIT_LITERAL_PATHSPECS",), "", False),
-    "the noglob variable": ((), ("*.py",), ("GIT_NOGLOB_PATHSPECS",), "", False),
-    "the glob variable": ((), ("*.py",), ("GIT_GLOB_PATHSPECS",), "", False),
-    "Git's -C": (("-C", "src"), ("lib",), (), "", False),
+    "the literal variable": ((), ("*.py",), ("GIT_LITERAL_PATHSPECS",), "", True),
+    "the noglob variable": ((), ("*.py",), ("GIT_NOGLOB_PATHSPECS",), "", True),
+    "the glob variable": ((), ("*.py",), ("GIT_GLOB_PATHSPECS",), "", True),
+    "Git's -C": (("-C", "src"), ("lib",), (), "", True),
+    "Git's --no-pager": (("--no-pager",), ("src",), (), "", True),
+    "Git's listed -c": (("-c", "core.quotepath=false"), ("src",), (), "", True),
+    "Git's unlisted -c": (("-c", "core.attributesFile=/tmp/a"), ("src",), (), "", False),
     "Git's icase option": (("--icase-pathspecs",), ("mypy.ini",), (), "", False),
-    "a working directory below the root": ((), ("lib",), (), "src", False),
+    "a working directory below the root": ((), ("lib",), (), "src", True),
 }
 
 
@@ -138,8 +149,11 @@ class Matrix:
     def reads(self, listing: str):
         """The recorded reads of the listing, from the arguments, working directory and environment of its exec."""
         _, _, variables, directory, _ = LISTINGS[listing]
-        cwd = str(self.root / directory) if directory else str(self.root)
-        return reads_of(["git", *self.arguments(listing)], cwd, str(self.root), tuple(f"{name}=1" for name in variables))
+        root = recording.dos_form(str(self.root)) if os.sep == "\\" else str(self.root)
+        cwd = f"{root}/{directory}" if directory else root
+        argv = ["git", *(recording.dos_form(arg) if os.sep == "\\" and previous == "-C" else arg
+                         for previous, arg in zip(("",) + tuple(self.arguments(listing)), self.arguments(listing)))]
+        return reads_of(argv, cwd, root, tuple(f"{name}=1" for name in variables))
 
 
 def reads_of(argv: list[str], cwd: str, root: str, environment: tuple[str, ...] | None = ()):
@@ -194,19 +208,48 @@ class ListingReadsTests(unittest.TestCase):
     def test_an_exclude_is_ignored(self) -> None:
         self.assertEqual({"src/**"}, self.reads("src", ":(exclude)src/lib", ":!src/app.py", ":^docs", ":(exclude,glob)x/*").memberships)
 
+    def test_top_literal_dot_and_dot_dot_pathspecs_resolve_to_their_paths(self) -> None:
+        self.assertEqual(({"src/**"}, {"src": "any"}), (self.reads(":/src").memberships, self.reads(":/src").existence))
+        self.assertEqual(({"docs/**"}, {"docs": "any"}),
+                         (self.reads(":(top)docs", cwd=self.ROOT + "/src").memberships, self.reads(":(top)docs", cwd=self.ROOT + "/src").existence))
+        self.assertEqual(({"docs/**"}, {"docs": "any"}),
+                         (self.reads("../docs", cwd=self.ROOT + "/src").memberships, self.reads("../docs", cwd=self.ROOT + "/src").existence))
+        self.assertEqual(({"src/**"}, {"src": "any"}),
+                         (self.reads(".", cwd=self.ROOT + "/src").memberships, self.reads(".", cwd=self.ROOT + "/src").existence))
+        self.assertEqual(({"src/[x].py/**"}, {"src/[x].py": "any"}),
+                         (self.reads(":(literal)src/[x].py").memberships, self.reads(":(literal)src/[x].py").existence))
+
+    def test_global_options_and_subdirectory_cwd_resolve_relative_pathspecs(self) -> None:
+        self.assertEqual(({"src/lib/**"}, {"src/lib": "any"}),
+                         (self.reads("lib", cwd=self.ROOT + "/src").memberships, self.reads("lib", cwd=self.ROOT + "/src").existence))
+        self.assertEqual(({"src/lib/**"}, {"src/lib": "any"}),
+                         (self.reads("lib", options=("-C", self.ROOT + "/src")).memberships,
+                          self.reads("lib", options=("-C", self.ROOT + "/src")).existence))
+        self.assertEqual(({"src/**"}, {"src": "any"}),
+                         (self.reads("src", options=("--no-pager", "-c", "core.quotepath=false")).memberships,
+                          self.reads("src", options=("--no-pager", "-c", "core.quotepath=false")).existence))
+
+    def test_unknown_environment_on_windows_uses_union_of_literal_glob_and_noglob(self) -> None:
+        literal = self.reads("mypy.ini", environment=None)
+        self.assertEqual(({"mypy.ini/**"}, {"mypy.ini": "any"}), (literal.memberships, literal.existence))
+        wildcard = self.reads("tests/test_*.py", environment=None)
+        self.assertEqual(({"tests/test_**.py", "tests/test_**.py/**"}, {}), (wildcard.memberships, wildcard.existence))
+        self.assertEqual(({"**"}, {}), (self.reads(":(icase)mypy.ini", environment=None).memberships,
+                                        self.reads(":(icase)mypy.ini", environment=None).existence))
+        self.assertEqual(({"**"}, {}), (self.reads("mypy.ini", options=("--icase-pathspecs",), environment=None).memberships,
+                                        self.reads("mypy.ini", options=("--icase-pathspecs",), environment=None).existence))
+
     def test_every_other_form_is_a_directory_membership_of_every_path(self) -> None:
         forms = {
-            "other magic": self.reads(":(icase)mypy.ini"),
-            "short top magic": self.reads(":/src"),
+            "icase magic": self.reads(":(icase)mypy.ini"),
+            "attr magic": self.reads(":(attr:text)src"),
             "a bracket class": self.reads("src/[al]*"),
             "only an exclude": self.reads(":(exclude)src"),
             "a path out of the root": self.reads("../src"),
-            "a working directory below the root": self.reads("lib", cwd=self.ROOT + "/src"),
-            "-C": self.reads("lib", options=("-C", self.ROOT + "/src")),
-            "Git's pathspec options": self.reads("mypy.ini", options=("--icase-pathspecs",)),
+            "unlisted -c": self.reads("mypy.ini", options=("-c", "core.attributesFile=/tmp/a")),
+            "Git's icase option": self.reads("mypy.ini", options=("--icase-pathspecs",)),
             "a pathspec file": reads_of(["git", "ls-files", "-z", "--pathspec-from-file", "list.txt"], self.ROOT, self.ROOT),
-            "a pathspec variable": self.reads("mypy.ini", environment=("GIT_LITERAL_PATHSPECS=0",)),
-            "an unknown environment": self.reads("mypy.ini", environment=None),
+            "the icase variable": self.reads("mypy.ini", environment=("GIT_ICASE_PATHSPECS=1",)),
         }
         for form, reads in forms.items():
             with self.subTest(form=form):

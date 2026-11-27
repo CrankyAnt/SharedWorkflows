@@ -604,12 +604,12 @@ class ClassificationRules:
 
     def test_git_ls_files_printing_only_names_is_a_directory_membership_of_every_path(self) -> None:
         reads = self.reads("tests/git_names.py")
-        self.assertEqual(["**"], reads["directory_memberships"])
+        self.assertEqual(["**", "lib/**"], reads["directory_memberships"])
         self.assertEqual(["tests/git_names.py"], reads["paths"])
 
     def test_git_cat_file_of_full_object_ids_reads_the_tracked_paths_that_hold_each_object(self) -> None:
         # A blob that two paths hold, a tree with a ^{tree} suffix, an unheld blob id, and a Python read of .git/HEAD:
-        # the held ids record their tracked paths, while the unheld id and the non-git .git/HEAD read fall back to **.
+        # the held ids record their tracked paths, the unheld id adds nothing, and the non-git .git/HEAD read adds **.
         self.assertEqual(["**", "held/**", "held/also-one.txt", "held/one.txt", "tests/git_objects.py"], self.reads("tests/git_objects.py")["paths"])
 
     def test_git_cat_file_of_the_checked_commits_id_reads_every_tracked_path(self) -> None:
@@ -619,9 +619,12 @@ class ClassificationRules:
         self.assertEqual(["**", "tests/git_root_tree.py"], self.reads("tests/git_root_tree.py")["paths"])
 
     def test_git_cat_file_of_names_that_are_not_only_full_object_ids_reads_every_tracked_path(self) -> None:
-        # Names on standard input, a full id beside a revision expression, and a full id with the suffix ^{}.
-        for entry in ("tests/git_batch.py", "tests/git_mixed.py", "tests/git_peeled.py"):
+        # Names on standard input and a full id with the suffix ^{} still read **; a full id beside HEAD:<path>
+        # attributes each operand to its paths.
+        for entry in ("tests/git_batch.py", "tests/git_peeled.py"):
             self.assertEqual(["**", entry], self.reads(entry)["paths"], entry)
+        self.assertEqual(["held/also-one.txt", "held/one.txt", "lib/helper.py", "tests/git_mixed.py"],
+                         self.reads("tests/git_mixed.py")["paths"])
 
     def test_a_git_process_that_reads_the_configuration_reads_every_tracked_path_through_discovery(self) -> None:
         self.assertEqual(["**", "tests/git_config.py"], self.reads("tests/git_config.py")["paths"])
@@ -632,8 +635,8 @@ class ClassificationRules:
 
     def test_a_git_process_in_a_checkout_that_is_a_linked_worktree_reads_its_git_and_common_directory(self) -> None:
         fixture = self.linked()
-        self.assertEqual(["**", "tests/linked_revisions.py"], fixture.reads_of("tests/linked_revisions.py")["paths"])
-        self.assertEqual(["**"], fixture.reads_of("tests/linked_names.py")["directory_memberships"])
+        self.assertEqual(["**", "lib/helper.py", "tests/linked_revisions.py"], fixture.reads_of("tests/linked_revisions.py")["paths"])
+        self.assertEqual(["**", "lib/**"], fixture.reads_of("tests/linked_names.py")["directory_memberships"])
 
 
 @requires_posix_paths
@@ -732,9 +735,12 @@ class StoredStraceClassificationTests(ClassificationRules, unittest.TestCase):
         self.assertEqual(["tests/git_pathspecs.py"], reads["paths"])
 
     def test_git_ls_files_with_a_pathspec_variable_a_working_directory_below_the_root_or_other_magic_is_every_path(self) -> None:
-        for entry in ("tests/git_pathspec_variable.py", "tests/git_pathspec_subdirectory.py", "tests/git_pathspec_magic.py"):
+        for entry in ("tests/git_pathspec_variable.py", "tests/git_pathspec_magic.py"):
             with self.subTest(entry=entry):
                 self.assertEqual(["**"], self.reads(entry)["directory_memberships"])
+        sub = self.reads("tests/git_pathspec_subdirectory.py")
+        self.assertEqual(["lib/helper.py/**"], sub["directory_memberships"])
+        self.assertEqual("any", self.existence("tests/git_pathspec_subdirectory.py")["lib/helper.py"])
 
     def test_select_runs_a_pathspec_listing_on_a_change_that_its_pathspecs_can_list_and_on_no_other(self) -> None:
         fixture = self.recorded(STRACE_FILES)
@@ -1089,7 +1095,7 @@ class StatOnlyClassificationTests(unittest.TestCase):
         held_reads = recording.unit_reads(recording.UnitRecording(held_only, None, project, self.ROOT), recording.Start("python3", self.ROOT, ())).paths
         unheld_reads = recording.unit_reads(recording.UnitRecording(unheld, None, project, self.ROOT), recording.Start("python3", self.ROOT, ())).paths
         self.assertEqual({"held/also-one.txt", "held/one.txt"}, held_reads)
-        self.assertIn("**", unheld_reads)
+        self.assertEqual(set(), unheld_reads)
 
     def test_stored_covers_existence_soundness_and_linear_scaling(self) -> None:
         recording = self.recording
@@ -1109,6 +1115,249 @@ class StatOnlyClassificationTests(unittest.TestCase):
         self.assertTrue(all(large_stored.covers_path(path) for path in many))
         self.assertTrue(large_stored.covers_existence("pkg", "directory"))
         self.assertFalse(large_stored.covers_existence("other", "directory"))
+
+
+class GitAttributionTests(unittest.TestCase):
+    """Attribution of Git reads to tracked paths or none across commands, global options, replace refs, copies and
+    non-Git readers of Git state."""
+
+    ROOT = "/checkout"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.recording = load_recording()
+        files = {
+            **SIBLING_FILES,
+            **HELD_FILES,
+            "src/app.py": "print('app')\n",
+            "src/sub/mod.py": "VALUE = 2\n",
+            "docs/guide.md": "# Guide\n",
+        }
+        cls.fixture = RecordingFixture(cls.addClassCleanup, files, [suite("a", ["tests/test_a.py"], paths=[])], stand_in=False)
+        cls.head_commit = cls.fixture.git("rev-parse", "HEAD").strip()
+        cls.head_tree = cls.fixture.git("rev-parse", "HEAD^{tree}").strip()
+        cls.project = replace_git_dirs(cls.recording.checkout(cls.fixture.root), (f"{cls.ROOT}/.git",))
+        cls.unheld_commit = "a" * 40
+        cls.other_commit = "b" * 40
+
+    def git_reads(self, argv: tuple[str, ...], *, cwd: str | None = None, environment: tuple[str, ...] | None = (),
+                  fold: bool = False, project=None, copies: list[str] = (), git_state_path: str | None = None):
+        recording = self.recording
+        target_project = project or self.project
+        effective_cwd = self.ROOT if cwd is None else cwd
+        state_file = git_state_path or f"{self.ROOT}/.git/HEAD"
+        events = [
+            recording.Event(OTHER, "git", "exec", "/usr/bin/git", effective_cwd, argv, environment),
+            recording.Event(OTHER, "git", "read", state_file, effective_cwd),
+        ]
+        return recording.git_directory_reads(events, list(copies), target_project, self.ROOT, fold=fold)
+
+    def test_cat_file_of_unheld_full_object_id_adds_no_tracked_path(self) -> None:
+        for argv in (
+            ("git", "cat-file", "-p", UNHELD_BLOB_ID),
+            ("git", "cat-file", "-e", UNHELD_BLOB_ID),
+            ("git", "cat-file", "-t", UNHELD_BLOB_ID),
+            ("git", "cat-file", "-s", UNHELD_BLOB_ID),
+            ("git", "cat-file", "blob", UNHELD_BLOB_ID),
+        ):
+            with self.subTest(argv=argv):
+                reads = self.git_reads(argv)
+                self.assertEqual((set(), set(), {}), (reads.paths, reads.memberships, reads.existence))
+
+    def test_cat_file_of_held_blob_and_tree_adds_their_tracked_paths(self) -> None:
+        self.assertEqual({"held/also-one.txt", "held/one.txt"}, self.git_reads(("git", "cat-file", "-p", ONE_BLOB_ID)).paths)
+        self.assertEqual({"held/**"}, self.git_reads(("git", "cat-file", "-p", HELD_TREE_ID)).paths)
+        self.assertEqual({"**"}, self.git_reads(("git", "cat-file", "-p", self.head_commit)).paths)
+        self.assertEqual({"**"}, self.git_reads(("git", "cat-file", "-p", self.head_tree)).paths)
+
+    def test_cat_file_and_show_of_unheld_full_commit_path_add_no_tracked_path(self) -> None:
+        for argv in (
+            ("git", "cat-file", "-p", f"{self.unheld_commit}:src/app.py"),
+            ("git", "show", f"{self.unheld_commit}:src/app.py"),
+        ):
+            with self.subTest(argv=argv):
+                reads = self.git_reads(argv)
+                self.assertEqual((set(), set(), {}), (reads.paths, reads.memberships, reads.existence))
+
+    def test_show_and_cat_file_of_head_and_head_commit_path_add_file_or_directory_glob(self) -> None:
+        for argv in (
+            ("git", "show", "HEAD:src/app.py"),
+            ("git", "cat-file", "-p", "HEAD:src/app.py"),
+            ("git", "show", f"{self.head_commit}:src/app.py"),
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual({"src/app.py"}, self.git_reads(argv).paths)
+        for argv in (
+            ("git", "show", "HEAD:src"),
+            ("git", "cat-file", "-p", "HEAD:src"),
+            ("git", "show", f"{self.head_commit}:src/sub"),
+        ):
+            expected = {"src/sub/**"} if "src/sub" in argv[-1] else {"src/**"}
+            with self.subTest(argv=argv):
+                self.assertEqual(expected, self.git_reads(argv).paths)
+
+    def test_ls_tree_with_prefix_adds_prefix_and_subtree_only(self) -> None:
+        reads = self.git_reads(("git", "ls-tree", "HEAD", "--", "src/sub"))
+        self.assertEqual({"src/sub", "src/sub/**"}, reads.paths)
+        self.assertEqual(set(), reads.memberships)
+
+    def test_archive_with_paths_adds_paths_and_ancestor_gitattributes_only(self) -> None:
+        reads = self.git_reads(("git", "archive", "HEAD", "--", "src/sub/mod.py", "docs"))
+        self.assertEqual({"src/sub/mod.py", "src/sub/.gitattributes", "src/.gitattributes", ".gitattributes",
+                          "docs/**", "docs/.gitattributes"}, reads.paths)
+        self.assertNotIn("**", reads.paths)
+
+    def test_rev_parse_location_and_merge_base_of_full_ids_add_no_tracked_path(self) -> None:
+        for argv in (
+            ("git", "rev-parse", "--show-toplevel"),
+            ("git", "rev-parse", "--git-dir"),
+            ("git", "rev-parse", "--show-prefix"),
+            ("git", "rev-parse", "--is-inside-work-tree"),
+            ("git", "merge-base", self.unheld_commit, self.other_commit),
+        ):
+            with self.subTest(argv=argv):
+                reads = self.git_reads(argv)
+                self.assertEqual((set(), set(), {}), (reads.paths, reads.memberships, reads.existence))
+
+    def test_ref_dependent_and_whole_tree_commands_add_every_path(self) -> None:
+        for argv in (
+            ("git", "rev-parse", "HEAD"),
+            ("git", "rev-parse", "main"),
+            ("git", "describe"),
+            ("git", "for-each-ref"),
+            ("git", "merge-base", "HEAD", "main"),
+            ("git", "show", "HEAD"),
+            ("git", "log", "-p"),
+            ("git", "ls-tree", "-r", "HEAD"),
+            ("git", "archive", "HEAD"),
+            ("git", "diff", "HEAD~1", "HEAD"),
+            ("git", "status"),
+            ("git", "diff"),
+            ("git", "add", "-A"),
+            ("git", "commit", "-m", "msg"),
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual({"**"}, self.git_reads(argv).paths)
+
+    def test_diff_and_add_with_pathspec_add_path_and_no_every_path(self) -> None:
+        self.assertEqual({"src/app.py"}, self.git_reads(("git", "diff", "--", "src/app.py")).paths)
+        self.assertEqual({"src/app.py"}, self.git_reads(("git", "add", "--", "src/app.py")).paths)
+        self.assertEqual({"src/**"}, self.git_reads(("git", "diff", "--", "src")).paths)
+        self.assertEqual({"src/app.py"}, self.git_reads(("git", "restore", "--", "src/app.py")).paths)
+        self.assertEqual({"src/app.py"}, self.git_reads(("git", "checkout", "HEAD", "--", "src/app.py")).paths)
+        self.assertEqual({"src/app.py"}, self.git_reads(("git", "grep", "-n", "app", "--", "src/app.py")).paths)
+        # Unlisted or unsafe options on diff/grep fall back to **.
+        for argv in (
+            ("git", "diff", "--textconv", "--", "src/app.py"),
+            ("git", "diff", "--recurse-submodules", "--", "src/app.py"),
+            ("git", "diff", "--unknown-flag", "--", "src/app.py"),
+            ("git", "grep", "--untracked", "app", "--", "src/app.py"),
+            ("git", "grep", "--recurse-submodules", "app", "--", "src/app.py"),
+            ("git", "grep", "--unknown-flag", "app", "--", "src/app.py"),
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual({"**"}, self.git_reads(argv).paths)
+
+    def test_index_lookup_adds_ancestor_gitattributes_and_absent_rev_path_covers_dir_and_file(self) -> None:
+        self.assertEqual({"src/sub/mod.py", "src/sub/.gitattributes", "src/.gitattributes", ".gitattributes"},
+                         self.git_reads(("git", "show", ":src/sub/mod.py")).paths)
+        self.assertEqual({"old_dir", "old_dir/**"},
+                         self.git_reads(("git", "show", "HEAD~1:old_dir")).paths)
+
+    def test_windows_attached_drive_options_resolve_paths(self) -> None:
+        converted = self.recording.windows_arguments(
+            ["git", "-CD:\\checkout\\src", "--work-tree=D:\\checkout", "diff", "--", "sub/mod.py"]
+        )
+        self.assertEqual(["git", "-C/D:/checkout/src", "--work-tree=/D:/checkout", "diff", "--", "sub/mod.py"], converted)
+        win_project = replace_git_dirs(self.project, ("/D:/checkout/.git",))
+        events = [
+            self.recording.Event(OTHER, "git", "exec", "/D:/Git/git.exe", None, tuple(converted), None),
+            self.recording.Event(OTHER, "git", "read", "/D:/checkout/.git/HEAD", None),
+        ]
+        self.assertEqual({"src/sub/mod.py"},
+                         self.recording.git_directory_reads(events, [], win_project, "/D:/checkout", fold=True).paths)
+
+    def test_global_options_resolve_paths_and_unlisted_config_keeps_every_path(self) -> None:
+        self.assertEqual({"src/sub/mod.py"},
+                         self.git_reads(("git", "-C", f"{self.ROOT}/src", "diff", "--", "sub/mod.py")).paths)
+        self.assertEqual({"src/app.py"},
+                         self.git_reads(("git", "--no-pager", "show", "HEAD:src/app.py")).paths)
+        self.assertEqual({"src/app.py"},
+                         self.git_reads(("git", "-c", "core.quotepath=false", "show", "HEAD:src/app.py")).paths)
+        self.assertEqual({"**"},
+                         self.git_reads(("git", "-c", "core.attributesFile=/tmp/attrs", "show", "HEAD:src/app.py")).paths)
+
+    def test_windows_unknown_environment_attributes_pathspecs_and_keeps_icase_at_every_path(self) -> None:
+        reads = self.git_reads(("git", "diff", "--", "src/*.py"), environment=None, fold=True)
+        self.assertEqual({"src/**.py", "src/**.py/**"}, reads.paths)
+        self.assertEqual({"**"}, self.git_reads(("git", "--icase-pathspecs", "diff", "--", "src/app.py"), environment=None, fold=True).paths)
+        self.assertEqual({"**"}, self.git_reads(("git", "diff", "--", ":(icase)src/app.py"), environment=None, fold=True).paths)
+
+    def test_replace_refs_loose_and_packed_prevent_empty_attribution_unless_switched_off(self) -> None:
+        recording = self.recording
+        for storage in ("loose", "packed"):
+            with self.subTest(storage=storage):
+                fixture = RecordingFixture(self.addCleanup, {**SIBLING_FILES, **HELD_FILES}, [suite("a", ["tests/test_a.py"], paths=[])], stand_in=False)
+                project = replace_git_dirs(recording.checkout(fixture.root), (f"{self.ROOT}/.git",))
+                if storage == "loose":
+                    replace_dir = fixture.root / ".git" / "refs" / "replace"
+                    replace_dir.mkdir(parents=True, exist_ok=True)
+                    (replace_dir / UNHELD_BLOB_ID).write_text(ONE_BLOB_ID + "\n", encoding="utf-8")
+                    (replace_dir / self.unheld_commit).write_text(self.other_commit + "\n", encoding="utf-8")
+                else:
+                    packed = fixture.root / ".git" / "packed-refs"
+                    packed.write_text(f"{ONE_BLOB_ID} refs/replace/{UNHELD_BLOB_ID}\n"
+                                      f"{self.other_commit} refs/replace/{self.unheld_commit}\n", encoding="utf-8")
+                # Replaced by held blob -> attributes to held blob's paths.
+                self.assertEqual({"held/also-one.txt", "held/one.txt"},
+                                 self.git_reads(("git", "cat-file", "-p", UNHELD_BLOB_ID), project=project).paths)
+                # Replaced by unheld object -> falls back to **, never empty.
+                self.assertEqual({"**"}, self.git_reads(("git", "cat-file", "-p", self.unheld_commit), project=project).paths)
+                # Switching replace refs off restores unheld empty attribution.
+                self.assertEqual(set(), self.git_reads(("git", "--no-replace-objects", "cat-file", "-p", UNHELD_BLOB_ID), project=project).paths)
+                self.assertEqual(set(), self.git_reads(("git", "-c", "core.useReplaceRefs=false", "cat-file", "-p", UNHELD_BLOB_ID), project=project).paths)
+                self.assertEqual(set(), self.git_reads(("git", "cat-file", "-p", UNHELD_BLOB_ID),
+                                                       environment=("GIT_NO_REPLACE_OBJECTS=1",), project=project).paths)
+
+    def test_reads_in_repository_copy_follow_same_rules_and_copy_only_object_adds_nothing(self) -> None:
+        copy_root = "/tmp/work/copy"
+        self.assertEqual({"src/app.py"},
+                         self.git_reads(("git", "show", "HEAD:src/app.py"), cwd=copy_root, copies=[copy_root],
+                                        git_state_path=f"{copy_root}/.git/HEAD").paths)
+        copy_only_blob = object_id("blob", b"created only in copy")
+        self.assertEqual(set(),
+                         self.git_reads(("git", "cat-file", "-p", copy_only_blob), cwd=copy_root, copies=[copy_root],
+                                        git_state_path=f"{copy_root}/.git/objects/{copy_only_blob[:2]}/{copy_only_blob[2:]}").paths)
+
+    def test_non_git_listing_of_objects_or_refs_adds_nothing_while_opening_index_object_or_pack_adds_every_path(self) -> None:
+        recording = self.recording
+        list_only = [
+            recording.Event(PYTHON, "python3", "diropen", f"{self.ROOT}/.git/objects", self.ROOT),
+            recording.Event(PYTHON, "python3", "list", f"{self.ROOT}/.git/objects", self.ROOT),
+            recording.Event(PYTHON, "python3", "statdir", f"{self.ROOT}/.git/objects/ab", self.ROOT),
+            recording.Event(PYTHON, "python3", "list", f"{self.ROOT}/.git/refs", self.ROOT),
+            recording.Event(PYTHON, "python3", "list", f"{self.ROOT}/.git/refs/heads", self.ROOT),
+        ]
+        reads = recording.git_directory_reads(list_only, [], self.project, self.ROOT)
+        self.assertEqual((set(), set(), {}), (reads.paths, reads.memberships, reads.existence))
+        for path in (f"{self.ROOT}/.git/index", f"{self.ROOT}/.git/objects/ab/cdef", f"{self.ROOT}/.git/objects/pack/pack-1.pack"):
+            with self.subTest(path=path):
+                opened = [recording.Event(PYTHON, "python3", "read", path, self.ROOT)]
+                self.assertEqual({"**"}, recording.git_directory_reads(opened, [], self.project, self.ROOT).paths)
+
+    def test_batch_helper_and_unrecorded_git_command_still_add_every_path(self) -> None:
+        recording = self.recording
+        self.assertEqual({"**"}, self.git_reads(("git", "cat-file", "--batch")).paths)
+        helper_events = [
+            recording.Event(OTHER, "git-lfs", "exec", "/usr/bin/git-lfs", self.ROOT, ("git-lfs", "pointer")),
+            recording.Event(OTHER, "git-lfs", "read", f"{self.ROOT}/.git/HEAD", self.ROOT),
+        ]
+        self.assertEqual({"**"}, recording.git_directory_reads(helper_events, [], self.project, self.ROOT).paths)
+        no_cmd_events = [
+            recording.Event(OTHER, "git", "exec", "/usr/bin/git", self.ROOT, None),
+            recording.Event(OTHER, "git", "read", f"{self.ROOT}/.git/HEAD", self.ROOT),
+        ]
+        self.assertEqual({"**"}, recording.git_directory_reads(no_cmd_events, [], self.project, self.ROOT).paths)
 
 
 def replace_git_dirs(project, directories: tuple[str, ...]):

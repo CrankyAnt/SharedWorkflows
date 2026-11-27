@@ -256,7 +256,7 @@ The `select` job's summary lists every suite with its decision and reason. On a 
 
 ## The recording and its check
 
-The recording step records what each setup and entry file reads, on Linux under `strace` and on Windows through an ETW session, and its `check` compares the reads with the stored lists of the suites and entry files that ran. A read of a path that the ignore rules match and that is not tracked is no read, so build output and caches select nothing. A setup's reads belong to the lists of every suite and entry file in its job that states it.
+The recording step records what each setup and entry file reads, on Linux under `strace` and on Windows through an ETW session, and its `check` compares the reads with the stored lists of the suites and entry files that ran. A read of a path that the ignore rules match and that is not tracked is no read, so build output and caches select nothing. Git reads of `.git/` state are attributed to the tracked paths their command depends on (or to none for history objects not held by `HEAD` and location queries), and record `**` only for whole-tree or unattributable reads. A setup's reads belong to the lists of every suite and entry file in its job that states it.
 
 Each read outside the stored lists is an addition: `check` lists the additions in the job summary, uploads `recording-additions-*` as an artifact, and fails the job, so `ci / verdict` fails. A suite without a stored list always reports additions. When a shard has no read additions but recorded exit-0 entry times or clean list replacements, `check` uploads `recording-entry-times-*` and passes.
 
