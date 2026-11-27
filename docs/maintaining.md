@@ -1434,18 +1434,9 @@ A tool that pip installs, such as `reuse`, `ruff` or `mypy`, is an entry under `
 
 ### Change this repository's Gitleaks configuration or baseline
 
-`.gitleaks.toml` and `.gitleaks-baseline.json` at the repository root are this repository's own. The job `repository-hygiene` of its pipeline takes them by those names; the scans before the push in `update-ci-pins.yml`, `update-publication-spec.yml`, `rebuild-etw-consumer.yml` read them too, and the jobs `additions` and `full-recording-close` of `automation.yml` take them by those names.
+`.gitleaks.toml` and `.gitleaks-baseline.json` at the repository root are this repository's own. Change them as [The Gitleaks configuration and baseline](../actions/pipeline/consumer-kit/README.md#the-gitleaks-configuration-and-baseline) in the pipeline's consumer kit says, for the baseline policy, the criteria for its own rules and allowlists and the steps to accept a reviewed finding.
 
-1. Change the rules or allowlists in `.gitleaks.toml`. Keep the allowlist for `.gitleaks-baseline.json`, which holds the accepted findings themselves.
-2. To accept findings that are not secrets, write a report of every finding that the current baseline does not cover, with the pinned Gitleaks, after `git fetch --prune origin`. `HEAD --remotes=origin` scans the branch and every pushed branch. Locally, `--all` would also scan branches that were never pushed; CI's `--all` runs in a fresh checkout, where it covers the pushed branches and tags.
-
-   ```text
-   gitleaks git --config .gitleaks.toml --baseline-path .gitleaks-baseline.json --log-opts="HEAD --remotes=origin" --redact --report-format json --report-path <temporary file> --no-banner --no-color
-   ```
-
-   Review each entry. A real secret never goes into the baseline; report it to the user. Add only the reviewed entries, unchanged, to the array in `.gitleaks-baseline.json`.
-3. Check that the same history passes, with the scan above without the report options, and validate as [Validation](#validation) says. The pull request's `ci / verdict` check scans the full history again with the changed files.
-4. Neither file is part of the shared surface, and every caller uses its own files, so the change reaches no caller. The updaters check out `main`, so they use the change from the merge on.
+Besides the readers that the section names for every consumer, the scans before the push in `update-ci-pins.yml`, `update-publication-spec.yml` and `rebuild-etw-consumer.yml` read both files. These updaters check out `main`, so they read a change from the merge on.
 
 ### Change an auto-merge rule
 
