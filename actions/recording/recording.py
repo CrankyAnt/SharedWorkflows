@@ -96,7 +96,18 @@ POWERSHELL = frozenset({"pwsh", "powershell"})
 NODE = frozenset({"node", "tsc"})  # the programs of a Node process, as program_name gives them
 MAIN_STREAM = "::$DATA"
 # The options that take their value as the next argument: Git's own before the command, git clone's and git worktree add's.
-GIT_OPTIONS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
+GIT_OPTIONS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix", "--attr-source"})
+# Global options of Git that do not alter which tracked paths a command reads.
+GIT_SAFE_GLOBAL_FLAGS = frozenset({"--no-pager", "-P", "--paginate", "-p", "--no-optional-locks", "--no-lazy-fetch", "--no-advice",
+                                   "--no-replace-objects", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"})
+# Configuration names allowed with ``git -c <name>=<value>`` without falling back to ``**``: none alters which paths are read.
+GIT_SAFE_CONFIG = frozenset({
+    "user.name", "user.email", "user.signingkey", "commit.gpgsign", "tag.gpgsign",
+    "color.ui", "color.diff", "color.status", "color.branch", "color.interactive", "color.pager",
+    "core.pager", "core.quotepath", "core.autocrlf", "core.safecrlf", "core.eol", "core.filemode",
+    "core.protectntfs", "core.longpaths", "core.usereplacerefs",
+    "advice.detachedhead", "safe.directory", "gc.auto", "protocol.file.allow",
+})
 CLONE_OPTIONS_WITH_VALUE = frozenset({"-o", "-b", "-u", "-c", "-j", "--origin", "--branch", "--upload-pack", "--reference",
                                       "--reference-if-able", "--separate-git-dir", "--depth", "--shallow-since", "--shallow-exclude",
                                       "--config", "--server-option", "--jobs", "--template", "--filter", "--bundle-uri", "--revision",
@@ -108,11 +119,55 @@ EVERY_PATH = "**"
 # The options of git ls-files that keep its output to the names of tracked paths.
 LS_FILES_NAME_OPTIONS = frozenset({"-z", "-c", "--cached", "--full-name", "--deduplicate", "--error-unmatch", "--sparse", "--exclude-standard",
                                    "--pathspec-from-file", "--pathspec-file-nul"})
-# The environment variables that change how Git reads a pathspec.
-PATHSPEC_VARIABLES = frozenset({"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"})
+# The environment variables that change how Git reads pathspecs or replace refs.
+GIT_ENV_VARIABLES = frozenset({"GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS",
+                               "GIT_NO_REPLACE_OBJECTS"})
 # The short magic signs of a pathspec: top, exclude and its other spelling.
 SHORT_MAGIC = "/!^"
 CAT_FILE_MODES = frozenset({"-t", "-s", "-e", "-p"})  # without one, the first operand is the type
+CAT_FILE_SAFE_FLAGS = CAT_FILE_MODES | frozenset({"--allow-unknown-type"})
+CAT_FILE_TYPES = frozenset({"blob", "tree", "commit", "tag"})
+GIT_SHOW_SAFE_FLAGS = frozenset({"-s", "--no-patch", "-q", "--quiet", "--no-color", "--color", "--no-textconv", "--no-filters"})
+GIT_LS_TREE_SAFE_FLAGS = frozenset({"-d", "-r", "-t", "-l", "--long", "-z", "--name-only", "--name-status", "--object-only",
+                                    "--full-name", "--full-tree", "--abbrev"})
+GIT_ARCHIVE_VALUE_OPTIONS = frozenset({"--format", "-o", "--output", "--prefix", "--add-file", "--add-virtual-file", "--mtime"})
+GIT_ARCHIVE_SAFE_FLAGS = frozenset({"-l", "--list", "-v", "--verbose", "--worktree-attributes", "-0", "-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"})
+GIT_REV_PARSE_NO_PATH_FLAGS = frozenset({
+    "--git-dir", "--absolute-git-dir", "--git-common-dir", "--show-toplevel", "--show-superproject-working-tree",
+    "--show-prefix", "--show-cdup", "--is-inside-git-dir", "--is-inside-work-tree", "--is-bare-repository",
+    "--is-shallow-repository", "-q", "--quiet",
+})
+GIT_MERGE_BASE_SAFE_FLAGS = frozenset({"--is-ancestor", "--octopus", "--independent", "--all", "-a"})
+GIT_DIFF_VALUE_OPTIONS = frozenset({
+    "-U", "--unified", "--diff-filter", "--color", "--word-diff", "--word-diff-regex", "--abbrev",
+    "--src-prefix", "--dst-prefix", "--line-prefix", "--inter-hunk-context", "--output", "--relative",
+    "-M", "--find-renames",
+})
+GIT_DIFF_SAFE_FLAGS = frozenset({
+    "--cached", "--staged", "--name-only", "--name-status", "--stat", "--numstat", "--shortstat", "--raw",
+    "-p", "-u", "--patch", "--no-patch", "-s", "-q", "--quiet", "--exit-code", "--no-color", "--color",
+    "--no-ext-diff", "--no-textconv", "--no-renames", "-M", "--find-renames", "-w", "--ignore-all-space",
+    "-b", "--ignore-space-change", "--ignore-blank-lines", "--no-prefix", "--full-index", "--binary",
+    "--check", "-R", "--relative", "--summary", "--compact-summary", "--no-stat", "--patch-with-stat",
+})
+GIT_ADD_SAFE_FLAGS = frozenset({
+    "-n", "--dry-run", "-v", "--verbose", "-f", "--force", "-u", "--update", "-A", "--all", "--no-all",
+    "--ignore-removal", "-N", "--intent-to-add", "--refresh", "--ignore-errors", "--ignore-missing", "--renormalize", "--sparse",
+})
+GIT_RESTORE_VALUE_OPTIONS = frozenset({"-s", "--source"})
+GIT_RESTORE_SAFE_FLAGS = frozenset({"-W", "--worktree", "-S", "--staged", "-q", "--quiet", "--ignore-unmerged",
+                                    "--overlay", "--no-overlay", "--ours", "--theirs", "-m", "--merge"})
+GIT_CHECKOUT_SAFE_FLAGS = frozenset({"-q", "--quiet", "-f", "--force", "--ours", "--theirs", "-m", "--merge",
+                                     "--overlay", "--no-overlay", "--ignore-skip-worktree-bits"})
+GIT_GREP_VALUE_OPTIONS = frozenset({"-e", "-f", "-m", "--max-count", "-A", "--after-context", "-B", "--before-context",
+                                    "-C", "--context", "--max-depth", "--threads", "--color"})
+GIT_GREP_SAFE_FLAGS = frozenset({
+    "-n", "--line-number", "-l", "--files-with-matches", "-L", "--files-without-match", "-c", "--count",
+    "-i", "--ignore-case", "-v", "--invert-match", "-w", "--word-regexp", "-F", "--fixed-strings",
+    "-E", "--extended-regexp", "-G", "--basic-regexp", "-P", "--perl-regexp", "-q", "--quiet", "-I",
+    "--cached", "-h", "-H", "-o", "--only-matching", "--name-only", "--full-name", "--no-color", "--color",
+    "--heading", "--break", "-z", "--null", "--and", "--or", "--not", "-a", "--text",
+})
 FULL_OBJECT_ID = re.compile(r"^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})(\^\{(blob|tree|commit|tag|object)\})?$")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 UNITTEST_RAN = re.compile(r"^Ran \d+ tests? in ", re.MULTILINE)
@@ -662,7 +717,7 @@ def run_exec(options: argparse.Namespace) -> int:
         label = f"{unit_name} ({options.suite})" if options.suite else unit_name
         print(f"{label} timed out after {timeout:g} s", file=sys.stderr, flush=True)
     if not etw and trace.is_file():
-        keep_pathspec_variables(trace)
+        keep_git_env_variables(trace)
     text = log.decode("utf-8", "replace")
     skipped, deselected, incomplete = skip_count(text)
     (output / "logs" / f"{unit}.log").write_text(text, encoding="utf-8")
@@ -815,8 +870,8 @@ def array_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-def with_pathspec_variables_only(line: str) -> str:
-    """A strace line with only the pathspec variables left in the environment of an exec."""
+def with_git_env_variables_only(line: str) -> str:
+    """A strace line with only the Git pathspec and replace-ref variables left in the environment of an exec."""
     space = line.find(" ")
     paren = line.find("(", space + 1)
     if space <= 0 or paren < 0 or line[space + 1:paren].strip() not in EXECS:
@@ -825,22 +880,22 @@ def with_pathspec_variables_only(line: str) -> str:
     if len(spans) < 2:
         return line
     start, end = paren + spans[1][0], paren + spans[1][1]
-    kept = [item for item in STRING.findall(line[start:end]) if is_pathspec_variable(unescape(item))]
+    kept = [item for item in STRING.findall(line[start:end]) if is_git_env_variable(unescape(item))]
     return line[:start] + "[" + ", ".join(f'"{item}"' for item in kept) + "]" + line[end:]
 
 
-def is_pathspec_variable(entry: str) -> bool:
-    """Whether an environment entry ``<name>=<value>`` sets a pathspec variable."""
-    return entry.split("=", 1)[0] in PATHSPEC_VARIABLES
+def is_git_env_variable(entry: str) -> bool:
+    """Whether an environment entry ``<name>=<value>`` sets a kept Git environment variable."""
+    return entry.split("=", 1)[0] in GIT_ENV_VARIABLES
 
 
-def keep_pathspec_variables(trace: Path) -> None:
-    """Keep only the pathspec variables in the environment of each exec in ``trace``."""
+def keep_git_env_variables(trace: Path) -> None:
+    """Keep only the Git pathspec and replace-ref variables in the environment of each exec in ``trace``."""
     kept = trace.with_name(trace.name + ".kept")
     with trace.open("r", encoding="utf-8", errors="surrogateescape") as source, \
             kept.open("w", encoding="utf-8", errors="surrogateescape", newline="") as target:
         for line in source:
-            target.write(with_pathspec_variables_only(line))
+            target.write(with_git_env_variables_only(line))
     kept.replace(trace)
 
 
@@ -1180,8 +1235,20 @@ def dos_form(path: str) -> str:
 
 
 def windows_arguments(command: list[str], convert=dos_form) -> list[str]:
-    """The arguments with forward slashes, each one that starts with a drive converted by ``convert``."""
-    return [convert(argument) if re.match(r"^[A-Za-z]:[\\/]", argument) else argument.replace("\\", "/") for argument in command]
+    """The arguments with forward slashes, each drive-prefixed path (standalone or after ``-C`` / ``--<opt>=``)
+    converted by ``convert``."""
+    converted: list[str] = []
+    for argument in command:
+        if re.match(r"^[A-Za-z]:[\\/]", argument):
+            converted.append(convert(argument))
+        elif argument.startswith("-C") and re.match(r"^[A-Za-z]:[\\/]", argument[2:]):
+            converted.append("-C" + convert(argument[2:]))
+        elif "=" in argument and re.match(r"^[A-Za-z]:[\\/]", argument.split("=", 1)[1]):
+            option, value = argument.split("=", 1)
+            converted.append(option + "=" + convert(value))
+        else:
+            converted.append(argument.replace("\\", "/"))
+    return converted
 
 
 def attribute(lines: list[EtwLine], records: list[dict]) -> dict[str, list[tuple[int, EtwLine]]]:
@@ -1489,15 +1556,17 @@ def is_git(executable: str) -> bool:
     return executable == "git" or executable.startswith("git-")
 
 
-def in_git_state(path: str, directories: list[str]) -> bool:
-    """Whether ``path`` lies in the index, objects or refs of one of the Git ``directories``, or of a linked worktree
-    whose directory lies in one of them."""
+def git_state_path(path: str, directories: list[str]) -> str | None:
+    """The path relative to one of the Git ``directories`` (with ``worktrees/<name>/`` stripped) when ``path`` lies in
+    the index, objects or refs of that directory, or None."""
     folded = path.lower()
     for directory in directories:
         if folded.startswith(directory.lower() + "/"):
             parts = path[len(directory) + 1:].split("/")
-            return INDEX_OBJECTS_OR_REFS.match("/".join(parts[2:] if parts[0] == "worktrees" else parts)) is not None
-    return False
+            relative = "/".join(parts[2:] if parts[0] == "worktrees" else parts)
+            if INDEX_OBJECTS_OR_REFS.match(relative) is not None:
+                return relative
+    return None
 
 
 def git_command(event: Event | None) -> tuple[str, list[str], list[str]] | None:
@@ -1522,67 +1591,626 @@ def prints_only_names(arguments: list[str]) -> bool:
     return True
 
 
-def pathspec_reads(pathspec: str) -> Reads | None:
-    """What one pathspec of a ``git ls-files`` can list, translated conservatively, or None for a form that only ``**``
-    covers: a literal path is an existence read of that path, of any kind, and a directory membership ``<path>/**``; a
-    pathspec with ``*`` or ``?`` a membership in which each of them is ``**``, and a ``:(glob)`` pathspec its own
-    pattern, each with ``<pattern>/**`` beside it; an ``:(exclude)`` pathspec nothing."""
-    pattern, glob = pathspec, False
+def git_env_bool(value: str) -> bool:
+    """Whether a Git boolean environment variable value is truthy."""
+    return value.strip().lower() not in ("", "0", "false", "no", "off")
+
+
+@dataclass(frozen=True)
+class GitGlobalOptions:
+    """Parsed global options and relevant environment flags of a ``git`` process."""
+
+    cwd: str | None
+    work_tree: str | None
+    pathspec_mode: str | None  # "literal", "glob", "noglob", "icase", or None
+    replace_refs_off: bool
+    unknown_env: bool
+
+
+@dataclass(frozen=True)
+class GitObjectContext:
+    """Lookup state for attributing Git object ids and ``<rev>:<path>`` expressions."""
+
+    held: dict[str, list[str]]
+    replaced: dict[str, str]
+    replace_refs_off: bool
+    replace_ref_seen: bool
+
+
+class _Exclude:
+    """Sentinel returned by ``translate_pathspec`` for an exclude pathspec."""
+
+
+EXCLUDE = _Exclude()
+
+
+def parse_git_global_options(event: Event, options: list[str]) -> GitGlobalOptions | None:
+    """Parse Git's global options before the subcommand and its environment variables, or return None when an option
+    may alter which tracked paths are read."""
+    cwd = event.cwd
+    work_tree: str | None = None
+    pathspec_mode: str | None = None
+    replace_refs_off = False
+
+    def set_mode(new_mode: str) -> bool:
+        nonlocal pathspec_mode
+        if new_mode == "icase":
+            pathspec_mode = "icase"
+            return True
+        if pathspec_mode == "icase":
+            return True
+        if pathspec_mode is not None and pathspec_mode != new_mode:
+            return False
+        pathspec_mode = new_mode
+        return True
+
+    def resolve_dir(value: str) -> str | None:
+        if re.match(r"^[A-Za-z]:[\\/]", value):
+            return dos_form(value)
+        if value.startswith("/"):
+            return normalize(value)
+        return None if cwd is None else resolve(cwd, value)
+
+    index = 0
+    while index < len(options):
+        argument = options[index]
+        if argument in ("-C", "-c", "--git-dir", "--work-tree"):
+            if index + 1 >= len(options):
+                return None
+            name, value = argument, options[index + 1]
+            index += 2
+        elif argument.startswith(("--git-dir=", "--work-tree=")):
+            name, value = argument.split("=", 1)
+            index += 1
+        elif argument.startswith("-C") and len(argument) > 2:
+            name, value = "-C", argument[2:]
+            index += 1
+        elif argument.startswith("-c") and len(argument) > 2:
+            name, value = "-c", argument[2:]
+            index += 1
+        elif argument in GIT_SAFE_GLOBAL_FLAGS:
+            if argument == "--no-replace-objects":
+                replace_refs_off = True
+            elif argument == "--literal-pathspecs":
+                if not set_mode("literal"):
+                    return None
+            elif argument == "--glob-pathspecs":
+                if not set_mode("glob"):
+                    return None
+            elif argument == "--noglob-pathspecs":
+                if not set_mode("noglob"):
+                    return None
+            elif argument == "--icase-pathspecs":
+                set_mode("icase")
+            index += 1
+            continue
+        else:
+            return None
+
+        if name == "-C":
+            cwd = resolve_dir(value)
+        elif name == "--work-tree":
+            work_tree = resolve_dir(value)
+        elif name == "--git-dir":
+            pass
+        elif name == "-c":
+            if "=" not in value:
+                return None
+            key, setting = value.split("=", 1)
+            folded_key = key.strip().lower()
+            if folded_key not in GIT_SAFE_CONFIG:
+                return None
+            if folded_key == "core.usereplacerefs" and setting.strip().lower() in ("false", "0", "no", "off"):
+                replace_refs_off = True
+
+    unknown_env = event.environment is None
+    if event.environment is not None:
+        for entry in event.environment:
+            key, _, val = entry.partition("=")
+            if key == "GIT_NO_REPLACE_OBJECTS" and val.strip().lower() not in ("0", "false", "no", "off"):
+                replace_refs_off = True
+            elif key == "GIT_ICASE_PATHSPECS" and git_env_bool(val):
+                set_mode("icase")
+            elif key == "GIT_LITERAL_PATHSPECS" and git_env_bool(val):
+                if not set_mode("literal"):
+                    return None
+            elif key == "GIT_GLOB_PATHSPECS" and git_env_bool(val):
+                if not set_mode("glob"):
+                    return None
+            elif key == "GIT_NOGLOB_PATHSPECS" and git_env_bool(val):
+                if not set_mode("noglob"):
+                    return None
+
+    return GitGlobalOptions(cwd, work_tree, pathspec_mode, replace_refs_off, unknown_env)
+
+
+def working_prefix(gopts: GitGlobalOptions, roots: list[str], *, fold: bool = False) -> str | None:
+    """The repository-relative directory against which relative pathspecs resolve, ``""`` for the root, or None when
+    the working directory is unknown or outside ``roots``."""
+    if gopts.work_tree is not None:
+        wt_rel = next((checkout_relative(gopts.work_tree, base, fold) for base in roots if checkout_relative(gopts.work_tree, base, fold) == ""), None)
+        if wt_rel is None:
+            return None
+        if gopts.cwd is not None:
+            rel = checkout_relative(gopts.cwd, gopts.work_tree, fold)
+            if rel is not None:
+                return rel
+        return ""
+    if gopts.cwd is None:
+        return None
+    for base in roots:
+        rel = checkout_relative(gopts.cwd, base, fold)
+        if rel is not None:
+            return rel
+    return None
+
+
+def collapse_relative(base: str, pattern: str) -> str | None:
+    """Join ``base`` and ``pattern`` and collapse ``.`` and ``..`` segments, returning None when the path escapes the
+    repository root, collapses to the root itself, or places ``..`` after a wildcard segment."""
+    raw = (base + "/" + pattern) if (base and pattern) else (base or pattern)
+    parts: list[str] = []
+    for segment in raw.split("/"):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if not parts or "*" in parts[-1] or "?" in parts[-1]:
+                return None
+            parts.pop()
+            continue
+        parts.append(segment)
+    return "/".join(parts) if parts else None
+
+
+def gitattributes_paths(pattern: str, *, is_dir: bool) -> set[str]:
+    """The ``.gitattributes`` files that Git reads for ``pattern``: every ancestor directory up to the repository root,
+    plus a recursive ``.gitattributes`` beneath a wildcard segment."""
+    if "*" in pattern or "?" in pattern:
+        literal_parts: list[str] = []
+        for segment in pattern.split("/"):
+            if "*" in segment or "?" in segment:
+                break
+            literal_parts.append(segment)
+        prefix = "/".join(literal_parts)
+        paths = {posixpath.join(directory, ".gitattributes") for directory in ancestors(prefix)}
+        paths.add(posixpath.join(prefix, "**", ".gitattributes") if prefix else "**/.gitattributes")
+        return paths
+    start_dir = pattern if is_dir else posixpath.dirname(pattern)
+    return {posixpath.join(directory, ".gitattributes") for directory in ancestors(start_dir)}
+
+
+def translate_pathspec(pathspec: str, prefix: str | None, mode: str | None, unknown_env: bool, *,
+                       content: bool = False, project: Checkout | None = None,
+                       literal_both: bool = False, include_gitattributes: bool = False) -> Reads | _Exclude | None:
+    """Translate one Git pathspec into conservative ``Reads``, ``EXCLUDE`` for an exclude pathspec, or None when only
+    ``**`` covers it."""
+    if mode == "icase":
+        return None
+    from_top = False
+    local_mode: str | None = None
+    pattern = pathspec
     if pathspec.startswith(":("):
         end = pathspec.find(")")
         if end < 0:
             return None
         words = pathspec[2:end].split(",")
-        if "exclude" in words:
-            return Reads()
-        if words != ["glob"]:
+        if not words or any(not word for word in words):
             return None
-        pattern, glob = pathspec[end + 1:], True
+        if "exclude" in words:
+            return EXCLUDE
+        for word in words:
+            if word == "top":
+                from_top = True
+            elif word == "literal":
+                if local_mode == "glob":
+                    return None
+                local_mode = "literal"
+            elif word == "glob":
+                if local_mode == "literal":
+                    return None
+                local_mode = "glob"
+            else:
+                return None
+        pattern = pathspec[end + 1:]
     elif pathspec.startswith(":"):
-        signs = pathspec[1:len(pathspec) - len(pathspec[1:].lstrip(SHORT_MAGIC))]
-        return Reads() if "!" in signs or "^" in signs else None
-    pattern = pattern.rstrip("/")
-    if not pattern or "[" in pattern or "\\" in pattern or any(part in ("", ".", "..") for part in pattern.split("/")):
+        rest = pathspec[1:]
+        stripped = rest.lstrip(SHORT_MAGIC)
+        signs = rest[:len(rest) - len(stripped)]
+        if not signs:
+            return None
+        if "!" in signs or "^" in signs:
+            return EXCLUDE
+        if "/" in signs:
+            from_top = True
+        pattern = stripped[1:] if stripped.startswith(":") else stripped
+
+    if local_mode is not None:
+        if mode is not None and mode != local_mode:
+            return None
+        effective_mode = local_mode
+    elif mode is not None:
+        effective_mode = mode
+    elif unknown_env:
+        effective_mode = "union"
+    else:
+        effective_mode = "noglob"
+
+    base = "" if from_top else prefix
+    if base is None:
         return None
-    if "*" in pattern or "?" in pattern:
-        # Git also lists the paths beneath a directory whose name is the pathspec itself.
-        translated = pattern if glob else pattern.replace("*", "**").replace("?", "**")
+    trailing_slash = pattern.endswith("/")
+    norm = collapse_relative(base, pattern)
+    if norm is None:
+        return None
+    if effective_mode != "literal" and ("[" in norm or "\\" in norm):
+        return None
+
+    has_wildcard = "*" in norm or "?" in norm
+    if has_wildcard:
+        translated = norm if effective_mode in ("glob", "literal") else re.sub(r"[*?]+", "**", norm)
+        if content:
+            paths = {translated, translated + "/" + EVERY_PATH}
+            if include_gitattributes:
+                paths.update(gitattributes_paths(translated, is_dir=False))
+            return Reads(paths=paths)
         return Reads(memberships={translated, translated + "/" + EVERY_PATH})
-    return Reads(existence={pattern: "any"}, memberships={pattern + "/" + EVERY_PATH})
+
+    if content:
+        is_dir = trailing_slash or (project is not None and norm in project.directories and norm not in project.tracked)
+        if literal_both:
+            paths = {norm, norm + "/" + EVERY_PATH}
+        elif is_dir:
+            paths = {norm + "/" + EVERY_PATH}
+        elif project is not None and norm in project.tracked:
+            paths = {norm}
+        else:
+            paths = {norm, norm + "/" + EVERY_PATH}
+        if include_gitattributes:
+            paths.update(gitattributes_paths(norm, is_dir=is_dir))
+        return Reads(paths=paths)
+    return Reads(existence={norm: "any"}, memberships={norm + "/" + EVERY_PATH})
 
 
-def listing_reads(event: Event, options: list[str], arguments: list[str], roots: list[str]) -> Reads:
+def translate_pathspecs(pathspecs: list[str], prefix: str | None, gopts: GitGlobalOptions, *,
+                        content: bool = False, project: Checkout | None = None,
+                        literal_both: bool = False, include_gitattributes: bool = False) -> Reads | None:
+    """Translate a list of pathspecs into ``Reads``, or None when empty, all-exclude, or any pathspec requires ``**``."""
+    if not pathspecs:
+        return None
+    reads = Reads()
+    included = False
+    for pathspec in pathspecs:
+        translated = translate_pathspec(pathspec, prefix, gopts.pathspec_mode, gopts.unknown_env,
+                                        content=content, project=project, literal_both=literal_both,
+                                        include_gitattributes=include_gitattributes)
+        if translated is None:
+            return None
+        if isinstance(translated, _Exclude):
+            continue
+        included = True
+        reads.update(translated)
+    return reads if included else None
+
+
+def listing_reads(event: Event, options: list[str], arguments: list[str], roots: list[str], *, fold: bool = False) -> Reads:
     """The reads of a ``git ls-files`` that prints only names, with Git's own ``options`` before the command and the
     command's ``arguments``: a directory membership of ``**`` without a pathspec, and otherwise what each pathspec can
-    list. A pathspec read through Git's own options, a pathspec file or the pathspec variables, or relative to a working
-    directory other than a checkout root in ``roots``, also counts as ``**``, and so does a listing whose every pathspec
-    is an exclude."""
+    list."""
     every = Reads(memberships={EVERY_PATH})
     pathspecs = [arguments[index] for index in operands(arguments, frozenset({"--pathspec-from-file"}))]
-    from_file = any(argument.split("=", 1)[0] == "--pathspec-from-file" for argument in arguments[:arguments.index("--")
-                                                                                                   if "--" in arguments else len(arguments)])
-    if not pathspecs and not from_file:
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    from_file = any(argument.split("=", 1)[0] == "--pathspec-from-file" for argument in before_dash)
+    if not pathspecs or from_file:
         return every
-    if options or from_file or event.cwd not in roots or event.environment is None \
-            or any(is_pathspec_variable(item) for item in event.environment):
+    gopts = parse_git_global_options(event, options)
+    if gopts is None:
         return every
-    reads = Reads()
-    for pathspec in pathspecs:
-        translated = pathspec_reads(pathspec)
-        if translated is None:
-            return every
-        reads.update(translated)
-    return reads if reads.memberships else every
+    prefix = working_prefix(gopts, roots, fold=fold)
+    translated = translate_pathspecs(pathspecs, prefix, gopts, content=False)
+    return translated if translated is not None else every
 
 
-def full_object_ids(arguments: list[str]) -> list[str] | None:
-    """The object ids of a ``git cat-file`` whose every object argument is a full object id, with or without a
-    ``^{<type>}`` suffix, or None."""
+def scan_git_options(before_dash: list[str], safe_flags: frozenset[str], value_options: frozenset[str] = frozenset(), *,
+                     attached_prefixes: tuple[str, ...] = ()) -> bool:
+    """Whether every option in ``before_dash`` is in ``safe_flags``, ``value_options`` (separate or ``=``-attached),
+    or starts with one of ``attached_prefixes``."""
+    index = 0
+    while index < len(before_dash):
+        argument = before_dash[index]
+        if argument.startswith("-") and argument != "-":
+            if argument in value_options:
+                if index + 1 >= len(before_dash):
+                    return False
+                index += 2
+                continue
+            if argument in safe_flags or any(argument.startswith(opt + "=") for opt in value_options) \
+                    or (attached_prefixes and argument.startswith(attached_prefixes)):
+                index += 1
+                continue
+            return False
+        index += 1
+    return True
+
+
+def split_tree_and_pathspecs(arguments: list[str], value_options: frozenset[str] = frozenset()) -> list[str] | None:
+    """The pathspec arguments of a ``<command> [options] <tree-ish> [--] <path>...`` command, or None when no pathspec
+    limits it."""
+    if "--" in arguments:
+        dash = arguments.index("--")
+        tree_operands = [arguments[index] for index in operands(arguments[:dash], value_options)]
+        if len(tree_operands) != 1:
+            return None
+        return arguments[dash + 1:] or None
+    all_operands = [arguments[index] for index in operands(arguments, value_options)]
+    return all_operands[1:] if len(all_operands) >= 2 else None
+
+
+def os_path_of(path: str) -> Path:
+    """Convert an event path (including ``/D:/...`` on Windows) to a local ``Path``."""
+    if sys.platform == "win32" and re.match(r"^/[A-Za-z]:/", path):
+        return Path(path[1:])
+    return Path(path)
+
+
+def replace_refs(directories: tuple[str, ...]) -> dict[str, str]:
+    """The replace refs (``refs/replace/<oid>`` -> target oid) in ``directories``, from ``packed-refs`` and loose ref
+    files, with loose refs taking precedence over packed ones."""
+    refs: dict[str, str] = {}
+    for directory in directories:
+        base = os_path_of(directory)
+        packed = base / "packed-refs"
+        if packed.is_file():
+            try:
+                for line in packed.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if not line or line.startswith(("#", "^")):
+                        continue
+                    parts = line.split()
+                    if len(parts) == 2 and parts[1].startswith("refs/replace/"):
+                        refs[parts[1][len("refs/replace/"):].lower()] = parts[0].lower()
+            except OSError:
+                pass
+        loose = base / "refs" / "replace"
+        if loose.is_dir():
+            for entry in sorted(loose.rglob("*")):
+                if entry.is_file():
+                    try:
+                        orig = entry.relative_to(loose).as_posix().lower()
+                        refs[orig] = entry.read_text(encoding="utf-8", errors="replace").strip().lower()
+                    except OSError:
+                        pass
+    return refs
+
+
+def resolve_object_id(object_id: str, context: GitObjectContext) -> list[str] | None:
+    """The tracked paths for a read of ``object_id``: its held paths, the replaced object's paths or ``["**"]`` when a
+    replace ref applies, or None when HEAD does not hold the object and no replace ref applies."""
+    if not context.replace_refs_off:
+        if object_id in context.replaced:
+            current = object_id
+            visited: set[str] = set()
+            while current in context.replaced and current not in visited:
+                visited.add(current)
+                current = context.replaced[current]
+            if current in visited:
+                return [EVERY_PATH]
+            paths = context.held.get(current)
+            return paths if paths else [EVERY_PATH]
+        if context.replace_ref_seen:
+            return [EVERY_PATH]
+    return context.held.get(object_id)
+
+
+def rev_path_reads(spec: str, prefix: str | None, project: Checkout, context: GitObjectContext) -> Reads | None:
+    """The reads of a ``<rev>:<path>`` or ``:<path>`` (index) object expression, or None when ``**`` is needed."""
+    if "://" in spec or ":" not in spec:
+        return None
+    if spec.startswith(":"):
+        is_index = True
+        rev = ""
+        rest = spec[1:]
+        if len(rest) >= 2 and rest[0] in "0123" and rest[1] == ":":
+            rest = rest[2:]
+        path = rest
+    else:
+        is_index = False
+        rev, path = spec.split(":", 1)
+        if not rev:
+            return None
+    if not path:
+        return None
+    trailing_slash = path.endswith("/")
+    if path.startswith(("./", "../")) or path in (".", ".."):
+        if prefix is None:
+            return None
+        norm = collapse_relative(prefix, path)
+    else:
+        norm = collapse_relative("", path)
+    if norm is None:
+        return None
+
+    def reads_for(target: str) -> Reads:
+        is_dir = trailing_slash or (target in project.directories and target not in project.tracked)
+        if is_dir:
+            paths = {target + "/" + EVERY_PATH}
+        elif target in project.tracked:
+            paths = {target}
+        else:
+            paths = {target, target + "/" + EVERY_PATH}
+        result = Reads(paths=paths)
+        if is_index:
+            result.paths.update(gitattributes_paths(target, is_dir=is_dir))
+        return result
+
+    if not is_index:
+        matched = FULL_OBJECT_ID.match(rev)
+        if matched is not None:
+            oid = matched.group(1).lower()
+            resolved = resolve_object_id(oid, context)
+            if resolved is None:
+                return Reads()
+            if EVERY_PATH in resolved:
+                return reads_for(norm)
+            if all(entry.endswith("/" + EVERY_PATH) for entry in resolved):
+                combined = Reads()
+                for entry in resolved:
+                    combined.update(reads_for(entry[:-len("/" + EVERY_PATH)] + "/" + norm))
+                return combined
+            return Reads(paths={EVERY_PATH})
+    return reads_for(norm)
+
+
+def cat_file_reads(arguments: list[str], prefix: str | None, project: Checkout, context: GitObjectContext) -> Reads | None:
+    """The reads of a ``git cat-file`` command, or None when ``**`` is needed."""
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if not scan_git_options(before_dash, CAT_FILE_SAFE_FLAGS):
+        return None
     names = [arguments[index] for index in operands(arguments, frozenset())]
-    if not CAT_FILE_MODES & set(arguments):
+    if not CAT_FILE_MODES & set(before_dash):
+        if not names or names[0] not in CAT_FILE_TYPES:
+            return None
         names = names[1:]
-    found = [FULL_OBJECT_ID.match(name) for name in names]
-    return [match.group(1).lower() for match in found if match] if names and all(found) else None
+    if not names:
+        return None
+    reads = Reads()
+    for name in names:
+        matched = FULL_OBJECT_ID.match(name)
+        if matched is not None:
+            resolved = resolve_object_id(matched.group(1).lower(), context)
+            if resolved:
+                reads.paths.update(resolved)
+        elif ":" in name and "://" not in name:
+            part = rev_path_reads(name, prefix, project, context)
+            if part is None:
+                return None
+            reads.update(part)
+        else:
+            return None
+    return reads
+
+
+def show_reads(arguments: list[str], prefix: str | None, project: Checkout, context: GitObjectContext) -> Reads | None:
+    """The reads of a ``git show`` command when every operand is a ``<rev>:<path>`` or ``:<path>``, or None."""
+    if "--" in arguments:
+        return None
+    if not scan_git_options(arguments, GIT_SHOW_SAFE_FLAGS, attached_prefixes=("--color=", "--format=", "--pretty=")):
+        return None
+    names = [argument for argument in arguments if not argument.startswith("-")]
+    if not names:
+        return None
+    reads = Reads()
+    for name in names:
+        if ":" not in name or "://" in name:
+            return None
+        part = rev_path_reads(name, prefix, project, context)
+        if part is None:
+            return None
+        reads.update(part)
+    return reads
+
+
+def ls_tree_reads(arguments: list[str], prefix: str | None, gopts: GitGlobalOptions, project: Checkout) -> Reads | None:
+    """The reads of a ``git ls-tree <rev> -- <prefix>...`` command, or None when no pathspec limits it."""
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if not scan_git_options(before_dash, GIT_LS_TREE_SAFE_FLAGS, attached_prefixes=("--abbrev=", "--format=")):
+        return None
+    pathspecs = split_tree_and_pathspecs(arguments)
+    if pathspecs is None:
+        return None
+    full_tree = "--full-tree" in before_dash
+    return translate_pathspecs(pathspecs, "" if full_tree else prefix, gopts, content=True, project=project, literal_both=True)
+
+
+def archive_reads(arguments: list[str], prefix: str | None, gopts: GitGlobalOptions, project: Checkout) -> Reads | None:
+    """The reads of a ``git archive <rev> -- <paths>...`` command, including ancestor ``.gitattributes``, or None."""
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if not scan_git_options(before_dash, GIT_ARCHIVE_SAFE_FLAGS, GIT_ARCHIVE_VALUE_OPTIONS, attached_prefixes=("-o",)):
+        return None
+    pathspecs = split_tree_and_pathspecs(arguments, GIT_ARCHIVE_VALUE_OPTIONS)
+    if pathspecs is None:
+        return None
+    return translate_pathspecs(pathspecs, prefix, gopts, content=True, project=project, include_gitattributes=True)
+
+
+def rev_parse_reads(arguments: list[str]) -> Reads | None:
+    """Empty ``Reads`` when ``git rev-parse`` queries only repository location or work-tree flags, or None."""
+    if not arguments:
+        return None
+    for argument in arguments:
+        if argument in GIT_REV_PARSE_NO_PATH_FLAGS or argument.startswith("--path-format="):
+            continue
+        return None
+    return Reads()
+
+
+def merge_base_reads(arguments: list[str], context: GitObjectContext) -> Reads | None:
+    """Empty ``Reads`` when ``git merge-base`` takes only full object ids without applicable replace refs, or None."""
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if not scan_git_options(before_dash, GIT_MERGE_BASE_SAFE_FLAGS):
+        return None
+    names = [arguments[index] for index in operands(arguments, frozenset())]
+    if len(names) < 2:
+        return None
+    for name in names:
+        matched = FULL_OBJECT_ID.match(name)
+        if matched is None:
+            return None
+        oid = matched.group(1).lower()
+        if not context.replace_refs_off and (oid in context.replaced or context.replace_ref_seen):
+            return None
+    return Reads()
+
+
+def diff_reads(arguments: list[str], prefix: str | None, gopts: GitGlobalOptions, project: Checkout) -> Reads | None:
+    """The reads of a ``git diff ... -- <path>...`` command, or None when no pathspec after ``--`` limits it or an
+    unlisted option is present."""
+    if "--" not in arguments:
+        return None
+    dash = arguments.index("--")
+    if not scan_git_options(arguments[:dash], GIT_DIFF_SAFE_FLAGS, GIT_DIFF_VALUE_OPTIONS, attached_prefixes=("-U", "-M")):
+        return None
+    pathspecs = arguments[dash + 1:]
+    return translate_pathspecs(pathspecs, prefix, gopts, content=True, project=project)
+
+
+def git_add_reads(arguments: list[str], prefix: str | None, gopts: GitGlobalOptions, project: Checkout) -> Reads | None:
+    """The reads of a ``git add [options] [--] <pathspec>...`` command, or None when no pathspec limits it."""
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if not scan_git_options(before_dash, GIT_ADD_SAFE_FLAGS, attached_prefixes=("--chmod=",)):
+        return None
+    pathspecs = arguments[arguments.index("--") + 1:] if "--" in arguments else [arguments[i] for i in operands(arguments, frozenset())]
+    return translate_pathspecs(pathspecs, prefix, gopts, content=True, project=project)
+
+
+def restore_reads(arguments: list[str], prefix: str | None, gopts: GitGlobalOptions, project: Checkout) -> Reads | None:
+    """The reads of a ``git restore [options] [--] <pathspec>...`` command, or None."""
+    before_dash = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    if not scan_git_options(before_dash, GIT_RESTORE_SAFE_FLAGS, GIT_RESTORE_VALUE_OPTIONS):
+        return None
+    pathspecs = arguments[arguments.index("--") + 1:] if "--" in arguments else [arguments[i] for i in operands(arguments, GIT_RESTORE_VALUE_OPTIONS)]
+    return translate_pathspecs(pathspecs, prefix, gopts, content=True, project=project)
+
+
+def checkout_path_reads(arguments: list[str], prefix: str | None, gopts: GitGlobalOptions, project: Checkout) -> Reads | None:
+    """The reads of a ``git checkout [<tree-ish>] -- <pathspec>...`` command, or None."""
+    if "--" not in arguments:
+        return None
+    dash = arguments.index("--")
+    if not scan_git_options(arguments[:dash], GIT_CHECKOUT_SAFE_FLAGS):
+        return None
+    pathspecs = arguments[dash + 1:]
+    return translate_pathspecs(pathspecs, prefix, gopts, content=True, project=project)
+
+
+def grep_reads(arguments: list[str], prefix: str | None, gopts: GitGlobalOptions, project: Checkout) -> Reads | None:
+    """The reads of a ``git grep ... -- <pathspec>...`` command, or None when no pathspec after ``--`` limits it or an
+    unlisted option is present."""
+    if "--" not in arguments:
+        return None
+    dash = arguments.index("--")
+    if not scan_git_options(arguments[:dash], GIT_GREP_SAFE_FLAGS, GIT_GREP_VALUE_OPTIONS):
+        return None
+    pathspecs = arguments[dash + 1:]
+    return translate_pathspecs(pathspecs, prefix, gopts, content=True, project=project)
 
 
 @functools.cache
@@ -1603,46 +2231,84 @@ def held_paths(root: Path) -> dict[str, list[str]]:
     return held
 
 
-def git_directory_reads(events: list[Event], copies: list[str], project: Checkout, root: str | None = None) -> Reads:
+def git_directory_reads(events: list[Event], copies: list[str], project: Checkout, root: str | None = None, *, fold: bool = False) -> Reads:
     """The reads of any process that reads the index, objects or refs of the checkout's Git directories or of the Git
-    directory of a repository copy in ``copies``, whose paths the .git rule of ``relative_events`` drops: a
-    ``git ls-files`` that prints only names is what ``listing_reads`` gives, a ``git cat-file`` of full object ids a
-    content read of the tracked paths that hold each object (falling back to ``**`` for any id not held by the checked
-    commit), and any other process — including non-``git`` readers of ``.git/`` state — a content read of every tracked
-    path. ``root`` is the checkout in the form of the event paths, ``project.root`` by default."""
+    directory of a repository copy in ``copies``, whose paths the .git rule of ``relative_events`` drops. Each ``git``
+    command is attributed to the tracked paths its output can depend on, or to none; any whole-tree or unattributable
+    command, Git helper, or non-Git file read of Git state falls back to ``**``. A non-Git process that only lists
+    ``.git/objects`` or ``.git/refs`` adds no tracked path."""
     directories = [*project.git_directories, *(copy + "/.git" for copy in copies)]
     active_exec: dict[str, Event] = {}
-    readers: list[Event | None] = []
+    readers: list[tuple[str, Event | None]] = []
     seen: set[tuple[str, Event | None]] = set()
+    replace_ref_seen: set[tuple[str, Event | None]] = set()
     for event in events:
         if event.kind == "exec":
             active_exec[event.pid] = event
             continue
         if event.kind == "write":
             continue
-        if in_git_state(event.path, directories):
-            exec_event = active_exec.get(event.pid)
-            key = (event.pid, exec_event)
-            if key not in seen:
-                seen.add(key)
-                readers.append(exec_event)
+        state_rel = git_state_path(event.path, directories)
+        if state_rel is None:
+            continue
+        exec_event = active_exec.get(event.pid)
+        key = (event.pid, exec_event)
+        if state_rel.startswith("refs/replace/") and event.kind in ("read", "stat", "exists"):
+            replace_ref_seen.add(key)
+        if not is_git(event.executable) and event.kind in ("list", "diropen", "statdir") \
+                and (state_rel in ("objects", "refs") or state_rel.startswith(("objects/", "refs/"))):
+            continue
+        if key not in seen:
+            seen.add(key)
+            readers.append(key)
     roots = [root or str(project.root), *copies]
+    # Read replace refs from the checkout's real Git directories and any copy Git directories still on disk.
+    replaced = replace_refs(tuple(dict.fromkeys([*git_directories(project.root), *(copy + "/.git" for copy in copies)])))
     reads = Reads()
-    for exec_event in readers:
-        command, options, arguments = git_command(exec_event) or ("", [], [])
-        if command == "ls-files" and prints_only_names(arguments):
-            assert exec_event is not None
-            reads.update(listing_reads(exec_event, options, arguments, roots))
-        elif command == "cat-file" and (object_ids := full_object_ids(arguments)) is not None:
-            held = held_paths(project.root)
-            for object_id in object_ids:
-                paths = held.get(object_id)
-                if paths:
-                    reads.paths.update(paths)
-                else:
-                    reads.paths.add(EVERY_PATH)
-        else:
+    for key in readers:
+        _, exec_event = key
+        parsed = git_command(exec_event)
+        if parsed is None:
             reads.paths.add(EVERY_PATH)
+            continue
+        assert exec_event is not None
+        command, options, arguments = parsed
+        if command == "ls-files" and prints_only_names(arguments):
+            reads.update(listing_reads(exec_event, options, arguments, roots, fold=fold))
+            continue
+        gopts = parse_git_global_options(exec_event, options)
+        if gopts is None:
+            reads.paths.add(EVERY_PATH)
+            continue
+        prefix = working_prefix(gopts, roots, fold=fold)
+        context = GitObjectContext(held_paths(project.root), replaced, gopts.replace_refs_off, key in replace_ref_seen)
+        attributed: Reads | None = None
+        if command == "cat-file":
+            attributed = cat_file_reads(arguments, prefix, project, context)
+        elif command == "show":
+            attributed = show_reads(arguments, prefix, project, context)
+        elif command == "ls-tree":
+            attributed = ls_tree_reads(arguments, prefix, gopts, project)
+        elif command == "archive":
+            attributed = archive_reads(arguments, prefix, gopts, project)
+        elif command == "rev-parse":
+            attributed = rev_parse_reads(arguments)
+        elif command == "merge-base":
+            attributed = merge_base_reads(arguments, context)
+        elif command == "diff":
+            attributed = diff_reads(arguments, prefix, gopts, project)
+        elif command == "add":
+            attributed = git_add_reads(arguments, prefix, gopts, project)
+        elif command == "restore":
+            attributed = restore_reads(arguments, prefix, gopts, project)
+        elif command == "checkout":
+            attributed = checkout_path_reads(arguments, prefix, gopts, project)
+        elif command == "grep":
+            attributed = grep_reads(arguments, prefix, gopts, project)
+        if attributed is None:
+            reads.paths.add(EVERY_PATH)
+        else:
+            reads.update(attributed)
     return reads
 
 
@@ -1808,7 +2474,7 @@ def classify(unit: UnitRecording, *, fold: bool = False) -> Reads:
     for path in (absent | reported_files) - reads.paths - {""}:
         reads.existence[path] = "any"
     reads.memberships = {"." if path == "" else path for path in reads.memberships}
-    reads.update(git_directory_reads(events, unit.copies, project, unit.root))
+    reads.update(git_directory_reads(events, unit.copies, project, unit.root, fold=fold))
     return reads
 
 

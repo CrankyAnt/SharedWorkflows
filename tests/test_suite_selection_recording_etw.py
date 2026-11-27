@@ -881,5 +881,37 @@ class WindowsWriteDepartureTests(unittest.TestCase):
         self.assertNotIn("`out/file_149.txt`", summary)
 
 
+class WindowsGitAttributionTests(unittest.TestCase):
+    """Git read attribution on a written neutral ETW event file, where process environments are absent."""
+
+    def test_windows_git_pathspecs_commands_and_non_git_listings_are_attributed(self) -> None:
+        recording = WrittenRecording(self.addCleanup, {"tests/git_win.py": "", "src/app.py": "print(1)\n"},
+                                     [suite("a", ["tests/git_win.py"], entry_selection=True, paths=[],
+                                            entry_paths={"tests/git_win.py": []})])
+        recording.unit("1-git", "tests/git_win.py", 100, 10, ["python.exe", "tests/git_win.py"])
+        git_exe = "C:\\Program Files\\Git\\cmd\\git.exe"
+        prefix = recording.prefix
+        root_arg = recording.root.replace("\\", "\\\\")
+        unheld = "a" * 40
+        recording.events([
+            ("100", "10", "start", PYTHON),
+            ("100", "10", "open", prefix + "\\tests\\git_win.py"),
+            ("100", "10", "enum", prefix + "\\.git\\objects\\*"),
+            ("201", "100", "start", git_exe, f'"{git_exe}" -C "{root_arg}" ls-files -z -- src/*.py'),
+            ("201", "100", "open", prefix + "\\.git\\index"),
+            ("202", "100", "start", git_exe, f'"{git_exe}" -C "{root_arg}" show HEAD:src/app.py'),
+            ("202", "100", "open", prefix + "\\.git\\HEAD"),
+            ("203", "100", "start", git_exe, f'"{git_exe}" -C "{root_arg}" cat-file -p {unheld}'),
+            ("203", "100", "open", prefix + "\\.git\\HEAD"),
+            ("204", "100", "start", git_exe, f'"{git_exe}" -C "{root_arg}" rev-parse --show-toplevel'),
+            ("204", "100", "open", prefix + "\\.git\\HEAD"),
+        ])
+        checked = recording.fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        reads = recording.fixture.reads_of("tests/git_win.py")
+        self.assertEqual(["src/app.py", "tests/git_win.py"], reads["paths"])
+        self.assertEqual(["src/**.py", "src/**.py/**"], reads["directory_memberships"])
+
+
 if __name__ == "__main__":
     unittest.main()
