@@ -47,6 +47,69 @@ parts:
 
 Each setting is a list of at least one string. Without the part, or with `repository-hygiene: {}`, both checks read every file. The hygiene job reads the two settings from the configuration file itself; when the file cannot be used, both checks leave no file out and the plan reports the file. A change to `coverage-exclude` starts the coverage check, and a change to `link-exclude` starts the link check.
 
+## The Gitleaks configuration and baseline
+
+Repository hygiene scans for credentials with Gitleaks. It takes `.gitleaks.toml` at the repository root as its configuration and `.gitleaks-baseline.json` there as its baseline, by those fixed names. Both files are optional: without a configuration the scan uses Gitleaks' default rules, and without a baseline it accepts no finding. The shared CI adds no rules of its own. A configuration keeps the default rules with `useDefault = true` under `[extend]`; without it, its own rules replace them.
+
+The same two files govern the scans of the automation parts that push: `additions` and `full-recording` scan the commits they are about to push with them, and push nothing on a finding.
+
+### What a run scans
+
+The scan uses the Gitleaks version that `tools.gitleaks.version` in the [pins file](../../repository-hygiene/pins.json) pins at `v1`. A local scan uses that version too, since another version can report other findings.
+
+A run scans the commits it adds: on a pull request the commits since its merge base, on a push the commits that the push lands. The job `repository-hygiene`, whose result `ci / verdict` reports, scans the full history instead, every pushed branch and tag, when:
+
+- the change touches `.gitleaks.toml` or `.gitleaks-baseline.json`;
+- the default-branch scan marker is missing or differs. A run on the default branch records the marker after a passing full scan, with the Gitleaks version, configuration and baseline it scanned with. A move of `v1` to a new pin therefore makes the next run scan the full history, and every run does so until a run on the default branch records the new marker;
+- the added commits or the files they change cannot be determined.
+
+### The baseline
+
+- A finding in a current file is fixed where possible, by changing the content, instead of accepted.
+- The baseline holds only findings that were reviewed one by one and cannot be fixed, such as a finding in history that cannot be rewritten.
+- A real secret is never accepted into the baseline: it is removed and rotated.
+
+To accept a reviewed finding that is no secret:
+
+1. Fetch first: `git fetch --prune origin`.
+2. Write a report of every finding that the current baseline does not cover, with the pinned Gitleaks. `HEAD --remotes=origin` scans the branch and every pushed branch; locally, `--all` would also scan branches that were never pushed, while CI's `--all` runs in a fresh checkout, where it covers the pushed branches and tags. Leave out `--config` or `--baseline-path` for a file that the repository does not hold.
+
+   ```text
+   gitleaks git --config .gitleaks.toml --baseline-path .gitleaks-baseline.json --log-opts="HEAD --remotes=origin" --redact --report-format json --report-path <temporary file> --no-banner --no-color
+   ```
+
+3. Review each entry. Add only the reviewed entries, unchanged, to the array in `.gitleaks-baseline.json`.
+4. Scan the same history again, with the command above without the report options; it passes. On the pull request, the job `repository-hygiene` then scans the full history with the changed files, and `ci / verdict` reports the result.
+
+A repository without a baseline file creates `.gitleaks-baseline.json` with its first accepted finding: the report of step 2, written without `--baseline-path`, holds every finding, and the file holds the reviewed entries as a JSON array. Its configuration then allowlists the file, which holds the findings themselves; a repository without a configuration creates `.gitleaks.toml` for it:
+
+```toml
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Ignore the redacted generated Gitleaks baseline"
+paths = ['''^\.gitleaks-baseline\.json$''']
+```
+
+### The repository's own rules and allowlists
+
+The configuration adds to the default rules only by these criteria:
+
+- A stricter rule of its own covers a risk that the default rules miss and carries a `description` and `tags`. It does not lead to accepting legitimate current content in the baseline: where it fires on legitimate current content, the content changes or the rule narrows.
+- An allowlist covers only a value established as no secret. It is scoped to both a path and a pattern, with `condition = "AND"`, and carries a `description` of why the value is no secret. Its `regexes` match the secret that a rule found.
+- An allowlist on a path alone is only for generated or static data files that hold no credentials, such as the baseline, and also carries a `description`.
+
+For example, an allowlist scoped to a path and a pattern:
+
+```toml
+[[allowlists]]
+description = "Sample identifiers in the generated fixture data, never valid credentials"
+condition = "AND"
+paths = ['''^tests/fixtures/accounts\.json$''']
+regexes = ['''^sample-[0-9a-f]{32}$''']
+```
+
 ## The parts of the automation workflow
 
 The write caller runs four parts, each only when the configuration file states it under `parts`:
