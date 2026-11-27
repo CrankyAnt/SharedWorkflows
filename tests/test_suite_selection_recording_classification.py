@@ -397,8 +397,10 @@ def linked_worktree_fixture(cleanup, *, stand_in: bool = True) -> RecordingFixtu
 
 
 def classified_lists(fixture: RecordingFixture) -> dict:
-    """The classified reads of each entry file in the full-recording result of ``fixture``, by entry file."""
-    return {item["entry"]: item["reads"] for item in fixture.full_result()["entries"]}
+    """The classified reads of each entry file in the full-recording result of ``fixture``, by entry file (without
+    per-run command provenance, whose paths include the run's temporary directory)."""
+    return {item["entry"]: {key: value for key, value in item["reads"].items() if key != "whole_tree_commands"}
+            for item in fixture.full_result()["entries"]}
 
 
 class ClassificationRules:

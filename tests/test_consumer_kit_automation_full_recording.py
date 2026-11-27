@@ -53,7 +53,8 @@ class AutoMergeStepTest(unittest.TestCase):
     def test_it_follows_the_pull_request_with_the_app_s_token_only_when_the_default_branch_s_lists_changed(self) -> None:
         self.assertEqual(self.steps.index(named(self.steps, PULL_REQUEST_STEP)) + 1, self.steps.index(self.step))
         self.assertEqual("auto-merge", self.step["id"])
-        self.assertEqual(f"steps.changes.outputs.changed == 'true' && {ON_DEFAULT_BRANCH}", self.step["if"])
+        self.assertEqual(f"steps.changes.outputs.changed == 'true' && steps.apply.outputs.unreasoned-whole-tree != 'true' && {ON_DEFAULT_BRANCH}",
+                         self.step["if"])
         self.assertEqual({"GH_TOKEN": "${{ steps.app-token.outputs.token }}"}, self.step["env"],
                          "a merge that the App's token asks for starts the runs of the merged commit")
 
@@ -101,7 +102,8 @@ class CloseSteps(unittest.TestCase):
                   "steps.app-token.outputs.token": "app-token", "github.event.repository.default_branch": "main"}
         environment = {**os.environ, "PATH": f"{self.base / 'bin'}{os.pathsep}{os.environ['PATH']}", "GH_CALLS": str(self.calls),
                        "GITHUB_SERVER_URL": "https://github.example", "GITHUB_REPOSITORY": REPOSITORY,
-                       "GITHUB_RUN_ID": "9", "GITHUB_STEP_SUMMARY": str(self.base / "summary.md"), "RUNNER_TEMP": str(self.runner_temp),
+                       "GITHUB_RUN_ID": "9", "GITHUB_STEP_SUMMARY": str(self.base / "summary.md"),
+                       "GITHUB_OUTPUT": str(self.base / "github-output.txt"), "RUNNER_TEMP": str(self.runner_temp),
                        **{key: re.sub(r"\$\{\{\s*([\w.-]+)\s*\}\}", lambda found: values[found[1]], str(value))
                           for key, value in {**self.job_env, **step.get("env", {})}.items()}, **extra}
         environment.pop("GITHUB_TOKEN", None)
@@ -168,6 +170,35 @@ class FullRecordingApplyRunTest(CloseSteps):
         ran = self.run_step("Check the changed files")
         self.assertEqual(1, ran.returncode)
         self.assertIn("Unexpected changed file: lib/data.txt", ran.stderr)
+
+    def test_adding_an_unreasoned_whole_tree_disables_auto_merge_and_names_unit_kind_and_command_in_the_report(self) -> None:
+        entry = clean("unit", "checks/test_a.py", ["checks/test_a.py", "**"])
+        entry["reads"]["whole_tree_commands"] = {"content": ["git status"]}
+        self.downloaded({"full-recording-shard-1": self.result(entry, clean("lint", "checks/lint.py", ["checks/lint.py"]))})
+        ran = self.run_step(APPLY_STEP)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        output = (self.base / "github-output.txt").read_text(encoding="utf-8")
+        self.assertIn("unreasoned-whole-tree=true\n", output)
+        report = (self.runner_temp / "full-recording-report.md").read_text(encoding="utf-8")
+        self.assertIn("`unit`", report)
+        self.assertIn("content", report)
+        self.assertIn("`git status`", report)
+
+    def test_removing_a_recorded_whole_tree_drops_its_stale_reason_and_names_it_in_the_report(self) -> None:
+        suites = json.loads((self.work / SUITES).read_text(encoding="utf-8"))
+        suites["suites"][0]["paths"] = ["**", "checks/test_a.py"]
+        suites["suites"][0]["whole_tree_reasons"] = {"content": "Previously ran git status"}
+        (self.work / SUITES).write_text(json.dumps(suites, indent=2) + "\n", encoding="utf-8")
+        self.downloaded({"full-recording-shard-1": self.result(clean("unit", "checks/test_a.py", ["checks/test_a.py"]),
+                                                                clean("lint", "checks/lint.py", ["checks/lint.py"]))})
+        ran = self.run_step(APPLY_STEP)
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        output = (self.base / "github-output.txt").read_text(encoding="utf-8")
+        self.assertIn("unreasoned-whole-tree=false\n", output)
+        updated = json.loads((self.work / SUITES).read_text(encoding="utf-8"))
+        self.assertNotIn("whole_tree_reasons", updated["suites"][0])
+        report = (self.runner_temp / "full-recording-report.md").read_text(encoding="utf-8")
+        self.assertIn("removed the stale content whole-tree reason", report)
 
 
 @requires_bash

@@ -18042,7 +18042,6 @@
         ]
       },
       "directory_memberships": [
-        "**",
         "actions/pipeline",
         "actions/pipeline/schema",
         "actions/pipeline/schema/v1",
@@ -18052,7 +18051,6 @@
       ],
       "entry_directory_memberships": {
         "tests/test_pipeline_automation_invocations.py": [
-          "**",
           "actions/pipeline/schema",
           "actions/pipeline/schema/v1/parts"
         ],
