@@ -153,6 +153,9 @@ class SyncWorkflowTests(unittest.TestCase):
         self.assertEqual("ubuntu-slim", self.job["runs-on"])
 
     def test_a_workflow_that_breaks_a_rule_is_named(self) -> None:
+        pin = re.search(rf"{re.escape(TOKEN_ACTION)}(@[0-9a-f]{{40}} # \S+)", self.text)
+        if pin is None:
+            self.fail(f"sync.yml does not pin {TOKEN_ACTION} by a full commit")
         cases = (
             ("    environment: sync\n", "", ["the job sync reads the key outside the environment sync"]),
             ("    if: ${{ github.ref == 'refs/heads/main' }}\n", "", ["the job sync reads the key on another ref than main"]),
@@ -161,7 +164,7 @@ class SyncWorkflowTests(unittest.TestCase):
              ["the token step names repositories"]),
             ("          permission-contents: write\n", "          permission-contents: write\n          permission-administration: write\n",
              ["the token step does not ask for exactly the permissions of the sync App"]),
-            ("@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0", "@v3", [f"the job sync uses {TOKEN_ACTION}@v3 without a full commit pin"]),
+            (pin.group(1), "@v3", [f"the job sync uses {TOKEN_ACTION}@v3 without a full commit pin"]),
             ("  workflow_call:\n", "  workflow_dispatch:\n  workflow_call:\n", ["the workflow starts on another event than workflow_call"]),
             ("          GITHUB_TOKEN: ${{ github.token }}\n          RESOURCE_PATH: ${{ steps.resources.outputs.path }}\n        run: PYTHONPYCACHEPREFIX=\"$RUNNER_TEMP/repo-pycache\" python3 \"$RESOURCE_PATH/sync.py\" failure",
              "          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}\n          RESOURCE_PATH: ${{ steps.resources.outputs.path }}\n        run: PYTHONPYCACHEPREFIX=\"$RUNNER_TEMP/repo-pycache\" python3 \"$RESOURCE_PATH/sync.py\" failure",
