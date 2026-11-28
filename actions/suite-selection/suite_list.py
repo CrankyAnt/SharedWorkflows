@@ -23,10 +23,11 @@ GLOB_CHARACTERS = ("*", "?")
 OPERATING_SYSTEMS = ("linux", "windows")
 # Scale version of stored entry_durations: 1 was Popen..wait with Linux /1.65; 2 is full process wall time at scale 1.
 ENTRY_DURATIONS_VERSION = 2
+WHOLE_TREE_KINDS = ("content", "membership")
 SUITE_KEYS = frozenset({"name", "entries", "paths", "extra_paths", "entry_selection", "entry_paths",
                         "entry_extra_paths", "directory_memberships", "entry_directory_memberships", "existence_reads", "entry_existence_reads",
                         "extra_directory_memberships", "extra_existence_reads", "lookup_directories", "entry_lookup_directories",
-                        "module_lookups", "entry_module_lookups",
+                        "module_lookups", "entry_module_lookups", "whole_tree_reasons", "entry_whole_tree_reasons",
                         "os", "command", "setups", "entry_setups", "entry_durations"})
 # The per-entry fields that the recording writes; the repository writes entry_extra_paths and entry_setups.
 RECORDED_ENTRY_FIELDS = ("entry_paths", "entry_directory_memberships", "entry_existence_reads", "entry_lookup_directories",
@@ -97,6 +98,8 @@ class Suite:
     entry_lookup_directories: tuple[tuple[str, tuple[str, ...]], ...] = ()
     module_lookups: tuple[tuple[str, tuple[str, ...]], ...] | None = None  # per-suite module lookups by directory; None falls back to top-level
     entry_module_lookups: tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...] = ()  # per-entry module lookups by directory
+    whole_tree_reasons: tuple[tuple[str, str], ...] = ()  # per kind (content, membership), why a whole-suite unit reads **
+    entry_whole_tree_reasons: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()  # per entry file and kind, why it reads **
     command: tuple[str, ...] | None = None  # the command that runs one entry file, with the entry file appended
     setups: tuple[str, ...] | None = None  # the setups the suite needs, or None when it states none
     entry_setups: tuple[tuple[str, tuple[str, ...]], ...] = ()  # further setups per entry file of a suite selected per entry
@@ -162,6 +165,10 @@ class Suite:
         if self.entry_module_lookups:
             item["entry_module_lookups"] = {entry: {directory: list(names) for directory, names in lookups}
                                             for entry, lookups in self.entry_module_lookups}
+        if self.whole_tree_reasons:
+            item["whole_tree_reasons"] = dict(self.whole_tree_reasons)
+        if self.entry_whole_tree_reasons:
+            item["entry_whole_tree_reasons"] = {entry: dict(reasons) for entry, reasons in self.entry_whole_tree_reasons}
         return item
 
     # Each of the three takes an entry file or None. An entry file of a suite selected per entry file has its own lists;
@@ -205,6 +212,24 @@ class Suite:
     def per_entry[T](self, lists_of: Callable[[str], T]) -> tuple[tuple[str, T], ...]:
         """The lists of each entry file of a suite selected per entry file; none for a suite selected as a whole."""
         return tuple((entry, lists_of(entry)) for entry in self.entries) if self.entry_selection else ()
+
+    def whole_tree_reason(self, entry: str | None, kind: str) -> str | None:
+        """The recorded reason why this unit of selection reads ``**`` of ``kind`` (``content`` or ``membership``), or None."""
+        own = self._own(entry)
+        if own is None:
+            return dict(self.whole_tree_reasons).get(kind)
+        return dict(dict(self.entry_whole_tree_reasons).get(own, ())).get(kind)
+
+    def unreasoned_whole_tree(self) -> list[tuple[str | None, str]]:
+        """Every ``(entry_or_none, kind)`` unit of selection that stores a bare ``**`` without a recorded reason."""
+        findings: list[tuple[str | None, str]] = []
+        units: tuple[str | None, ...] = self.entries if self.entry_selection else (None,)
+        for unit in units:
+            if any(pattern.strip("/") == "**" for pattern in self.patterns_of(unit)) and self.whole_tree_reason(unit, "content") is None:
+                findings.append((unit, "content"))
+            if any(pattern.strip("/") == "**" for pattern in self.memberships_of(unit)) and self.whole_tree_reason(unit, "membership") is None:
+                findings.append((unit, "membership"))
+        return findings
 
 
 def _with_extra[T](own: tuple[T, ...], extra: tuple[T, ...]) -> tuple[T, ...]:
@@ -351,6 +376,22 @@ def _duration(value, location: str) -> float:
     return value
 
 
+def _whole_tree_reasons(value, location: str) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, dict) or not value:
+        raise SuiteListError(f"{location} must be a non-empty object mapping content or membership to a non-empty reason")
+    unknown = sorted(set(value) - set(WHOLE_TREE_KINDS))
+    if unknown:
+        raise SuiteListError(f"{location}: unknown keys {', '.join(unknown)}; expected content or membership")
+    reasons: list[tuple[str, str]] = []
+    for kind in WHOLE_TREE_KINDS:
+        if kind in value:
+            text = value[kind]
+            if not isinstance(text, str) or not text.strip():
+                raise SuiteListError(f"{location} ({kind}): reason must be a non-empty string")
+            reasons.append((kind, text))
+    return tuple(reasons)
+
+
 def glob_entries(entries) -> tuple[str, ...]:
     """The entries that are glob patterns."""
     return tuple(entry for entry in entries if any(character in entry for character in GLOB_CHARACTERS))
@@ -438,6 +479,11 @@ def parse_suite_list_document(raw: object, source: str = "the suite list") -> Su
         entry_module_lookups = (_per_entry_file(item["entry_module_lookups"], entries, f"{location} ({name}): entry_module_lookups",
                                                 _module_lookups, recorded=True)
                                 if "entry_module_lookups" in item else ())
+        whole_tree_reasons = (_whole_tree_reasons(item["whole_tree_reasons"], f"{location} ({name}): whole_tree_reasons")
+                              if "whole_tree_reasons" in item else ())
+        entry_whole_tree_reasons = (_per_entry_file(item["entry_whole_tree_reasons"], entries, f"{location} ({name}): entry_whole_tree_reasons",
+                                                    _whole_tree_reasons, recorded=False)
+                                    if "entry_whole_tree_reasons" in item else ())
         operating_system = item.get("os", "linux")
         if operating_system not in OPERATING_SYSTEMS:
             raise SuiteListError(f"{location} ({name}): os must be one of {', '.join(OPERATING_SYSTEMS)}")
@@ -459,6 +505,10 @@ def parse_suite_list_document(raw: object, source: str = "the suite list") -> Su
             raise SuiteListError(f"{location} ({name}): entry_setups needs entry_selection")
         if entry_extra_paths and not entry_selection:
             raise SuiteListError(f"{location} ({name}): entry_extra_paths needs entry_selection")
+        if entry_whole_tree_reasons and not entry_selection:
+            raise SuiteListError(f"{location} ({name}): entry_whole_tree_reasons needs entry_selection")
+        if whole_tree_reasons and entry_selection:
+            raise SuiteListError(f"{location} ({name}): whole_tree_reasons goes with a suite selected as a whole; use entry_whole_tree_reasons")
         if has_paths and entry_selection and "entry_paths" not in item:
             raise SuiteListError(f"{location} ({name}): a stored suite with entry_selection needs entry_paths")
         common = dict(extra_paths=extra_paths, entry_selection=entry_selection, entry_extra_paths=entry_extra_paths,
@@ -466,7 +516,8 @@ def parse_suite_list_document(raw: object, source: str = "the suite list") -> Su
                       entry_existence_reads=entry_existence, extra_directory_memberships=extra_memberships,
                       extra_existence_reads=extra_existence, lookup_directories=lookup_directories,
                       entry_lookup_directories=entry_lookup_directories, module_lookups=suite_module_lookups,
-                      entry_module_lookups=entry_module_lookups, command=command, setups=setups,
+                      entry_module_lookups=entry_module_lookups, whole_tree_reasons=whole_tree_reasons,
+                      entry_whole_tree_reasons=entry_whole_tree_reasons, command=command, setups=setups,
                       entry_setups=entry_setups, entry_durations=entry_durations, os=operating_system)
         if has_paths:
             suites.append(Suite(name, entries, paths=_strings(item["paths"], f"{location} ({name}): paths"), entry_paths=entry_paths, **common))
@@ -621,6 +672,10 @@ def resolve_entries(suite_list: SuiteList, tracked: set[str], source: str = "the
     suites = []
     for index, suite in enumerate(suite_list.suites, start=1):
         entries = expand_entries(suite.entries, tracked, f"{source}: suites[{index}] ({suite.name})")
+        unknown_reasons = [entry for entry, _ in suite.entry_whole_tree_reasons if entry not in entries]
+        if unknown_reasons:
+            raise SuiteListError(f"{source}: suites[{index}] ({suite.name}): entry_whole_tree_reasons names {', '.join(sorted(unknown_reasons))}, "
+                                 "which the suite does not hold")
         current = {field: tuple(pair for pair in getattr(suite, field) if pair[0] in entries) for field in RECORDED_ENTRY_FIELDS}
         suites.append(dataclasses.replace(suite, entries=entries, **current))
     for setup in suite_list.setups or ():

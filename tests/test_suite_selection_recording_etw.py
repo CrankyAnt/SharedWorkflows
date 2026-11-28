@@ -56,7 +56,8 @@ def recorded_fixture(cleanup) -> RecordingFixture:
 
 
 def entries(fixture: RecordingFixture) -> dict[str, dict]:
-    return {item["entry"]: item["reads"] for item in fixture.full_result()["entries"]}
+    return {item["entry"]: {key: value for key, value in item["reads"].items() if key != "whole_tree_commands"}
+            for item in fixture.full_result()["entries"]}
 
 
 def units(output: Path) -> list[dict]:

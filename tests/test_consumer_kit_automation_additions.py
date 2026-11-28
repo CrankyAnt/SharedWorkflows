@@ -146,7 +146,8 @@ class AdditionsJobTest(unittest.TestCase):
         self.assertEqual(JOB, comment["needs"])
         self.assertEqual("always() && needs.additions.outputs.reason != ''", comment["if"])
         self.assertEqual([], [item for item in comment["steps"] if "uses" in item])
-        self.assertEqual({"pull-request": "${{ steps.run.outputs.pull-request }}", "reason": "${{ steps.reason.outputs.reason }}"}, self.job["outputs"])
+        self.assertEqual({"pull-request": "${{ steps.run.outputs.pull-request }}", "reason": "${{ steps.reason.outputs.reason }}",
+                          "skipped-whole-tree-report": "${{ steps.apply.outputs.skipped-whole-tree-report }}"}, self.job["outputs"])
 
     def test_the_apply_step_runs_the_recording_step_of_its_own_revision_before_the_app_token_with_no_token_in_its_environment(self) -> None:
         apply = step(self.steps, "apply")
@@ -1083,6 +1084,76 @@ class OwnAdditionsCommitTest(AutomaticRoutesSteps):
 
     def test_a_pull_request_on_a_dependabot_branch_by_another_author_that_changes_the_consumer_s_source(self) -> None:
         self.commits_the_additions("CrankyAnt", SOURCE_CHANGE)
+
+
+@requires_bash_and_jq
+class WholeTreeAdditionsRouteTest(ApplyAdditionsSteps):
+    """Both routes of the additions part apply ordinary reads, leave out unreasoned ``**`` and report unit, kind and command."""
+
+    def setup_repo(self) -> Path:
+        work = self.base / "work"
+        suites = {"always": [], "suites": [
+            {"name": "unit", "entries": ["checks/test_a.py"], "command": ["python3"], "paths": ["checks/test_a.py"]},
+        ]}
+        for relative, text in {"checks/test_a.py": "", "lib/data.txt": "", self.SUITES: json.dumps(suites, indent=2) + "\n"}.items():
+            write(work / relative, text)
+        git(work, "init", "-q", "-b", HEAD_BRANCH)
+        git(work, "add", "-A")
+        git(work, "commit", "-q", "-m", "feat: init")
+        self.head_sha = git(work, "rev-parse", "HEAD").strip()
+        return work
+
+    def write_additions(self, reads: dict) -> None:
+        doc = {"kind": "additions", "suite_list": self.SUITES, "suites": [
+            {"suite": "unit", "create": False, "recorded_entries": ["checks/test_a.py"], "reads": reads},
+        ]}
+        write(self.runner_temp / "additions" / "additions.json", json.dumps(doc))
+
+    def test_automatic_and_manual_routes_apply_other_additions_leave_out_unreasoned_whole_tree_and_report_it(self) -> None:
+        for event in ("workflow_run", "workflow_dispatch"):
+            with self.subTest(event=event):
+                work = self.setup_repo()
+                self.summary.write_text("", encoding="utf-8")
+                self.write_additions({
+                    "paths": ["**", "lib/data.txt"], "existence_reads": [], "directory_memberships": [],
+                    "whole_tree_commands": {"content": ["git status"]},
+                })
+                ran, _ = self.run_step("apply", work, event=event, outputs={"run": {"pull-request": "7", "head-branch": HEAD_BRANCH}})
+                self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+                stored = json.loads((work / self.SUITES).read_text(encoding="utf-8"))["suites"][0]["paths"]
+                self.assertEqual(["checks/test_a.py", "lib/data.txt"], stored)
+                summary = self.summary.read_text(encoding="utf-8")
+                report = (self.runner_temp / "apply-additions-report.md").read_text(encoding="utf-8")
+                for text in (summary, report):
+                    self.assertIn("`unit`", text)
+                    self.assertIn("content", text)
+                    self.assertIn("`git status`", text)
+                temporary_support.remove_tree(work)
+
+    def test_automatic_route_comment_names_left_out_whole_tree_when_suite_list_stays_unchanged(self) -> None:
+        work = self.setup_repo()
+        self.write_additions({
+            "paths": ["**"], "existence_reads": [], "directory_memberships": [],
+            "whole_tree_commands": {"content": ["git status"]},
+        })
+        ran, _ = self.run_step("apply", work, event="workflow_run", outputs={"run": {"pull-request": "7", "head-branch": HEAD_BRANCH}})
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+        output_file = sorted(self.base.glob("output-*"))[-1]
+        lines = output_file.read_text(encoding="utf-8").splitlines()
+        marker = next(line.split("<<", 1)[1] for line in lines if line.startswith("skipped-whole-tree-report<<"))
+        start = next(i for i, line in enumerate(lines) if line == f"skipped-whole-tree-report<<{marker}") + 1
+        end = lines.index(marker, start)
+        skipped_report = "\n".join(lines[start:end])
+        ran_comment, _ = self.run_step(
+            "Comment on the pull request with the reason and the manual route", self.base, event="workflow_run",
+            steps=self.comment_steps,
+            extra={"needs": {JOB: {"outputs": {"pull-request": "7", "reason": "unchanged", "skipped-whole-tree-report": skipped_report}}}},
+        )
+        self.assertEqual(0, ran_comment.returncode, ran_comment.stdout + ran_comment.stderr)
+        body = self.comments()[-1]
+        self.assertIn("`unit`", body)
+        self.assertIn("content", body)
+        self.assertIn("`git status`", body)
 
 
 if __name__ == "__main__":

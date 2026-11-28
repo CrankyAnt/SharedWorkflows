@@ -1076,5 +1076,126 @@ class EntryTimeoutTests(unittest.TestCase):
                 self.assertEqual(2, ran.returncode)
 
 
+class WholeTreeCheckTests(unittest.TestCase):
+    """Whole-tree ``**`` reads (content and membership) require a recorded reason per unit and kind."""
+
+    def write_recording(self, fixture: RecordingFixture, entry: str, suite_name: str, trace_lines: list[str]) -> None:
+        output = fixture.output
+        (output / "units").mkdir(parents=True, exist_ok=True)
+        (output / "traces").mkdir(parents=True, exist_ok=True)
+        (output / "recording.json").write_text(
+            json.dumps({"mode": "pull-request", "trace_set": "mid", "environment": dict(os.environ)}), encoding="utf-8",
+        )
+        unit_id = f"entry-{suite_name}-{entry.replace('/', '_')}"
+        (output / "traces" / f"{unit_id}.log").write_text("\n".join(trace_lines) + "\n", encoding="utf-8")
+        (output / "units" / f"{unit_id}.json").write_text(json.dumps({
+            "kind": "entry", "name": entry, "suite": suite_name, "unit": unit_id,
+            "command": ["python3", entry],
+            "trace": f"{unit_id}.log", "temporary": str(fixture.base / "tmp"),
+            "cache": str(fixture.base / "cache"), "cwd": str(fixture.root),
+            "exit_code": 0, "skipped": 0, "deselected": 0, "seconds": 1.0,
+        }), encoding="utf-8")
+
+    def git_trace(self, root: Path, argv: list[str], state_file: str) -> list[str]:
+        args = ", ".join(json.dumps(arg) for arg in argv)
+        git_path = str(root / ".git" / state_file)
+        return [
+            f'100 execve("/usr/bin/git", [{args}], 0x0 /* 0 vars */) = 0',
+            f'100 openat(AT_FDCWD, "{git_path}", O_RDONLY) = 3',
+        ]
+
+    def test_unreasoned_content_whole_tree_for_entry_file_fails_with_details_and_ways_out(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/a.py": "", "tests/b.py": "", "lib/x.py": ""}, [
+            suite("per", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=["tests/a.py", "tests/b.py"],
+                  entry_paths={"tests/a.py": ["tests/a.py"], "tests/b.py": ["tests/b.py"]},
+                  entry_durations={"tests/a.py": 12.5, "tests/b.py": 3.0}),
+        ])
+        self.write_recording(fixture, "tests/a.py", "per", self.git_trace(fixture.root, ["git", "status"], "HEAD"))
+        ran = fixture.check()
+        self.assertEqual(1, ran.returncode, ran.stderr)
+        summary = fixture.summary.read_text(encoding="utf-8")
+        self.assertIn("`per`: `tests/a.py`", summary)
+        self.assertIn("| content |", summary)
+        self.assertIn("`git status`", summary)
+        self.assertIn("12.50 s", summary)
+        self.assertIn("change the test so its inputs are explicit", summary)
+        self.assertIn("entry_whole_tree_reasons", summary)
+
+    def test_unreasoned_membership_whole_tree_for_entry_file_fails_with_details_and_ways_out(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/a.py": "", "lib/x.py": ""}, [
+            suite("per", ["tests/a.py"], entry_selection=True, paths=["tests/a.py"],
+                  entry_paths={"tests/a.py": ["tests/a.py"]}, entry_durations={"tests/a.py": 8.25}),
+        ])
+        self.write_recording(fixture, "tests/a.py", "per", self.git_trace(fixture.root, ["git", "ls-files", "-z"], "index"))
+        ran = fixture.check()
+        self.assertEqual(1, ran.returncode, ran.stderr)
+        summary = fixture.summary.read_text(encoding="utf-8")
+        self.assertIn("`per`: `tests/a.py`", summary)
+        self.assertIn("| membership |", summary)
+        self.assertIn("`git ls-files -z`", summary)
+        self.assertIn("8.25 s", summary)
+        self.assertIn("change the test so its inputs are explicit", summary)
+        self.assertIn("entry_whole_tree_reasons", summary)
+
+    def test_unreasoned_whole_tree_for_whole_suite_fails_naming_the_suite(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/a.py": "", "tests/b.py": ""}, [
+            suite("whole", ["tests/a.py", "tests/b.py"], paths=["tests/a.py", "tests/b.py"],
+                  entry_durations={"tests/a.py": 2.0, "tests/b.py": 3.5}),
+        ])
+        self.write_recording(fixture, "tests/a.py", "whole", self.git_trace(fixture.root, ["git", "status"], "HEAD"))
+        ran = fixture.check()
+        self.assertEqual(1, ran.returncode, ran.stderr)
+        summary = fixture.summary.read_text(encoding="utf-8")
+        self.assertIn("| `whole` | content | `git status` | 5.50 s |", summary)
+        self.assertIn("whole_tree_reasons", summary)
+
+    def test_tree_pattern_subdirectory_is_checked_as_an_ordinary_read(self) -> None:
+        fixture = RecordingFixture(self.addCleanup, {"tests/a.py": "", "lib/x.py": ""}, [
+            suite("per", ["tests/a.py"], entry_selection=True, paths=["tests/a.py"],
+                  entry_paths={"tests/a.py": ["tests/a.py"]},
+                  directory_memberships=["lib/**"], entry_directory_memberships={"tests/a.py": ["lib/**"]},
+                  existence_reads=[{"path": "lib", "kind": "any"}],
+                  entry_existence_reads={"tests/a.py": [{"path": "lib", "kind": "any"}]}),
+        ])
+        self.write_recording(fixture, "tests/a.py", "per", self.git_trace(fixture.root, ["git", "ls-files", "--", "lib"], "index"))
+        ran = fixture.check()
+        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+
+    def test_recorded_reason_accepts_only_its_own_unit_and_kind(self) -> None:
+        # Matching reason + stored ** passes.
+        ok = RecordingFixture(self.addCleanup, {"tests/a.py": "", "tests/b.py": ""}, [
+            suite("per", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=["**", "tests/a.py", "tests/b.py"],
+                  entry_paths={"tests/a.py": ["**", "tests/a.py"], "tests/b.py": ["tests/b.py"]},
+                  entry_whole_tree_reasons={"tests/a.py": {"content": "Audits every tracked file"}}),
+        ])
+        self.write_recording(ok, "tests/a.py", "per", self.git_trace(ok.root, ["git", "status"], "HEAD"))
+        self.assertEqual(0, ok.check().returncode)
+        # Reason for content does not accept a new membership **.
+        wrong_kind = RecordingFixture(self.addCleanup, {"tests/a.py": ""}, [
+            suite("per", ["tests/a.py"], entry_selection=True, paths=["tests/a.py"],
+                  entry_paths={"tests/a.py": ["tests/a.py"]},
+                  entry_whole_tree_reasons={"tests/a.py": {"content": "Only content"}}),
+        ])
+        self.write_recording(wrong_kind, "tests/a.py", "per", self.git_trace(wrong_kind.root, ["git", "ls-files", "-z"], "index"))
+        self.assertEqual(1, wrong_kind.check().returncode)
+        self.assertIn("| membership |", wrong_kind.summary.read_text(encoding="utf-8"))
+        # Reason for tests/a.py does not accept a new ** on tests/b.py.
+        wrong_unit = RecordingFixture(self.addCleanup, {"tests/a.py": "", "tests/b.py": ""}, [
+            suite("per", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=["tests/a.py", "tests/b.py"],
+                  entry_paths={"tests/a.py": ["tests/a.py"], "tests/b.py": ["tests/b.py"]},
+                  entry_whole_tree_reasons={"tests/a.py": {"content": "Only test_a"}}),
+        ])
+        self.write_recording(wrong_unit, "tests/b.py", "per", self.git_trace(wrong_unit.root, ["git", "status"], "HEAD"))
+        self.assertEqual(1, wrong_unit.check().returncode)
+        self.assertIn("`per`: `tests/b.py`", wrong_unit.summary.read_text(encoding="utf-8"))
+        # Already-stored ** without a reason still passes check (so pushes to the default branch keep working).
+        already_stored = RecordingFixture(self.addCleanup, {"tests/a.py": ""}, [
+            suite("per", ["tests/a.py"], entry_selection=True, paths=["**", "tests/a.py"],
+                  entry_paths={"tests/a.py": ["**", "tests/a.py"]}),
+        ])
+        self.write_recording(already_stored, "tests/a.py", "per", self.git_trace(already_stored.root, ["git", "status"], "HEAD"))
+        self.assertEqual(0, already_stored.check().returncode)
+
+
 if __name__ == "__main__":
     unittest.main()

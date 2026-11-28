@@ -1054,5 +1054,78 @@ class SuiteListMoveTests(unittest.TestCase):
                 self.assertIn(f"{field} needs entry_selection", error)
 
 
+class WholeTreeApplyTests(ApplyTests):
+    def test_apply_additions_leaves_out_unreasoned_whole_tree_applies_other_reads_and_reports_details(self) -> None:
+        fixture = self.fixture([
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["tests/c1.py", "tests/c2.py"],
+                  entry_paths={"tests/c1.py": ["tests/c1.py"], "tests/c2.py": ["tests/c2.py"]},
+                  entry_whole_tree_reasons={"tests/c2.py": {"content": "Only c2"}}),
+            suite("legacy", ["tests/a.py"], paths=["**", "tests/a.py"]),
+        ])
+        c1_reads = reads(["**", "tests/c1.py", "lib/x.py"], memberships=["**", "lib/**"])
+        c1_reads["whole_tree_commands"] = {"content": ["git status"], "membership": ["git ls-files -z"]}
+        change = additions({"suite": "per-entry", "create": False, "recorded_entries": ["tests/c1.py"],
+                            "entries": {"tests/c1.py": c1_reads}, "replace_entries": {"tests/c1.py": c1_reads}})
+        gh_out = fixture.base / "gh-output.txt"
+        applied = fixture.apply(self.write(fixture, "additions.json", change), "--github-output", str(gh_out))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        # Other reads (lib/x.py, lib/**) are stored; bare ** is left out; legacy suite still works.
+        self.assertEqual(["lib/x.py", "tests/c1.py"], fixture.suite("per-entry")["entry_paths"]["tests/c1.py"])
+        self.assertEqual(["lib/**"], fixture.suite("per-entry")["entry_directory_memberships"]["tests/c1.py"])
+        self.assertEqual(["**", "tests/a.py"], fixture.suite("legacy")["paths"])
+        self.assertIn("`per-entry`: `tests/c1.py`: left out content `**` without a recorded reason (command: `git status`)", applied.stdout)
+        self.assertIn("`per-entry`: `tests/c1.py`: left out membership `**` without a recorded reason (command: `git ls-files -z`)", applied.stdout)
+        out_text = gh_out.read_text(encoding="utf-8")
+        self.assertIn("skipped-whole-tree-report<<", out_text)
+        self.assertIn("git status", out_text)
+        self.assertIn("git ls-files -z", out_text)
+
+    def test_apply_additions_stores_whole_tree_only_when_unit_records_matching_reason(self) -> None:
+        fixture = self.fixture([
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["tests/c1.py", "tests/c2.py"],
+                  entry_paths={"tests/c1.py": ["tests/c1.py"], "tests/c2.py": ["tests/c2.py"]},
+                  entry_whole_tree_reasons={"tests/c1.py": {"content": "Audits every file"}}),
+        ])
+        c1_reads = reads(["**", "tests/c1.py"], memberships=["**"])
+        c1_reads["whole_tree_commands"] = {"content": ["git status"], "membership": ["git ls-files -z"]}
+        change = additions({"suite": "per-entry", "create": False, "recorded_entries": ["tests/c1.py"],
+                            "entries": {"tests/c1.py": c1_reads}})
+        applied = fixture.apply(self.write(fixture, "additions.json", change))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        self.assertIn("**", fixture.suite("per-entry")["entry_paths"]["tests/c1.py"])
+        self.assertNotIn("entry_directory_memberships", fixture.suite("per-entry"))
+        self.assertIn("left out membership `**`", applied.stdout)
+
+    def test_apply_full_flags_added_unreasoned_whole_tree_and_removes_stale_reasons(self) -> None:
+        fixture = self.fixture([
+            suite("per-entry", ["tests/c1.py", "tests/c2.py"], entry_selection=True, paths=["**", "tests/c1.py", "tests/c2.py"],
+                  entry_paths={"tests/c1.py": ["**", "tests/c1.py"], "tests/c2.py": ["tests/c2.py"]},
+                  entry_whole_tree_reasons={"tests/c1.py": {"content": "Old whole-tree read"}}),
+            suite("whole", ["tests/a.py"], paths=["tests/a.py"], directory_memberships=["**"],
+                  whole_tree_reasons={"membership": "Old listing"}),
+        ])
+        c2_reads = reads(["**", "tests/c2.py"])
+        c2_reads["whole_tree_commands"] = {"content": ["git status"]}
+        full = {"kind": "full-recording", "suite_list": "suites.json", "entries": [
+            {"suite": "per-entry", "entry": "tests/c1.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.0,
+             "reads": reads(["tests/c1.py"])},
+            {"suite": "per-entry", "entry": "tests/c2.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.0,
+             "reads": c2_reads},
+            {"suite": "whole", "entry": "tests/a.py", "job": "shard-1", "exit_code": 0, "skipped": 0, "seconds": 1.0,
+             "reads": reads(["tests/a.py"])},
+        ]}
+        gh_out = fixture.base / "gh-output.txt"
+        applied = fixture.apply(self.write(fixture, "full.json", full), "--github-output", str(gh_out))
+        self.assertEqual(0, applied.returncode, applied.stderr)
+        # Stale reasons on c1 and whole are removed and reported.
+        self.assertNotIn("entry_whole_tree_reasons", fixture.suite("per-entry"))
+        self.assertNotIn("whole_tree_reasons", fixture.suite("whole"))
+        self.assertIn("`per-entry`: `tests/c1.py`: removed the stale content whole-tree reason", applied.stdout)
+        self.assertIn("`whole`: removed the stale membership whole-tree reason", applied.stdout)
+        # Newly added unreasoned ** on c2 is reported and disables auto-merge.
+        self.assertIn("`per-entry`: `tests/c2.py`: added content `**` without a recorded reason (command: `git status`); auto-merge disabled", applied.stdout)
+        self.assertIn("unreasoned-whole-tree=true\n", gh_out.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

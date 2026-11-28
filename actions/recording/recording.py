@@ -50,6 +50,7 @@ import math
 import os
 import posixpath
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -1351,6 +1352,7 @@ class Reads:
     memberships: set[str] = field(default_factory=set)
     lookup_directories: set[str] = field(default_factory=set)
     lookups: dict[str, set[str]] = field(default_factory=dict)  # directory -> module names outside the standard library
+    whole_tree_commands: dict[str, set[str]] = field(default_factory=dict)  # content|membership -> commands that caused **
 
     def update(self, other: Reads) -> None:
         self.paths |= other.paths
@@ -1360,18 +1362,25 @@ class Reads:
         self.lookup_directories |= other.lookup_directories
         for directory, names in other.lookups.items():
             self.lookups.setdefault(directory, set()).update(names)
+        for kind, commands in other.whole_tree_commands.items():
+            self.whole_tree_commands.setdefault(kind, set()).update(commands)
 
     def document(self) -> dict:
-        return {"paths": sorted(self.paths),
-                "existence_reads": [{"path": path, "kind": kind} for path, kind in sorted(self.existence.items())],
-                "directory_memberships": sorted(self.memberships), "lookup_directories": sorted(self.lookup_directories),
-                "module_lookups": {directory: sorted(names) for directory, names in sorted(self.lookups.items()) if names}}
+        doc = {"paths": sorted(self.paths),
+               "existence_reads": [{"path": path, "kind": kind} for path, kind in sorted(self.existence.items())],
+               "directory_memberships": sorted(self.memberships), "lookup_directories": sorted(self.lookup_directories),
+               "module_lookups": {directory: sorted(names) for directory, names in sorted(self.lookups.items()) if names}}
+        commands = {kind: sorted(items) for kind, items in sorted(self.whole_tree_commands.items()) if items}
+        if commands:
+            doc["whole_tree_commands"] = commands
+        return doc
 
     @staticmethod
     def of(document: dict) -> Reads:
         return Reads(set(document.get("paths", ())), {read["path"]: read["kind"] for read in document.get("existence_reads", ())},
                      set(document.get("directory_memberships", ())), set(document.get("lookup_directories", ())),
-                     {directory: set(names) for directory, names in document.get("module_lookups", {}).items()})
+                     {directory: set(names) for directory, names in document.get("module_lookups", {}).items()},
+                     {kind: set(commands) for kind, commands in document.get("whole_tree_commands", {}).items() if commands})
 
     def empty(self) -> bool:
         return not (self.paths or self.existence or self.memberships or self.lookup_directories or any(self.lookups.values()))
@@ -2231,6 +2240,16 @@ def held_paths(root: Path) -> dict[str, list[str]]:
     return held
 
 
+def format_command(exec_event: Event | None, fallback_executable: str) -> str:
+    """Human-readable process and arguments as the recording saw them."""
+    if exec_event is not None:
+        if exec_event.arguments:
+            return shlex.join(exec_event.arguments)
+        if exec_event.executable:
+            return exec_event.executable
+    return fallback_executable or "unknown"
+
+
 def git_directory_reads(events: list[Event], copies: list[str], project: Checkout, root: str | None = None, *, fold: bool = False) -> Reads:
     """The reads of any process that reads the index, objects or refs of the checkout's Git directories or of the Git
     directory of a repository copy in ``copies``, whose paths the .git rule of ``relative_events`` drops. Each ``git``
@@ -2239,7 +2258,7 @@ def git_directory_reads(events: list[Event], copies: list[str], project: Checkou
     ``.git/objects`` or ``.git/refs`` adds no tracked path."""
     directories = [*project.git_directories, *(copy + "/.git" for copy in copies)]
     active_exec: dict[str, Event] = {}
-    readers: list[tuple[str, Event | None]] = []
+    readers: list[tuple[str, Event | None, str]] = []
     seen: set[tuple[str, Event | None]] = set()
     replace_ref_seen: set[tuple[str, Event | None]] = set()
     for event in events:
@@ -2260,55 +2279,61 @@ def git_directory_reads(events: list[Event], copies: list[str], project: Checkou
             continue
         if key not in seen:
             seen.add(key)
-            readers.append(key)
+            readers.append((event.pid, exec_event, event.executable))
     roots = [root or str(project.root), *copies]
     # Read replace refs from the checkout's real Git directories and any copy Git directories still on disk.
     replaced = replace_refs(tuple(dict.fromkeys([*git_directories(project.root), *(copy + "/.git" for copy in copies)])))
     reads = Reads()
-    for key in readers:
-        _, exec_event = key
+    for pid, exec_event, fallback_executable in readers:
+        key = (pid, exec_event)
+        reader_reads = Reads()
         parsed = git_command(exec_event)
         if parsed is None:
-            reads.paths.add(EVERY_PATH)
-            continue
-        assert exec_event is not None
-        command, options, arguments = parsed
-        if command == "ls-files" and prints_only_names(arguments):
-            reads.update(listing_reads(exec_event, options, arguments, roots, fold=fold))
-            continue
-        gopts = parse_git_global_options(exec_event, options)
-        if gopts is None:
-            reads.paths.add(EVERY_PATH)
-            continue
-        prefix = working_prefix(gopts, roots, fold=fold)
-        context = GitObjectContext(held_paths(project.root), replaced, gopts.replace_refs_off, key in replace_ref_seen)
-        attributed: Reads | None = None
-        if command == "cat-file":
-            attributed = cat_file_reads(arguments, prefix, project, context)
-        elif command == "show":
-            attributed = show_reads(arguments, prefix, project, context)
-        elif command == "ls-tree":
-            attributed = ls_tree_reads(arguments, prefix, gopts, project)
-        elif command == "archive":
-            attributed = archive_reads(arguments, prefix, gopts, project)
-        elif command == "rev-parse":
-            attributed = rev_parse_reads(arguments)
-        elif command == "merge-base":
-            attributed = merge_base_reads(arguments, context)
-        elif command == "diff":
-            attributed = diff_reads(arguments, prefix, gopts, project)
-        elif command == "add":
-            attributed = git_add_reads(arguments, prefix, gopts, project)
-        elif command == "restore":
-            attributed = restore_reads(arguments, prefix, gopts, project)
-        elif command == "checkout":
-            attributed = checkout_path_reads(arguments, prefix, gopts, project)
-        elif command == "grep":
-            attributed = grep_reads(arguments, prefix, gopts, project)
-        if attributed is None:
-            reads.paths.add(EVERY_PATH)
+            reader_reads.paths.add(EVERY_PATH)
         else:
-            reads.update(attributed)
+            assert exec_event is not None
+            command, options, arguments = parsed
+            if command == "ls-files" and prints_only_names(arguments):
+                reader_reads.update(listing_reads(exec_event, options, arguments, roots, fold=fold))
+            else:
+                gopts = parse_git_global_options(exec_event, options)
+                if gopts is None:
+                    reader_reads.paths.add(EVERY_PATH)
+                else:
+                    prefix = working_prefix(gopts, roots, fold=fold)
+                    context = GitObjectContext(held_paths(project.root), replaced, gopts.replace_refs_off, key in replace_ref_seen)
+                    attributed: Reads | None = None
+                    if command == "cat-file":
+                        attributed = cat_file_reads(arguments, prefix, project, context)
+                    elif command == "show":
+                        attributed = show_reads(arguments, prefix, project, context)
+                    elif command == "ls-tree":
+                        attributed = ls_tree_reads(arguments, prefix, gopts, project)
+                    elif command == "archive":
+                        attributed = archive_reads(arguments, prefix, gopts, project)
+                    elif command == "rev-parse":
+                        attributed = rev_parse_reads(arguments)
+                    elif command == "merge-base":
+                        attributed = merge_base_reads(arguments, context)
+                    elif command == "diff":
+                        attributed = diff_reads(arguments, prefix, gopts, project)
+                    elif command == "add":
+                        attributed = git_add_reads(arguments, prefix, gopts, project)
+                    elif command == "restore":
+                        attributed = restore_reads(arguments, prefix, gopts, project)
+                    elif command == "checkout":
+                        attributed = checkout_path_reads(arguments, prefix, gopts, project)
+                    elif command == "grep":
+                        attributed = grep_reads(arguments, prefix, gopts, project)
+                    if attributed is None:
+                        reader_reads.paths.add(EVERY_PATH)
+                    else:
+                        reader_reads.update(attributed)
+        if EVERY_PATH in reader_reads.paths:
+            reader_reads.whole_tree_commands.setdefault("content", set()).add(format_command(exec_event, fallback_executable))
+        if EVERY_PATH in reader_reads.memberships:
+            reader_reads.whole_tree_commands.setdefault("membership", set()).add(format_command(exec_event, fallback_executable))
+        reads.update(reader_reads)
     return reads
 
 
@@ -2873,14 +2898,23 @@ def outside(reads: Reads, stored: Stored | None) -> Reads:
     """The reads that the stored lists do not cover; every read when there is no stored list."""
     if stored is None:
         return Reads(set(reads.paths), dict(reads.existence), set(reads.memberships), set(reads.lookup_directories),
-                     {directory: set(names) for directory, names in reads.lookups.items()})
+                     {directory: set(names) for directory, names in reads.lookups.items()},
+                     {kind: set(commands) for kind, commands in reads.whole_tree_commands.items() if commands})
     lookups = {directory: {name for name in names if name not in stored.lookup_sets.get(directory, frozenset())}
                for directory, names in reads.lookups.items()}
-    return Reads({path for path in reads.paths if not stored.covers_path(path)},
+    missing_paths = {path for path in reads.paths if not stored.covers_path(path)}
+    missing_memberships = {directory for directory in reads.memberships if not stored.covers_membership(directory)}
+    missing_commands: dict[str, set[str]] = {}
+    if EVERY_PATH in missing_paths and reads.whole_tree_commands.get("content"):
+        missing_commands["content"] = set(reads.whole_tree_commands["content"])
+    if EVERY_PATH in missing_memberships and reads.whole_tree_commands.get("membership"):
+        missing_commands["membership"] = set(reads.whole_tree_commands["membership"])
+    return Reads(missing_paths,
                  {path: kind for path, kind in reads.existence.items() if not stored.covers_existence(path, kind)},
-                 {directory for directory in reads.memberships if not stored.covers_membership(directory)},
+                 missing_memberships,
                  {directory for directory in reads.lookup_directories if directory not in stored.lookup_directory_set},
-                 {directory: names for directory, names in lookups.items() if names})
+                 {directory: names for directory, names in lookups.items() if names},
+                 missing_commands)
 
 
 # --- check ----------------------------------------------------------------------------------------------------
@@ -3245,6 +3279,43 @@ def entry_times_artifact_name(name: str) -> str:
     return "recording-entry-times" + name[len("recording-additions"):]
 
 
+def _format_unit(suite_name: str, entry: str | None) -> str:
+    return f"`{suite_name}`: `{entry}`" if entry is not None else f"`{suite_name}`"
+
+
+def unit_estimated_duration(suite: suite_selection.Suite, entry: str | None) -> str:
+    """The unit's estimated duration per run from the suite list, or ``none stored`` when absent."""
+    durations = dict(suite.entry_durations)
+    if entry is not None:
+        seconds = durations.get(entry)
+        return f"{seconds:.2f} s" if seconds is not None else "none stored"
+    values = [durations[item] for item in suite.entries if item in durations]
+    return f"{sum(values):.2f} s" if values else "none stored"
+
+
+def unreasoned_whole_tree_findings(suite_list: suite_selection.SuiteList,
+                                   recorded: list[tuple[suite_selection.Suite, Unit, Reads]],
+                                   tracked: frozenset[str]) -> list[tuple[str, str, tuple[str, ...], str]]:
+    """Every newly recorded bare ``**`` (outside the stored lists) whose unit of selection lacks a recorded reason for
+    that kind: ``(where, kind, commands, estimated_duration)`` in suite, entry and kind order. Already-stored ``**``
+    reads stay inside the stored lists so pushes to the default branch keep working; ``select`` fails pull requests on
+    them."""
+    grouped: dict[tuple[str, str | None, str], tuple[suite_selection.Suite, set[str]]] = {}
+    for suite, unit, reads in recorded:
+        entry = unit.record["name"]
+        missing = outside(reads, stored_lists(suite, entry, suite_list.always, tracked, suite_list.unit_lookups_map(suite, entry)))
+        unit_entry = entry if suite.entry_selection else None
+        for kind, present in (("content", EVERY_PATH in missing.paths), ("membership", EVERY_PATH in missing.memberships)):
+            if present and suite.whole_tree_reason(entry, kind) is None:
+                _, commands = grouped.setdefault((suite.name, unit_entry, kind), (suite, set()))
+                commands.update(missing.whole_tree_commands.get(kind, ()))
+    findings: list[tuple[str, str, tuple[str, ...], str]] = []
+    for (suite_name, unit_entry, kind), (suite, commands) in sorted(grouped.items(), key=lambda item: (item[0][0], item[0][1] or "", item[0][2])):
+        findings.append((_format_unit(suite_name, unit_entry), kind, tuple(sorted(commands)) or ("unknown",),
+                         unit_estimated_duration(suite, unit_entry)))
+    return findings
+
+
 def run_check(options: argparse.Namespace) -> int:
     output = output_directory(options.output)
     settings = read_settings(output)
@@ -3260,29 +3331,38 @@ def run_check(options: argparse.Namespace) -> int:
     document = additions_document(list_path, suite_list, recorded, project.tracked)
     target = options.additions or output / "additions.json"
     target.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-    lines = additions_lines(document)
+    unreasoned = unreasoned_whole_tree_findings(suite_list, recorded, project.tracked)
+    unreasoned_pairs = {(where, kind) for where, kind, _, _ in unreasoned}
+    lines = [(where, what) for where, what in additions_lines(document)
+             if not ((what == "path `**`" and (where, "content") in unreasoned_pairs)
+                     or (what == "directory membership `**`" and (where, "membership") in unreasoned_pairs))]
+    failed = bool(lines or unreasoned)
     has_changes = bool(document["suites"])
     if lines:
         print(f"The recording reads outside the stored lists of {options.suites}. Apply the additions with:")
         print(f"  python3 recording.py apply {target}")
         for where, what in lines:
             print(f"  {where}: {what}")
-    else:
+    if unreasoned:
+        print(f"The recording reports whole-tree reads (`**`) without a recorded reason in {options.suites}:")
+        for where, kind, commands, duration in unreasoned:
+            print(f"  {where}: {kind} `**` (command: {', '.join(commands)}; estimated duration per run: {duration})")
+    if not failed:
         print(f"Every recorded read of {len(recorded)} entry file{'' if len(recorded) == 1 else 's'} lies inside the stored lists.")
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
             route = additions_route(target.name, project.tracked, os.environ.get("GITHUB_RUN_ID"), os.environ.get("GITHUB_EVENT_NAME"),
                                     holds_automation_caller(root))
-            handle.write(check_summary(lines, len(recorded), route) + departures_summary(departures) + etw_summary(settings))
+            handle.write(check_summary(lines, len(recorded), route, unreasoned=unreasoned) + departures_summary(departures) + etw_summary(settings))
     if options.github_output is not None:
         artifact = ""
         if options.artifact_name:
-            artifact = options.artifact_name if lines else (entry_times_artifact_name(options.artifact_name) if has_changes else "")
+            artifact = options.artifact_name if failed else (entry_times_artifact_name(options.artifact_name) if has_changes else "")
         with options.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"mode=pull-request\nfile={target if has_changes else ''}\n")
             if options.artifact_name:
                 handle.write(f"artifact-name={artifact}\n")
-    return 1 if lines else 0
+    return 1 if failed else 0
 
 
 # A tracked file that only the repository of the shared parts holds; there the additions follow its maintenance documentation.
@@ -3333,14 +3413,33 @@ def additions_route(file_name: str, tracked: Collection[str], run_id: str | None
             f"request's branch, {kit}.")
 
 
-def check_summary(lines: list[tuple[str, str]], count: int, route: str) -> str:
+def check_summary(lines: list[tuple[str, str]], count: int, route: str,
+                  unreasoned: list[tuple[str, str, tuple[str, ...], str]] = ()) -> str:
     text = ["## Recording check", ""]
-    if not lines:
+    if not lines and not unreasoned:
         text.append(f"Every recorded read of {count} entry file{'' if count == 1 else 's'} lies inside the stored lists.")
         return "\n".join(text) + "\n"
-    text += [f"The recording reads outside the stored lists. {route}", "",
-             "| Suite or entry file | Addition |", "| --- | --- |"]
-    text += [f"| {where} | {what} |" for where, what in lines]
+    if lines:
+        text += [f"The recording reads outside the stored lists. {route}", "",
+                 "| Suite or entry file | Addition |", "| --- | --- |"]
+        text += [f"| {where} | {what} |" for where, what in lines]
+    if unreasoned:
+        if lines:
+            text.append("")
+        text += [
+            "### Whole-tree reads (`**`) without a reason",
+            "",
+            "A `**` read is not applied automatically. Resolve each entry in one of two ways: "
+            "change the test so its inputs are explicit (fixture files, a temporary repository not copied from the checkout, "
+            "or walks and pathspecs limited to the directories it reads), or record a reason for that unit and kind under "
+            "`entry_whole_tree_reasons` (or `whole_tree_reasons` for a suite selected as a whole) in the suite list.",
+            "",
+            "| Unit | Kind | Command | Estimated duration per run |",
+            "| --- | --- | --- | --- |",
+        ]
+        for where, kind, commands, duration in unreasoned:
+            command_text = ", ".join(f"`{cmd}`" for cmd in commands)
+            text.append(f"| {where} | {kind} | {command_text} | {duration} |")
     return "\n".join(text) + "\n"
 
 
@@ -3578,6 +3677,14 @@ def canonical_order(item: dict) -> None:
                                         for entry in sorted(item["entry_module_lookups"], key=by_entry)}
     if "entry_durations" in item:
         item["entry_durations"] = {entry: item["entry_durations"][entry] for entry in sorted(item["entry_durations"], key=by_entry)}
+    if "whole_tree_reasons" in item:
+        item["whole_tree_reasons"] = {kind: item["whole_tree_reasons"][kind]
+                                      for kind in suite_selection.WHOLE_TREE_KINDS if kind in item["whole_tree_reasons"]}
+    if "entry_whole_tree_reasons" in item:
+        item["entry_whole_tree_reasons"] = {
+            entry: {kind: item["entry_whole_tree_reasons"][entry][kind]
+                    for kind in suite_selection.WHOLE_TREE_KINDS if kind in item["entry_whole_tree_reasons"][entry]}
+            for entry in sorted(item["entry_whole_tree_reasons"], key=by_entry)}
 
 
 def drop_stale_keys(item: dict, suite: suite_selection.Suite) -> list[str]:
@@ -3604,7 +3711,7 @@ def reads_problem(reads: object, where: str) -> str | None:
     """Why ``reads`` is no reads object as ``Reads.document`` writes it, or None."""
     if not isinstance(reads, dict):
         return f"{where} is no object"
-    unknown = sorted(set(reads) - {read_field.key for read_field in READ_FIELDS} - {"module_lookups"})
+    unknown = sorted(set(reads) - {read_field.key for read_field in READ_FIELDS} - {"module_lookups", "whole_tree_commands"})
     if unknown:
         return f"{where} holds the unknown field {unknown[0]}"
     for key in ("paths", "directory_memberships", "lookup_directories"):
@@ -3617,6 +3724,9 @@ def reads_problem(reads: object, where: str) -> str | None:
     lookups = reads.get("module_lookups", {})
     if not isinstance(lookups, dict) or not all(is_string_list(names) for names in lookups.values()):
         return f"{where}: module_lookups is no object of lists of strings"
+    commands = reads.get("whole_tree_commands", {})
+    if not isinstance(commands, dict) or not set(commands) <= set(suite_selection.WHOLE_TREE_KINDS) or not all(is_string_list(items) for items in commands.values()):
+        return f"{where}: whole_tree_commands is no object mapping content or membership to lists of strings"
     return None
 
 
@@ -3725,6 +3835,14 @@ def load_documents(paths: list[Path]) -> list[dict]:
     return documents
 
 
+@dataclass
+class ApplyOutcome:
+    """Whole-tree side outcomes of ``apply`` for workflow step outputs."""
+
+    skipped_whole_tree: list[str] = field(default_factory=list)
+    unreasoned_whole_tree: bool = False
+
+
 def run_apply(options: argparse.Namespace) -> int:
     documents = load_documents(options.files)
     root = options.root.resolve()
@@ -3736,19 +3854,20 @@ def run_apply(options: argparse.Namespace) -> int:
     items = {suite.name: suite.entry() for suite in raw.suites}
     lookups = {directory: list(names) for directory, names in raw.module_lookups}
     durations_version = raw.entry_durations_version
+    outcome = ApplyOutcome()
     if documents[0]["kind"] == "additions":
         if options.keep_lists is not None or options.keep_all_lists:
             raise RecordingError("--keep-lists and --keep-all-lists go with full-recording results")
         if options.expect_job:
             raise RecordingError("--expect-job goes with full-recording results")
-        report = apply_additions(documents, raw, resolved, items, lookups)
+        report = apply_additions(documents, raw, resolved, items, lookups, outcome=outcome)
     else:
         if options.expect_job:
             present = {entry["job"] for document in documents for entry in document["entries"] if entry.get("job")}
             missing_jobs = [job for job in dict.fromkeys(options.expect_job) if job not in present]
             if missing_jobs:
                 raise RecordingError(f"the full recording is missing the result of: {', '.join(missing_jobs)}")
-        report = apply_full(documents, raw, resolved, items, lookups, kept_lists(options, resolved))
+        report = apply_full(documents, raw, resolved, items, lookups, kept_lists(options, resolved), outcome=outcome)
         durations_version = suite_selection.ENTRY_DURATIONS_VERSION
     for name, item in items.items():
         report += [f"{name}: removed the stored lists and the estimate of {entry}: no entry names it" for entry in drop_stale_keys(item, resolved[name])]
@@ -3765,6 +3884,14 @@ def run_apply(options: argparse.Namespace) -> int:
     if options.summary is not None:
         with options.summary.open("a", encoding="utf-8") as handle:
             handle.write("## Applied recording\n\n" + "".join(f"- {line}\n" for line in report))
+    if options.github_output is not None:
+        with options.github_output.open("a", encoding="utf-8") as handle:
+            if documents[0]["kind"] == "full-recording":
+                handle.write(f"unreasoned-whole-tree={'true' if outcome.unreasoned_whole_tree else 'false'}\n")
+            elif outcome.skipped_whole_tree:
+                delimiter = f"SKIPPED_WHOLE_TREE_{os.urandom(8).hex()}"
+                handle.write(f"skipped-whole-tree-report<<{delimiter}\n"
+                             + "\n".join(f"- {line}" for line in outcome.skipped_whole_tree) + f"\n{delimiter}\n")
     return 0
 
 
@@ -3781,7 +3908,25 @@ def add_lookups(lookups: dict[str, list[str]], reads: Reads) -> None:
             lookups[directory] = add_unique(lookups.get(directory, []), sorted(names))
 
 
-def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]]) -> list[str]:
+def _strip_unreasoned_whole_tree(suite: suite_selection.Suite, entry: str | None, reads: Reads,
+                                  skipped: dict[tuple[str, str | None, str], set[str]]) -> None:
+    """Remove any bare ``**`` from ``reads`` whose unit lacks a recorded reason, recording its commands in ``skipped``."""
+    unit = entry if suite.entry_selection else None
+    if EVERY_PATH in reads.paths and suite.whole_tree_reason(entry, "content") is None:
+        reads.paths.discard(EVERY_PATH)
+        skipped.setdefault((suite.name, unit, "content"), set()).update(reads.whole_tree_commands.get("content", ()))
+    if EVERY_PATH in reads.memberships and suite.whole_tree_reason(entry, "membership") is None:
+        reads.memberships.discard(EVERY_PATH)
+        skipped.setdefault((suite.name, unit, "membership"), set()).update(reads.whole_tree_commands.get("membership", ()))
+
+
+def _format_whole_tree_commands(commands: Collection[str]) -> str:
+    ordered = sorted(commands)
+    return ", ".join(f"`{cmd}`" for cmd in ordered) if ordered else "`unknown`"
+
+
+def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]],
+                    *, outcome: ApplyOutcome | None = None) -> list[str]:
     merged: dict[str, dict] = {}
     for document in documents:
         for change in document["suites"]:
@@ -3796,6 +3941,7 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
             for entry, seconds in change.get("durations", {}).items():
                 target["durations"][entry] = seconds
     report = []
+    skipped_whole_tree: dict[tuple[str, str | None, str], set[str]] = {}
     replaced: set[tuple[str, str]] = set()
     recorded_lookups: dict[str, set[str]] = {}
     initial_lookups = {directory: list(names) for directory, names in lookups.items()}
@@ -3817,13 +3963,15 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
         if suite.entry_selection:
             for entry, reads in sorted(change["replace_entries"].items()):
                 if entry in suite_entries:
+                    _strip_unreasoned_whole_tree(suite, entry, reads, skipped_whole_tree)
                     replace_reads(item, reads.document(), entry)
                     replaced.add((name, entry))
                     replaced_here += 1
                     for directory, names in reads.lookups.items():
                         recorded_lookups.setdefault(directory, set()).update(names)
             for entry, reads in sorted(change["entries"].items()):
-                if (name, entry) not in replaced:
+                _strip_unreasoned_whole_tree(suite, entry, reads, skipped_whole_tree)
+                if (name, entry) not in replaced and (not reads.empty() or suite.paths is None or suite.lacks_list(entry)):
                     add_reads(item, reads.document(), entry, fallback_lookups=initial_lookups)
                     add_lookups(lookups, reads)
                     added_paths += len(reads.paths)
@@ -3831,12 +3979,14 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
             union = Reads()
             for entry in suite.entries:
                 union.update(change["replace_entries"][entry])
+            _strip_unreasoned_whole_tree(suite, None, union, skipped_whole_tree)
             replace_reads(item, union.document(), None)
             replaced.update((name, entry) for entry in suite.entries)
             replaced_here = len(suite.entries)
             for directory, names in union.lookups.items():
                 recorded_lookups.setdefault(directory, set()).update(names)
         else:
+            _strip_unreasoned_whole_tree(suite, None, change["reads"], skipped_whole_tree)
             if not change["reads"].empty() or change["create"]:
                 add_reads(item, change["reads"].document(), None, fallback_lookups=initial_lookups)
             add_lookups(lookups, change["reads"])
@@ -3846,8 +3996,15 @@ def apply_additions(documents: list[dict], raw: suite_selection.SuiteList, resol
                           f"and added the recorded reads ({added_paths} content path{'' if added_paths == 1 else 's'} among them)")
         elif replaced_here:
             report.append(f"{name}: replaced the stored lists of {replaced_here} complete entry file{'' if replaced_here == 1 else 's'}")
-        else:
+        elif added_paths or change["create"] or not change["reads"].empty() or any(not r.empty() for r in change["entries"].values()) or change["durations"]:
             report.append(f"{name}: added the recorded reads ({added_paths} content path{'' if added_paths == 1 else 's'} among them)")
+    skipped_lines: list[str] = []
+    for (suite_name, unit, kind), commands in sorted(skipped_whole_tree.items(), key=lambda entry: (entry[0][0], entry[0][1] or "", entry[0][2])):
+        line = f"{_format_unit(suite_name, unit)}: left out {kind} `**` without a recorded reason (command: {_format_whole_tree_commands(commands)})"
+        skipped_lines.append(line)
+        report.append(line)
+    if outcome is not None:
+        outcome.skipped_whole_tree = skipped_lines
     if replaced:
         directories_of_kept_lists = {directory for suite in resolved.values() for entry in suite.entries if (suite.name, entry) not in replaced
                                      for directory in suite.lookup_directories_of(entry)}
@@ -3940,8 +4097,22 @@ def kept_lists(options: argparse.Namespace, resolved: dict) -> dict[tuple[str, s
     return kept
 
 
+def _unit_has_whole_tree(item: dict, entry: str | None) -> dict[str, bool]:
+    """Whether a suite JSON entry holds bare ``**`` for ``content`` and ``membership`` for ``entry`` (or whole suite)."""
+    if entry is not None:
+        paths = list(item.get("entry_paths", {}).get(entry, ())) + list(item.get("extra_paths", ())) + list(item.get("entry_extra_paths", {}).get(entry, ()))
+        memberships = list(item.get("entry_directory_memberships", {}).get(entry, ())) + list(item.get("extra_directory_memberships", ()))
+    else:
+        paths = list(item.get("paths", ())) + list(item.get("extra_paths", ()))
+        memberships = list(item.get("directory_memberships", ())) + list(item.get("extra_directory_memberships", ()))
+    return {
+        "content": any(v.strip("/") == EVERY_PATH for v in paths),
+        "membership": any(v.strip("/") == EVERY_PATH for v in memberships),
+    }
+
+
 def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: dict, items: dict, lookups: dict[str, list[str]],
-               kept: dict[tuple[str, str], str]) -> list[str]:
+               kept: dict[tuple[str, str], str], *, outcome: ApplyOutcome | None = None) -> list[str]:
     """Replace the lists of every recorded entry file that exited with 0 and whose test report in an accepted format
     shows no skipped test, unless ``kept`` names it with a reason to keep its stored reads. The module lookups of a
     directory become those of the recorded entry files, and keep the stored ones while an entry file whose lists stay
@@ -3949,8 +4120,17 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
     ``corrected_durations`` (whose speed factor uses clean entry files only) and ``new_estimate`` say, judged per entry
     file, also in a suite selected as a whole; every other entry file keeps its stored estimate, or stays without one.
     Results for a suite or an entry file that the suite list lacks are left out and reported."""
+    prior_whole_tree: set[tuple[str, str | None, str]] = set()
+    for suite in resolved.values():
+        units: tuple[str | None, ...] = suite.entries if suite.entry_selection else (None,)
+        for unit in units:
+            if any(p.strip("/") == EVERY_PATH for p in suite.patterns_of(unit)):
+                prior_whole_tree.add((suite.name, unit, "content"))
+            if any(m.strip("/") == EVERY_PATH for m in suite.memberships_of(unit)):
+                prior_whole_tree.add((suite.name, unit, "membership"))
     entries: dict[tuple[str, str], dict] = {}
     jobs: dict[tuple[str, str], tuple] = {}
+    unit_commands: dict[tuple[str, str | None, str], set[str]] = {}
     report: list[str] = []
     seen_report: set[str] = set()
     resolved_entries = {name: set(suite.entries) for name, suite in resolved.items()}
@@ -3965,6 +4145,9 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
                 entries[key] = entry
                 # A result without a job comes from a workflow that names none at start; each such file is one job's result.
                 jobs[key] = ("job", entry["job"]) if entry.get("job") else ("result", index)
+                unit_key = key[1] if resolved[key[0]].entry_selection else None
+                for kind, cmds in entry["reads"].get("whole_tree_commands", {}).items():
+                    unit_commands.setdefault((key[0], unit_key, kind), set()).update(cmds)
                 continue
             if line not in seen_report:
                 seen_report.add(line)
@@ -4021,6 +4204,42 @@ def apply_full(documents: list[dict], raw: suite_selection.SuiteList, resolved: 
         else:
             add_reads(item, union.document(), None, fallback_lookups=lookups)
             report += [f"{name}: kept the list of {entry}: {reason}" for entry, reason in list_reasons.items() if reason is not None]
+    added_unreasoned = False
+    for name in sorted(resolved):
+        suite = known_suite(resolved, name)
+        item = items[name]
+        if suite.entry_selection:
+            per_entry_reasons = item.get("entry_whole_tree_reasons", {})
+            for entry in list(per_entry_reasons):
+                if entry not in set(suite.entries):
+                    del per_entry_reasons[entry]
+                    report.append(f"{name}: removed the stale whole-tree reason for {entry}: no entry names it")
+            units: tuple[str | None, ...] = suite.entries
+        else:
+            units = (None,)
+        for unit in units:
+            present = _unit_has_whole_tree(item, unit)
+            unit_replaced = (name, unit) in replaced if unit is not None else all((name, e) in replaced for e in suite.entries)
+            reasons = (item.get("entry_whole_tree_reasons", {}).get(unit) if unit is not None else item.get("whole_tree_reasons")) or {}
+            if unit_replaced and reasons:
+                for kind in suite_selection.WHOLE_TREE_KINDS:
+                    if kind in reasons and not present[kind]:
+                        del reasons[kind]
+                        report.append(f"{_format_unit(name, unit)}: removed the stale {kind} whole-tree reason: the full recording no longer records `**`")
+                if not reasons:
+                    if unit is not None:
+                        item["entry_whole_tree_reasons"].pop(unit, None)
+                    else:
+                        item.pop("whole_tree_reasons", None)
+            for kind in suite_selection.WHOLE_TREE_KINDS:
+                if present[kind] and (name, unit, kind) not in prior_whole_tree and kind not in reasons:
+                    added_unreasoned = True
+                    cmds = _format_whole_tree_commands(unit_commands.get((name, unit, kind), ()))
+                    report.append(f"{_format_unit(name, unit)}: added {kind} `**` without a recorded reason (command: {cmds}); auto-merge disabled")
+        if "entry_whole_tree_reasons" in item and not item["entry_whole_tree_reasons"]:
+            del item["entry_whole_tree_reasons"]
+    if outcome is not None:
+        outcome.unreasoned_whole_tree = added_unreasoned
     directories_of_kept_lists = {directory for suite in resolved.values() for entry in suite.entries if (suite.name, entry) not in replaced
                                  for directory in suite.lookup_directories_of(entry)}
     stored_lookups = dict(lookups)
@@ -4457,6 +4676,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     applying.add_argument("--root", type=Path, default=Path("."), help="the repository root (default: the working directory)")
     applying.add_argument("--suites", type=Path, help="the suite list (default: the one the files name, under the root)")
     applying.add_argument("--summary", type=Path, help="append the Markdown report to this file")
+    applying.add_argument("--github-output", type=Path, help="append whole-tree status lines to this file")
     applying.add_argument("--expect-job", action="append", default=[], help="a shard job whose full-recording result must be present (repeatable)")
     kept = applying.add_mutually_exclusive_group()
     kept.add_argument("--keep-lists", type=Path, help="the output of select --json-output for the change since the recorded commit: "

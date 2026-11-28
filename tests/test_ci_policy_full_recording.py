@@ -118,7 +118,7 @@ class ClosingJobTests(unittest.TestCase):
         self.assertIn("shopt -s globstar nullglob\n", apply["run"])
         self.assertEqual({"SUITES": SUITES}, self.job["env"])
         self.assertIn('files=("$RUNNER_TEMP"/full-recording/**/full-recording.json)', apply["run"])
-        self.assertIn('python3 "$RECORDING/recording.py" apply --suites "$SUITES" "${expected[@]}" "$@" --summary "$GITHUB_STEP_SUMMARY" "${files[@]}"',
+        self.assertIn('python3 "$RECORDING/recording.py" apply --suites "$SUITES" "${expected[@]}" "$@" --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT" "${files[@]}"',
                       apply["run"])
         upload = next(step for step in self.steps if str(step.get("uses", "")).startswith("actions/upload-artifact@"))
         self.assertLess(self.steps.index(apply), self.steps.index(upload))
@@ -131,6 +131,10 @@ class ClosingJobTests(unittest.TestCase):
         self.assertTrue(proposing)
         for step in proposing:
             if step.get("id") in ("stopped", "app-token", "verified"):
+                continue
+            if step.get("id") == "auto-merge":
+                self.assertEqual(f"steps.changes.outputs.changed == 'true' && steps.apply.outputs.unreasoned-whole-tree != 'true' && {ON_DEFAULT_BRANCH}",
+                                 step["if"], step.get("name"))
                 continue
             self.assertEqual(f"steps.changes.outputs.changed == 'true' && {ON_DEFAULT_BRANCH}", step["if"], step.get("name"))
         changes = named(self.steps, "Check the changed files")
@@ -162,7 +166,8 @@ class ClosingJobTests(unittest.TestCase):
         pull_request = named(self.steps, "Create or update the review pull request")
         auto_merge = self.steps[self.steps.index(pull_request) + 1]
         self.assertEqual("auto-merge", auto_merge["id"])
-        self.assertEqual(pull_request["if"], auto_merge["if"])
+        self.assertEqual(f"steps.changes.outputs.changed == 'true' && steps.apply.outputs.unreasoned-whole-tree != 'true' && {ON_DEFAULT_BRANCH}",
+                         auto_merge["if"])
         self.assertEqual({"GH_TOKEN": "${{ steps.app-token.outputs.token }}"}, auto_merge["env"])
         self.assertIn('gh pr merge "chore/update-recorded-lists" --repo "$GITHUB_REPOSITORY" --auto --squash --match-head-commit "$(git rev-parse HEAD)"',
                       auto_merge["run"])

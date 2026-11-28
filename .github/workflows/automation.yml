@@ -93,6 +93,7 @@ jobs:
     outputs:
       pull-request: ${{ steps.run.outputs.pull-request }}
       reason: ${{ steps.reason.outputs.reason }}
+      skipped-whole-tree-report: ${{ steps.apply.outputs.skipped-whole-tree-report }}
     env:
       RUN_ID: ${{ github.event.inputs.run-id || github.event.workflow_run.id }}
       PROPOSAL_BRANCH: chore/apply-recorded-additions-${{ github.event.inputs.run-id }}
@@ -206,7 +207,7 @@ jobs:
           set -euo pipefail
           shopt -s globstar
           printf 'The recorded additions of run %s/%s/actions/runs/%s, for the pull request %son %s.\n\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$RUN_ID" "${PULL_REQUEST:+#$PULL_REQUEST }" "$HEAD_BRANCH" > "$REPORT"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP"/additions/**/additions.json | sed 's/^/- /' >> "$REPORT"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT" "$RUNNER_TEMP"/additions/**/additions.json | sed 's/^/- /' >> "$REPORT"
       - id: changes
         name: Find whether the suite list changed
         if: steps.run.outputs.apply == 'true'
@@ -391,6 +392,7 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SKIPPED_WHOLE_TREE_REPORT: ${{ needs.additions.outputs.skipped-whole-tree-report }}
         run: |
           set -euo pipefail
           [[ "$PULL_REQUEST" =~ ^[0-9]+$ ]] || { echo "::error::The pull request number $PULL_REQUEST is no number."; exit 1; }
@@ -408,6 +410,9 @@ jobs:
           fence="$(printf '\140\140\140')"
           {
             printf 'The additions workflow did not commit the recorded additions of [run %s](%s) onto this branch: %s\n\n' "$RUN_ID" "$RUN_URL" "$why"
+            if [ -n "${SKIPPED_WHOLE_TREE_REPORT:-}" ]; then
+              printf 'Whole-tree reads (\140**\140) left out without a recorded reason:\n\n%s\n\n' "$SKIPPED_WHOLE_TREE_REPORT"
+            fi
             printf 'Apply them by hand from the default branch:\n\n%ssh\ngh workflow run %s -f part=additions -f run-id=%s\n%s\n\n' "$fence" "$caller" "$RUN_ID" "$fence"
             printf 'The workflow then opens a pull request onto this branch whose only change is the suite list; merge it once its checks pass.\n'
           } > "$body"
@@ -486,7 +491,8 @@ jobs:
         uses: $/actions/recording
       - id: selection
         uses: $/actions/suite-selection
-      - name: Join the results, apply the removals and write the duration estimates
+      - id: apply
+        name: Join the results, apply the removals and write the duration estimates
         env:
           RECORDING: ${{ steps.recording.outputs.path }}
           SELECTION: ${{ steps.selection.outputs.path }}
@@ -539,7 +545,7 @@ jobs:
             fi
           fi
           err="$RUNNER_TEMP/full-recording-apply.err"
-          if ! report="$(PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" "${expected[@]}" "$@" --summary "$GITHUB_STEP_SUMMARY" "${files[@]}" 2>"$err")"; then
+          if ! report="$(PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RECORDING/recording.py" apply --suites "$SUITES" "${expected[@]}" "$@" --summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT" "${files[@]}" 2>"$err")"; then
             cat "$err" >&2
             message="$(tr '\n' ' ' < "$err" | sed 's/ *$//')"
             echo "::error::${message:-The full recording could not be applied; no pull request is opened.}"
@@ -664,7 +670,7 @@ jobs:
           fi
       - name: Let the review pull request merge itself once its required checks have passed
         id: auto-merge
-        if: steps.changes.outputs.changed == 'true' && github.ref_name == github.event.repository.default_branch
+        if: steps.changes.outputs.changed == 'true' && steps.apply.outputs.unreasoned-whole-tree != 'true' && github.ref_name == github.event.repository.default_branch
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |

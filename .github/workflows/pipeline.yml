@@ -182,7 +182,7 @@ jobs:
             *) set -- "$@" --base "$BASE" --head "$HEAD" --compare direct --run-attempt "$RUN_ATTEMPT" ;;
           esac
           set -- "$@" --shared-lookup "$RUNNER_TEMP/shared-lookup.json" --unit-decisions "$RUNNER_TEMP/unit-decisions.json"
-          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/repo-pycache" python3 "$RESOURCE_PATH/suite_selection.py" select --root . --suites "$SUITES" --workflow "$WORKFLOW" --event "$EVENT" "$@" --json-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Check the configuration file and decide which parts run
         id: plan
         env:

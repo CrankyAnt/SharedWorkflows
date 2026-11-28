@@ -6,7 +6,7 @@ import io
 import json
 import sys
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -732,6 +732,105 @@ class EntrySelectionTests(unittest.TestCase):
         self.assertFalse(suite.entry_selection)
         self.assertEqual(suite.entry(), plain, "a suite list without the new keys reads and renders as before")
         self.assertEqual(self.suite_list().suites[0].entry(), base, "the new keys render as stated")
+
+
+class WholeTreeReasonTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = temporary_support.make_directory(self.addCleanup, prefix="whole-tree-reasons-")
+        for path in ("checks/test_a.py", "checks/test_b.py", "src/app.py"):
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("", encoding="utf-8")
+
+    def write_suites(self, document: dict) -> Path:
+        path = self.root / "suites.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def run_select(self, suites_path: Path, *extra: str) -> tuple[int, str]:
+        stderr = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+            code = suite_selection.main(["select", "--root", str(self.root), "--suites", str(suites_path), *extra])
+        return code, stderr.getvalue()
+
+    def test_invalid_whole_tree_reasons_fail_with_a_message_naming_the_problem(self) -> None:
+        cases = (
+            ({"name": "unit", "entries": ["checks/test_a.py"], "paths": ["checks/test_a.py"],
+              "whole_tree_reasons": {"content": ""}}, "whole_tree_reasons \\(content\\): reason must be a non-empty string"),
+            ({"name": "unit", "entries": ["checks/test_a.py"], "paths": ["checks/test_a.py"],
+              "whole_tree_reasons": {"membership": "   "}}, "whole_tree_reasons \\(membership\\): reason must be a non-empty string"),
+            ({"name": "unit", "entries": ["checks/test_a.py"], "paths": ["checks/test_a.py"],
+              "whole_tree_reasons": {}}, "whole_tree_reasons must be a non-empty object"),
+            ({"name": "unit", "entries": ["checks/test_a.py"], "paths": ["checks/test_a.py"],
+              "whole_tree_reasons": {"other": "reason"}}, "unknown keys other"),
+            ({"name": "unit", "entries": ["checks/test_a.py"], "entry_selection": True, "paths": ["checks/test_a.py"],
+              "entry_paths": {"checks/test_a.py": ["checks/test_a.py"]},
+              "whole_tree_reasons": {"content": "reason"}}, "whole_tree_reasons goes with a suite selected as a whole"),
+            ({"name": "unit", "entries": ["checks/test_a.py"], "paths": ["checks/test_a.py"],
+              "entry_whole_tree_reasons": {"checks/test_a.py": {"content": "reason"}}}, "entry_whole_tree_reasons needs entry_selection"),
+            ({"name": "unit", "entries": ["checks/test_a.py"], "entry_selection": True, "paths": ["checks/test_a.py"],
+              "entry_paths": {"checks/test_a.py": ["checks/test_a.py"]},
+              "entry_whole_tree_reasons": {"checks/test_missing.py": {"content": "reason"}}}, "checks/test_missing.py"),
+        )
+        for item, pattern in cases:
+            with self.subTest(item=item):
+                with self.assertRaisesRegex(suite_selection.SuiteListError, pattern):
+                    suite_selection.parse_suite_list(json.dumps({"always": [], "suites": [item]}))
+        # Glob entry that matches a non-existent file is rejected by resolve_entries.
+        glob_doc = {"always": [], "suites": [
+            {"name": "unit", "entries": ["checks/test_*.py"], "entry_selection": True, "paths": ["checks/test_a.py"],
+             "entry_paths": {"checks/test_a.py": ["checks/test_a.py"]},
+             "entry_whole_tree_reasons": {"checks/test_ghost.py": {"content": "reason"}}}]}
+        parsed = suite_selection.parse_suite_list(json.dumps(glob_doc))
+        with self.assertRaisesRegex(suite_selection.SuiteListError, "checks/test_ghost.py"):
+            suite_selection.resolve_entries(parsed, {"checks/test_a.py", "checks/test_b.py"})
+
+    def test_pull_request_select_fails_on_stored_whole_tree_without_reason_and_push_or_full_still_works(self) -> None:
+        suites_path = self.write_suites({"always": [], "suites": [
+            {"name": "per", "entries": ["checks/test_a.py", "checks/test_b.py"], "entry_selection": True,
+             "paths": ["**", "checks/test_a.py", "checks/test_b.py"],
+             "entry_paths": {"checks/test_a.py": ["**", "checks/test_a.py"], "checks/test_b.py": ["checks/test_b.py"]},
+             "directory_memberships": ["**"],
+             "entry_directory_memberships": {"checks/test_b.py": ["**"]}},
+            {"name": "whole", "entries": ["checks/test_a.py"], "paths": ["**", "checks/test_a.py"]}]})
+        pr_code, pr_err = self.run_select(suites_path, "--changed-file", "src/app.py", "--event", "pull_request")
+        self.assertEqual(2, pr_code)
+        self.assertIn("per: checks/test_a.py (content)", pr_err)
+        self.assertIn("per: checks/test_b.py (membership)", pr_err)
+        self.assertIn("whole (content)", pr_err)
+        # Push and full-recording keep working on the same suite list.
+        push_code, push_err = self.run_select(suites_path, "--changed-file", "src/app.py", "--event", "push")
+        self.assertEqual(0, push_code, push_err)
+        full_code, full_err = self.run_select(suites_path, "--full")
+        self.assertEqual(0, full_code, full_err)
+
+    def test_pull_request_select_passes_when_matching_reasons_are_recorded_and_fails_on_wrong_kind_or_unit(self) -> None:
+        suites_path = self.write_suites({"always": [], "suites": [
+            {"name": "per", "entries": ["checks/test_a.py", "checks/test_b.py"], "entry_selection": True,
+             "paths": ["**", "checks/test_a.py", "checks/test_b.py"],
+             "entry_paths": {"checks/test_a.py": ["**", "checks/test_a.py"], "checks/test_b.py": ["checks/test_b.py"]},
+             "entry_whole_tree_reasons": {"checks/test_a.py": {"content": "Audits every tracked file"}}},
+            {"name": "whole", "entries": ["checks/test_a.py"], "directory_memberships": ["**"],
+             "paths": ["checks/test_a.py"],
+             "whole_tree_reasons": {"membership": "Checks every tracked path name"}}]})
+        ok_code, ok_err = self.run_select(suites_path, "--changed-file", "src/app.py", "--event", "pull_request")
+        self.assertEqual(0, ok_code, ok_err)
+        # Wrong kind (membership reason for content **) still fails.
+        wrong_kind = self.write_suites({"always": [], "suites": [
+            {"name": "whole", "entries": ["checks/test_a.py"], "paths": ["**", "checks/test_a.py"],
+             "whole_tree_reasons": {"membership": "Only explains membership"}}]})
+        bad_kind_code, bad_kind_err = self.run_select(wrong_kind, "--changed-file", "src/app.py", "--event", "pull_request")
+        self.assertEqual(2, bad_kind_code)
+        self.assertIn("whole (content)", bad_kind_err)
+        # Wrong unit (reason on test_b for test_a's **) still fails.
+        wrong_unit = self.write_suites({"always": [], "suites": [
+            {"name": "per", "entries": ["checks/test_a.py", "checks/test_b.py"], "entry_selection": True,
+             "paths": ["**", "checks/test_a.py", "checks/test_b.py"],
+             "entry_paths": {"checks/test_a.py": ["**", "checks/test_a.py"], "checks/test_b.py": ["checks/test_b.py"]},
+             "entry_whole_tree_reasons": {"checks/test_b.py": {"content": "Only explains test_b"}}}]})
+        bad_unit_code, bad_unit_err = self.run_select(wrong_unit, "--changed-file", "src/app.py", "--event", "pull_request")
+        self.assertEqual(2, bad_unit_code)
+        self.assertIn("per: checks/test_a.py (content)", bad_unit_err)
 
 
 if __name__ == "__main__":

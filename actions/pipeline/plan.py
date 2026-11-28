@@ -1021,7 +1021,8 @@ def make_plan(root: Path, versions: dict[int, SchemaVersion], base: str | None, 
         for name in workflow_parts
         if name in parts and supports_paths(name, version) and parts[name].get("paths") is None
     ]
-    unmatched = unmatched_paths(parts, workflow_parts, tracked_files(root))
+    needs_tracked = any(isinstance(parts.get(name, {}).get("paths"), list) for name in workflow_parts)
+    unmatched = unmatched_paths(parts, workflow_parts, tracked_files(root) if needs_tracked else None)
     decisions = {}
     edited = event == "pull_request" and event_action == "edited" and workflow == PIPELINE
     if edited:

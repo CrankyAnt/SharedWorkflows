@@ -1167,6 +1167,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     selecting.add_argument("--head", help="the pushed commit, or the head commit of a pull request")
     selecting.add_argument("--compare", choices=("merge-base", "direct"), default="direct",
                            help="merge-base for a pull request, direct for a push (default)")
+    selecting.add_argument("--event", help="github.event_name; on pull_request, a stored ** without a reason fails selection")
     selecting.add_argument("--workflow", help="the calling workflow: its repository path, or github.workflow_ref")
     selecting.add_argument("--github-output", type=Path, help="append one <suite>=run|skip line per suite to this file")
     selecting.add_argument("--json-output", type=Path, help="append suites=<JSON object with run or skip per suite> to this file")
@@ -1262,6 +1263,19 @@ def run_select(options: argparse.Namespace) -> int:
     tracked = tracked_files(root)
     suite_list = resolve_entries(load_suite_list(options.suites), tracked, str(options.suites))
     suite_list = with_pinned_tools(suite_list, options.pinned_tool, options.pins, str(options.suites), root=root)
+    is_pull_request = options.event == "pull_request" or (options.event is None and options.compare == "merge-base"
+                                                          and not options.full and options.lookup is None)
+    if is_pull_request:
+        unreasoned = [(suite.name, unit, kind) for suite in suite_list.suites for unit, kind in suite.unreasoned_whole_tree()]
+        if unreasoned:
+            details = "; ".join(f"{name}: {unit} ({kind})" if unit is not None else f"{name} ({kind})" for name, unit, kind in unreasoned)
+            message = (f"{options.suites} stores whole-tree `**` without a recorded reason for {details}. "
+                       "Remove each `**` by making the test's inputs explicit, or record a reason under "
+                       "entry_whole_tree_reasons (or whole_tree_reasons for a suite selected as a whole).")
+            if options.summary is not None:
+                with options.summary.open("a", encoding="utf-8") as handle:
+                    handle.write(f"## Suite selection failed\n\n{message}\n")
+            raise SuiteListError(message)
     if options.full:
         return write_selection(options, suite_list, every_suite(suite_list, FULL_REASON), [], full=True)
     found = sides = None
