@@ -301,6 +301,8 @@ class RecordingFixture:
         environment = {key: value for key, value in os.environ.items() if key not in ("RUNNER_TEMP", *CI_RUN)}
         environment.update(self.stated_run)
         environment["PATH"] = os.environ.get("PATH", "") if path is None else path
+        if sys.platform != "win32" and "XDG_CACHE_HOME" not in environment:
+            environment["XDG_CACHE_HOME"] = str(self.base / "xdg-cache")
         if self.stand_in is not None:
             environment["STRACE_STAND_IN"] = str(self.stand_in)
         return environment

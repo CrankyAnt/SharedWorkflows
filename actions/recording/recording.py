@@ -540,7 +540,80 @@ def run_setups(options: argparse.Namespace) -> int:
         for name in options.setup:
             if name in pinned:
                 provide(output, name, [pinned[name]], [], [])
+        if sys.platform != "win32":
+            snapshot_user_cache(output)
     return 0
+
+
+USER_CACHE = "user-cache"
+
+
+def snapshot_user_cache(output: Path) -> Path:
+    """Snapshot the job's Linux per-user cache into ``output / USER_CACHE`` after the setups finish."""
+    snapshot = output / USER_CACHE
+    if snapshot.exists():
+        remove_tree(snapshot)
+    job_env = json.loads((output / ENVIRONMENT).read_text(encoding="utf-8"))
+    copy_user_cache(user_cache_source(job_env), snapshot, exclude=output)
+    return snapshot
+
+
+def prepare_user_cache(output: Path, work: Path, base: dict[str, str]) -> Path:
+    """Prepare one unit's per-user cache under ``work / USER_CACHE`` from the post-setup snapshot or ``base``."""
+    user_cache = work / USER_CACHE
+    job_env = json.loads((output / ENVIRONMENT).read_text(encoding="utf-8"))
+    snapshot = output / USER_CACHE
+    source = user_cache_source(base)
+    if snapshot.is_dir() and source == user_cache_source(job_env):
+        source = snapshot
+    copy_user_cache(source, user_cache, exclude=output)
+    return user_cache
+
+
+def user_cache_source(environment: dict[str, str]) -> Path | None:
+    """The Linux per-user cache directory for ``environment``: ``XDG_CACHE_HOME`` when set to an absolute path,
+    otherwise ``$HOME/.cache``."""
+    configured = environment.get("XDG_CACHE_HOME", "")
+    if configured and os.path.isabs(configured):
+        return Path(configured)
+    home = environment.get("HOME", "")
+    if home:
+        return Path(home) / ".cache"
+    try:
+        return Path.home() / ".cache"
+    except RuntimeError:
+        return None
+
+
+def copy_user_cache(source: Path | None, destination: Path, *, exclude: Path | None = None) -> None:
+    """Create ``destination`` as an independent copy of ``source`` when it exists as a directory, or an empty
+    directory otherwise. Preserves symlinks and skips non-regular special files and ``exclude`` when it lies inside
+    ``source``."""
+    if source is None or not source.is_dir():
+        destination.mkdir(parents=True, exist_ok=True)
+        return
+    resolved_exclude = exclude.resolve() if exclude is not None else None
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        ignored: set[str] = set()
+        current = Path(directory)
+        for name in names:
+            candidate = current / name
+            try:
+                mode = os.lstat(candidate).st_mode
+            except OSError:
+                ignored.add(name)
+                continue
+            if stat.S_ISLNK(mode):
+                continue
+            if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                ignored.add(name)
+                continue
+            if resolved_exclude is not None and stat.S_ISDIR(mode) and candidate.resolve() == resolved_exclude:
+                ignored.add(name)
+        return ignored
+
+    shutil.copytree(source, destination, symlinks=True, ignore=ignore, dirs_exist_ok=True)
 
 
 def install_lookup_report(interpreter: str) -> Path:
@@ -675,6 +748,7 @@ def run_exec(options: argparse.Namespace) -> int:
     lookups.mkdir(parents=True)
     base = dict(base, PYTHONPYCACHEPREFIX=str(cache), **{LOOKUPS: str(lookups)})
     etw = settings["trace_set"] == "etw"
+    user_cache = prepare_user_cache(output, work, base) if not etw and options.entry is not None else None
     if etw:
         # The live session records every process; check attributes the reads to this unit by its process id.
         recorder: list[str] = []
@@ -684,6 +758,8 @@ def run_exec(options: argparse.Namespace) -> int:
         trace_set = TRACE_SETS[settings["trace_set"]]
         recorder = [settings["strace"], *STRACE[1:], "-o", str(trace), "-e", "trace=" + ",".join("?" + call for call in trace_set), *FULL_EXEC_ENVIRONMENT, "--"]
         environment = dict(base, TMPDIR=str(temporary))
+        if user_cache is not None:
+            environment["XDG_CACHE_HOME"] = str(user_cache)
     log = bytearray()
     timeout = getattr(options, "timeout", None)
     timed_out = False
@@ -729,6 +805,8 @@ def run_exec(options: argparse.Namespace) -> int:
               "deselected": deselected, "incomplete_report": incomplete,
               "trace": trace.name, "lookups": lookups.name, "temporary": str(temporary), "cache": str(cache),
               "cwd": str(getattr(options, "directory", None) or os.getcwd())}
+    if user_cache is not None:
+        record["user_cache"] = str(user_cache)
     if timed_out:
         record["timed_out"] = True
     if "job" in settings:
@@ -3157,9 +3235,11 @@ def suite_list_path(root: Path, suites: Path) -> str:
 
 def granted_write_directories(output: Path, provided: dict[str, dict], suite: suite_selection.Suite, record: dict,
                               *, etw: bool = False) -> tuple[str, ...]:
-    """The directories into which an entry file may write: its own temporary, bytecode-cache and lookup directories,
-    and the writable directories that its stated setups provide."""
+    """The directories into which an entry file may write: its own temporary, bytecode-cache, per-user cache and lookup
+    directories, and the writable directories that its stated setups provide."""
     raw = [record["temporary"], record["cache"]]
+    if record.get("user_cache"):
+        raw.append(record["user_cache"])
     if record.get("lookups"):
         raw.append(str(output / "lookups" / record["lookups"]))
         if etw:

@@ -12,6 +12,7 @@ import sys
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.ci_policy_support import read_workflow
 from tests.recording_fixtures import RecordingFixture, requires_etw, suite
@@ -413,6 +414,77 @@ class DotnetSetupTests(unittest.TestCase):
             self.assertTrue(target.is_dir(), f"{name}={target} was not created")
             self.assertTrue(target.resolve().is_relative_to(setup_dir.resolve()), f"{name}={target} is not under {setup_dir}")
             self.assertIn(str(target), writes, f"{name}={target} was not granted via write=")
+
+
+CACHE_SETUP_SCRIPT = """\
+import os
+from pathlib import Path
+
+cache = Path(os.environ.get("XDG_CACHE_HOME") or (Path(os.environ["HOME"]) / ".cache"))
+cache.mkdir(parents=True, exist_ok=True)
+(cache / "seeded.txt").write_text("from-setup", encoding="utf-8")
+"""
+
+CACHE_FIRST_ENTRY = """\
+import os
+from pathlib import Path
+
+cache = Path(os.environ["XDG_CACHE_HOME"])
+print("FIRST", (cache / "seeded.txt").read_text(encoding="utf-8"))
+(cache / "seeded.txt").write_text("mutated-by-first", encoding="utf-8")
+(cache / "extra.txt").write_text("from-first", encoding="utf-8")
+"""
+
+CACHE_SECOND_ENTRY = """\
+import os
+from pathlib import Path
+
+cache = Path(os.environ["XDG_CACHE_HOME"])
+print("SECOND", (cache / "seeded.txt").read_text(encoding="utf-8"), (cache / "extra.txt").exists())
+"""
+
+
+@unittest.skipIf(ON_WINDOWS, "per-user cache isolation applies on Linux")
+class UserCacheSetupTests(unittest.TestCase):
+    def test_a_setup_s_per_user_cache_file_reaches_every_entry_file_whichever_ran_before(self) -> None:
+        for mode in ("xdg", "home"):
+            with self.subTest(mode=mode):
+                fixture = RecordingFixture(
+                    self.addCleanup,
+                    {
+                        "ci/cache_setup.py": CACHE_SETUP_SCRIPT,
+                        "checks/first.py": CACHE_FIRST_ENTRY,
+                        "checks/second.py": CACHE_SECOND_ENTRY,
+                    },
+                    [suite("unit", ["checks/first.py", "checks/second.py"], command=[Path(sys.executable).name], setups=["seeder"])],
+                )
+                document = fixture.suites()
+                (fixture.root / "suites.json").write_text(
+                    json.dumps({"always": [], "setups": {"seeder": {"script": "ci/cache_setup.py"}}, "suites": document["suites"]}, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                work = fixture.base / "setups"
+                home = fixture.base / "home"
+                home.mkdir()
+                xdg = fixture.base / "xdg"
+                env_override = {"HOME": str(home), "XDG_CACHE_HOME": str(xdg) if mode == "xdg" else ""}
+                expected_source = xdg if mode == "xdg" else (home / ".cache")
+                with mock.patch.dict(os.environ, env_override):
+                    for args in (
+                        ("setups", "--output", str(fixture.output), "--suites", "suites.json", "--work", str(work), "--phase", "before", "--setup", "seeder"),
+                        ("start", "--output", str(fixture.output)),
+                        ("setups", "--output", str(fixture.output), "--suites", "suites.json", "--work", str(work), "--phase", "recorded", "--setup", "seeder"),
+                    ):
+                        done = fixture.run(*args)
+                        self.assertEqual(0, done.returncode, done.stdout + done.stderr)
+                    first = fixture.exec_entry("checks/first.py", sys.executable, "checks/first.py")
+                    second = fixture.exec_entry("checks/second.py", sys.executable, "checks/second.py")
+                self.assertEqual(0, first.returncode, first.stdout + first.stderr)
+                self.assertEqual(0, second.returncode, second.stdout + second.stderr)
+                self.assertIn("FIRST from-setup", first.stdout)
+                self.assertIn("SECOND from-setup False", second.stdout)
+                self.assertEqual("from-setup", (expected_source / "seeded.txt").read_text(encoding="utf-8"))
+                self.assertFalse((expected_source / "extra.txt").exists())
 
 
 if __name__ == "__main__":
