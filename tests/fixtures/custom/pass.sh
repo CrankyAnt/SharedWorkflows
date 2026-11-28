@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 python3 - <<'PY'
-import importlib.util, json, os, statistics, subprocess, tempfile, time
+import importlib.util, json, os, statistics, subprocess, sys, tempfile, time
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("recording", Path("actions/recording/recording.py"))
 assert spec and spec.loader
 rec = importlib.util.module_from_spec(spec)
+sys.modules["recording"] = rec
 spec.loader.exec_module(rec)
 
 src = rec.user_cache_source(dict(os.environ))
