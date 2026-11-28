@@ -3,7 +3,7 @@ parts:
   custom:
     setups: [python-3.13, python-3.14]
     script: tests/fixtures/custom/pass.sh
-    runner-label: windows-2025
+    runner-label: ubuntu-26.04
     paths:
       - tests/fixtures/custom/
   python-verify:
