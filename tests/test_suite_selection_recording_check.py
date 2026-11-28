@@ -1198,18 +1198,51 @@ class WholeTreeCheckTests(unittest.TestCase):
 
 
 CACHING_ENTRY = """\
-    import os
+    import json, os, sys
     from pathlib import Path
 
     cache_dir = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache"))
     cache_file = cache_dir / "tool" / "probe.cache"
+    events = [{"kind": "read", "path": str(Path(sys.argv[0]).resolve())}]
     if cache_file.is_file():
         print("WARM", Path("lib/warm.txt").read_text(encoding="utf-8").strip())
+        events.append({"kind": "read", "path": str(Path("lib/warm.txt").resolve())})
     else:
         print("COLD", Path("lib/cold.txt").read_text(encoding="utf-8").strip(), os.path.exists("cold_probe.txt"))
+        events.append({"kind": "read", "path": str(Path("lib/cold.txt").resolve())})
+        events.append({"kind": "absent", "path": str(Path("cold_probe.txt").resolve())})
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text("cached\\n", encoding="utf-8")
+        events.append({"kind": "write", "path": str(cache_file.resolve())})
+    if os.environ.get("EVENT_LOG"):
+        Path(os.environ["EVENT_LOG"]).write_text(json.dumps(events), encoding="utf-8")
     """
+
+EVENT_RECORDER = """\
+import json, os, subprocess, sys
+from pathlib import Path
+
+args = sys.argv[1:]
+sep = args.index("--")
+opts, cmd = args[:sep], args[sep + 1:]
+trace = Path(opts[opts.index("-o") + 1])
+event_log = trace.with_suffix(".events.json")
+env = {**os.environ, "EVENT_LOG": str(event_log)}
+code = subprocess.run(cmd, env=env, check=False).returncode
+lines = []
+if event_log.is_file():
+    cwd = os.getcwd()
+    for idx, ev in enumerate(json.loads(event_log.read_text(encoding="utf-8")), start=3):
+        p = ev["path"]
+        if ev["kind"] == "read":
+            lines.append(f'100 openat(AT_FDCWD<{cwd}>, "{p}", O_RDONLY) = {idx}<{p}>\\n')
+        elif ev["kind"] == "absent":
+            lines.append(f'100 newfstatat(AT_FDCWD<{cwd}>, "{p}", 0x0, 0) = -1 ENOENT (No such file or directory)\\n')
+        elif ev["kind"] == "write":
+            lines.append(f'100 openat(AT_FDCWD<{cwd}>, "{p}", O_WRONLY|O_CREAT|O_TRUNC, 0666) = {idx}<{p}>\\n')
+trace.write_text("".join(lines), encoding="utf-8")
+sys.exit(code)
+"""
 
 CONCURRENT_CACHE_ENTRY = """\
     import os, sys, time
@@ -1227,7 +1260,6 @@ CONCURRENT_CACHE_ENTRY = """\
 
 @requires_linux
 class UserCacheIsolationTests(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("strace"), "real strace is required to observe reads of the fixture program")
     def test_two_units_starting_a_caching_program_record_the_same_reads_in_either_order(self) -> None:
         files = {"tests/a.py": CACHING_ENTRY, "tests/b.py": CACHING_ENTRY, "lib/cold.txt": "cold\n", "lib/warm.txt": "warm\n"}
         for order in (("tests/a.py", "tests/b.py"), ("tests/b.py", "tests/a.py")):
@@ -1237,8 +1269,13 @@ class UserCacheIsolationTests(unittest.TestCase):
                     files,
                     [suite("per", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=[],
                            entry_paths={"tests/a.py": ["tests/a.py"], "tests/b.py": ["tests/b.py"]})],
-                    stand_in=False,
                 )
+                assert fixture.stand_in is not None
+                recorder_script = fixture.stand_in / "event_recorder.py"
+                recorder_script.write_text(EVENT_RECORDER, encoding="utf-8")
+                strace_bin = fixture.stand_in / "bin" / "strace"
+                strace_bin.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{recorder_script}" "$@"\n', encoding="utf-8")
+                strace_bin.chmod(0o755)
                 home = fixture.base / "home"
                 home.mkdir()
                 with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_CACHE_HOME": ""}):

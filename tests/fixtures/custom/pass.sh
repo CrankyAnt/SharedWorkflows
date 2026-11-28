@@ -1,72 +1,33 @@
 #!/usr/bin/env bash
+# The fixture script that this repository's own CI runs in the free job: it passes when it runs in Bash from the
+# repository root, both named setups, python-3.13 and then python-3.14, were installed in that order, and the Python
+# command names the later one.
 set -euo pipefail
-python3 - <<'PY'
-import importlib.util, json, os, statistics, subprocess, sys, tempfile, time
-from pathlib import Path
+[ -n "${BASH_VERSION:-}" ] || { echo "Expected Bash." >&2; exit 1; }
+[ -f .github/ci-config.yml ] || { echo "Expected the repository root, found $PWD." >&2; exit 1; }
 
-spec = importlib.util.spec_from_file_location("recording", Path("actions/recording/recording.py"))
-assert spec and spec.loader
-rec = importlib.util.module_from_spec(spec)
-sys.modules["recording"] = rec
-spec.loader.exec_module(rec)
+# Each Python setup puts its folder in front of PATH, so the later setup's folder comes first.
+position() {
+  local index=0 entry entries
+  IFS=: read -ra entries <<<"$PATH"
+  for entry in "${entries[@]}"; do
+    case "$entry" in */Python/"$1".*) echo "$index"; return ;; esac
+    index=$((index + 1))
+  done
+  echo "Expected the setup python-$1 in PATH, found none." >&2
+  exit 1
+}
+earlier="$(position 3.13)"
+later="$(position 3.14)"
+[ "$later" -lt "$earlier" ] || { echo "Expected python-3.14 to be installed after python-3.13." >&2; exit 1; }
 
-src = rec.user_cache_source(dict(os.environ))
-print(f"XDG_CACHE_HOME={os.environ.get('XDG_CACHE_HOME', '')!r} HOME={os.environ.get('HOME', '')!r} source={src}")
-if src and src.is_dir():
-    entries = sorted(p.name for p in src.iterdir())
-    total_bytes = sum(p.stat().st_size for p in src.rglob("*") if p.is_file() and not p.is_symlink())
-    print(f"source entries={entries} total_bytes={total_bytes}")
-else:
-    print("source does not exist")
-
-RUNS = 5
-with tempfile.TemporaryDirectory(prefix="bench-222-") as tmp:
-    base = Path(tmp)
-    out = base / "recording"
-    out.mkdir()
-    (out / "environment.json").write_text(json.dumps(dict(os.environ)), encoding="utf-8")
-    t0 = time.perf_counter()
-    rec.snapshot_user_cache(out)
-    snap_ms = (time.perf_counter() - t0) * 1000
-    print(f"snapshot_user_cache_ms={snap_ms:.2f}", flush=True)
-
-    prep_times = []
-    for i in range(RUNS):
-        work = base / f"work-{i}"
-        work.mkdir()
-        t0 = time.perf_counter()
-        rec.prepare_user_cache(out, work, dict(os.environ))
-        prep_times.append((time.perf_counter() - t0) * 1000)
-        rec.remove_work(work)
-    print(f"prepare_user_cache_ms={[round(x, 2) for x in prep_times]} median={statistics.median(prep_times):.2f}", flush=True)
-
-    pwsh_cmd = ["pwsh", "-NoProfile", "-Command", "Get-Command Get-Nothing -ErrorAction SilentlyContinue"]
-    empty_times = []
-    for i in range(RUNS):
-        empty_cache = base / f"pwsh-empty-{i}"
-        empty_cache.mkdir()
-        env = {**os.environ, "XDG_CACHE_HOME": str(empty_cache)}
-        t0 = time.perf_counter()
-        subprocess.run(pwsh_cmd, env=env, check=False)
-        empty_times.append((time.perf_counter() - t0) * 1000)
-    print(f"pwsh_empty_cache_ms={[round(x, 2) for x in empty_times]} median={statistics.median(empty_times):.2f}", flush=True)
-
-    filled_cache = base / "pwsh-filled"
-    filled_cache.mkdir()
-    fill_env = {**os.environ, "XDG_CACHE_HOME": str(filled_cache)}
-    subprocess.run(
-        ["pwsh", "-NoProfile", "-Command", "Get-Command Get-Nothing -ErrorAction SilentlyContinue; Start-Sleep -Seconds 18"],
-        env=fill_env,
-        check=False,
-    )
-    cache_files = list((filled_cache / "powershell").glob("ModuleAnalysisCache*"))
-    print(f"filled_cache_files={[(p.name, p.stat().st_size) for p in cache_files]}", flush=True)
-    assert cache_files, "ModuleAnalysisCache was not written"
-
-    filled_times = []
-    for i in range(RUNS):
-        t0 = time.perf_counter()
-        subprocess.run(pwsh_cmd, env=fill_env, check=False)
-        filled_times.append((time.perf_counter() - t0) * 1000)
-    print(f"pwsh_filled_cache_ms={[round(x, 2) for x in filled_times]} median={statistics.median(filled_times):.2f}", flush=True)
-PY
+# setup-python names the command python3 on Linux and macOS, and python on Windows.
+python=python3
+if ! "$python" --version >/dev/null 2>&1; then python=python; fi
+version="$("$python" --version 2>&1)"
+echo "The fixture script of the free job ran in Bash $BASH_VERSION on ${RUNNER_OS:-an unknown system} with $version;" \
+  "python-3.14 comes before python-3.13 in PATH."
+case "$version" in
+  "Python 3.14."*) ;;
+  *) echo "Expected the later setup python-3.14, found $version." >&2; exit 1 ;;
+esac
