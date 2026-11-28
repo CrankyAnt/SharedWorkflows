@@ -1197,5 +1197,149 @@ class WholeTreeCheckTests(unittest.TestCase):
         self.assertEqual(0, already_stored.check().returncode)
 
 
+CACHING_ENTRY = """\
+    import os
+    from pathlib import Path
+
+    cache_dir = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache"))
+    cache_file = cache_dir / "tool" / "probe.cache"
+    if cache_file.is_file():
+        print("WARM", Path("lib/warm.txt").read_text(encoding="utf-8").strip())
+    else:
+        print("COLD", Path("lib/cold.txt").read_text(encoding="utf-8").strip(), os.path.exists("cold_probe.txt"))
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text("cached\\n", encoding="utf-8")
+    """
+
+CONCURRENT_CACHE_ENTRY = """\
+    import os, sys, time
+    from pathlib import Path
+
+    barrier = Path(os.environ["BARRIER_DIR"])
+    name = sys.argv[1]
+    (barrier / name).write_text("ready", encoding="utf-8")
+    deadline = time.monotonic() + 5.0
+    while len(list(barrier.iterdir())) < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    print("XDG_CACHE_HOME=" + os.environ.get("XDG_CACHE_HOME", ""))
+    """
+
+
+@requires_linux
+class UserCacheIsolationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("strace"), "real strace is required to observe reads of the fixture program")
+    def test_two_units_starting_a_caching_program_record_the_same_reads_in_either_order(self) -> None:
+        files = {"tests/a.py": CACHING_ENTRY, "tests/b.py": CACHING_ENTRY, "lib/cold.txt": "cold\n", "lib/warm.txt": "warm\n"}
+        for order in (("tests/a.py", "tests/b.py"), ("tests/b.py", "tests/a.py")):
+            with self.subTest(order=order):
+                fixture = RecordingFixture(
+                    self.addCleanup,
+                    files,
+                    [suite("per", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=[],
+                           entry_paths={"tests/a.py": ["tests/a.py"], "tests/b.py": ["tests/b.py"]})],
+                    stand_in=False,
+                )
+                home = fixture.base / "home"
+                home.mkdir()
+                with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_CACHE_HOME": ""}):
+                    self.assertEqual(0, fixture.start(full=True).returncode)
+                    for entry in order:
+                        ran = fixture.exec_entry(entry)
+                        self.assertEqual(0, ran.returncode, ran.stdout + ran.stderr)
+                        self.assertIn("COLD cold False", ran.stdout)
+                    checked = fixture.check()
+                self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+                self.assertNotIn("Departure:", checked.stdout)
+                reads_a = fixture.reads_of("tests/a.py")
+                reads_b = fixture.reads_of("tests/b.py")
+                self.assertIn("lib/cold.txt", reads_a["paths"])
+                self.assertIn("lib/cold.txt", reads_b["paths"])
+                self.assertNotIn("lib/warm.txt", reads_a["paths"])
+                self.assertNotIn("lib/warm.txt", reads_b["paths"])
+                self.assertIn({"path": "cold_probe.txt", "kind": "any"}, reads_a["existence_reads"])
+                self.assertIn({"path": "cold_probe.txt", "kind": "any"}, reads_b["existence_reads"])
+                self.assertEqual(
+                    [p for p in reads_a["paths"] if p != "tests/a.py"],
+                    [p for p in reads_b["paths"] if p != "tests/b.py"],
+                )
+                self.assertEqual(reads_a["existence_reads"], reads_b["existence_reads"])
+                units = [json.loads(path.read_text(encoding="utf-8")) for path in sorted((fixture.output / "units").glob("*.json"))]
+                self.assertEqual(2, len(units))
+                for unit in units:
+                    self.assertIn("user_cache", unit)
+                    self.assertFalse(Path(unit["user_cache"]).exists(), "per-user cache is removed with the work folder")
+                self.assertEqual([], list((fixture.output / "work").iterdir()))
+
+    def test_concurrent_units_see_different_per_user_cache_directories_under_their_work_folders(self) -> None:
+        fixture = RecordingFixture(
+            self.addCleanup,
+            {"tests/a.py": CONCURRENT_CACHE_ENTRY, "tests/b.py": CONCURRENT_CACHE_ENTRY},
+            [suite("per", ["tests/a.py", "tests/b.py"], entry_selection=True, paths=[],
+                   entry_paths={"tests/a.py": ["tests/a.py"], "tests/b.py": ["tests/b.py"]})],
+        )
+        barrier = fixture.base / "barrier"
+        barrier.mkdir()
+        home = fixture.base / "home"
+        home.mkdir()
+        env = fixture.environment(str(fixture.stand_in / "bin") + os.pathsep + os.environ.get("PATH", "")) | {
+            "HOME": str(home),
+            "BARRIER_DIR": str(barrier),
+        }
+        env.pop("XDG_CACHE_HOME", None)
+        started = subprocess.run(fixture.command("start", "--output", str(fixture.output)), cwd=fixture.root, capture_output=True, text=True, env=env)
+        self.assertEqual(0, started.returncode, started.stderr)
+        proc_a = subprocess.Popen(
+            fixture.command("exec", "--output", str(fixture.output), "--entry", "tests/a.py", "--suites", "suites.json", "--", "python3", "tests/a.py", "a"),
+            cwd=fixture.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        )
+        proc_b = subprocess.Popen(
+            fixture.command("exec", "--output", str(fixture.output), "--entry", "tests/b.py", "--suites", "suites.json", "--", "python3", "tests/b.py", "b"),
+            cwd=fixture.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        )
+        out_a, err_a = proc_a.communicate(timeout=15)
+        out_b, err_b = proc_b.communicate(timeout=15)
+        self.assertEqual(0, proc_a.returncode, out_a + err_a)
+        self.assertEqual(0, proc_b.returncode, out_b + err_b)
+        cache_a = next(line.removeprefix("XDG_CACHE_HOME=") for line in out_a.splitlines() if line.startswith("XDG_CACHE_HOME="))
+        cache_b = next(line.removeprefix("XDG_CACHE_HOME=") for line in out_b.splitlines() if line.startswith("XDG_CACHE_HOME="))
+        self.assertTrue(cache_a and cache_b)
+        self.assertNotEqual(cache_a, cache_b)
+        units = {unit["name"]: unit for unit in (json.loads(p.read_text(encoding="utf-8")) for p in (fixture.output / "units").glob("*.json"))}
+        for entry, seen in (("tests/a.py", cache_a), ("tests/b.py", cache_b)):
+            work_dir = fixture.output / "work" / units[entry]["unit"]
+            self.assertEqual(str(Path(seen).parent), str(work_dir))
+            self.assertEqual(seen, units[entry]["user_cache"])
+            self.assertFalse(Path(seen).exists())
+        self.assertEqual([], list((fixture.output / "work").iterdir()))
+
+    def test_a_write_into_a_unit_s_own_per_user_cache_is_no_departure_while_a_write_to_home_cache_is(self) -> None:
+        fixture = RecordingFixture(
+            self.addCleanup,
+            {"tests/write.py": "print('ran')\n"},
+            [suite("a", ["tests/write.py"], paths=["tests/write.py"])],
+        )
+        home_cache = fixture.base / "home" / ".cache"
+        home_cache.mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"HOME": str(fixture.base / "home"), "XDG_CACHE_HOME": ""}):
+            self.assertEqual(0, fixture.start().returncode)
+            self.assertEqual(0, fixture.exec_entry("tests/write.py").returncode)
+        [unit_file] = list((fixture.output / "units").glob("*.json"))
+        unit = json.loads(unit_file.read_text(encoding="utf-8"))
+        self.assertIn("user_cache", unit)
+        own_cache = unit["user_cache"]
+        (fixture.output / "traces" / unit["trace"]).write_text(
+            f'100 openat(AT_FDCWD<{fixture.root}>, "{own_cache}/ok.bin", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3<{own_cache}/ok.bin>\n'
+            f'100 openat(AT_FDCWD<{fixture.root}>, "{home_cache}/leaked.bin", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 4<{home_cache}/leaked.bin>\n',
+            encoding="utf-8",
+        )
+        checked = fixture.check()
+        self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+        self.assertNotIn(f"{own_cache}/ok.bin", checked.stdout)
+        self.assertIn(f"{home_cache}/leaked.bin", checked.stdout)
+        summary = fixture.summary.read_text(encoding="utf-8")
+        self.assertNotIn(f"{own_cache}/ok.bin", summary)
+        self.assertIn(f"`{home_cache}/leaked.bin`", summary)
+
+
 if __name__ == "__main__":
     unittest.main()
