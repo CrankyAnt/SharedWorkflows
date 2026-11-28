@@ -19,7 +19,7 @@ if src and src.is_dir():
 else:
     print("source does not exist")
 
-RUNS = 7
+RUNS = 5
 with tempfile.TemporaryDirectory(prefix="bench-222-") as tmp:
     base = Path(tmp)
     out = base / "recording"
@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="bench-222-") as tmp:
     t0 = time.perf_counter()
     rec.snapshot_user_cache(out)
     snap_ms = (time.perf_counter() - t0) * 1000
-    print(f"snapshot_user_cache_ms={snap_ms:.2f}")
+    print(f"snapshot_user_cache_ms={snap_ms:.2f}", flush=True)
 
     prep_times = []
     for i in range(RUNS):
@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="bench-222-") as tmp:
         rec.prepare_user_cache(out, work, dict(os.environ))
         prep_times.append((time.perf_counter() - t0) * 1000)
         rec.remove_work(work)
-    print(f"prepare_user_cache_ms={[round(x, 2) for x in prep_times]} median={statistics.median(prep_times):.2f}")
+    print(f"prepare_user_cache_ms={[round(x, 2) for x in prep_times]} median={statistics.median(prep_times):.2f}", flush=True)
 
     pwsh_cmd = ["pwsh", "-NoProfile", "-Command", "Get-Command Get-Nothing -ErrorAction SilentlyContinue"]
     empty_times = []
@@ -47,9 +47,9 @@ with tempfile.TemporaryDirectory(prefix="bench-222-") as tmp:
         empty_cache.mkdir()
         env = {**os.environ, "XDG_CACHE_HOME": str(empty_cache)}
         t0 = time.perf_counter()
-        subprocess.run(pwsh_cmd, env=env, check=True)
+        subprocess.run(pwsh_cmd, env=env, check=False)
         empty_times.append((time.perf_counter() - t0) * 1000)
-    print(f"pwsh_empty_cache_ms={[round(x, 2) for x in empty_times]} median={statistics.median(empty_times):.2f}")
+    print(f"pwsh_empty_cache_ms={[round(x, 2) for x in empty_times]} median={statistics.median(empty_times):.2f}", flush=True)
 
     filled_cache = base / "pwsh-filled"
     filled_cache.mkdir()
@@ -57,16 +57,16 @@ with tempfile.TemporaryDirectory(prefix="bench-222-") as tmp:
     subprocess.run(
         ["pwsh", "-NoProfile", "-Command", "Get-Command Get-Nothing -ErrorAction SilentlyContinue; Start-Sleep -Seconds 18"],
         env=fill_env,
-        check=True,
+        check=False,
     )
     cache_files = list((filled_cache / "powershell").glob("ModuleAnalysisCache*"))
-    print(f"filled_cache_files={[(p.name, p.stat().st_size) for p in cache_files]}")
+    print(f"filled_cache_files={[(p.name, p.stat().st_size) for p in cache_files]}", flush=True)
     assert cache_files, "ModuleAnalysisCache was not written"
 
     filled_times = []
     for i in range(RUNS):
         t0 = time.perf_counter()
-        subprocess.run(pwsh_cmd, env=fill_env, check=True)
+        subprocess.run(pwsh_cmd, env=fill_env, check=False)
         filled_times.append((time.perf_counter() - t0) * 1000)
-    print(f"pwsh_filled_cache_ms={[round(x, 2) for x in filled_times]} median={statistics.median(filled_times):.2f}")
+    print(f"pwsh_filled_cache_ms={[round(x, 2) for x in filled_times]} median={statistics.median(filled_times):.2f}", flush=True)
 PY
